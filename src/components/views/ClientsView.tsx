@@ -77,21 +77,21 @@ export function ClientsView() {
   );
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 md:space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Clients</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Clients</h1>
           <p className="text-muted-foreground mt-1">{clients.length} total clients</p>
         </div>
-        <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
+        <Button className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto">
           <Plus className="w-4 h-4 mr-2" />
           Add Client
         </Button>
       </div>
 
       {/* Search */}
-      <div className="relative max-w-md">
+      <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
           placeholder="Search clients..."

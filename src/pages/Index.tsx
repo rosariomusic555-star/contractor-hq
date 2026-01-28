@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { MobileNav } from "@/components/layout/MobileNav";
 import { DashboardView } from "@/components/views/DashboardView";
 import { QuotesView } from "@/components/views/QuotesView";
 import { InvoicesView } from "@/components/views/InvoicesView";
@@ -31,8 +32,9 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
-      <main className="ml-64 p-8">
+      <main className="pt-16 md:pt-0 md:ml-64 p-4 md:p-8">
         {renderView()}
       </main>
     </div>

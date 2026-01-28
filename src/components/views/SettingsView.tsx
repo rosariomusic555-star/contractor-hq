@@ -6,10 +6,10 @@ import { Switch } from "@/components/ui/switch";
 
 export function SettingsView() {
   return (
-    <div className="space-y-6 animate-fade-in max-w-4xl">
+    <div className="space-y-4 md:space-y-6 animate-fade-in max-w-4xl">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Settings</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Settings</h1>
         <p className="text-muted-foreground mt-1">Manage your account and preferences</p>
       </div>
 
