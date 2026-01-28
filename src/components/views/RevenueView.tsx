@@ -26,15 +26,15 @@ export function RevenueView() {
   const profitMargin = ((netProfit / totalRevenue) * 100).toFixed(1);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 md:space-y-6 animate-fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Revenue</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Revenue</h1>
         <p className="text-muted-foreground mt-1">Track your business performance</p>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <StatCard
           title="Total Revenue"
           value={`$${totalRevenue.toLocaleString()}`}
@@ -70,9 +70,9 @@ export function RevenueView() {
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Bar Chart */}
-        <div className="stat-card col-span-2">
+        <div className="stat-card lg:col-span-2">
           <h3 className="text-lg font-semibold text-foreground mb-4">Revenue vs Expenses</h3>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">

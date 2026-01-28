@@ -98,21 +98,21 @@ export function QuotesView() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 md:space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Quotes</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quotes</h1>
           <p className="text-muted-foreground mt-1">Create and manage project quotes</p>
         </div>
-        <Button onClick={() => setIsModalOpen(true)} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+        <Button onClick={() => setIsModalOpen(true)} className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto">
           <Plus className="w-4 h-4 mr-2" />
           New Quote
         </Button>
       </div>
 
       {/* Search */}
-      <div className="relative max-w-md">
+      <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
           placeholder="Search quotes..."
@@ -122,62 +122,91 @@ export function QuotesView() {
         />
       </div>
 
-      {/* Table */}
-      <div className="stat-card overflow-hidden p-0">
-        <table className="data-table">
-          <thead>
-            <tr className="bg-muted/50">
-              <th>Quote #</th>
-              <th>Client</th>
-              <th>Project</th>
-              <th>Amount</th>
-              <th>Status</th>
-              <th>Date</th>
-              <th>Valid Until</th>
-              <th className="w-12"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredQuotes.map((quote) => (
-              <tr key={quote.id}>
-                <td className="font-medium">{quote.number}</td>
-                <td>{quote.client}</td>
-                <td className="text-muted-foreground">{quote.project}</td>
-                <td className="font-semibold">${quote.amount.toLocaleString()}</td>
-                <td>
-                  <span className={statusStyles[quote.status]}>
-                    {quote.status.charAt(0).toUpperCase() + quote.status.slice(1)}
-                  </span>
-                </td>
-                <td className="text-muted-foreground">{quote.date}</td>
-                <td className="text-muted-foreground">{quote.validUntil}</td>
-                <td>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
-                        <Eye className="w-4 h-4 mr-2" />
-                        View
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Edit className="w-4 h-4 mr-2" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive">
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </td>
+      {/* Mobile Cards */}
+      <div className="md:hidden space-y-3">
+        {filteredQuotes.map((quote) => (
+          <div key={quote.id} className="stat-card">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="font-semibold text-foreground">{quote.number}</p>
+                <p className="text-sm text-muted-foreground">{quote.client}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={statusStyles[quote.status]}>
+                  {quote.status.charAt(0).toUpperCase() + quote.status.slice(1)}
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem><Eye className="w-4 h-4 mr-2" />View</DropdownMenuItem>
+                    <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">{quote.project}</p>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Valid until {quote.validUntil}</span>
+              <span className="font-bold text-lg">${quote.amount.toLocaleString()}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop Table */}
+      <div className="hidden md:block stat-card overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr className="bg-muted/50">
+                <th>Quote #</th>
+                <th>Client</th>
+                <th>Project</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Valid Until</th>
+                <th className="w-12"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filteredQuotes.map((quote) => (
+                <tr key={quote.id}>
+                  <td className="font-medium">{quote.number}</td>
+                  <td>{quote.client}</td>
+                  <td className="text-muted-foreground">{quote.project}</td>
+                  <td className="font-semibold">${quote.amount.toLocaleString()}</td>
+                  <td>
+                    <span className={statusStyles[quote.status]}>
+                      {quote.status.charAt(0).toUpperCase() + quote.status.slice(1)}
+                    </span>
+                  </td>
+                  <td className="text-muted-foreground">{quote.date}</td>
+                  <td className="text-muted-foreground">{quote.validUntil}</td>
+                  <td>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem><Eye className="w-4 h-4 mr-2" />View</DropdownMenuItem>
+                        <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <QuoteModal 
