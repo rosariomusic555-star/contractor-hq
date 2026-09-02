@@ -2,27 +2,18 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/lib/auth";
-import { AuthScreen } from "@/components/auth/AuthScreen";
-import Index from "./pages/Index";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider } from "@/lib/auth";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { DashboardView } from "@/components/views/DashboardView";
+import { QuotesView } from "@/components/views/QuotesView";
+import { InvoicesView } from "@/components/views/InvoicesView";
+import { RevenueView } from "@/components/views/RevenueView";
+import { ClientsView } from "@/components/views/ClientsView";
+import { SettingsView } from "@/components/views/SettingsView";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
-
-const Gate = () => {
-  const { session, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="h-8 w-8 rounded-full border-2 border-muted border-t-accent animate-spin" />
-      </div>
-    );
-  }
-
-  return session ? <Index /> : <AuthScreen />;
-};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -32,8 +23,15 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Gate />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardView />} />
+              <Route path="/quotes" element={<QuotesView />} />
+              <Route path="/invoices" element={<InvoicesView />} />
+              <Route path="/revenue" element={<RevenueView />} />
+              <Route path="/clients" element={<ClientsView />} />
+              <Route path="/settings" element={<SettingsView />} />
+            </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

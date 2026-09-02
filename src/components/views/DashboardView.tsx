@@ -6,15 +6,11 @@ import { QuickActions } from "@/components/dashboard/QuickActions";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { listQuotes, listInvoices } from "@/lib/api";
 
-interface DashboardViewProps {
-  onNavigate: (tab: string) => void;
-}
-
 const currency = (n: number) => `$${Math.round(n).toLocaleString()}`;
 const monthKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
-export function DashboardView({ onNavigate }: DashboardViewProps) {
+export function DashboardView() {
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: listQuotes });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: listInvoices });
 
@@ -94,10 +90,7 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <RevenueChart />
         <div className="space-y-4 md:space-y-6">
-          <QuickActions
-            onCreateQuote={() => onNavigate("quotes")}
-            onCreateInvoice={() => onNavigate("invoices")}
-          />
+          <QuickActions />
           <RecentActivity />
         </div>
       </div>

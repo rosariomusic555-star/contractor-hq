@@ -1,30 +1,10 @@
-import {
-  LayoutDashboard,
-  FileText,
-  Receipt,
-  TrendingUp,
-  Users,
-  Settings,
-  HardHat
-} from "lucide-react";
+import { HardHat } from "lucide-react";
+import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { SidebarUser } from "./SidebarUser";
+import { navItems } from "./navItems";
 
-interface SidebarProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-}
-
-const navItems = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "quotes", label: "Quotes", icon: FileText },
-  { id: "invoices", label: "Invoices", icon: Receipt },
-  { id: "revenue", label: "Revenue", icon: TrendingUp },
-  { id: "clients", label: "Clients", icon: Users },
-  { id: "settings", label: "Settings", icon: Settings },
-];
-
-export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export function Sidebar() {
   return (
     <aside className="hidden md:flex fixed left-0 top-0 h-screen w-64 bg-sidebar flex-col border-r border-sidebar-border">
       {/* Logo */}
@@ -43,17 +23,14 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onTabChange(item.id)}
-            className={cn(
-              "nav-item w-full",
-              activeTab === item.id && "active"
-            )}
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) => cn("nav-item w-full", isActive && "active")}
           >
             <item.icon className="w-5 h-5" />
             <span>{item.label}</span>
-          </button>
+          </NavLink>
         ))}
       </nav>
 

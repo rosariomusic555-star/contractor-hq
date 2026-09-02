@@ -1,13 +1,6 @@
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Receipt, 
-  TrendingUp, 
-  Users, 
-  Settings,
-  HardHat,
-  Menu
-} from "lucide-react";
+import { useState } from "react";
+import { NavLink } from "react-router-dom";
+import { HardHat, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -15,30 +8,11 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
 import { SidebarUser } from "./SidebarUser";
+import { navItems } from "./navItems";
 
-interface MobileNavProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-}
-
-const navItems = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "quotes", label: "Quotes", icon: FileText },
-  { id: "invoices", label: "Invoices", icon: Receipt },
-  { id: "revenue", label: "Revenue", icon: TrendingUp },
-  { id: "clients", label: "Clients", icon: Users },
-  { id: "settings", label: "Settings", icon: Settings },
-];
-
-export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
+export function MobileNav() {
   const [open, setOpen] = useState(false);
-
-  const handleTabChange = (tab: string) => {
-    onTabChange(tab);
-    setOpen(false);
-  };
 
   return (
     <header className="fixed top-0 left-0 right-0 h-16 bg-sidebar border-b border-sidebar-border z-50 flex items-center px-4 md:hidden">
@@ -66,17 +40,15 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-1">
             {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => handleTabChange(item.id)}
-                className={cn(
-                  "nav-item w-full",
-                  activeTab === item.id && "active"
-                )}
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => setOpen(false)}
+                className={({ isActive }) => cn("nav-item w-full", isActive && "active")}
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
-              </button>
+              </NavLink>
             ))}
           </nav>
 

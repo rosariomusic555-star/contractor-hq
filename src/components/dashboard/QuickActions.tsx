@@ -1,18 +1,16 @@
-import { Plus, FileText, Receipt, UserPlus } from "lucide-react";
+import { FileText, Receipt, UserPlus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
-interface QuickActionsProps {
-  onCreateQuote: () => void;
-  onCreateInvoice: () => void;
-}
+export function QuickActions() {
+  const navigate = useNavigate();
 
-export function QuickActions({ onCreateQuote, onCreateInvoice }: QuickActionsProps) {
   return (
     <div className="stat-card">
       <h3 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h3>
       <div className="grid grid-cols-2 gap-3">
-        <Button 
-          onClick={onCreateQuote}
+        <Button
+          onClick={() => navigate("/quotes")}
           className="h-auto py-4 flex flex-col items-center gap-2 bg-primary hover:bg-primary/90"
         >
           <div className="p-2 rounded-lg bg-primary-foreground/10">
@@ -20,8 +18,8 @@ export function QuickActions({ onCreateQuote, onCreateInvoice }: QuickActionsPro
           </div>
           <span className="text-sm font-medium">New Quote</span>
         </Button>
-        <Button 
-          onClick={onCreateInvoice}
+        <Button
+          onClick={() => navigate("/invoices")}
           className="h-auto py-4 flex flex-col items-center gap-2 bg-accent hover:bg-accent/90 text-accent-foreground"
         >
           <div className="p-2 rounded-lg bg-accent-foreground/10">
@@ -29,7 +27,8 @@ export function QuickActions({ onCreateQuote, onCreateInvoice }: QuickActionsPro
           </div>
           <span className="text-sm font-medium">New Invoice</span>
         </Button>
-        <Button 
+        <Button
+          onClick={() => navigate("/clients")}
           variant="outline"
           className="h-auto py-4 flex flex-col items-center gap-2 col-span-2"
         >
