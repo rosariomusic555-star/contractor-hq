@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { SidebarUser } from "./SidebarUser";
 
 interface MobileNavProps {
   activeTab: string;
@@ -80,17 +81,7 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
           </nav>
 
           {/* User section */}
-          <div className="p-4 border-t border-sidebar-border mt-auto">
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="w-9 h-9 rounded-full bg-sidebar-accent flex items-center justify-center">
-                <span className="text-sm font-medium text-sidebar-foreground">JD</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-sidebar-foreground truncate">John Doe</p>
-                <p className="text-xs text-sidebar-foreground/60 truncate">john@example.com</p>
-              </div>
-            </div>
-          </div>
+          <SidebarUser />
         </SheetContent>
       </Sheet>
 

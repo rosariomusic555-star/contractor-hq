@@ -66,7 +66,10 @@ export interface Client {
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 const daysFromNow = (days: number) => isoDate(new Date(Date.now() + days * 86_400_000));
 
-/** Next sequential document number, e.g. "QT-005", derived from existing rows. */
+/**
+ * Next sequential document number, e.g. "QT-005", derived from existing rows.
+ * RLS scopes the select to the current user, so numbering is per-account.
+ */
 async function nextNumber(table: "quotes" | "invoices", prefix: string): Promise<string> {
   const { data, error } = await supabase.from(table).select("number");
   if (error) throw error;

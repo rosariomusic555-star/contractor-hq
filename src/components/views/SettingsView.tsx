@@ -3,8 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/lib/auth";
 
 export function SettingsView() {
+  const { session } = useAuth();
+
   return (
     <div className="space-y-4 md:space-y-6 animate-fade-in max-w-4xl">
       {/* Header */}
@@ -69,6 +72,10 @@ export function SettingsView() {
           <div className="space-y-2">
             <Label htmlFor="lastName">Last Name</Label>
             <Input id="lastName" defaultValue="Doe" />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="accountEmail">Account Email</Label>
+            <Input id="accountEmail" value={session?.user.email ?? ""} readOnly disabled />
           </div>
         </div>
       </div>

@@ -1,13 +1,14 @@
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Receipt, 
-  TrendingUp, 
-  Users, 
+import {
+  LayoutDashboard,
+  FileText,
+  Receipt,
+  TrendingUp,
+  Users,
   Settings,
   HardHat
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SidebarUser } from "./SidebarUser";
 
 interface SidebarProps {
   activeTab: string;
@@ -57,17 +58,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       </nav>
 
       {/* User section */}
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <div className="w-9 h-9 rounded-full bg-sidebar-accent flex items-center justify-center">
-            <span className="text-sm font-medium text-sidebar-foreground">JD</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-sidebar-foreground truncate">John Doe</p>
-            <p className="text-xs text-sidebar-foreground/60 truncate">john@example.com</p>
-          </div>
-        </div>
-      </div>
+      <SidebarUser />
     </aside>
   );
 }
