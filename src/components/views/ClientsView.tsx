@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, MoreHorizontal, Phone, Mail, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,73 +9,58 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-interface Client {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  totalProjects: number;
-  totalRevenue: number;
-}
-
-const clients: Client[] = [
-  {
-    id: "1",
-    name: "Thompson Residence",
-    email: "thompson@email.com",
-    phone: "(555) 123-4567",
-    address: "123 Oak Street, Springfield",
-    totalProjects: 3,
-    totalRevenue: 24500,
-  },
-  {
-    id: "2",
-    name: "Oak Street Renovation",
-    email: "oakstreet@email.com",
-    phone: "(555) 234-5678",
-    address: "456 Main Ave, Riverside",
-    totalProjects: 1,
-    totalRevenue: 45000,
-  },
-  {
-    id: "3",
-    name: "Martinez Family",
-    email: "martinez@email.com",
-    phone: "(555) 345-6789",
-    address: "789 Pine Road, Lakewood",
-    totalProjects: 2,
-    totalRevenue: 19200,
-  },
-  {
-    id: "4",
-    name: "Downtown Office",
-    email: "downtown@business.com",
-    phone: "(555) 456-7890",
-    address: "100 Business Center, Metro City",
-    totalProjects: 1,
-    totalRevenue: 78500,
-  },
-  {
-    id: "5",
-    name: "Green Valley HOA",
-    email: "hoa@greenvalley.org",
-    phone: "(555) 567-8901",
-    address: "Green Valley Community Center",
-    totalProjects: 5,
-    totalRevenue: 35000,
-  },
-];
+import { ClientModal } from "@/components/modals/ClientModal";
+import { useToast } from "@/hooks/use-toast";
+import { listClients, createClient, deleteClient, listInvoices } from "@/lib/api";
 
 export function ClientsView() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const filteredClients = clients.filter(
-    (client) =>
-      client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      client.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const { data: clients = [], isLoading, isError, error } = useQuery({
+    queryKey: ["clients"],
+    queryFn: listClients,
+  });
+  const { data: invoices = [] } = useQuery({
+    queryKey: ["invoices"],
+    queryFn: listInvoices,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: createClient,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't add client", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteClient,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't delete client", description: err.message, variant: "destructive" }),
+  });
+
+  // Derived per-client stats from invoices, keyed by client name.
+  const statsByClient = useMemo(() => {
+    const map = new Map<string, { projects: Set<string>; revenue: number }>();
+    invoices.forEach((inv) => {
+      const entry = map.get(inv.client) ?? { projects: new Set<string>(), revenue: 0 };
+      if (inv.project) entry.projects.add(inv.project);
+      entry.revenue += Number(inv.amount);
+      map.set(inv.client, entry);
+    });
+    return map;
+  }, [invoices]);
+
+  const filteredClients = clients.filter((client) => {
+    const term = searchTerm.toLowerCase();
+    return (
+      client.name.toLowerCase().includes(term) ||
+      (client.email ?? "").toLowerCase().includes(term)
+    );
+  });
 
   return (
     <div className="space-y-4 md:space-y-6 animate-fade-in">
@@ -84,7 +70,10 @@ export function ClientsView() {
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Clients</h1>
           <p className="text-muted-foreground mt-1">{clients.length} total clients</p>
         </div>
-        <Button className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto">
+        <Button
+          onClick={() => setIsModalOpen(true)}
+          className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
+        >
           <Plus className="w-4 h-4 mr-2" />
           Add Client
         </Button>
@@ -101,63 +90,89 @@ export function ClientsView() {
         />
       </div>
 
-      {/* Client Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredClients.map((client) => (
-          <div key={client.id} className="stat-card">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
-                  <span className="text-lg font-semibold text-primary-foreground">
-                    {client.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
-                  </span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground">{client.name}</h3>
-                  <p className="text-sm text-muted-foreground">{client.totalProjects} projects</p>
-                </div>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem>View Details</DropdownMenuItem>
-                  <DropdownMenuItem>Edit</DropdownMenuItem>
-                  <DropdownMenuItem>Create Quote</DropdownMenuItem>
-                  <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+      {isLoading && <p className="text-muted-foreground">Loading clients…</p>}
+      {isError && (
+        <p className="text-destructive">Failed to load clients: {(error as Error).message}</p>
+      )}
 
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Mail className="w-4 h-4" />
-                <span>{client.email}</span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Phone className="w-4 h-4" />
-                <span>{client.phone}</span>
-              </div>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <MapPin className="w-4 h-4" />
-                <span>{client.address}</span>
-              </div>
-            </div>
+      {!isLoading && !isError && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredClients.map((client) => {
+            const stats = statsByClient.get(client.name);
+            const totalProjects = stats?.projects.size ?? 0;
+            const totalRevenue = stats?.revenue ?? 0;
 
-            <div className="mt-4 pt-4 border-t border-border">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Total Revenue</span>
-                <span className="text-lg font-bold text-foreground">
-                  ${client.totalRevenue.toLocaleString()}
-                </span>
+            return (
+              <div key={client.id} className="stat-card">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
+                      <span className="text-lg font-semibold text-primary-foreground">
+                        {client.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-foreground">{client.name}</h3>
+                      <p className="text-sm text-muted-foreground">{totalProjects} projects</p>
+                    </div>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreHorizontal className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem>View Details</DropdownMenuItem>
+                      <DropdownMenuItem>Edit</DropdownMenuItem>
+                      <DropdownMenuItem>Create Quote</DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => deleteMutation.mutate(client.id)}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Mail className="w-4 h-4" />
+                    <span>{client.email ?? "—"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Phone className="w-4 h-4" />
+                    <span>{client.phone ?? "—"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <MapPin className="w-4 h-4" />
+                    <span>{client.address ?? "—"}</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Total Revenue</span>
+                    <span className="text-lg font-bold text-foreground">
+                      ${totalRevenue.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        ))}
-      </div>
+            );
+          })}
+          {filteredClients.length === 0 && (
+            <p className="text-muted-foreground text-sm">No clients yet.</p>
+          )}
+        </div>
+      )}
+
+      <ClientModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={(data) => createMutation.mutate(data)}
+      />
     </div>
   );
 }

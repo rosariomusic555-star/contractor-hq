@@ -1,26 +1,34 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-
-const data = [
-  { month: "Jan", revenue: 18500 },
-  { month: "Feb", revenue: 24200 },
-  { month: "Mar", revenue: 19800 },
-  { month: "Apr", revenue: 32400 },
-  { month: "May", revenue: 28600 },
-  { month: "Jun", revenue: 35200 },
-  { month: "Jul", revenue: 42800 },
-];
+import { useQuery } from "@tanstack/react-query";
+import { listInvoices } from "@/lib/api";
+import { monthlyRevenue, momChange } from "@/lib/metrics";
 
 export function RevenueChart() {
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: listInvoices });
+
+  const data = monthlyRevenue(invoices);
+  const total = data.reduce((sum, d) => sum + d.revenue, 0);
+  const change = momChange(data);
+
   return (
     <div className="stat-card col-span-2">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Revenue Overview</h3>
-          <p className="text-sm text-muted-foreground">Monthly revenue for 2024</p>
+          <p className="text-sm text-muted-foreground">Monthly revenue from invoices</p>
         </div>
         <div className="text-right">
-          <p className="text-2xl font-bold text-foreground">$201,500</p>
-          <p className="text-sm text-success font-medium">+18.2% from last year</p>
+          <p className="text-2xl font-bold text-foreground">${Math.round(total).toLocaleString()}</p>
+          {change != null && (
+            <p
+              className={`text-sm font-medium ${
+                change >= 0 ? "text-success" : "text-destructive"
+              }`}
+            >
+              {change >= 0 ? "+" : ""}
+              {change.toFixed(1)}% from last month
+            </p>
+          )}
         </div>
       </div>
       <div className="h-[280px]">
@@ -33,13 +41,13 @@ export function RevenueChart() {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 88%)" />
-            <XAxis 
-              dataKey="month" 
+            <XAxis
+              dataKey="month"
               axisLine={false}
               tickLine={false}
               tick={{ fill: 'hsl(215, 15%, 45%)', fontSize: 12 }}
             />
-            <YAxis 
+            <YAxis
               axisLine={false}
               tickLine={false}
               tick={{ fill: 'hsl(215, 15%, 45%)', fontSize: 12 }}

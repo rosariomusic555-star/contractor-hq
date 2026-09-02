@@ -8,18 +8,40 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ProjectType } from "@/lib/api";
 
 interface InvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { client: string; project: string; amount: number; dueDays: number }) => void;
+  onSubmit: (data: {
+    client: string;
+    project: string;
+    amount: number;
+    dueDays: number;
+    projectType: ProjectType | null;
+  }) => void;
 }
+
+const projectTypeOptions: { value: ProjectType; label: string }[] = [
+  { value: "renovation", label: "Renovation" },
+  { value: "new_construction", label: "New Construction" },
+  { value: "repair", label: "Repair" },
+  { value: "maintenance", label: "Maintenance" },
+];
 
 export function InvoiceModal({ isOpen, onClose, onSubmit }: InvoiceModalProps) {
   const [client, setClient] = useState("");
   const [project, setProject] = useState("");
   const [amount, setAmount] = useState("");
   const [dueDays, setDueDays] = useState("15");
+  const [projectType, setProjectType] = useState<ProjectType | "">("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,11 +50,13 @@ export function InvoiceModal({ isOpen, onClose, onSubmit }: InvoiceModalProps) {
       project,
       amount: parseFloat(amount),
       dueDays: parseInt(dueDays),
+      projectType: projectType || null,
     });
     setClient("");
     setProject("");
     setAmount("");
     setDueDays("15");
+    setProjectType("");
     onClose();
   };
 
@@ -62,6 +86,21 @@ export function InvoiceModal({ isOpen, onClose, onSubmit }: InvoiceModalProps) {
               placeholder="E.g., Kitchen Remodel"
               required
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inv-project-type">Project Type</Label>
+            <Select value={projectType} onValueChange={(v) => setProjectType(v as ProjectType)}>
+              <SelectTrigger id="inv-project-type">
+                <SelectValue placeholder="Select a type (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                {projectTypeOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

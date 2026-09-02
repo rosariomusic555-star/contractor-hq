@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, MoreHorizontal, Eye, Edit, Trash2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,62 +10,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { InvoiceModal } from "@/components/modals/InvoiceModal";
+import { useToast } from "@/hooks/use-toast";
+import { listInvoices, createInvoice, deleteInvoice, type InvoiceStatus } from "@/lib/api";
 
-interface Invoice {
-  id: string;
-  number: string;
-  client: string;
-  project: string;
-  amount: number;
-  status: "draft" | "sent" | "paid" | "overdue";
-  date: string;
-  dueDate: string;
-}
-
-const initialInvoices: Invoice[] = [
-  {
-    id: "1",
-    number: "INV-001",
-    client: "Thompson Residence",
-    project: "Kitchen Remodel",
-    amount: 8500,
-    status: "paid",
-    date: "2024-01-10",
-    dueDate: "2024-01-25",
-  },
-  {
-    id: "2",
-    number: "INV-002",
-    client: "Oak Street Renovation",
-    project: "Full Home Renovation",
-    amount: 15000,
-    status: "sent",
-    date: "2024-01-15",
-    dueDate: "2024-01-30",
-  },
-  {
-    id: "3",
-    number: "INV-003",
-    client: "Downtown Office",
-    project: "Commercial Build-out",
-    amount: 24000,
-    status: "overdue",
-    date: "2024-01-01",
-    dueDate: "2024-01-15",
-  },
-  {
-    id: "4",
-    number: "INV-004",
-    client: "Martinez Family",
-    project: "Bathroom Addition",
-    amount: 6400,
-    status: "draft",
-    date: "2024-01-22",
-    dueDate: "2024-02-06",
-  },
-];
-
-const statusStyles = {
+const statusStyles: Record<InvoiceStatus, string> = {
   draft: "badge-status badge-draft",
   sent: "badge-status badge-pending",
   paid: "badge-status badge-paid",
@@ -72,34 +21,42 @@ const statusStyles = {
 };
 
 export function InvoicesView() {
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const filteredInvoices = invoices.filter(
-    (invoice) =>
-      invoice.client.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.project.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.number.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const { data: invoices = [], isLoading, isError, error } = useQuery({
+    queryKey: ["invoices"],
+    queryFn: listInvoices,
+  });
 
-  const handleCreateInvoice = (data: { client: string; project: string; amount: number; dueDays: number }) => {
-    const newInvoice: Invoice = {
-      id: String(invoices.length + 1),
-      number: `INV-${String(invoices.length + 1).padStart(3, "0")}`,
-      client: data.client,
-      project: data.project,
-      amount: data.amount,
-      status: "draft",
-      date: new Date().toISOString().split("T")[0],
-      dueDate: new Date(Date.now() + data.dueDays * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-    };
-    setInvoices([newInvoice, ...invoices]);
-  };
+  const createMutation = useMutation({
+    mutationFn: createInvoice,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create invoice", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteInvoice,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't delete invoice", description: err.message, variant: "destructive" }),
+  });
+
+  const filteredInvoices = invoices.filter((invoice) => {
+    const term = searchTerm.toLowerCase();
+    return (
+      invoice.client.toLowerCase().includes(term) ||
+      (invoice.project ?? "").toLowerCase().includes(term) ||
+      invoice.number.toLowerCase().includes(term)
+    );
+  });
 
   const totalOutstanding = invoices
     .filter((inv) => inv.status === "sent" || inv.status === "overdue")
-    .reduce((sum, inv) => sum + inv.amount, 0);
+    .reduce((sum, inv) => sum + Number(inv.amount), 0);
 
   return (
     <div className="space-y-4 md:space-y-6 animate-fade-in">
@@ -128,74 +85,26 @@ export function InvoicesView() {
         />
       </div>
 
-      {/* Mobile Cards */}
-      <div className="md:hidden space-y-3">
-        {filteredInvoices.map((invoice) => (
-          <div key={invoice.id} className="stat-card">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="font-semibold text-foreground">{invoice.number}</p>
-                <p className="text-sm text-muted-foreground">{invoice.client}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={statusStyles[invoice.status]}>
-                  {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-                </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem><Eye className="w-4 h-4 mr-2" />View</DropdownMenuItem>
-                    <DropdownMenuItem><Send className="w-4 h-4 mr-2" />Send</DropdownMenuItem>
-                    <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground mb-3">{invoice.project}</p>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Due {invoice.dueDate}</span>
-              <span className="font-bold text-lg">${invoice.amount.toLocaleString()}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+      {isLoading && <p className="text-muted-foreground">Loading invoices…</p>}
+      {isError && (
+        <p className="text-destructive">Failed to load invoices: {(error as Error).message}</p>
+      )}
 
-      {/* Desktop Table */}
-      <div className="hidden md:block stat-card overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr className="bg-muted/50">
-                <th>Invoice #</th>
-                <th>Client</th>
-                <th>Project</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Due Date</th>
-                <th className="w-12"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredInvoices.map((invoice) => (
-                <tr key={invoice.id}>
-                  <td className="font-medium">{invoice.number}</td>
-                  <td>{invoice.client}</td>
-                  <td className="text-muted-foreground">{invoice.project}</td>
-                  <td className="font-semibold">${invoice.amount.toLocaleString()}</td>
-                  <td>
+      {!isLoading && !isError && (
+        <>
+          {/* Mobile Cards */}
+          <div className="md:hidden space-y-3">
+            {filteredInvoices.map((invoice) => (
+              <div key={invoice.id} className="stat-card">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="font-semibold text-foreground">{invoice.number}</p>
+                    <p className="text-sm text-muted-foreground">{invoice.client}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <span className={statusStyles[invoice.status]}>
                       {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                     </span>
-                  </td>
-                  <td className="text-muted-foreground">{invoice.date}</td>
-                  <td className="text-muted-foreground">{invoice.dueDate}</td>
-                  <td>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -206,21 +115,98 @@ export function InvoicesView() {
                         <DropdownMenuItem><Eye className="w-4 h-4 mr-2" />View</DropdownMenuItem>
                         <DropdownMenuItem><Send className="w-4 h-4 mr-2" />Send</DropdownMenuItem>
                         <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => deleteMutation.mutate(invoice.id)}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">{invoice.project}</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Due {invoice.due_date ?? "—"}</span>
+                  <span className="font-bold text-lg">${invoice.amount.toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+            {filteredInvoices.length === 0 && (
+              <p className="text-muted-foreground text-sm">No invoices yet.</p>
+            )}
+          </div>
 
-      <InvoiceModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onSubmit={handleCreateInvoice}
+          {/* Desktop Table */}
+          <div className="hidden md:block stat-card overflow-hidden p-0">
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr className="bg-muted/50">
+                    <th>Invoice #</th>
+                    <th>Client</th>
+                    <th>Project</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Due Date</th>
+                    <th className="w-12"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredInvoices.map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="font-medium">{invoice.number}</td>
+                      <td>{invoice.client}</td>
+                      <td className="text-muted-foreground">{invoice.project}</td>
+                      <td className="font-semibold">${invoice.amount.toLocaleString()}</td>
+                      <td>
+                        <span className={statusStyles[invoice.status]}>
+                          {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                        </span>
+                      </td>
+                      <td className="text-muted-foreground">{invoice.issue_date}</td>
+                      <td className="text-muted-foreground">{invoice.due_date ?? "—"}</td>
+                      <td>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem><Eye className="w-4 h-4 mr-2" />View</DropdownMenuItem>
+                            <DropdownMenuItem><Send className="w-4 h-4 mr-2" />Send</DropdownMenuItem>
+                            <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => deleteMutation.mutate(invoice.id)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredInvoices.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="text-muted-foreground text-center py-8">
+                        No invoices yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      <InvoiceModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={(data) => createMutation.mutate(data)}
       />
     </div>
   );
