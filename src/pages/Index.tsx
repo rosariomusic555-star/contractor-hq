@@ -30,24 +30,6 @@ const Index = () => {
     }
   };
 
-  // Dashboard uses its own full-screen layout, other views use the sidebar layout
-  if (activeTab === "dashboard") {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="md:hidden">
-          <DashboardView onNavigate={setActiveTab} />
-        </div>
-        <div className="hidden md:block">
-          <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
-          <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
-          <main className="md:ml-64 p-4 md:p-8">
-            <DashboardView onNavigate={setActiveTab} />
-          </main>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
