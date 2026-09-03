@@ -179,6 +179,14 @@
   .badge-overdue {
     @apply bg-destructive/15 text-destructive;
   }
+
+  .badge-info {
+    @apply bg-primary/15 text-primary;
+  }
+
+  .badge-paid-solid {
+    @apply bg-success text-success-foreground;
+  }
 }
 
 @layer utilities {

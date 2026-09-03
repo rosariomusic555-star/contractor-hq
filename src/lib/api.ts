@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ProjectStatus = "draft" | "active" | "completed" | "archived";
+export type ProjectStatus = "draft" | "quote_sent" | "approved" | "invoiced" | "paid";
 export type QuoteStatus = "draft" | "sent" | "accepted" | "declined";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 
@@ -127,6 +127,17 @@ export function quoteTotal(sections: QuoteSection[] = []): number {
   return total;
 }
 
+/** Materials cost of goods = sum of quantity * unit_cost across all items. */
+export function materialsCogs(sections: MaterialsSection[] = []): number {
+  let total = 0;
+  for (const section of sections) {
+    for (const item of section.materials_items ?? []) {
+      total += Number(item.quantity) * Number(item.unit_cost);
+    }
+  }
+  return total;
+}
+
 // ---------------------------------------------------------------------------
 // Clients
 // ---------------------------------------------------------------------------
@@ -224,6 +235,20 @@ export async function updateProject(
 export async function deleteProject(id: string): Promise<void> {
   const { error } = await supabase.from("projects").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Materials sheet
+// ---------------------------------------------------------------------------
+
+export async function listMaterials(projectId: string): Promise<MaterialsSection[]> {
+  const { data, error } = await supabase
+    .from("materials_sections")
+    .select("*, materials_items(*)")
+    .eq("project_id", projectId)
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
 }
 
 // ---------------------------------------------------------------------------

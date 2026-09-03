@@ -1,6 +1,6 @@
 import {
+  Briefcase,
   LayoutDashboard,
-  FolderKanban,
   FileText,
   Receipt,
   TrendingUp,
@@ -16,8 +16,8 @@ export interface NavItem {
 }
 
 export const navItems: NavItem[] = [
+  { to: "/projects", label: "Projects", icon: Briefcase },
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/quotes", label: "Quotes", icon: FileText },
   { to: "/invoices", label: "Invoices", icon: Receipt },
   { to: "/revenue", label: "Revenue", icon: TrendingUp },

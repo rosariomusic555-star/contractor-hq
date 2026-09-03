@@ -25,7 +25,7 @@ begin
     returning id into v_client;
 
   insert into public.projects (user_id, client_id, name, status)
-    values (owner, v_client, 'Kitchen Remodel', 'active')
+    values (owner, v_client, 'Kitchen Remodel', 'quote_sent')
     returning id into v_project;
 
   -- Quote with a base section and an optional section

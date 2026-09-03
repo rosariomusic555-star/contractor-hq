@@ -15,62 +15,83 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Client, ProjectStatus } from "@/lib/api";
+import type { Client } from "@/lib/api";
 
 const NO_CLIENT = "__none__";
+const NEW_CLIENT = "__new__";
 
-const statusOptions: { value: ProjectStatus; label: string }[] = [
-  { value: "draft", label: "Draft" },
-  { value: "active", label: "Active" },
-  { value: "completed", label: "Completed" },
-  { value: "archived", label: "Archived" },
-];
+export interface ProjectSubmit {
+  name: string;
+  clientId: string | null;
+  newClient: { name: string; email: string; phone: string } | null;
+}
 
 interface ProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
   clients: Client[];
-  onSubmit: (data: { name: string; client_id: string | null; status: ProjectStatus }) => void;
+  submitting?: boolean;
+  onSubmit: (data: ProjectSubmit) => void;
 }
 
-export function ProjectModal({ isOpen, onClose, clients, onSubmit }: ProjectModalProps) {
+export function ProjectModal({ isOpen, onClose, clients, submitting, onSubmit }: ProjectModalProps) {
   const [name, setName] = useState("");
-  const [clientId, setClientId] = useState<string>(NO_CLIENT);
-  const [status, setStatus] = useState<ProjectStatus>("draft");
+  const [clientChoice, setClientChoice] = useState<string>(NO_CLIENT);
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+
+  const reset = () => {
+    setName("");
+    setClientChoice(NO_CLIENT);
+    setNewName("");
+    setNewEmail("");
+    setNewPhone("");
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const creatingNew = clientChoice === NEW_CLIENT;
+    if (creatingNew && !newName.trim()) return;
     onSubmit({
-      name,
-      client_id: clientId === NO_CLIENT ? null : clientId,
-      status,
+      name: name.trim(),
+      clientId: creatingNew || clientChoice === NO_CLIENT ? null : clientChoice,
+      newClient: creatingNew
+        ? { name: newName.trim(), email: newEmail.trim(), phone: newPhone.trim() }
+        : null,
     });
-    setName("");
-    setClientId(NO_CLIENT);
-    setStatus("draft");
-    onClose();
+    reset();
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          reset();
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="project-name">Project Name</Label>
+            <Label htmlFor="project-name">Project name</Label>
             <Input
               id="project-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="E.g., Kitchen Remodel"
+              placeholder="E.g., Smith Backyard Patio"
               required
             />
           </div>
+
           <div className="space-y-2">
             <Label htmlFor="project-client">Client</Label>
-            <Select value={clientId} onValueChange={setClientId}>
+            <Select value={clientChoice} onValueChange={setClientChoice}>
               <SelectTrigger id="project-client">
                 <SelectValue />
               </SelectTrigger>
@@ -81,30 +102,55 @@ export function ProjectModal({ isOpen, onClose, clients, onSubmit }: ProjectModa
                     {c.name}
                   </SelectItem>
                 ))}
+                <SelectItem value={NEW_CLIENT}>+ Create new client</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="project-status">Status</Label>
-            <Select value={status} onValueChange={(v) => setStatus(v as ProjectStatus)}>
-              <SelectTrigger id="project-status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {statusOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+
+          {clientChoice === NEW_CLIENT && (
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <div className="space-y-2">
+                <Label htmlFor="new-client-name">Client name</Label>
+                <Input
+                  id="new-client-name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Client name"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-client-email">Email</Label>
+                <Input
+                  id="new-client-email"
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="client@email.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-client-phone">Phone</Label>
+                <Input
+                  id="new-client-phone"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="(555) 123-4567"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground">
-              Create Project
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="bg-accent hover:bg-accent/90 text-accent-foreground"
+            >
+              {submitting ? "Creating…" : "Create Project"}
             </Button>
           </div>
         </form>
