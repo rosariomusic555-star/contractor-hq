@@ -4,54 +4,13 @@ import { supabase } from "./supabase";
 // Types
 // ---------------------------------------------------------------------------
 
-export type QuoteStatus = "draft" | "sent" | "approved" | "rejected";
+export type ProjectStatus = "draft" | "active" | "completed" | "archived";
+export type QuoteStatus = "draft" | "sent" | "accepted" | "declined";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
-export type ProjectType = "renovation" | "new_construction" | "repair" | "maintenance";
-export type ExpenseCategory =
-  | "materials"
-  | "labor"
-  | "subcontractor"
-  | "equipment"
-  | "permits"
-  | "other";
-
-export interface Quote {
-  id: string;
-  number: string;
-  client: string;
-  project: string | null;
-  amount: number;
-  status: QuoteStatus;
-  issue_date: string;
-  valid_until: string | null;
-  created_at: string;
-}
-
-export interface Invoice {
-  id: string;
-  number: string;
-  client: string;
-  project: string | null;
-  amount: number;
-  status: InvoiceStatus;
-  project_type: ProjectType | null;
-  issue_date: string;
-  due_date: string | null;
-  created_at: string;
-}
-
-export interface Expense {
-  id: string;
-  description: string;
-  category: ExpenseCategory | null;
-  project: string | null;
-  amount: number;
-  expense_date: string;
-  created_at: string;
-}
 
 export interface Client {
   id: string;
+  user_id: string;
   name: string;
   email: string | null;
   phone: string | null;
@@ -59,126 +18,113 @@ export interface Client {
   created_at: string;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const isoDate = (d: Date) => d.toISOString().slice(0, 10);
-const daysFromNow = (days: number) => isoDate(new Date(Date.now() + days * 86_400_000));
-
-/**
- * Next sequential document number, e.g. "QT-005", derived from existing rows.
- * RLS scopes the select to the current user, so numbering is per-account.
- */
-async function nextNumber(table: "quotes" | "invoices", prefix: string): Promise<string> {
-  const { data, error } = await supabase.from(table).select("number");
-  if (error) throw error;
-  const max = (data ?? []).reduce((acc, row) => {
-    const n = parseInt(String((row as { number: string }).number).replace(/\D/g, ""), 10);
-    return Number.isFinite(n) && n > acc ? n : acc;
-  }, 0);
-  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
+interface ClientRef {
+  name: string;
+}
+interface ProjectRef {
+  name: string;
+  client: ClientRef | null;
 }
 
-// ---------------------------------------------------------------------------
-// Quotes
-// ---------------------------------------------------------------------------
-
-export async function listQuotes(): Promise<Quote[]> {
-  const { data, error } = await supabase
-    .from("quotes")
-    .select("*")
-    .order("issue_date", { ascending: false })
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+export interface Project {
+  id: string;
+  user_id: string;
+  client_id: string | null;
+  name: string;
+  status: ProjectStatus;
+  created_at: string;
+  updated_at: string;
+  client?: ClientRef | null;
 }
 
-export async function createQuote(input: {
-  client: string;
-  project: string;
+export interface QuoteItem {
+  id: string;
+  section_id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  is_optional: boolean;
+  client_selected: boolean;
+  sort_order: number;
+}
+
+export interface QuoteSection {
+  id: string;
+  quote_id: string;
+  name: string;
+  is_optional: boolean;
+  sort_order: number;
+  quote_items: QuoteItem[];
+}
+
+export interface Quote {
+  id: string;
+  project_id: string;
+  user_id: string;
+  status: QuoteStatus;
+  deposit_percentage: number;
+  notes: string | null;
+  terms: string | null;
+  share_token: string | null;
+  signed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  quote_sections: QuoteSection[];
+  project?: ProjectRef | null;
+}
+
+export interface Invoice {
+  id: string;
+  project_id: string;
+  quote_id: string | null;
+  user_id: string;
   amount: number;
-  validDays: number;
-}): Promise<Quote> {
-  const number = await nextNumber("quotes", "QT");
-  const { data, error } = await supabase
-    .from("quotes")
-    .insert({
-      number,
-      client: input.client,
-      project: input.project,
-      amount: input.amount,
-      status: "draft",
-      issue_date: isoDate(new Date()),
-      valid_until: daysFromNow(input.validDays),
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  status: InvoiceStatus;
+  due_date: string | null;
+  notes: string | null;
+  share_token: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+  project?: ProjectRef | null;
 }
 
-export async function deleteQuote(id: string): Promise<void> {
-  const { error } = await supabase.from("quotes").delete().eq("id", id);
-  if (error) throw error;
+export interface MaterialsItem {
+  id: string;
+  section_id: string;
+  name: string;
+  quantity: number;
+  unit_cost: number;
+  sort_order: number;
 }
 
-// ---------------------------------------------------------------------------
-// Invoices
-// ---------------------------------------------------------------------------
-
-export async function listInvoices(): Promise<Invoice[]> {
-  const { data, error } = await supabase
-    .from("invoices")
-    .select("*")
-    .order("issue_date", { ascending: false })
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function createInvoice(input: {
-  client: string;
-  project: string;
-  amount: number;
-  dueDays: number;
-  projectType?: ProjectType | null;
-}): Promise<Invoice> {
-  const number = await nextNumber("invoices", "INV");
-  const { data, error } = await supabase
-    .from("invoices")
-    .insert({
-      number,
-      client: input.client,
-      project: input.project,
-      amount: input.amount,
-      status: "draft",
-      project_type: input.projectType ?? null,
-      issue_date: isoDate(new Date()),
-      due_date: daysFromNow(input.dueDays),
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteInvoice(id: string): Promise<void> {
-  const { error } = await supabase.from("invoices").delete().eq("id", id);
-  if (error) throw error;
+export interface MaterialsSection {
+  id: string;
+  project_id: string;
+  name: string;
+  sort_order: number;
+  materials_items: MaterialsItem[];
 }
 
 // ---------------------------------------------------------------------------
-// Expenses
+// Derived amounts
 // ---------------------------------------------------------------------------
 
-export async function listExpenses(): Promise<Expense[]> {
-  const { data, error } = await supabase
-    .from("expenses")
-    .select("*")
-    .order("expense_date", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+/** Whether a line item counts toward the quote total given its section. */
+export function quoteItemIncluded(section: QuoteSection, item: QuoteItem): boolean {
+  if (section.is_optional || item.is_optional) return item.client_selected;
+  return true;
+}
+
+/** Quote total = sum of included line items (quotes have no stored amount). */
+export function quoteTotal(sections: QuoteSection[] = []): number {
+  let total = 0;
+  for (const section of sections) {
+    for (const item of section.quote_items ?? []) {
+      if (quoteItemIncluded(section, item)) total += Number(item.price);
+    }
+  }
+  return total;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,10 +132,7 @@ export async function listExpenses(): Promise<Expense[]> {
 // ---------------------------------------------------------------------------
 
 export async function listClients(): Promise<Client[]> {
-  const { data, error } = await supabase
-    .from("clients")
-    .select("*")
-    .order("name", { ascending: true });
+  const { data, error } = await supabase.from("clients").select("*").order("name");
   if (error) throw error;
   return data ?? [];
 }
@@ -214,7 +157,284 @@ export async function createClient(input: {
   return data;
 }
 
+export async function updateClient(
+  id: string,
+  patch: Partial<Pick<Client, "name" | "email" | "phone" | "address">>,
+): Promise<void> {
+  const { error } = await supabase.from("clients").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
 export async function deleteClient(id: string): Promise<void> {
   const { error } = await supabase.from("clients").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+const PROJECT_SELECT = "*, client:clients(name)";
+
+export async function listProjects(): Promise<Project[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_SELECT)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getProject(id: string): Promise<Project> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_SELECT)
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createProject(input: {
+  name: string;
+  client_id: string | null;
+  status?: ProjectStatus;
+}): Promise<Project> {
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({
+      name: input.name,
+      client_id: input.client_id,
+      status: input.status ?? "draft",
+    })
+    .select(PROJECT_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateProject(
+  id: string,
+  patch: Partial<Pick<Project, "name" | "client_id" | "status">>,
+): Promise<void> {
+  const { error } = await supabase.from("projects").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const { error } = await supabase.from("projects").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Quotes
+// ---------------------------------------------------------------------------
+
+const QUOTE_SELECT =
+  "*, project:projects(name, client:clients(name)), quote_sections(*, quote_items(*))";
+
+function sortQuote(quote: Quote): Quote {
+  quote.quote_sections?.sort((a, b) => a.sort_order - b.sort_order);
+  for (const s of quote.quote_sections ?? []) {
+    s.quote_items?.sort((a, b) => a.sort_order - b.sort_order);
+  }
+  return quote;
+}
+
+export async function listQuotes(projectId?: string): Promise<Quote[]> {
+  let query = supabase
+    .from("quotes")
+    .select(QUOTE_SELECT)
+    .order("updated_at", { ascending: false });
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map(sortQuote);
+}
+
+export async function getQuote(id: string): Promise<Quote> {
+  const { data, error } = await supabase
+    .from("quotes")
+    .select(QUOTE_SELECT)
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return sortQuote(data);
+}
+
+/** Create a quote for a project, with one empty default section. */
+export async function createQuote(projectId: string): Promise<Quote> {
+  const { data: quote, error } = await supabase
+    .from("quotes")
+    .insert({ project_id: projectId })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  const { error: sectionError } = await supabase
+    .from("quote_sections")
+    .insert({ quote_id: quote.id, name: "Scope of Work", sort_order: 0 });
+  if (sectionError) throw sectionError;
+
+  return getQuote(quote.id);
+}
+
+export async function updateQuote(
+  id: string,
+  patch: Partial<Pick<Quote, "status" | "deposit_percentage" | "notes" | "terms">>,
+): Promise<void> {
+  const { error } = await supabase.from("quotes").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  const { error } = await supabase.from("quotes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Quote sections & items
+// ---------------------------------------------------------------------------
+
+export async function addQuoteSection(
+  quoteId: string,
+  input: { name: string; is_optional?: boolean; sort_order?: number },
+): Promise<QuoteSection> {
+  const { data, error } = await supabase
+    .from("quote_sections")
+    .insert({
+      quote_id: quoteId,
+      name: input.name,
+      is_optional: input.is_optional ?? false,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select("*, quote_items(*)")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateQuoteSection(
+  id: string,
+  patch: Partial<Pick<QuoteSection, "name" | "is_optional" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("quote_sections").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteQuoteSection(id: string): Promise<void> {
+  const { error } = await supabase.from("quote_sections").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function addQuoteItem(
+  sectionId: string,
+  input: {
+    name: string;
+    description?: string | null;
+    price: number;
+    is_optional?: boolean;
+    sort_order?: number;
+  },
+): Promise<QuoteItem> {
+  const { data, error } = await supabase
+    .from("quote_items")
+    .insert({
+      section_id: sectionId,
+      name: input.name,
+      description: input.description ?? null,
+      price: input.price,
+      is_optional: input.is_optional ?? false,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateQuoteItem(
+  id: string,
+  patch: Partial<
+    Pick<QuoteItem, "name" | "description" | "price" | "is_optional" | "client_selected" | "sort_order">
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("quote_items").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteQuoteItem(id: string): Promise<void> {
+  const { error } = await supabase.from("quote_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Invoices
+// ---------------------------------------------------------------------------
+
+const INVOICE_SELECT = "*, project:projects(name, client:clients(name))";
+
+export async function listInvoices(projectId?: string): Promise<Invoice[]> {
+  let query = supabase
+    .from("invoices")
+    .select(INVOICE_SELECT)
+    .order("created_at", { ascending: false });
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createInvoice(input: {
+  project_id: string;
+  amount: number;
+  due_date?: string | null;
+  quote_id?: string | null;
+  notes?: string | null;
+}): Promise<Invoice> {
+  const { data, error } = await supabase
+    .from("invoices")
+    .insert({
+      project_id: input.project_id,
+      amount: input.amount,
+      due_date: input.due_date ?? null,
+      quote_id: input.quote_id ?? null,
+      notes: input.notes ?? null,
+    })
+    .select(INVOICE_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateInvoice(
+  id: string,
+  patch: Partial<Pick<Invoice, "amount" | "status" | "due_date" | "notes" | "paid_at">>,
+): Promise<void> {
+  const { error } = await supabase.from("invoices").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteInvoice(id: string): Promise<void> {
+  const { error } = await supabase.from("invoices").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Share links (owner side). Client-facing reads go through RPCs (phase 3).
+// ---------------------------------------------------------------------------
+
+export async function generateShareLink(
+  kind: "quotes" | "invoices",
+  id: string,
+): Promise<string> {
+  const token = crypto.randomUUID();
+  const { error } = await supabase.from(kind).update({ share_token: token }).eq("id", id);
+  if (error) throw error;
+  return token;
+}
+
+export async function revokeShareLink(kind: "quotes" | "invoices", id: string): Promise<void> {
+  const { error } = await supabase.from(kind).update({ share_token: null }).eq("id", id);
   if (error) throw error;
 }

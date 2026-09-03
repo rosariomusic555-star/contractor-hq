@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DashboardView } from "@/components/views/DashboardView";
+import { ProjectsView } from "@/components/views/ProjectsView";
+import { ProjectDetailView } from "@/components/views/ProjectDetailView";
 import { QuotesView } from "@/components/views/QuotesView";
 import { InvoicesView } from "@/components/views/InvoicesView";
 import { RevenueView } from "@/components/views/RevenueView";
@@ -26,6 +28,8 @@ const App = () => (
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardView />} />
+              <Route path="/projects" element={<ProjectsView />} />
+              <Route path="/projects/:id" element={<ProjectDetailView />} />
               <Route path="/quotes" element={<QuotesView />} />
               <Route path="/invoices" element={<InvoicesView />} />
               <Route path="/revenue" element={<RevenueView />} />

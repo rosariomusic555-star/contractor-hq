@@ -11,8 +11,8 @@ const monthKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
 export function DashboardView() {
-  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: listQuotes });
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: listInvoices });
+  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
 
   const now = new Date();
   const thisMonth = monthKey(now);
@@ -20,7 +20,7 @@ export function DashboardView() {
 
   const sumFor = (m: string) =>
     invoices
-      .filter((i) => i.issue_date.slice(0, 7) === m)
+      .filter((i) => i.created_at.slice(0, 7) === m)
       .reduce((s, i) => s + Number(i.amount), 0);
 
   const totalRevenue = invoices.reduce((s, i) => s + Number(i.amount), 0);
@@ -31,8 +31,8 @@ export function DashboardView() {
       ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
       : null;
 
-  const activeQuotes = quotes.filter((q) => q.status === "draft" || q.status === "sent");
-  const pendingApproval = quotes.filter((q) => q.status === "sent").length;
+  const openQuotes = quotes.filter((q) => q.status === "draft" || q.status === "sent");
+  const awaitingResponse = quotes.filter((q) => q.status === "sent").length;
 
   const outstanding = invoices.filter((i) => i.status === "sent" || i.status === "overdue");
   const outstandingTotal = outstanding.reduce((s, i) => s + Number(i.amount), 0);
@@ -44,13 +44,11 @@ export function DashboardView() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground mt-1">Welcome back! Here's your business overview.</p>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Revenue"
@@ -61,9 +59,9 @@ export function DashboardView() {
           iconColor="text-success"
         />
         <StatCard
-          title="Active Quotes"
-          value={String(activeQuotes.length)}
-          change={`${pendingApproval} pending approval`}
+          title="Open Quotes"
+          value={String(openQuotes.length)}
+          change={`${awaitingResponse} awaiting response`}
           changeType="neutral"
           icon={FileText}
           iconColor="text-primary"
@@ -86,7 +84,6 @@ export function DashboardView() {
         />
       </div>
 
-      {/* Charts and Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <RevenueChart />
         <div className="space-y-4 md:space-y-6">

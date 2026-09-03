@@ -8,14 +8,14 @@ export interface MonthPoint {
 
 const monthKey = (isoDate: string) => isoDate.slice(0, 7);
 const monthShort = (isoDate: string) =>
-  new Date(isoDate + "T00:00:00").toLocaleString("en-US", { month: "short" });
+  new Date(isoDate.slice(0, 10) + "T00:00:00").toLocaleString("en-US", { month: "short" });
 
-/** Invoice amounts summed per calendar month, ascending by month. */
+/** Invoice amounts summed per calendar month (by created_at), ascending. */
 export function monthlyRevenue(invoices: Invoice[]): MonthPoint[] {
   const buckets = new Map<string, MonthPoint>();
   for (const inv of invoices) {
-    const key = monthKey(inv.issue_date);
-    const point = buckets.get(key) ?? { key, month: monthShort(inv.issue_date), revenue: 0 };
+    const key = monthKey(inv.created_at);
+    const point = buckets.get(key) ?? { key, month: monthShort(inv.created_at), revenue: 0 };
     point.revenue += Number(inv.amount);
     buckets.set(key, point);
   }

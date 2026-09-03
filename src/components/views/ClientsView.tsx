@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ClientModal } from "@/components/modals/ClientModal";
 import { useToast } from "@/hooks/use-toast";
-import { listClients, createClient, deleteClient, listInvoices } from "@/lib/api";
+import { listClients, createClient, deleteClient, listInvoices, listProjects } from "@/lib/api";
 
 export function ClientsView() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -25,8 +25,9 @@ export function ClientsView() {
   });
   const { data: invoices = [] } = useQuery({
     queryKey: ["invoices"],
-    queryFn: listInvoices,
+    queryFn: () => listInvoices(),
   });
+  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
 
   const createMutation = useMutation({
     mutationFn: createClient,
@@ -42,17 +43,24 @@ export function ClientsView() {
       toast({ title: "Couldn't delete client", description: err.message, variant: "destructive" }),
   });
 
-  // Derived per-client stats from invoices, keyed by client name.
+  // Derived per-client stats, keyed by client id.
   const statsByClient = useMemo(() => {
-    const map = new Map<string, { projects: Set<string>; revenue: number }>();
+    const projectClient = new Map<string, string | null>(); // project id -> client id
+    const map = new Map<string, { projects: number; revenue: number }>();
+    const ensure = (clientId: string) => {
+      if (!map.has(clientId)) map.set(clientId, { projects: 0, revenue: 0 });
+      return map.get(clientId)!;
+    };
+    projects.forEach((p) => {
+      projectClient.set(p.id, p.client_id);
+      if (p.client_id) ensure(p.client_id).projects += 1;
+    });
     invoices.forEach((inv) => {
-      const entry = map.get(inv.client) ?? { projects: new Set<string>(), revenue: 0 };
-      if (inv.project) entry.projects.add(inv.project);
-      entry.revenue += Number(inv.amount);
-      map.set(inv.client, entry);
+      const clientId = projectClient.get(inv.project_id) ?? null;
+      if (clientId) ensure(clientId).revenue += Number(inv.amount);
     });
     return map;
-  }, [invoices]);
+  }, [projects, invoices]);
 
   const filteredClients = clients.filter((client) => {
     const term = searchTerm.toLowerCase();
@@ -98,8 +106,8 @@ export function ClientsView() {
       {!isLoading && !isError && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredClients.map((client) => {
-            const stats = statsByClient.get(client.name);
-            const totalProjects = stats?.projects.size ?? 0;
+            const stats = statsByClient.get(client.id);
+            const totalProjects = stats?.projects ?? 0;
             const totalRevenue = stats?.revenue ?? 0;
 
             return (
@@ -123,9 +131,6 @@ export function ClientsView() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>View Details</DropdownMenuItem>
-                      <DropdownMenuItem>Edit</DropdownMenuItem>
-                      <DropdownMenuItem>Create Quote</DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
                         onClick={() => deleteMutation.mutate(client.id)}

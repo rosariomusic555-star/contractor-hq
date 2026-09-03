@@ -1,7 +1,7 @@
 import { FileText, Receipt, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { listQuotes, listInvoices, type Quote, type Invoice } from "@/lib/api";
+import { listQuotes, listInvoices, quoteTotal, type Quote, type Invoice } from "@/lib/api";
 
 type ActivityType = "quote" | "invoice" | "payment";
 type ActivityStatus = "completed" | "pending" | "overdue";
@@ -10,7 +10,7 @@ interface Activity {
   id: string;
   type: ActivityType;
   title: string;
-  client: string;
+  subtitle: string;
   amount: number;
   status: ActivityStatus;
   createdAt: string;
@@ -29,21 +29,21 @@ const statusConfig: Record<ActivityStatus, { icon: typeof CheckCircle; class: st
 };
 
 const quoteTitle: Record<Quote["status"], string> = {
-  draft: "Quote created",
+  draft: "Quote drafted",
   sent: "Quote sent",
-  approved: "Quote approved",
-  rejected: "Quote rejected",
+  accepted: "Quote accepted",
+  declined: "Quote declined",
 };
 
 const quoteStatus: Record<Quote["status"], ActivityStatus> = {
   draft: "pending",
   sent: "pending",
-  approved: "completed",
-  rejected: "overdue",
+  accepted: "completed",
+  declined: "overdue",
 };
 
 const invoiceTitle: Record<Invoice["status"], string> = {
-  draft: "Invoice created",
+  draft: "Invoice drafted",
   sent: "Invoice sent",
   paid: "Payment received",
   overdue: "Invoice overdue",
@@ -81,17 +81,20 @@ function timeAgo(iso: string): string {
 const money = (n: number) =>
   `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const projectLabel = (project?: { name: string; client: { name: string } | null } | null) =>
+  project?.client?.name ?? project?.name ?? "—";
+
 export function RecentActivity() {
-  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: listQuotes });
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: listInvoices });
+  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
 
   const activities: Activity[] = [
     ...quotes.map<Activity>((q) => ({
       id: `quote-${q.id}`,
       type: "quote",
       title: quoteTitle[q.status],
-      client: q.client,
-      amount: Number(q.amount),
+      subtitle: projectLabel(q.project),
+      amount: quoteTotal(q.quote_sections),
       status: quoteStatus[q.status],
       createdAt: q.created_at,
     })),
@@ -99,7 +102,7 @@ export function RecentActivity() {
       id: `invoice-${i.id}`,
       type: i.status === "paid" ? "payment" : "invoice",
       title: invoiceTitle[i.status],
-      client: i.client,
+      subtitle: projectLabel(i.project),
       amount: Number(i.amount),
       status: invoiceStatus[i.status],
       createdAt: i.created_at,
@@ -120,7 +123,10 @@ export function RecentActivity() {
           const StatusIcon = statusConfig[activity.status].icon;
 
           return (
-            <div key={activity.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors">
+            <div
+              key={activity.id}
+              className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+            >
               <div className="p-2 rounded-lg bg-muted">
                 <Icon className="w-4 h-4 text-muted-foreground" />
               </div>
@@ -129,7 +135,7 @@ export function RecentActivity() {
                   <p className="text-sm font-medium text-foreground">{activity.title}</p>
                   <StatusIcon className={cn("w-4 h-4", statusConfig[activity.status].class)} />
                 </div>
-                <p className="text-sm text-muted-foreground">{activity.client}</p>
+                <p className="text-sm text-muted-foreground">{activity.subtitle}</p>
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold text-foreground">{money(activity.amount)}</p>

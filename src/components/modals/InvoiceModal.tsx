@@ -15,48 +15,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ProjectType } from "@/lib/api";
+import type { Project } from "@/lib/api";
 
 interface InvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
+  projects: Project[];
   onSubmit: (data: {
-    client: string;
-    project: string;
+    project_id: string;
     amount: number;
-    dueDays: number;
-    projectType: ProjectType | null;
+    due_date: string | null;
   }) => void;
 }
 
-const projectTypeOptions: { value: ProjectType; label: string }[] = [
-  { value: "renovation", label: "Renovation" },
-  { value: "new_construction", label: "New Construction" },
-  { value: "repair", label: "Repair" },
-  { value: "maintenance", label: "Maintenance" },
-];
-
-export function InvoiceModal({ isOpen, onClose, onSubmit }: InvoiceModalProps) {
-  const [client, setClient] = useState("");
-  const [project, setProject] = useState("");
+export function InvoiceModal({ isOpen, onClose, projects, onSubmit }: InvoiceModalProps) {
+  const [projectId, setProjectId] = useState("");
   const [amount, setAmount] = useState("");
-  const [dueDays, setDueDays] = useState("15");
-  const [projectType, setProjectType] = useState<ProjectType | "">("");
+  const [dueDate, setDueDate] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!projectId) return;
     onSubmit({
-      client,
-      project,
-      amount: parseFloat(amount),
-      dueDays: parseInt(dueDays),
-      projectType: projectType || null,
+      project_id: projectId,
+      amount: parseFloat(amount) || 0,
+      due_date: dueDate || null,
     });
-    setClient("");
-    setProject("");
+    setProjectId("");
     setAmount("");
-    setDueDays("15");
-    setProjectType("");
+    setDueDate("");
     onClose();
   };
 
@@ -64,39 +51,20 @@ export function InvoiceModal({ isOpen, onClose, onSubmit }: InvoiceModalProps) {
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create New Invoice</DialogTitle>
+          <DialogTitle>New Invoice</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="inv-client">Client Name</Label>
-            <Input
-              id="inv-client"
-              value={client}
-              onChange={(e) => setClient(e.target.value)}
-              placeholder="Enter client name"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="inv-project">Project Description</Label>
-            <Input
-              id="inv-project"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-              placeholder="E.g., Kitchen Remodel"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="inv-project-type">Project Type</Label>
-            <Select value={projectType} onValueChange={(v) => setProjectType(v as ProjectType)}>
-              <SelectTrigger id="inv-project-type">
-                <SelectValue placeholder="Select a type (optional)" />
+            <Label htmlFor="inv-project">Project</Label>
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger id="inv-project">
+                <SelectValue placeholder="Select a project" />
               </SelectTrigger>
               <SelectContent>
-                {projectTypeOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                    {p.client?.name ? ` — ${p.client.name}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -117,15 +85,12 @@ export function InvoiceModal({ isOpen, onClose, onSubmit }: InvoiceModalProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="dueDays">Due in (days)</Label>
+              <Label htmlFor="inv-due">Due date</Label>
               <Input
-                id="dueDays"
-                type="number"
-                value={dueDays}
-                onChange={(e) => setDueDays(e.target.value)}
-                placeholder="15"
-                min="1"
-                required
+                id="inv-due"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
               />
             </div>
           </div>
@@ -133,7 +98,11 @@ export function InvoiceModal({ isOpen, onClose, onSubmit }: InvoiceModalProps) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground">
+            <Button
+              type="submit"
+              disabled={!projectId}
+              className="bg-accent hover:bg-accent/90 text-accent-foreground"
+            >
               Create Invoice
             </Button>
           </div>

@@ -1,51 +1,61 @@
--- ContractorHQ seed data — per user.
+-- ContractorHQ seed — per user, project-centric schema.
 --
--- After 0002_auth.sql every row needs an owner. Sign up in the app, find your
--- id in the Supabase dashboard (Authentication → Users), paste it below, and
--- run this in the SQL editor. Optional — you can also just create data in the UI.
--- Re-running clears only THIS user's rows first.
+-- After 0003/0004: sign up in the app, copy your id from
+-- Authentication → Users, paste it below, run this in the SQL editor.
+-- Re-running clears only THIS user's data first.
 
 do $$
 declare
-  owner uuid := 'PASTE-YOUR-AUTH-USER-ID';
+  owner       uuid := 'PASTE-YOUR-AUTH-USER-ID';
+  v_client    uuid;
+  v_project   uuid;
+  v_quote     uuid;
+  v_sec_base  uuid;
+  v_sec_opt   uuid;
+  v_mat_sec   uuid;
 begin
-  delete from public.expenses where user_id = owner;
   delete from public.invoices where user_id = owner;
   delete from public.quotes   where user_id = owner;
+  delete from public.projects where user_id = owner;
   delete from public.clients  where user_id = owner;
 
-  insert into public.clients (user_id, name, email, phone, address) values
-    (owner, 'Thompson Residence',   'thompson@email.com',    '(555) 123-4567', '123 Oak Street, Springfield'),
-    (owner, 'Oak Street Renovation','oakstreet@email.com',   '(555) 234-5678', '456 Main Ave, Riverside'),
-    (owner, 'Martinez Family',      'martinez@email.com',    '(555) 345-6789', '789 Pine Road, Lakewood'),
-    (owner, 'Downtown Office',      'downtown@business.com', '(555) 456-7890', '100 Business Center, Metro City'),
-    (owner, 'Green Valley HOA',     'hoa@greenvalley.org',   '(555) 567-8901', 'Green Valley Community Center');
+  insert into public.clients (user_id, name, email, phone, address)
+    values (owner, 'Thompson Residence', 'thompson@email.com', '(555) 123-4567',
+            '123 Oak Street, Springfield')
+    returning id into v_client;
 
-  insert into public.quotes (user_id, number, client, project, amount, status, issue_date, valid_until) values
-    (owner, 'QT-001', 'Thompson Residence',    'Kitchen Remodel',      8500,  'approved', '2024-01-15', '2024-02-15'),
-    (owner, 'QT-002', 'Oak Street Renovation', 'Full Home Renovation', 45000, 'sent',     '2024-01-18', '2024-02-18'),
-    (owner, 'QT-003', 'Martinez Family',       'Bathroom Addition',    12800, 'draft',    '2024-01-20', '2024-02-20'),
-    (owner, 'QT-004', 'Downtown Office',       'Commercial Build-out', 78500, 'sent',     '2024-01-22', '2024-02-22');
+  insert into public.projects (user_id, client_id, name, status)
+    values (owner, v_client, 'Kitchen Remodel', 'active')
+    returning id into v_project;
 
-  insert into public.invoices (user_id, number, client, project, amount, status, project_type, issue_date, due_date) values
-    (owner, 'INV-001', 'Thompson Residence',    'Kitchen Remodel',      8500,  'paid',    'renovation',       '2024-01-10', '2024-01-25'),
-    (owner, 'INV-002', 'Oak Street Renovation', 'Full Home Renovation', 15000, 'sent',    'renovation',       '2024-01-15', '2024-01-30'),
-    (owner, 'INV-003', 'Downtown Office',       'Commercial Build-out', 24000, 'overdue', 'new_construction', '2024-01-01', '2024-01-15'),
-    (owner, 'INV-004', 'Martinez Family',       'Bathroom Addition',    6400,  'draft',   'renovation',       '2024-01-22', '2024-02-06');
+  -- Quote with a base section and an optional section
+  insert into public.quotes (project_id, user_id, status, deposit_percentage, notes, terms)
+    values (v_project, owner, 'sent', 25,
+            'Timeline: 3–4 weeks from deposit.',
+            'Balance due on completion. 1-year workmanship warranty.')
+    returning id into v_quote;
 
-  insert into public.expenses (user_id, description, category, project, amount, expense_date) values
-    (owner, 'Cabinetry & countertops',   'materials',     'Kitchen Remodel',      5000,  '2024-01-08'),
-    (owner, 'Framing crew',              'labor',         'Kitchen Remodel',      3200,  '2024-01-20'),
-    (owner, 'Lumber & drywall',          'materials',     'Full Home Renovation', 6500,  '2024-02-10'),
-    (owner, 'Electrical subcontractor',  'subcontractor', 'Full Home Renovation', 4000,  '2024-02-18'),
-    (owner, 'Tile & fixtures',           'materials',     'Bathroom Addition',    5600,  '2024-03-05'),
-    (owner, 'Finish carpentry',          'labor',         'Bathroom Addition',    3500,  '2024-03-22'),
-    (owner, 'Structural steel',          'materials',     'Commercial Build-out', 9000,  '2024-04-12'),
-    (owner, 'Excavator rental',          'equipment',     'Commercial Build-out', 5200,  '2024-04-25'),
-    (owner, 'HVAC materials',            'materials',     'Commercial Build-out', 7800,  '2024-05-09'),
-    (owner, 'Install labor',             'labor',         'Commercial Build-out', 5000,  '2024-05-20'),
-    (owner, 'Plumbing subcontractor',    'subcontractor', 'Full Home Renovation', 9600,  '2024-06-11'),
-    (owner, 'Roofing materials',         'materials',     'Full Home Renovation', 6000,  '2024-06-24'),
-    (owner, 'Windows & doors',           'materials',     'Full Home Renovation', 11900, '2024-07-15'),
-    (owner, 'City permits & inspection', 'permits',       'Full Home Renovation', 7000,  '2024-07-28');
+  insert into public.quote_sections (quote_id, name, is_optional, sort_order)
+    values (v_quote, 'Scope of Work', false, 0) returning id into v_sec_base;
+  insert into public.quote_sections (quote_id, name, is_optional, sort_order)
+    values (v_quote, 'Optional Upgrades', true, 1) returning id into v_sec_opt;
+
+  insert into public.quote_items (section_id, name, description, price, is_optional, client_selected, sort_order) values
+    (v_sec_base, 'Demolition & disposal', 'Remove existing cabinets, counters, flooring', 2400, false, true, 0),
+    (v_sec_base, 'Cabinetry',             'Shaker cabinets, soft-close', 9800, false, true, 1),
+    (v_sec_base, 'Quartz countertops',    '42 sq ft installed', 4200, false, true, 2),
+    (v_sec_opt,  'Under-cabinet lighting', 'LED strips, dimmable', 650, true, false, 0),
+    (v_sec_opt,  'Pot filler faucet',      'Wall-mounted', 480, true, false, 1);
+
+  -- Materials sheet
+  insert into public.materials_sections (project_id, name, sort_order)
+    values (v_project, 'Cabinets & Hardware', 0) returning id into v_mat_sec;
+  insert into public.materials_items (section_id, name, quantity, unit_cost, sort_order) values
+    (v_mat_sec, 'Base cabinet 24"', 6, 210, 0),
+    (v_mat_sec, 'Wall cabinet 30"', 4, 180, 1),
+    (v_mat_sec, 'Cabinet pulls',    28, 4.5, 2);
+
+  -- A deposit invoice
+  insert into public.invoices (project_id, quote_id, user_id, amount, status, due_date, notes)
+    values (v_project, v_quote, owner, 4100, 'sent', current_date + 14, 'Deposit — 25% of accepted scope');
 end $$;

@@ -4,7 +4,7 @@ import { listInvoices } from "@/lib/api";
 import { monthlyRevenue, momChange } from "@/lib/metrics";
 
 export function RevenueChart() {
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: listInvoices });
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
 
   const data = monthlyRevenue(invoices);
   const total = data.reduce((sum, d) => sum + d.revenue, 0);
