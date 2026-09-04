@@ -473,6 +473,31 @@ export async function listInvoices(projectId?: string): Promise<Invoice[]> {
   return data ?? [];
 }
 
+export async function getInvoice(id: string): Promise<Invoice> {
+  const { data, error } = await supabase
+    .from("invoices")
+    .select(INVOICE_SELECT)
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Display number ("INV-001", "INV-002", …) based on creation order within
+ * the project. Not stored — derived from the full invoice list every time,
+ * so `invoices` must be every invoice for that project (any order).
+ */
+export function invoiceNumber(invoices: Invoice[], invoiceId: string): string {
+  const sorted = [...invoices].sort((a, b) =>
+    a.created_at === b.created_at
+      ? a.id.localeCompare(b.id)
+      : a.created_at.localeCompare(b.created_at),
+  );
+  const index = sorted.findIndex((i) => i.id === invoiceId);
+  return `INV-${String(index + 1).padStart(3, "0")}`;
+}
+
 export async function createInvoice(input: {
   project_id: string;
   amount: number;
@@ -581,4 +606,28 @@ export async function getSharedQuote(token: string): Promise<SharedQuote | null>
 export async function signSharedQuote(token: string, signedBy: string): Promise<void> {
   const { error } = await supabase.rpc("sign_quote", { p_token: token, p_signed_by: signedBy });
   if (error) throw error;
+}
+
+export interface SharedInvoice {
+  invoice: {
+    id: string;
+    status: InvoiceStatus;
+    amount: number;
+    due_date: string | null;
+    notes: string | null;
+    paid_at: string | null;
+    // Display ordinal ("INV-00X"), computed server-side by the RPC since the
+    // public page only ever fetches this one invoice, not its siblings.
+    number: number;
+    created_at: string;
+    updated_at: string;
+  };
+  project: { name: string };
+  client: { name: string } | null;
+}
+
+export async function getSharedInvoice(token: string): Promise<SharedInvoice | null> {
+  const { data, error } = await supabase.rpc("get_shared_invoice", { p_token: token });
+  if (error) throw error;
+  return (data as SharedInvoice | null) ?? null;
 }

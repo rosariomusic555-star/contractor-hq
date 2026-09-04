@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
@@ -24,7 +25,6 @@ import {
 } from "@/lib/api";
 import { PROJECT_STATUS_META, PROJECT_STATUSES, projectStatusMeta } from "@/lib/projectStatus";
 
-const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 const quoteStatusLabel: Record<QuoteStatus, string> = {
@@ -80,10 +80,21 @@ export function ProjectDetailView() {
       : `${quoteStatusLabel[quotes[0].status]} · ${formatCurrency(quoteTotal(quotes[0].quote_sections))} total`;
 
   const invoicesTotal = invoices.reduce((s, i) => s + Number(i.amount), 0);
-  const invoicesSummary =
-    invoices.length === 0
-      ? "None yet"
-      : `${plural(invoices.length, "invoice")} · ${money(invoicesTotal)}`;
+  const outstandingCount = invoices.filter((i) => i.status === "sent").length;
+  const invoicesSummary: ReactNode =
+    invoices.length === 0 ? (
+      "None yet"
+    ) : (
+      <>
+        {plural(invoices.length, "invoice")} · {formatCurrency(invoicesTotal)} total
+        {outstandingCount > 0 && (
+          <>
+            <br />
+            {outstandingCount} outstanding
+          </>
+        )}
+      </>
+    );
 
   const meta = projectStatusMeta(project.status);
 
@@ -147,7 +158,7 @@ function HubCard({
   onOpen,
 }: {
   title: string;
-  summary: string;
+  summary: ReactNode;
   onOpen: () => void;
 }) {
   return (
