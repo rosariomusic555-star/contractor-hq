@@ -5,7 +5,7 @@ import { supabase } from "./supabase";
 // ---------------------------------------------------------------------------
 
 export type ProjectStatus = "draft" | "quote_sent" | "approved" | "invoiced" | "paid";
-export type QuoteStatus = "draft" | "sent" | "accepted" | "declined";
+export type QuoteStatus = "draft" | "sent" | "approved";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 
 export interface Client {
@@ -349,7 +349,7 @@ export async function getQuote(id: string): Promise<Quote> {
   return sortQuote(data);
 }
 
-/** Create a quote for a project, with one empty default section. */
+/** Create a quote for a project. Starts with no sections, like the materials sheet. */
 export async function createQuote(projectId: string): Promise<Quote> {
   const { data: quote, error } = await supabase
     .from("quotes")
@@ -357,13 +357,14 @@ export async function createQuote(projectId: string): Promise<Quote> {
     .select("id")
     .single();
   if (error) throw error;
-
-  const { error: sectionError } = await supabase
-    .from("quote_sections")
-    .insert({ quote_id: quote.id, name: "Scope of Work", sort_order: 0 });
-  if (sectionError) throw sectionError;
-
   return getQuote(quote.id);
+}
+
+/** The project's quote, creating one (draft, no sections) if it doesn't exist yet. */
+export async function getOrCreateQuote(projectId: string): Promise<Quote> {
+  const existing = await listQuotes(projectId);
+  if (existing[0]) return existing[0];
+  return createQuote(projectId);
 }
 
 export async function updateQuote(

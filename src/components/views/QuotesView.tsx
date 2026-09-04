@@ -15,9 +15,8 @@ import { listQuotes, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api
 
 const statusStyles: Record<QuoteStatus, string> = {
   draft: "badge-status badge-draft",
-  sent: "badge-status badge-pending",
-  accepted: "badge-status badge-paid",
-  declined: "badge-status badge-overdue",
+  sent: "badge-status badge-info",
+  approved: "badge-status badge-paid",
 };
 
 export function QuotesView() {

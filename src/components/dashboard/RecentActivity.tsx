@@ -31,15 +31,13 @@ const statusConfig: Record<ActivityStatus, { icon: typeof CheckCircle; class: st
 const quoteTitle: Record<Quote["status"], string> = {
   draft: "Quote drafted",
   sent: "Quote sent",
-  accepted: "Quote accepted",
-  declined: "Quote declined",
+  approved: "Quote approved",
 };
 
 const quoteStatus: Record<Quote["status"], ActivityStatus> = {
   draft: "pending",
   sent: "pending",
-  accepted: "completed",
-  declined: "overdue",
+  approved: "completed",
 };
 
 const invoiceTitle: Record<Invoice["status"], string> = {

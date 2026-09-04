@@ -30,8 +30,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const quoteStatusLabel: Record<QuoteStatus, string> = {
   draft: "Draft",
   sent: "Sent",
-  accepted: "Approved",
-  declined: "Declined",
+  approved: "Approved",
 };
 
 export function ProjectDetailView() {
@@ -76,7 +75,9 @@ export function ProjectDetailView() {
       : `${plural(materials.length, "section")} · ${formatCurrency(materialsCogs(materials))} total cost`;
 
   const quoteSummary =
-    quotes.length === 0 ? "Not started" : quoteStatusLabel[quotes[0].status];
+    quotes.length === 0
+      ? "Not started"
+      : `${quoteStatusLabel[quotes[0].status]} · ${formatCurrency(quoteTotal(quotes[0].quote_sections))} total`;
 
   const invoicesTotal = invoices.reduce((s, i) => s + Number(i.amount), 0);
   const invoicesSummary =
