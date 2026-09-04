@@ -568,30 +568,15 @@ export interface SharedQuote {
   sections: SharedQuoteSection[];
 }
 
-/** Whether an item's price counts toward the shared quote's total. */
-export function sharedItemIncluded(section: SharedQuoteSection, item: SharedQuoteItem): boolean {
-  if (section.is_optional || item.is_optional) return item.client_selected;
-  return true;
-}
-
 export async function getSharedQuote(token: string): Promise<SharedQuote | null> {
   const { data, error } = await supabase.rpc("get_shared_quote", { p_token: token });
   if (error) throw error;
   return (data as SharedQuote | null) ?? null;
 }
 
-export async function setSharedQuoteItemSelection(
-  token: string,
-  itemId: string,
-  selected: boolean,
-): Promise<void> {
-  const { error } = await supabase.rpc("set_quote_item_selection", {
-    p_token: token,
-    p_item_id: itemId,
-    p_selected: selected,
-  });
-  if (error) throw error;
-}
+// Note: which optional sections/items the client has checked is kept as
+// local view state on the share page only (never written back) — see
+// SharedQuotePage. The only client-facing write is signSharedQuote below.
 
 export async function signSharedQuote(token: string, signedBy: string): Promise<void> {
   const { error } = await supabase.rpc("sign_quote", { p_token: token, p_signed_by: signedBy });

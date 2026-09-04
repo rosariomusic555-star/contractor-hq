@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -7,13 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
-import {
-  getSharedQuote,
-  setSharedQuoteItemSelection,
-  signSharedQuote,
-  sharedItemIncluded,
-  type SharedQuoteSection,
-} from "@/lib/api";
+import { getSharedQuote, signSharedQuote, type SharedQuoteSection } from "@/lib/api";
 
 function PageShell({ children }: { children: ReactNode }) {
   return (
@@ -43,27 +37,33 @@ export default function SharedQuotePage() {
     enabled: token.length > 0,
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["shared-quote", token] });
+  // Which optional sections / items the client currently has checked. This
+  // is purely local, view-only state — it's never written to Supabase.
+  // Only the final "Approve & sign" action touches the database. Seeded
+  // once, all-selected, the first time the quote loads.
+  const [sectionSelected, setSectionSelected] = useState<Record<string, boolean>>({});
+  const [itemSelected, setItemSelected] = useState<Record<string, boolean>>({});
+  const seeded = useRef(false);
 
-  const toggleItemMut = useMutation({
-    mutationFn: (v: { itemId: string; selected: boolean }) =>
-      setSharedQuoteItemSelection(token, v.itemId, v.selected),
-    onSuccess: invalidate,
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-
-  const toggleSectionMut = useMutation({
-    mutationFn: async (v: { itemIds: string[]; selected: boolean }) => {
-      await Promise.all(v.itemIds.map((id) => setSharedQuoteItemSelection(token, id, v.selected)));
-    },
-    onSuccess: invalidate,
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
+  useEffect(() => {
+    if (seeded.current || !data) return;
+    const sections: Record<string, boolean> = {};
+    const items: Record<string, boolean> = {};
+    for (const section of data.sections) {
+      if (section.is_optional) sections[section.id] = true;
+      for (const item of section.items) {
+        if (item.is_optional) items[item.id] = true;
+      }
+    }
+    setSectionSelected(sections);
+    setItemSelected(items);
+    seeded.current = true;
+  }, [data]);
 
   const signMut = useMutation({
     mutationFn: () => signSharedQuote(token, signerName.trim()),
     onSuccess: () => {
-      invalidate();
+      qc.invalidateQueries({ queryKey: ["shared-quote", token] });
       toast({
         title: `Quote approved. Thank you, ${signerName.trim()}. We'll be in touch shortly.`,
       });
@@ -83,13 +83,17 @@ export default function SharedQuotePage() {
 
   const { quote, project, client, sections } = data;
 
+  const isSectionSelected = (sectionId: string) => sectionSelected[sectionId] ?? true;
+  const isItemSelected = (itemId: string) => itemSelected[itemId] ?? true;
+  const isIncluded = (section: SharedQuoteSection, item: SharedQuoteSection["items"][number]) => {
+    if (section.is_optional) return isSectionSelected(section.id);
+    if (item.is_optional) return isItemSelected(item.id);
+    return true;
+  };
+
   const subtotal = sections.reduce(
     (sum, section) =>
-      sum +
-      section.items.reduce(
-        (s, item) => (sharedItemIncluded(section, item) ? s + Number(item.price) : s),
-        0,
-      ),
+      sum + section.items.reduce((s, item) => (isIncluded(section, item) ? s + Number(item.price) : s), 0),
     0,
   );
   const deposit = (subtotal * Number(quote.deposit_percentage)) / 100;
@@ -113,12 +117,13 @@ export default function SharedQuotePage() {
               <SectionBlock
                 key={section.id}
                 section={section}
-                onToggleItem={(itemId, selected) => toggleItemMut.mutate({ itemId, selected })}
-                onToggleSection={(selected) =>
-                  toggleSectionMut.mutate({
-                    itemIds: section.items.map((i) => i.id),
-                    selected,
-                  })
+                sectionChecked={isSectionSelected(section.id)}
+                itemChecked={isItemSelected}
+                onToggleSection={(checked) =>
+                  setSectionSelected((prev) => ({ ...prev, [section.id]: checked }))
+                }
+                onToggleItem={(itemId, checked) =>
+                  setItemSelected((prev) => ({ ...prev, [itemId]: checked }))
                 }
               />
             ))}
@@ -200,30 +205,30 @@ export default function SharedQuotePage() {
 
 function SectionBlock({
   section,
-  onToggleItem,
+  sectionChecked,
+  itemChecked,
   onToggleSection,
+  onToggleItem,
 }: {
   section: SharedQuoteSection;
-  onToggleItem: (itemId: string, selected: boolean) => void;
-  onToggleSection: (selected: boolean) => void;
+  sectionChecked: boolean;
+  itemChecked: (itemId: string) => boolean;
+  onToggleSection: (checked: boolean) => void;
+  onToggleItem: (itemId: string, checked: boolean) => void;
 }) {
   if (section.is_optional) {
-    const selected = section.items.length > 0 && section.items.every((i) => i.client_selected);
     const subtotal = section.items.reduce((sum, i) => sum + Number(i.price), 0);
 
     return (
       <div className="space-y-3">
         <label className="flex items-center gap-3 cursor-pointer select-none">
-          <Checkbox
-            checked={selected}
-            onCheckedChange={(c) => onToggleSection(c === true)}
-          />
+          <Checkbox checked={sectionChecked} onCheckedChange={(c) => onToggleSection(c === true)} />
           <span className="font-semibold text-foreground">{section.name}</span>
           <span className="text-sm text-muted-foreground">— Add to my quote</span>
         </label>
-        <div className={cn("space-y-2", !selected && "opacity-40 pointer-events-none")}>
-          <ItemsTable items={section.items} showItemCheckbox={false} onToggleItem={onToggleItem} />
-          {selected && (
+        <div className={cn("space-y-2", !sectionChecked && "opacity-40 pointer-events-none")}>
+          <ItemsTable items={section.items} showItemCheckbox={false} itemChecked={itemChecked} onToggleItem={onToggleItem} />
+          {sectionChecked && (
             <p className="text-right text-sm font-medium text-foreground">
               Subtotal: {formatCurrency(subtotal)}
             </p>
@@ -234,7 +239,7 @@ function SectionBlock({
   }
 
   const subtotal = section.items.reduce(
-    (sum, item) => (sharedItemIncluded(section, item) ? sum + Number(item.price) : sum),
+    (sum, item) => sum + (!item.is_optional || itemChecked(item.id) ? Number(item.price) : 0),
     0,
   );
 
@@ -244,8 +249,8 @@ function SectionBlock({
       <ItemsTable
         items={section.items}
         showItemCheckbox
+        itemChecked={itemChecked}
         onToggleItem={onToggleItem}
-        includedFor={(item) => sharedItemIncluded(section, item)}
       />
       <p className="text-right text-sm font-medium text-foreground">
         Subtotal: {formatCurrency(subtotal)}
@@ -257,13 +262,13 @@ function SectionBlock({
 function ItemsTable({
   items,
   showItemCheckbox,
+  itemChecked,
   onToggleItem,
-  includedFor,
 }: {
   items: SharedQuoteSection["items"];
   showItemCheckbox: boolean;
-  onToggleItem: (itemId: string, selected: boolean) => void;
-  includedFor?: (item: SharedQuoteSection["items"][number]) => boolean;
+  itemChecked: (itemId: string) => boolean;
+  onToggleItem: (itemId: string, checked: boolean) => void;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -277,7 +282,7 @@ function ItemsTable({
         </thead>
         <tbody>
           {items.map((item) => {
-            const included = includedFor ? includedFor(item) : true;
+            const included = showItemCheckbox && item.is_optional ? itemChecked(item.id) : true;
             return (
               <tr
                 key={item.id}
@@ -290,7 +295,7 @@ function ItemsTable({
                   <div className="flex items-center gap-2">
                     {showItemCheckbox && item.is_optional && (
                       <Checkbox
-                        checked={item.client_selected}
+                        checked={itemChecked(item.id)}
                         onCheckedChange={(c) => onToggleItem(item.id, c === true)}
                       />
                     )}
