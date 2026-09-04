@@ -21,20 +21,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const queryClient = useQueryClient();
   const prevUserId = useRef<string | null>(null);
+  // Guards the very first session resolution: at that point prevUserId.current
+  // is just the ref's default, not a real "previous" identity, so it must
+  // never be treated as a change. Otherwise any page whose data query is
+  // still in flight on first load (e.g. a public /quote/:token page opened
+  // by a contractor already signed in elsewhere in the same browser) races
+  // queryClient.clear() against that fetch and gets stuck loading forever.
+  const hydrated = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       prevUserId.current = data.session?.user.id ?? null;
+      hydrated.current = true;
       setLoading(false);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      // Drop the previous user's cached rows whenever the identity changes.
-      if (prevUserId.current !== (next?.user.id ?? null)) {
+      const nextUserId = next?.user.id ?? null;
+      // Drop the previous user's cached rows whenever the identity changes
+      // (sign out, or signing in as someone else) — but not on first hydration.
+      if (hydrated.current && prevUserId.current !== nextUserId) {
         queryClient.clear();
       }
-      prevUserId.current = next?.user.id ?? null;
+      prevUserId.current = nextUserId;
+      hydrated.current = true;
       setSession(next);
     });
 
