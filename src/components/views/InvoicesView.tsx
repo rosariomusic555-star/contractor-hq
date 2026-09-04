@@ -122,7 +122,7 @@ export function InvoicesView() {
                   <tr
                     key={invoice.id}
                     className="cursor-pointer"
-                    onClick={() => navigate(`/projects/${invoice.project_id}`)}
+                    onClick={() => navigate(`/invoices/${invoice.id}`)}
                   >
                     <td className="font-medium">{invoice.project?.name ?? "—"}</td>
                     <td className="text-muted-foreground">
