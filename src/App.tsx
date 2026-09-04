@@ -16,6 +16,7 @@ import { InvoicesView } from "@/components/views/InvoicesView";
 import { RevenueView } from "@/components/views/RevenueView";
 import { ClientsView } from "@/components/views/ClientsView";
 import { SettingsView } from "@/components/views/SettingsView";
+import SharedQuotePage from "./pages/SharedQuote";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,9 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
+            <Route path="/quote/:token" element={<SharedQuotePage />} />
+
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardView />} />

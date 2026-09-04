@@ -526,3 +526,59 @@ export async function revokeShareLink(kind: "quotes" | "invoices", id: string): 
   const { error } = await supabase.from(kind).update({ share_token: null }).eq("id", id);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Client-facing share page (anon, no session). All reads/writes go through
+// the SECURITY DEFINER RPCs from 0004/0007 — base-table RLS never grants
+// anon anything directly; the token is the only credential.
+// ---------------------------------------------------------------------------
+
+export interface SharedQuoteItem {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  is_optional: boolean;
+  client_selected: boolean;
+  sort_order: number;
+}
+
+export interface SharedQuoteSection {
+  id: string;
+  name: string;
+  is_optional: boolean;
+  sort_order: number;
+  items: SharedQuoteItem[];
+}
+
+export interface SharedQuote {
+  quote: {
+    id: string;
+    status: QuoteStatus;
+    deposit_percentage: number;
+    notes: string | null;
+    terms: string | null;
+    signed_at: string | null;
+    signed_by: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  project: { name: string };
+  client: { name: string } | null;
+  sections: SharedQuoteSection[];
+}
+
+export async function getSharedQuote(token: string): Promise<SharedQuote | null> {
+  const { data, error } = await supabase.rpc("get_shared_quote", { p_token: token });
+  if (error) throw error;
+  return (data as SharedQuote | null) ?? null;
+}
+
+// Note: which optional sections/items the client has checked is kept as
+// local view state on the share page only (never written back) — see
+// SharedQuotePage. The only client-facing write is signSharedQuote below.
+
+export async function signSharedQuote(token: string, signedBy: string): Promise<void> {
+  const { error } = await supabase.rpc("sign_quote", { p_token: token, p_signed_by: signedBy });
+  if (error) throw error;
+}
