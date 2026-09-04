@@ -88,7 +88,7 @@ export function QuotesView() {
                   <tr
                     key={quote.id}
                     className="cursor-pointer"
-                    onClick={() => navigate(`/projects/${quote.project_id}`)}
+                    onClick={() => navigate(`/quotes/${quote.id}`)}
                   >
                     <td className="font-medium">{quote.project?.name ?? "—"}</td>
                     <td className="text-muted-foreground">{quote.project?.client?.name ?? "—"}</td>
