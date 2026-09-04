@@ -52,7 +52,7 @@ export default function SharedInvoicePage() {
 
   const { invoice, project, client } = data;
   const isPaid = invoice.status === "paid";
-  const number = `INV-${String(invoice.number).padStart(3, "0")}`;
+  const number = invoice.invoice_number ?? "—";
   const dueDate = formatDate(invoice.due_date);
 
   return (

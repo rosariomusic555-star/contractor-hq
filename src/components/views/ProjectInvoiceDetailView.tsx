@@ -13,7 +13,6 @@ import {
   updateInvoice,
   updateProject,
   generateShareLink,
-  invoiceNumber,
   type InvoiceStatus,
 } from "@/lib/api";
 
@@ -36,10 +35,6 @@ export function ProjectInvoiceDetailView() {
     isError,
     error,
   } = useQuery({ queryKey: ["invoice", invoiceId], queryFn: () => getInvoice(invoiceId) });
-  const { data: invoices = [], isLoading: invoicesLoading } = useQuery({
-    queryKey: ["invoices", { project: id }],
-    queryFn: () => listInvoices(id),
-  });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
@@ -95,15 +90,12 @@ export function ProjectInvoiceDetailView() {
     }
   };
 
-  if (isLoading || invoicesLoading) return <p className="text-muted-foreground">Loading invoice…</p>;
+  if (isLoading) return <p className="text-muted-foreground">Loading invoice…</p>;
   if (isError || !invoice || !project)
     return <p className="text-destructive">Failed to load invoice: {(error as Error)?.message}</p>;
 
   const meta = STATUS_META[invoice.status];
-  const number = invoiceNumber(
-    invoices.some((i) => i.id === invoice.id) ? invoices : [invoice],
-    invoice.id,
-  );
+  const number = invoice.invoice_number ?? "—";
   const persistedLink =
     invoice.share_token && invoice.status !== "draft"
       ? `${window.location.origin}/invoice/${invoice.share_token}`
