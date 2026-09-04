@@ -84,6 +84,10 @@ export interface Invoice {
   notes: string | null;
   share_token: string | null;
   paid_at: string | null;
+  // Display number ("INV-001", …), set once at creation from the count of
+  // invoices already on the project. Frozen — doesn't shift if an earlier
+  // invoice is later deleted.
+  invoice_number: string | null;
   created_at: string;
   updated_at: string;
   project?: ProjectRef | null;
@@ -484,20 +488,11 @@ export async function getInvoice(id: string): Promise<Invoice> {
 }
 
 /**
- * Display number ("INV-001", "INV-002", …) based on creation order within
- * the project. Not stored — derived from the full invoice list every time,
- * so `invoices` must be every invoice for that project (any order).
+ * Create an invoice for a project. invoice_number ("INV-001", "INV-002", …)
+ * is set once here, from a count of invoices already on the project, and
+ * stored on the row — the public share page can't otherwise derive it
+ * (RLS keeps it from seeing an invoice's sibling invoices).
  */
-export function invoiceNumber(invoices: Invoice[], invoiceId: string): string {
-  const sorted = [...invoices].sort((a, b) =>
-    a.created_at === b.created_at
-      ? a.id.localeCompare(b.id)
-      : a.created_at.localeCompare(b.created_at),
-  );
-  const index = sorted.findIndex((i) => i.id === invoiceId);
-  return `INV-${String(index + 1).padStart(3, "0")}`;
-}
-
 export async function createInvoice(input: {
   project_id: string;
   amount: number;
@@ -505,6 +500,13 @@ export async function createInvoice(input: {
   quote_id?: string | null;
   notes?: string | null;
 }): Promise<Invoice> {
+  const { count, error: countError } = await supabase
+    .from("invoices")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", input.project_id);
+  if (countError) throw countError;
+  const invoice_number = `INV-${String((count ?? 0) + 1).padStart(3, "0")}`;
+
   const { data, error } = await supabase
     .from("invoices")
     .insert({
@@ -513,6 +515,7 @@ export async function createInvoice(input: {
       due_date: input.due_date ?? null,
       quote_id: input.quote_id ?? null,
       notes: input.notes ?? null,
+      invoice_number,
     })
     .select(INVOICE_SELECT)
     .single();
@@ -616,9 +619,7 @@ export interface SharedInvoice {
     due_date: string | null;
     notes: string | null;
     paid_at: string | null;
-    // Display ordinal ("INV-00X"), computed server-side by the RPC since the
-    // public page only ever fetches this one invoice, not its siblings.
-    number: number;
+    invoice_number: string | null;
     created_at: string;
     updated_at: string;
   };

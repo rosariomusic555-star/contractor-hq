@@ -9,7 +9,6 @@ import {
   listInvoices,
   listQuotes,
   createInvoice,
-  invoiceNumber,
   quoteTotal,
   type InvoiceStatus,
 } from "@/lib/api";
@@ -119,7 +118,7 @@ export function ProjectInvoicesView() {
               >
                 <div className="min-w-0">
                   <p className="font-semibold text-foreground">
-                    {invoiceNumber(invoices, invoice.id)}
+                    {invoice.invoice_number ?? "—"}
                   </p>
                   <p className="text-sm text-muted-foreground">Due {formatDate(invoice.due_date)}</p>
                 </div>
