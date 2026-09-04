@@ -11,12 +11,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import {
   getProject,
   listQuotes,
   listInvoices,
   listMaterials,
+  listExpenses,
   updateProject,
   quoteTotal,
   materialsCogs,
@@ -54,6 +55,10 @@ export function ProjectDetailView() {
   const { data: materials = [] } = useQuery({
     queryKey: ["materials", { project: id }],
     queryFn: () => listMaterials(id),
+  });
+  const { data: expenses = [] } = useQuery({
+    queryKey: ["expenses", { project: id }],
+    queryFn: () => listExpenses(id),
   });
 
   const statusMutation = useMutation({
@@ -96,7 +101,23 @@ export function ProjectDetailView() {
       </>
     );
 
+  const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
+  const expensesSummary =
+    expenses.length === 0
+      ? "None yet"
+      : `${plural(expenses.length, "expense")} · ${formatCurrency(expensesTotal)} total`;
+
   const meta = projectStatusMeta(project.status);
+
+  // Profit Summary — the most recent quote regardless of status. "Quoted"
+  // uses quoteTotal(), the same helper the Quote card above uses, so the
+  // two always agree.
+  const mostRecentQuote = [...quotes].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const totalMaterialsItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
+
+  const quotedAmount = mostRecentQuote ? quoteTotal(mostRecentQuote.quote_sections) : null;
+  const predictedCost = totalMaterialsItems > 0 ? materialsCogs(materials) : null;
+  const actualCost = expenses.length > 0 ? expensesTotal : null;
 
   return (
     <div className="space-y-6 animate-fade-in max-w-4xl">
@@ -131,7 +152,9 @@ export function ProjectDetailView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <ProfitSummaryCard quoted={quotedAmount} predictedCost={predictedCost} actualCost={actualCost} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <HubCard
           title="Materials sheet"
           summary={materialsSummary}
@@ -147,7 +170,85 @@ export function ProjectDetailView() {
           summary={invoicesSummary}
           onOpen={() => navigate(`/projects/${id}/invoices`)}
         />
+        <HubCard
+          title="Expenses"
+          summary={expensesSummary}
+          onOpen={() => navigate(`/projects/${id}/expenses`)}
+        />
       </div>
+    </div>
+  );
+}
+
+function money(v: number | null): string {
+  return v === null ? "—" : formatCurrency(v);
+}
+
+function profitColor(v: number): string {
+  return v >= 0 ? "text-success" : "text-destructive";
+}
+
+function ProfitSummaryCard({
+  quoted,
+  predictedCost,
+  actualCost,
+}: {
+  quoted: number | null;
+  predictedCost: number | null;
+  actualCost: number | null;
+}) {
+  const predictedProfit = quoted !== null && predictedCost !== null ? quoted - predictedCost : null;
+  const actualProfit = quoted !== null && actualCost !== null ? quoted - actualCost : null;
+  // Margin is undefined at a $0 quote — leave it off rather than show ±Infinity/NaN.
+  const predictedMargin =
+    predictedProfit !== null && quoted ? (predictedProfit / quoted) * 100 : null;
+  const actualMargin = actualProfit !== null && quoted ? (actualProfit / quoted) * 100 : null;
+
+  return (
+    <div className="stat-card space-y-4">
+      <h2 className="text-lg font-semibold text-foreground">Profit Summary</h2>
+
+      <div className="grid grid-cols-3 gap-4 text-sm">
+        <div>
+          <p className="text-muted-foreground">Quoted</p>
+          <p className="font-semibold text-foreground">{money(quoted)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Predicted cost</p>
+          <p className="font-semibold text-foreground">{money(predictedCost)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Actual cost</p>
+          <p className="font-semibold text-foreground">{money(actualCost)}</p>
+        </div>
+      </div>
+
+      {(predictedProfit !== null || actualProfit !== null) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-border">
+          {predictedProfit !== null && (
+            <div>
+              <p className="text-muted-foreground text-sm">Predicted profit</p>
+              <p className={cn("text-lg font-bold", profitColor(predictedProfit))}>
+                {formatCurrency(predictedProfit)}
+                {predictedMargin !== null && (
+                  <span className="text-sm font-medium ml-1.5">({predictedMargin.toFixed(0)}%)</span>
+                )}
+              </p>
+            </div>
+          )}
+          {actualProfit !== null && (
+            <div>
+              <p className="text-muted-foreground text-sm">Actual profit</p>
+              <p className={cn("text-lg font-bold", profitColor(actualProfit))}>
+                {formatCurrency(actualProfit)}
+                {actualMargin !== null && (
+                  <span className="text-sm font-medium ml-1.5">({actualMargin.toFixed(0)}%)</span>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
