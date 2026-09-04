@@ -9,6 +9,7 @@ import { DashboardView } from "@/components/views/DashboardView";
 import { ProjectsView } from "@/components/views/ProjectsView";
 import { ProjectDetailView } from "@/components/views/ProjectDetailView";
 import { ProjectSubPage } from "@/components/views/ProjectSubPage";
+import { ProjectMaterialsView } from "@/components/views/ProjectMaterialsView";
 import { QuotesView } from "@/components/views/QuotesView";
 import { InvoicesView } from "@/components/views/InvoicesView";
 import { RevenueView } from "@/components/views/RevenueView";
@@ -31,10 +32,7 @@ const App = () => (
               <Route path="/dashboard" element={<DashboardView />} />
               <Route path="/projects" element={<ProjectsView />} />
               <Route path="/projects/:id" element={<ProjectDetailView />} />
-              <Route
-                path="/projects/:id/materials"
-                element={<ProjectSubPage title="Materials sheet" />}
-              />
+              <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
               <Route path="/projects/:id/quote" element={<ProjectSubPage title="Quote" />} />
               <Route
                 path="/projects/:id/invoices"

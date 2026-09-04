@@ -251,6 +251,68 @@ export async function listMaterials(projectId: string): Promise<MaterialsSection
   return data ?? [];
 }
 
+export async function createMaterialsSection(
+  projectId: string,
+  input: { name: string; sort_order?: number },
+): Promise<MaterialsSection> {
+  const { data, error } = await supabase
+    .from("materials_sections")
+    .insert({
+      project_id: projectId,
+      name: input.name,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select("*, materials_items(*)")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMaterialsSection(
+  id: string,
+  patch: Partial<Pick<MaterialsSection, "name" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("materials_sections").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteMaterialsSection(id: string): Promise<void> {
+  const { error } = await supabase.from("materials_sections").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function addMaterialsItem(
+  sectionId: string,
+  input: { name?: string; quantity?: number; unit_cost?: number; sort_order?: number },
+): Promise<MaterialsItem> {
+  const { data, error } = await supabase
+    .from("materials_items")
+    .insert({
+      section_id: sectionId,
+      name: input.name ?? "",
+      quantity: input.quantity ?? 0,
+      unit_cost: input.unit_cost ?? 0,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMaterialsItem(
+  id: string,
+  patch: Partial<Pick<MaterialsItem, "name" | "quantity" | "unit_cost" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("materials_items").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteMaterialsItem(id: string): Promise<void> {
+  const { error } = await supabase.from("materials_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ---------------------------------------------------------------------------
 // Quotes
 // ---------------------------------------------------------------------------

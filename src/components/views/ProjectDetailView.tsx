@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils";
 import {
   getProject,
   listQuotes,
@@ -72,7 +73,7 @@ export function ProjectDetailView() {
   const materialsSummary =
     materials.length === 0
       ? "Not started"
-      : `${plural(materials.length, "section")} · ${money(materialsCogs(materials))} COGS`;
+      : `${plural(materials.length, "section")} · ${formatCurrency(materialsCogs(materials))} total cost`;
 
   const quoteSummary =
     quotes.length === 0 ? "Not started" : quoteStatusLabel[quotes[0].status];
