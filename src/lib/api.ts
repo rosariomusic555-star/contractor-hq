@@ -110,6 +110,17 @@ export interface MaterialsSection {
   materials_items: MaterialsItem[];
 }
 
+export interface Expense {
+  id: string;
+  project_id: string;
+  user_id: string;
+  name: string;
+  amount: number;
+  // For the contractor's reference only — never used in any calculation.
+  date: string | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Derived amounts
 // ---------------------------------------------------------------------------
@@ -533,6 +544,58 @@ export async function updateInvoice(
 
 export async function deleteInvoice(id: string): Promise<void> {
   const { error } = await supabase.from("invoices").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Expenses
+// ---------------------------------------------------------------------------
+
+export async function listExpenses(projectId: string): Promise<Expense[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * expenses.user_id has no `default auth.uid()` (unlike clients/projects/
+ * quotes/invoices), so it has to be set explicitly here from the current
+ * session — RLS's WITH CHECK rejects the insert otherwise.
+ */
+export async function createExpense(input: {
+  project_id: string;
+  name: string;
+  amount: number;
+  date?: string | null;
+}): Promise<Expense> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error("Not signed in");
+
+  const { data, error } = await supabase
+    .from("expenses")
+    .insert({
+      project_id: input.project_id,
+      user_id: user.id,
+      name: input.name,
+      amount: input.amount,
+      date: input.date ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteExpense(id: string): Promise<void> {
+  const { error } = await supabase.from("expenses").delete().eq("id", id);
   if (error) throw error;
 }
 
