@@ -10,15 +10,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { InvoiceModal } from "@/components/modals/InvoiceModal";
 import { useToast } from "@/hooks/use-toast";
-import {
-  listInvoices,
-  listProjects,
-  createInvoice,
-  deleteInvoice,
-  type InvoiceStatus,
-} from "@/lib/api";
+import { listInvoices, deleteInvoice, type InvoiceStatus } from "@/lib/api";
 
 const statusStyles: Record<InvoiceStatus, string> = {
   draft: "badge-status badge-draft",
@@ -29,7 +22,6 @@ const statusStyles: Record<InvoiceStatus, string> = {
 
 export function InvoicesView() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -37,14 +29,6 @@ export function InvoicesView() {
   const { data: invoices = [], isLoading, isError, error } = useQuery({
     queryKey: ["invoices"],
     queryFn: () => listInvoices(),
-  });
-  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
-
-  const createMutation = useMutation({
-    mutationFn: createInvoice,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoices"] }),
-    onError: (err: Error) =>
-      toast({ title: "Couldn't create invoice", description: err.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -79,8 +63,7 @@ export function InvoicesView() {
           </p>
         </div>
         <Button
-          onClick={() => setIsModalOpen(true)}
-          disabled={projects.length === 0}
+          onClick={() => navigate("/invoices/new")}
           className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -143,11 +126,13 @@ export function InvoicesView() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => navigate(`/projects/${invoice.project_id}`)}
-                          >
-                            Open project
-                          </DropdownMenuItem>
+                          {invoice.project_id && (
+                            <DropdownMenuItem
+                              onClick={() => navigate(`/projects/${invoice.project_id}`)}
+                            >
+                              Open project
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => deleteMutation.mutate(invoice.id)}
@@ -163,9 +148,7 @@ export function InvoicesView() {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={6} className="text-muted-foreground text-center py-8">
-                      {projects.length === 0
-                        ? "Create a project first, then add invoices to it."
-                        : "No invoices yet."}
+                      No invoices yet.
                     </td>
                   </tr>
                 )}
@@ -174,13 +157,6 @@ export function InvoicesView() {
           </div>
         </div>
       )}
-
-      <InvoiceModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        projects={projects}
-        onSubmit={(data) => createMutation.mutate(data)}
-      />
     </div>
   );
 }

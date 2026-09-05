@@ -59,7 +59,15 @@ export interface QuoteSection {
 
 export interface Quote {
   id: string;
-  project_id: string;
+  // Nullable — a quote can stand alone, with no project. See
+  // profitQuotedTotal-adjacent selection helpers and QuoteWorkspace, which
+  // both branch on this being null.
+  project_id: string | null;
+  // Direct client, independent of any project. Standalone quotes rely on
+  // this entirely; project-linked quotes can leave it null and fall back
+  // to the project's client (see get_shared_quote's coalesce), or set it
+  // directly to override.
+  client_id: string | null;
   user_id: string;
   status: QuoteStatus;
   deposit_percentage: number;
@@ -71,11 +79,13 @@ export interface Quote {
   updated_at: string;
   quote_sections: QuoteSection[];
   project?: ProjectRef | null;
+  client?: ClientRef | null;
 }
 
 export interface Invoice {
   id: string;
-  project_id: string;
+  // Nullable — an invoice can stand alone, with no project.
+  project_id: string | null;
   quote_id: string | null;
   user_id: string;
   amount: number;
@@ -140,6 +150,21 @@ export function quoteTotal(sections: QuoteSection[] = []): number {
     }
   }
   return total;
+}
+
+/**
+ * Which quote represents "the" quote for a project when there can be many:
+ * the most recently approved one; failing that, the most recently sent one;
+ * failing that, the most recent draft. Used by the Profit Summary card and
+ * the Quotes hub-card summary so both agree on the same headline quote.
+ */
+export function pickHeadlineQuote(quotes: Quote[]): Quote | undefined {
+  const byRecency = (a: Quote, b: Quote) => b.created_at.localeCompare(a.created_at);
+  const mostRecentWithStatus = (status: QuoteStatus) =>
+    quotes.filter((q) => q.status === status).sort(byRecency)[0];
+  return (
+    mostRecentWithStatus("approved") ?? mostRecentWithStatus("sent") ?? mostRecentWithStatus("draft")
+  );
 }
 
 /** Materials cost of goods = sum of quantity * unit_cost across all items. */
@@ -333,7 +358,7 @@ export async function deleteMaterialsItem(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const QUOTE_SELECT =
-  "*, project:projects(name, client:clients(name)), quote_sections(*, quote_items(*))";
+  "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*))";
 
 function sortQuote(quote: Quote): Quote {
   quote.quote_sections?.sort((a, b) => a.sort_order - b.sort_order);
@@ -364,22 +389,34 @@ export async function getQuote(id: string): Promise<Quote> {
   return sortQuote(data);
 }
 
-/** Create a quote for a project. Starts with no sections, like the materials sheet. */
-export async function createQuote(projectId: string): Promise<Quote> {
+/**
+ * Create a quote — status 'draft', no sections yet. project_id and client_id
+ * are both optional: a quote can stand alone with neither, be linked to a
+ * project only (client resolved via the project at share time), or carry
+ * its own client_id independent of any project.
+ */
+export async function createQuote(
+  input: {
+    project_id?: string | null;
+    client_id?: string | null;
+    deposit_percentage?: number;
+    notes?: string | null;
+    terms?: string | null;
+  } = {},
+): Promise<Quote> {
   const { data: quote, error } = await supabase
     .from("quotes")
-    .insert({ project_id: projectId })
+    .insert({
+      project_id: input.project_id ?? null,
+      client_id: input.client_id ?? null,
+      deposit_percentage: input.deposit_percentage ?? 25,
+      notes: input.notes ?? null,
+      terms: input.terms ?? null,
+    })
     .select("id")
     .single();
   if (error) throw error;
   return getQuote(quote.id);
-}
-
-/** The project's quote, creating one (draft, no sections) if it doesn't exist yet. */
-export async function getOrCreateQuote(projectId: string): Promise<Quote> {
-  const existing = await listQuotes(projectId);
-  if (existing[0]) return existing[0];
-  return createQuote(projectId);
 }
 
 export async function updateQuote(
@@ -499,29 +536,31 @@ export async function getInvoice(id: string): Promise<Invoice> {
 }
 
 /**
- * Create an invoice for a project. invoice_number ("INV-001", "INV-002", …)
- * is set once here, from a count of invoices already on the project, and
- * stored on the row — the public share page can't otherwise derive it
- * (RLS keeps it from seeing an invoice's sibling invoices).
+ * Create an invoice, optionally linked to a project. invoice_number
+ * ("INV-001", "INV-002", …) is set once here and stored on the row — the
+ * public share page can't otherwise derive it (RLS keeps it from seeing an
+ * invoice's sibling invoices) — counted among invoices on the same project,
+ * or among other standalone (project-less) invoices when there's no project.
  */
 export async function createInvoice(input: {
-  project_id: string;
+  project_id?: string | null;
   amount: number;
   due_date?: string | null;
   quote_id?: string | null;
   notes?: string | null;
 }): Promise<Invoice> {
-  const { count, error: countError } = await supabase
-    .from("invoices")
-    .select("id", { count: "exact", head: true })
-    .eq("project_id", input.project_id);
+  let countQuery = supabase.from("invoices").select("id", { count: "exact", head: true });
+  countQuery = input.project_id
+    ? countQuery.eq("project_id", input.project_id)
+    : countQuery.is("project_id", null);
+  const { count, error: countError } = await countQuery;
   if (countError) throw countError;
   const invoice_number = `INV-${String((count ?? 0) + 1).padStart(3, "0")}`;
 
   const { data, error } = await supabase
     .from("invoices")
     .insert({
-      project_id: input.project_id,
+      project_id: input.project_id ?? null,
       amount: input.amount,
       due_date: input.due_date ?? null,
       quote_id: input.quote_id ?? null,
@@ -654,7 +693,8 @@ export interface SharedQuote {
     created_at: string;
     updated_at: string;
   };
-  project: { name: string };
+  // Null for a standalone quote (no linked project).
+  project: { name: string } | null;
   client: { name: string } | null;
   sections: SharedQuoteSection[];
 }
@@ -686,7 +726,8 @@ export interface SharedInvoice {
     created_at: string;
     updated_at: string;
   };
-  project: { name: string };
+  // Null for a standalone invoice (no linked project).
+  project: { name: string } | null;
   client: { name: string } | null;
 }
 

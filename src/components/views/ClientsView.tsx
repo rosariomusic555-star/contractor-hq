@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, MoreHorizontal, Phone, Mail, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,19 @@ export function ClientsView() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Dashboard's "Add Client" quick action links here with ?new=1 to open
+  // the modal immediately instead of landing on the plain list.
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setIsModalOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("new");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data: clients = [], isLoading, isError, error } = useQuery({
     queryKey: ["clients"],
@@ -56,7 +70,7 @@ export function ClientsView() {
       if (p.client_id) ensure(p.client_id).projects += 1;
     });
     invoices.forEach((inv) => {
-      const clientId = projectClient.get(inv.project_id) ?? null;
+      const clientId = inv.project_id ? (projectClient.get(inv.project_id) ?? null) : null;
       if (clientId) ensure(clientId).revenue += Number(inv.amount);
     });
     return map;

@@ -1,10 +1,10 @@
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getProject, getOrCreateQuote } from "@/lib/api";
+import { getProject, getQuote } from "@/lib/api";
 import { QuoteWorkspace } from "./QuoteWorkspace";
 
-export function ProjectQuoteView() {
-  const { id = "" } = useParams();
+export function ProjectQuoteDetailView() {
+  const { id = "", quoteId = "" } = useParams();
 
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
   const {
@@ -12,10 +12,7 @@ export function ProjectQuoteView() {
     isLoading,
     isError,
     error,
-  } = useQuery({
-    queryKey: ["quote", { project: id }],
-    queryFn: () => getOrCreateQuote(id),
-  });
+  } = useQuery({ queryKey: ["quote", quoteId], queryFn: () => getQuote(quoteId) });
 
   if (isLoading) return <p className="text-muted-foreground">Loading quote…</p>;
   if (isError || !quote || !project)
@@ -26,8 +23,8 @@ export function ProjectQuoteView() {
       quote={quote}
       projectId={id}
       projectName={project.name}
-      backHref={`/projects/${id}`}
-      backLabel="Back to project"
+      backHref={`/projects/${id}/quotes`}
+      backLabel="Back to quotes"
     />
   );
 }

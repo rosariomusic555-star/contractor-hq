@@ -57,8 +57,10 @@ type LivePrices = Record<string, number>;
 
 interface QuoteWorkspaceProps {
   quote: Quote;
-  projectId: string;
-  projectName: string;
+  // Null for a standalone quote (no linked project) — the materials/margin
+  // panel and the project-status-promotion on send are both skipped.
+  projectId: string | null;
+  projectName?: string | null;
   /** Where "Back to ..." goes and what it's labeled — the only thing that
    * differs between reaching this from a project vs. from the quotes list. */
   backHref: string;
@@ -67,9 +69,9 @@ interface QuoteWorkspaceProps {
 
 /**
  * The full quote editor — sections/items, margin panel, notes/terms/deposit,
- * send flow. Shared by ProjectQuoteView (/projects/:id/quote) and
- * QuoteDetailView (/quotes/:quoteId) so there's exactly one place that knows
- * how to render a quote; only how you get here and get back differs.
+ * send flow. Shared by every route that opens a quote (project-scoped and
+ * standalone) so there's exactly one place that knows how to render one;
+ * only how you get here, get back, and whether a project is attached differ.
  */
 export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLabel }: QuoteWorkspaceProps) {
   const { toast } = useToast();
@@ -79,7 +81,8 @@ export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLa
 
   const { data: materials = [] } = useQuery({
     queryKey: ["materials", { project: projectId }],
-    queryFn: () => listMaterials(projectId),
+    queryFn: () => listMaterials(projectId!),
+    enabled: !!projectId,
   });
 
   const sections = quote.quote_sections;
@@ -160,7 +163,7 @@ export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLa
     mutationFn: async () => {
       const token = quote.share_token ?? (await generateShareLink("quotes", quote.id));
       await updateQuote(quote.id, { status: "sent" });
-      await updateProject(projectId, { status: "quote_sent" });
+      if (projectId) await updateProject(projectId, { status: "quote_sent" });
       return token;
     },
     onSuccess: (token) => {
@@ -219,7 +222,11 @@ export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLa
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quote</h1>
-          <p className="text-muted-foreground mt-1">{projectName}</p>
+          {projectName ? (
+            <p className="text-muted-foreground mt-1">{projectName}</p>
+          ) : (
+            <p className="text-muted-foreground mt-1">No project linked</p>
+          )}
           <span className={cn(meta.badge, "mt-2 inline-block")}>{meta.label}</span>
         </div>
 
@@ -228,16 +235,24 @@ export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLa
             <span className="text-muted-foreground">Quote total</span>
             <span className="font-semibold text-foreground">{formatCurrency(quoteTotalLive)}</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Materials cost</span>
-            <span className="font-semibold text-foreground">{formatCurrency(materialsCost)}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
-            <span className="text-muted-foreground">Margin</span>
-            <span className={cn("font-bold", marginColor)}>
-              {formatCurrency(margin)} ({marginPct.toFixed(0)}%)
-            </span>
-          </div>
+          {projectId ? (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Materials cost</span>
+                <span className="font-semibold text-foreground">{formatCurrency(materialsCost)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
+                <span className="text-muted-foreground">Margin</span>
+                <span className={cn("font-bold", marginColor)}>
+                  {formatCurrency(margin)} ({marginPct.toFixed(0)}%)
+                </span>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground pt-2 border-t border-border">
+              Materials cost unavailable — link a project to see margin.
+            </p>
+          )}
         </div>
       </div>
 

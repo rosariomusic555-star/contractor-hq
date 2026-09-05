@@ -9,13 +9,16 @@ import { DashboardView } from "@/components/views/DashboardView";
 import { ProjectsView } from "@/components/views/ProjectsView";
 import { ProjectDetailView } from "@/components/views/ProjectDetailView";
 import { ProjectMaterialsView } from "@/components/views/ProjectMaterialsView";
-import { ProjectQuoteView } from "@/components/views/ProjectQuoteView";
+import { ProjectQuotesView } from "@/components/views/ProjectQuotesView";
+import { ProjectQuoteDetailView } from "@/components/views/ProjectQuoteDetailView";
 import { ProjectInvoicesView } from "@/components/views/ProjectInvoicesView";
 import { ProjectInvoiceDetailView } from "@/components/views/ProjectInvoiceDetailView";
 import { ProjectExpensesView } from "@/components/views/ProjectExpensesView";
 import { QuotesView } from "@/components/views/QuotesView";
+import { QuoteNewView } from "@/components/views/QuoteNewView";
 import { QuoteDetailView } from "@/components/views/QuoteDetailView";
 import { InvoicesView } from "@/components/views/InvoicesView";
+import { InvoiceNewView } from "@/components/views/InvoiceNewView";
 import { InvoiceDetailView } from "@/components/views/InvoiceDetailView";
 import { RevenueView } from "@/components/views/RevenueView";
 import { ClientsView } from "@/components/views/ClientsView";
@@ -44,7 +47,8 @@ const App = () => (
               <Route path="/projects" element={<ProjectsView />} />
               <Route path="/projects/:id" element={<ProjectDetailView />} />
               <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
-              <Route path="/projects/:id/quote" element={<ProjectQuoteView />} />
+              <Route path="/projects/:id/quotes" element={<ProjectQuotesView />} />
+              <Route path="/projects/:id/quotes/:quoteId" element={<ProjectQuoteDetailView />} />
               <Route path="/projects/:id/invoices" element={<ProjectInvoicesView />} />
               <Route
                 path="/projects/:id/invoices/:invoiceId"
@@ -52,8 +56,10 @@ const App = () => (
               />
               <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
               <Route path="/quotes" element={<QuotesView />} />
+              <Route path="/quotes/new" element={<QuoteNewView />} />
               <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
               <Route path="/invoices" element={<InvoicesView />} />
+              <Route path="/invoices/new" element={<InvoiceNewView />} />
               <Route path="/invoices/:invoiceId" element={<InvoiceDetailView />} />
               <Route path="/revenue" element={<RevenueView />} />
               <Route path="/clients" element={<ClientsView />} />

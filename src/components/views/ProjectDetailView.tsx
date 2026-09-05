@@ -20,6 +20,7 @@ import {
   listExpenses,
   updateProject,
   quoteTotal,
+  pickHeadlineQuote,
   materialsCogs,
   type ProjectStatus,
   type QuoteStatus,
@@ -79,10 +80,24 @@ export function ProjectDetailView() {
       ? "Not started"
       : `${plural(materials.length, "section")} · ${formatCurrency(materialsCogs(materials))} total cost`;
 
-  const quoteSummary =
-    quotes.length === 0
-      ? "Not started"
-      : `${quoteStatusLabel[quotes[0].status]} · ${formatCurrency(quoteTotal(quotes[0].quote_sections))} total`;
+  // Quotes card + Profit Summary both key off the same "headline" quote
+  // (most recently approved, else sent, else draft) so they always agree.
+  const headlineQuote = pickHeadlineQuote(quotes);
+  const quotesSummary =
+    quotes.length === 0 ? (
+      "Not started"
+    ) : (
+      <>
+        {plural(quotes.length, "quote")}
+        {headlineQuote && (
+          <>
+            {" · "}
+            {quoteStatusLabel[headlineQuote.status]} ·{" "}
+            {formatCurrency(quoteTotal(headlineQuote.quote_sections))}
+          </>
+        )}
+      </>
+    );
 
   const invoicesTotal = invoices.reduce((s, i) => s + Number(i.amount), 0);
   const outstandingCount = invoices.filter((i) => i.status === "sent").length;
@@ -109,13 +124,9 @@ export function ProjectDetailView() {
 
   const meta = projectStatusMeta(project.status);
 
-  // Profit Summary — the most recent quote regardless of status. "Quoted"
-  // uses quoteTotal(), the same helper the Quote card above uses, so the
-  // two always agree.
-  const mostRecentQuote = [...quotes].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const totalMaterialsItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
 
-  const quotedAmount = mostRecentQuote ? quoteTotal(mostRecentQuote.quote_sections) : null;
+  const quotedAmount = headlineQuote ? quoteTotal(headlineQuote.quote_sections) : null;
   const predictedCost = totalMaterialsItems > 0 ? materialsCogs(materials) : null;
   const actualCost = expenses.length > 0 ? expensesTotal : null;
 
@@ -161,9 +172,9 @@ export function ProjectDetailView() {
           onOpen={() => navigate(`/projects/${id}/materials`)}
         />
         <HubCard
-          title="Quote"
-          summary={quoteSummary}
-          onOpen={() => navigate(`/projects/${id}/quote`)}
+          title="Quotes"
+          summary={quotesSummary}
+          onOpen={() => navigate(`/projects/${id}/quotes`)}
         />
         <HubCard
           title="Invoices"

@@ -10,7 +10,7 @@ export function QuickActions() {
       <h3 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h3>
       <div className="grid grid-cols-2 gap-3">
         <Button
-          onClick={() => navigate("/quotes")}
+          onClick={() => navigate("/quotes/new")}
           className="h-auto py-4 flex flex-col items-center gap-2 bg-primary hover:bg-primary/90"
         >
           <div className="p-2 rounded-lg bg-primary-foreground/10">
@@ -19,7 +19,7 @@ export function QuickActions() {
           <span className="text-sm font-medium">New Quote</span>
         </Button>
         <Button
-          onClick={() => navigate("/invoices")}
+          onClick={() => navigate("/invoices/new")}
           className="h-auto py-4 flex flex-col items-center gap-2 bg-accent hover:bg-accent/90 text-accent-foreground"
         >
           <div className="p-2 rounded-lg bg-accent-foreground/10">
@@ -28,7 +28,7 @@ export function QuickActions() {
           <span className="text-sm font-medium">New Invoice</span>
         </Button>
         <Button
-          onClick={() => navigate("/clients")}
+          onClick={() => navigate("/clients?new=1")}
           variant="outline"
           className="h-auto py-4 flex flex-col items-center gap-2 col-span-2"
         >
