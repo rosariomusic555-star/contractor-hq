@@ -1,5 +1,6 @@
 import { FileText, Receipt, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { listQuotes, listInvoices, quoteTotal, type Quote, type Invoice } from "@/lib/api";
 
@@ -14,6 +15,9 @@ interface Activity {
   amount: number;
   status: ActivityStatus;
   createdAt: string;
+  // Quote builder for quotes; invoice detail for both invoices and
+  // payments (a payment is just a paid invoice).
+  linkTo: string;
 }
 
 const iconMap: Record<ActivityType, typeof FileText> = {
@@ -95,6 +99,7 @@ export function RecentActivity() {
       amount: quoteTotal(q.quote_sections),
       status: quoteStatus[q.status],
       createdAt: q.created_at,
+      linkTo: `/quotes/${q.id}`,
     })),
     ...invoices.map<Activity>((i) => ({
       id: `invoice-${i.id}`,
@@ -104,6 +109,7 @@ export function RecentActivity() {
       amount: Number(i.amount),
       status: invoiceStatus[i.status],
       createdAt: i.created_at,
+      linkTo: `/invoices/${i.id}`,
     })),
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -121,9 +127,10 @@ export function RecentActivity() {
           const StatusIcon = statusConfig[activity.status].icon;
 
           return (
-            <div
+            <Link
               key={activity.id}
-              className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+              to={activity.linkTo}
+              className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 hover:shadow-sm transition-all"
             >
               <div className="p-2 rounded-lg bg-muted">
                 <Icon className="w-4 h-4 text-muted-foreground" />
@@ -139,7 +146,7 @@ export function RecentActivity() {
                 <p className="text-sm font-semibold text-foreground">{money(activity.amount)}</p>
                 <p className="text-xs text-muted-foreground">{timeAgo(activity.createdAt)}</p>
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>
