@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -274,12 +273,13 @@ function HubCard({
   onOpen: () => void;
 }) {
   return (
-    <div className="stat-card flex flex-col gap-3">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="stat-card flex flex-col gap-3 text-left hover:shadow-md transition-shadow"
+    >
       <h2 className="text-lg font-semibold text-foreground">{title}</h2>
       <p className="text-sm text-muted-foreground flex-1">{summary}</p>
-      <Button variant="outline" size="sm" className="self-start" onClick={onOpen}>
-        Open
-      </Button>
-    </div>
+    </button>
   );
 }
