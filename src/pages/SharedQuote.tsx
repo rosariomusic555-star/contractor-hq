@@ -105,7 +105,9 @@ export default function SharedQuotePage() {
         <header className="space-y-2">
           <p className="text-sm font-bold tracking-wide text-primary">ContractorPro</p>
           <div className="flex items-start justify-between gap-4 flex-wrap">
-            <h1 className="text-2xl font-bold text-foreground">{project.name} — Proposal</h1>
+            <h1 className="text-2xl font-bold text-foreground">
+              {project ? `${project.name} — Proposal` : "Proposal"}
+            </h1>
             {isApproved && <span className="badge-status badge-paid shrink-0">Approved ✓</span>}
           </div>
           {client?.name && <p className="text-muted-foreground">Prepared for {client.name}</p>}

@@ -25,8 +25,10 @@ const STATUS_META: Record<InvoiceStatus, { label: string; badge: string }> = {
 
 interface InvoiceWorkspaceProps {
   invoice: Invoice;
-  projectId: string;
-  projectStatus: ProjectStatus;
+  // Null for a standalone invoice (no linked project) — the project-status
+  // promotion on send/mark-paid is skipped entirely.
+  projectId: string | null;
+  projectStatus: ProjectStatus | null;
   /** Where "Back to ..." goes — the only thing that differs between
    * reaching this from a project vs. from the invoices list. */
   backHref: string;
@@ -69,7 +71,7 @@ export function InvoiceWorkspace({
     mutationFn: async () => {
       const token = invoice.share_token ?? (await generateShareLink("invoices", invoice.id));
       await updateInvoice(invoice.id, { status: "sent" });
-      if (projectStatus !== "paid") {
+      if (projectId && projectStatus !== "paid") {
         await updateProject(projectId, { status: "invoiced" });
       }
       return token;
@@ -84,9 +86,11 @@ export function InvoiceWorkspace({
   const markPaidMut = useMutation({
     mutationFn: async () => {
       await updateInvoice(invoice.id, { status: "paid", paid_at: new Date().toISOString() });
-      const all = await listInvoices(projectId);
-      const allPaid = all.every((i) => i.id === invoice.id || i.status === "paid");
-      if (allPaid) await updateProject(projectId, { status: "paid" });
+      if (projectId) {
+        const all = await listInvoices(projectId);
+        const allPaid = all.every((i) => i.id === invoice.id || i.status === "paid");
+        if (allPaid) await updateProject(projectId, { status: "paid" });
+      }
     },
     onSuccess: () => {
       invalidate();

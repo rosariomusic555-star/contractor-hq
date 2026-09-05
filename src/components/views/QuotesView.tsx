@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Search, MoreHorizontal, Trash2 } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { listQuotes, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
+import { listQuotes, createQuote, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
 
 const statusStyles: Record<QuoteStatus, string> = {
   draft: "badge-status badge-draft",
@@ -37,21 +37,40 @@ export function QuotesView() {
       toast({ title: "Couldn't delete quote", description: err.message, variant: "destructive" }),
   });
 
+  // Blank draft — no client, no project, default deposit — straight into
+  // the quote builder, which is where all quote configuration now happens.
+  const createMutation = useMutation({
+    mutationFn: () => createQuote(),
+    onSuccess: (quote) => navigate(`/quotes/${quote.id}`),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
+  });
+
   const filtered = quotes.filter((quote) => {
     const term = searchTerm.toLowerCase();
     return (
       (quote.project?.name ?? "").toLowerCase().includes(term) ||
-      (quote.project?.client?.name ?? "").toLowerCase().includes(term)
+      (quote.client?.name ?? quote.project?.client?.name ?? "").toLowerCase().includes(term)
     );
   });
 
   return (
     <div className="space-y-4 md:space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quotes</h1>
-        <p className="text-muted-foreground mt-1">
-          Quotes across all projects. Create one from a project.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quotes</h1>
+          <p className="text-muted-foreground mt-1">
+            Every quote — standalone or linked to a project.
+          </p>
+        </div>
+        <Button
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending}
+          className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          New Quote
+        </Button>
       </div>
 
       <div className="relative">
@@ -91,7 +110,9 @@ export function QuotesView() {
                     onClick={() => navigate(`/quotes/${quote.id}`)}
                   >
                     <td className="font-medium">{quote.project?.name ?? "—"}</td>
-                    <td className="text-muted-foreground">{quote.project?.client?.name ?? "—"}</td>
+                    <td className="text-muted-foreground">
+                      {quote.client?.name ?? quote.project?.client?.name ?? "—"}
+                    </td>
                     <td className="font-semibold">
                       ${Math.round(quoteTotal(quote.quote_sections)).toLocaleString()}
                     </td>
@@ -109,9 +130,13 @@ export function QuotesView() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => navigate(`/projects/${quote.project_id}`)}>
-                            Open project
-                          </DropdownMenuItem>
+                          {quote.project_id && (
+                            <DropdownMenuItem
+                              onClick={() => navigate(`/projects/${quote.project_id}`)}
+                            >
+                              Open project
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => deleteMutation.mutate(quote.id)}

@@ -1,18 +1,19 @@
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getProject, getQuote } from "@/lib/api";
+import { getQuote } from "@/lib/api";
 import { QuoteWorkspace } from "./QuoteWorkspace";
 
-/** Direct route to a single quote (/quotes/:quoteId) — same editor as
- * ProjectQuoteView, just entered from the cross-project Quotes list instead
- * of from a project, and without the project page around it. */
+/** Direct route to a single quote (/quotes/:quoteId) — the single place a
+ * quote is ever edited, whether it's standalone or linked to a project.
+ * QuoteWorkspace derives everything it needs (project, client) straight
+ * from the quote itself, so this wrapper only needs the quote. */
 export function QuoteDetailView() {
   const { quoteId = "" } = useParams();
 
   const {
     data: quote,
-    isLoading: isQuoteLoading,
-    isError: isQuoteError,
+    isLoading,
+    isError,
     error,
   } = useQuery({
     queryKey: ["quote", quoteId],
@@ -20,26 +21,12 @@ export function QuoteDetailView() {
     enabled: quoteId.length > 0,
   });
 
-  const { data: project, isLoading: isProjectLoading } = useQuery({
-    queryKey: ["projects", quote?.project_id],
-    queryFn: () => getProject(quote!.project_id),
-    enabled: !!quote?.project_id,
-  });
-
-  if (isQuoteLoading || (!!quote && isProjectLoading)) {
+  if (isLoading) {
     return <p className="text-muted-foreground">Loading quote…</p>;
   }
-  if (isQuoteError || !quote || !project) {
+  if (isError || !quote) {
     return <p className="text-destructive">Failed to load quote: {(error as Error)?.message}</p>;
   }
 
-  return (
-    <QuoteWorkspace
-      quote={quote}
-      projectId={quote.project_id}
-      projectName={project.name}
-      backHref="/quotes"
-      backLabel="Back to quotes"
-    />
-  );
+  return <QuoteWorkspace quote={quote} backHref="/quotes" backLabel="Back to quotes" />;
 }

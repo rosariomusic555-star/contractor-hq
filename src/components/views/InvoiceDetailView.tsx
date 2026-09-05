@@ -5,7 +5,9 @@ import { InvoiceWorkspace } from "./InvoiceWorkspace";
 
 /** Direct route to a single invoice (/invoices/:invoiceId) — same editor as
  * ProjectInvoiceDetailView, just entered from the cross-project Invoices
- * list instead of from a project, and without the project page around it. */
+ * list instead of from a project, and without the project page around it.
+ * Works equally for a standalone invoice (invoice.project_id is null) — no
+ * project is ever fetched or required for one. */
 export function InvoiceDetailView() {
   const { invoiceId = "" } = useParams();
 
@@ -22,14 +24,14 @@ export function InvoiceDetailView() {
 
   const { data: project, isLoading: isProjectLoading } = useQuery({
     queryKey: ["projects", invoice?.project_id],
-    queryFn: () => getProject(invoice!.project_id),
+    queryFn: () => getProject(invoice!.project_id!),
     enabled: !!invoice?.project_id,
   });
 
-  if (isInvoiceLoading || (!!invoice && isProjectLoading)) {
+  if (isInvoiceLoading || (!!invoice?.project_id && isProjectLoading)) {
     return <p className="text-muted-foreground">Loading invoice…</p>;
   }
-  if (isInvoiceError || !invoice || !project) {
+  if (isInvoiceError || !invoice) {
     return <p className="text-destructive">Failed to load invoice: {(error as Error)?.message}</p>;
   }
 
@@ -37,7 +39,7 @@ export function InvoiceDetailView() {
     <InvoiceWorkspace
       invoice={invoice}
       projectId={invoice.project_id}
-      projectStatus={project.status}
+      projectStatus={project?.status ?? null}
       backHref="/invoices"
       backLabel="Back to invoices"
     />
