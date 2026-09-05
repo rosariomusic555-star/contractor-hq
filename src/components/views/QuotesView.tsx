@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { listQuotes, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
+import { listQuotes, createQuote, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
 
 const statusStyles: Record<QuoteStatus, string> = {
   draft: "badge-status badge-draft",
@@ -37,6 +37,15 @@ export function QuotesView() {
       toast({ title: "Couldn't delete quote", description: err.message, variant: "destructive" }),
   });
 
+  // Blank draft — no client, no project, default deposit — straight into
+  // the quote builder, which is where all quote configuration now happens.
+  const createMutation = useMutation({
+    mutationFn: () => createQuote(),
+    onSuccess: (quote) => navigate(`/quotes/${quote.id}`),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
+  });
+
   const filtered = quotes.filter((quote) => {
     const term = searchTerm.toLowerCase();
     return (
@@ -55,7 +64,8 @@ export function QuotesView() {
           </p>
         </div>
         <Button
-          onClick={() => navigate("/quotes/new")}
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending}
           className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
         >
           <Plus className="w-4 h-4 mr-2" />

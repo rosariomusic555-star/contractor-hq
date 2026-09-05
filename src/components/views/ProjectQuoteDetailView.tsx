@@ -1,12 +1,13 @@
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getProject, getQuote } from "@/lib/api";
+import { getQuote } from "@/lib/api";
 import { QuoteWorkspace } from "./QuoteWorkspace";
 
+/** Same quote builder as QuoteDetailView, just entered from a project's own
+ * quotes list — the only difference is where "back" points. */
 export function ProjectQuoteDetailView() {
   const { id = "", quoteId = "" } = useParams();
 
-  const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
   const {
     data: quote,
     isLoading,
@@ -15,16 +16,10 @@ export function ProjectQuoteDetailView() {
   } = useQuery({ queryKey: ["quote", quoteId], queryFn: () => getQuote(quoteId) });
 
   if (isLoading) return <p className="text-muted-foreground">Loading quote…</p>;
-  if (isError || !quote || !project)
+  if (isError || !quote)
     return <p className="text-destructive">Failed to load quote: {(error as Error)?.message}</p>;
 
   return (
-    <QuoteWorkspace
-      quote={quote}
-      projectId={id}
-      projectName={project.name}
-      backHref={`/projects/${id}/quotes`}
-      backLabel="Back to quotes"
-    />
+    <QuoteWorkspace quote={quote} backHref={`/projects/${id}/quotes`} backLabel="Back to quotes" />
   );
 }

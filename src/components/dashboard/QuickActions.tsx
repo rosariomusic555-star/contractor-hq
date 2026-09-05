@@ -1,16 +1,30 @@
 import { FileText, Receipt, UserPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { createQuote } from "@/lib/api";
 
 export function QuickActions() {
   const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // Blank draft — no client, no project, default deposit — straight into
+  // the quote builder, which is where all quote configuration now happens.
+  const newQuoteMut = useMutation({
+    mutationFn: () => createQuote(),
+    onSuccess: (quote) => navigate(`/quotes/${quote.id}`),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
+  });
 
   return (
     <div className="stat-card">
       <h3 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h3>
       <div className="grid grid-cols-2 gap-3">
         <Button
-          onClick={() => navigate("/quotes/new")}
+          onClick={() => newQuoteMut.mutate()}
+          disabled={newQuoteMut.isPending}
           className="h-auto py-4 flex flex-col items-center gap-2 bg-primary hover:bg-primary/90"
         >
           <div className="p-2 rounded-lg bg-primary-foreground/10">

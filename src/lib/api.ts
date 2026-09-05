@@ -421,7 +421,9 @@ export async function createQuote(
 
 export async function updateQuote(
   id: string,
-  patch: Partial<Pick<Quote, "status" | "deposit_percentage" | "notes" | "terms">>,
+  patch: Partial<
+    Pick<Quote, "status" | "deposit_percentage" | "notes" | "terms" | "client_id" | "project_id">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
   if (error) throw error;

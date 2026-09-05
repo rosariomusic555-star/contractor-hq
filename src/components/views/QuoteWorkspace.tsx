@@ -9,6 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -29,6 +36,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
+  listClients,
+  listProjects,
   listMaterials,
   updateProject,
   updateQuote,
@@ -53,14 +62,12 @@ const STATUS_META: Record<QuoteStatus, { label: string; badge: string }> = {
   approved: { label: "Approved", badge: "badge-status badge-paid" },
 };
 
+const NONE = "__none__";
+
 type LivePrices = Record<string, number>;
 
 interface QuoteWorkspaceProps {
   quote: Quote;
-  // Null for a standalone quote (no linked project) — the materials/margin
-  // panel and the project-status-promotion on send are both skipped.
-  projectId: string | null;
-  projectName?: string | null;
   /** Where "Back to ..." goes and what it's labeled — the only thing that
    * differs between reaching this from a project vs. from the quotes list. */
   backHref: string;
@@ -68,16 +75,24 @@ interface QuoteWorkspaceProps {
 }
 
 /**
- * The full quote editor — sections/items, margin panel, notes/terms/deposit,
- * send flow. Shared by every route that opens a quote (project-scoped and
- * standalone) so there's exactly one place that knows how to render one;
- * only how you get here, get back, and whether a project is attached differ.
+ * The full quote editor — client/project linking, sections/items, margin
+ * panel, notes/terms/deposit, send flow. This is the single place all quote
+ * configuration happens, whether the quote started standalone or from a
+ * project: project_id/client_id are derived straight from `quote` (not
+ * passed in), so linking or unlinking a project here just works — the
+ * materials/margin panel and project-status-promotion on send react to
+ * whatever `quote.project_id` currently is.
  */
-export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLabel }: QuoteWorkspaceProps) {
+export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspaceProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+
+  const projectId = quote.project_id;
+
+  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
+  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
 
   const { data: materials = [] } = useQuery({
     queryKey: ["materials", { project: projectId }],
@@ -99,15 +114,26 @@ export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quote]);
 
-  // Invalidate both possible entry points' query keys — whichever route is
-  // actually mounted refetches; the other is just a harmless no-op.
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["quote", { project: projectId }] });
     qc.invalidateQueries({ queryKey: ["quote", quote.id] });
+    // Partial match also covers ["quotes", { project: id }] for the
+    // project-scoped quotes list, and ["projects", id] for the headline-quote
+    // summary on the project overview.
     qc.invalidateQueries({ queryKey: ["quotes"] });
     qc.invalidateQueries({ queryKey: ["projects"] });
   };
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
+
+  const updateClientMut = useMutation({
+    mutationFn: (clientId: string | null) => updateQuote(quote.id, { client_id: clientId }),
+    onSuccess: invalidate,
+    onError,
+  });
+  const updateProjectLinkMut = useMutation({
+    mutationFn: (newProjectId: string | null) => updateQuote(quote.id, { project_id: newProjectId }),
+    onSuccess: invalidate,
+    onError,
+  });
 
   const addSectionMut = useMutation({
     mutationFn: () =>
@@ -222,11 +248,7 @@ export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLa
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quote</h1>
-          {projectName ? (
-            <p className="text-muted-foreground mt-1">{projectName}</p>
-          ) : (
-            <p className="text-muted-foreground mt-1">No project linked</p>
-          )}
+          <p className="text-muted-foreground mt-1">{quote.project?.name ?? "No project linked"}</p>
           <span className={cn(meta.badge, "mt-2 inline-block")}>{meta.label}</span>
         </div>
 
@@ -253,6 +275,47 @@ export function QuoteWorkspace({ quote, projectId, projectName, backHref, backLa
               Materials cost unavailable — link a project to see margin.
             </p>
           )}
+        </div>
+      </div>
+
+      <div className="stat-card grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div className="space-y-2">
+          <Label>Client</Label>
+          <Select
+            value={quote.client_id ?? NONE}
+            onValueChange={(v) => updateClientMut.mutate(v === NONE ? null : v)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="No client" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>No client</SelectItem>
+              {clients.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Link to project</Label>
+          <Select
+            value={quote.project_id ?? NONE}
+            onValueChange={(v) => updateProjectLinkMut.mutate(v === NONE ? null : v)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="No project" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>No project</SelectItem>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

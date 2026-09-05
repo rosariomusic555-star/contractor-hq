@@ -15,7 +15,6 @@ import { ProjectInvoicesView } from "@/components/views/ProjectInvoicesView";
 import { ProjectInvoiceDetailView } from "@/components/views/ProjectInvoiceDetailView";
 import { ProjectExpensesView } from "@/components/views/ProjectExpensesView";
 import { QuotesView } from "@/components/views/QuotesView";
-import { QuoteNewView } from "@/components/views/QuoteNewView";
 import { QuoteDetailView } from "@/components/views/QuoteDetailView";
 import { InvoicesView } from "@/components/views/InvoicesView";
 import { InvoiceNewView } from "@/components/views/InvoiceNewView";
@@ -56,7 +55,6 @@ const App = () => (
               />
               <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
               <Route path="/quotes" element={<QuotesView />} />
-              <Route path="/quotes/new" element={<QuoteNewView />} />
               <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
               <Route path="/invoices" element={<InvoicesView />} />
               <Route path="/invoices/new" element={<InvoiceNewView />} />
