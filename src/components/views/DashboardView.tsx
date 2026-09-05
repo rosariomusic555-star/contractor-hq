@@ -57,6 +57,7 @@ export function DashboardView() {
           changeType={momText ? momType : "neutral"}
           icon={DollarSign}
           iconColor="text-success"
+          to="/revenue"
         />
         <StatCard
           title="Open Quotes"
@@ -65,6 +66,7 @@ export function DashboardView() {
           changeType="neutral"
           icon={FileText}
           iconColor="text-primary"
+          to="/quotes"
         />
         <StatCard
           title="Outstanding Invoices"
@@ -73,6 +75,7 @@ export function DashboardView() {
           changeType="neutral"
           icon={Receipt}
           iconColor="text-warning"
+          to="/invoices"
         />
         <StatCard
           title="This Month"
@@ -81,6 +84,7 @@ export function DashboardView() {
           changeType={momText ? momType : "neutral"}
           icon={TrendingUp}
           iconColor="text-accent"
+          to="/revenue"
         />
       </div>
 
