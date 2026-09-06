@@ -21,8 +21,8 @@ const monthLabel = (isoDate: string) =>
   new Date(isoDate.slice(0, 10) + "T00:00:00").toLocaleString("en-US", { month: "short" });
 
 const pieColors = [
-  "hsl(215, 50%, 23%)",
-  "hsl(35, 95%, 55%)",
+  "hsl(131, 36%, 64%)", // primary (brand green)
+  "hsl(201, 12%, 46%)", // secondary (brand blue-grey)
   "hsl(142, 70%, 40%)",
   "hsl(210, 15%, 55%)",
   "hsl(265, 45%, 55%)",
@@ -146,7 +146,7 @@ export function RevenueView() {
                   }}
                   formatter={(value: number) => [`$${value.toLocaleString()}`, ""]}
                 />
-                <Bar dataKey="billed" name="Billed" fill="hsl(215, 50%, 23%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="billed" name="Billed" fill="hsl(201, 12%, 46%)" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="paid" name="Paid" fill="hsl(142, 70%, 40%)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
