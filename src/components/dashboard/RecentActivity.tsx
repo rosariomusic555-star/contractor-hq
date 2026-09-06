@@ -116,13 +116,13 @@ export function RecentActivity() {
     .slice(0, 5);
 
   return (
-    <div className="stat-card">
-      <h3 className="text-lg font-semibold text-foreground mb-4">Recent Activity</h3>
-      <div className="space-y-4">
+    <div className="rounded-2xl border border-border/70 bg-card p-6 shadow-[0_1px_3px_0_hsl(215_25%_15%/0.06)]">
+      <h3 className="mb-4 text-base font-semibold text-foreground">Recent Activity</h3>
+      <div className="space-y-1">
         {activities.length === 0 && (
-          <p className="text-sm text-muted-foreground">No activity yet.</p>
+          <p className="py-4 text-sm text-muted-foreground">No activity yet.</p>
         )}
-        {activities.map((activity) => {
+        {activities.map((activity, i) => {
           const Icon = iconMap[activity.type];
           const StatusIcon = statusConfig[activity.status].icon;
 
@@ -130,20 +130,28 @@ export function RecentActivity() {
             <Link
               key={activity.id}
               to={activity.linkTo}
-              className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 hover:shadow-sm transition-all"
+              style={{ animationDelay: `${i * 60}ms` }}
+              className="group flex animate-fade-in items-center gap-3 rounded-xl p-3 transition-all duration-200 [animation-fill-mode:backwards] hover:bg-muted/60 hover:translate-x-0.5"
             >
-              <div className="p-2 rounded-lg bg-muted">
-                <Icon className="w-4 h-4 text-muted-foreground" />
+              <div
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  activity.type === "quote" && "bg-primary/15 text-primary",
+                  activity.type === "invoice" && "bg-[#687B85]/15 text-[#687B85]",
+                  activity.type === "payment" && "bg-success/15 text-success",
+                )}
+              >
+                <Icon className="h-4 w-4" />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-foreground">{activity.title}</p>
-                  <StatusIcon className={cn("w-4 h-4", statusConfig[activity.status].class)} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate text-sm font-semibold text-foreground">{activity.title}</p>
+                  <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", statusConfig[activity.status].class)} />
                 </div>
-                <p className="text-sm text-muted-foreground">{activity.subtitle}</p>
+                <p className="truncate text-xs text-muted-foreground">{activity.subtitle}</p>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-foreground">{money(activity.amount)}</p>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-semibold tabular-nums text-foreground">{money(activity.amount)}</p>
                 <p className="text-xs text-muted-foreground">{timeAgo(activity.createdAt)}</p>
               </div>
             </Link>

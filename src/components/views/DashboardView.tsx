@@ -1,12 +1,13 @@
 import { DollarSign, FileText, Receipt, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { StatCard } from "@/components/dashboard/StatCard";
+import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { listQuotes, listInvoices } from "@/lib/api";
 
 const currency = (n: number) => `$${Math.round(n).toLocaleString()}`;
+const count = (n: number) => String(Math.round(n));
 const monthKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
@@ -37,60 +38,72 @@ export function DashboardView() {
   const outstanding = invoices.filter((i) => i.status === "sent" || i.status === "overdue");
   const outstandingTotal = outstanding.reduce((s, i) => s + Number(i.amount), 0);
 
-  const momText =
-    momChange == null ? null : `${momChange >= 0 ? "+" : ""}${momChange.toFixed(1)}% from last month`;
-  const momType: "positive" | "negative" | "neutral" =
-    momChange == null ? "neutral" : momChange >= 0 ? "positive" : "negative";
+  const todayLabel = now.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Welcome back! Here's your business overview.</p>
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
+          <p className="mt-1 text-muted-foreground">Welcome back! Here's your business overview.</p>
+        </div>
+        <span className="rounded-full border border-border/70 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          {todayLabel}
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <DashboardStatCard
           title="Total Revenue"
-          value={currency(totalRevenue)}
-          change={momText ?? "All time"}
-          changeType={momText ? momType : "neutral"}
+          value={totalRevenue}
+          format={currency}
+          trend={momChange}
+          hint={momChange == null ? "All time" : "vs last month"}
           icon={DollarSign}
-          iconColor="text-success"
+          accent="green"
           to="/revenue"
+          delay={0}
         />
-        <StatCard
+        <DashboardStatCard
           title="Open Quotes"
-          value={String(openQuotes.length)}
-          change={`${awaitingResponse} awaiting response`}
-          changeType="neutral"
+          value={openQuotes.length}
+          format={count}
+          hint={`${awaitingResponse} awaiting response`}
           icon={FileText}
-          iconColor="text-primary"
+          accent="grey"
           to="/quotes"
+          delay={70}
         />
-        <StatCard
+        <DashboardStatCard
           title="Outstanding Invoices"
-          value={currency(outstandingTotal)}
-          change={`${outstanding.length} invoice${outstanding.length === 1 ? "" : "s"} pending`}
-          changeType="neutral"
+          value={outstandingTotal}
+          format={currency}
+          hint={`${outstanding.length} invoice${outstanding.length === 1 ? "" : "s"} pending`}
           icon={Receipt}
-          iconColor="text-warning"
+          accent="amber"
           to="/invoices"
+          delay={140}
         />
-        <StatCard
+        <DashboardStatCard
           title="This Month"
-          value={currency(thisMonthRevenue)}
-          change={momText ?? "Revenue this month"}
-          changeType={momText ? momType : "neutral"}
+          value={thisMonthRevenue}
+          format={currency}
+          trend={momChange}
+          hint={momChange == null ? "Revenue this month" : "vs last month"}
           icon={TrendingUp}
-          iconColor="text-accent"
+          accent="green"
           to="/revenue"
+          delay={210}
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <RevenueChart />
-        <div className="space-y-4 md:space-y-6">
+        <div className="space-y-5">
           <QuickActions />
           <RecentActivity />
         </div>
