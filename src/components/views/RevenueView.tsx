@@ -8,25 +8,20 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
-import { TrendingUp, DollarSign, CheckCircle, Calendar } from "lucide-react";
-import { StatCard } from "@/components/dashboard/StatCard";
+import { PageHeader } from "@/components/common/PageHeader";
+import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { KpiCard } from "@/components/common/KpiCard";
+import { formatCurrency } from "@/lib/utils";
 import { listInvoices } from "@/lib/api";
+import { DEMO_WORK_TYPE_SPLIT } from "@/lib/demoData";
 
-const monthKey = (isoDate: string) => isoDate.slice(0, 7);
-const monthLabel = (isoDate: string) =>
-  new Date(isoDate.slice(0, 10) + "T00:00:00").toLocaleString("en-US", { month: "short" });
+const monthKey = (iso: string) => iso.slice(0, 7);
+const monthLabel = (iso: string) =>
+  new Date(iso.slice(0, 10) + "T00:00:00").toLocaleString("en-US", { month: "short" });
 
-const pieColors = [
-  "hsl(131, 36%, 64%)", // primary (brand green)
-  "hsl(201, 12%, 46%)", // secondary (brand blue-grey)
-  "hsl(142, 70%, 40%)",
-  "hsl(210, 15%, 55%)",
-  "hsl(265, 45%, 55%)",
-];
+const GREY = "hsl(201 12% 46%)";
+const GREEN = "hsl(131 36% 64%)";
 
 export function RevenueView() {
   const { data: invoices = [], isLoading } = useQuery({
@@ -58,151 +53,115 @@ export function RevenueView() {
     const sum = [...totals.values()].reduce((a, b) => a + b, 0) || 1;
     return [...totals.entries()]
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, value], i) => ({
-        name,
-        color: pieColors[i % pieColors.length],
-        value: Math.round((value / sum) * 100),
-      }));
+      .slice(0, 6)
+      .map(([name, value]) => ({ name, value, pct: Math.round((value / sum) * 100) }));
   }, [invoices]);
 
   const totalBilled = invoices.reduce((s, i) => s + Number(i.amount), 0);
-  const totalPaid = invoices
-    .filter((i) => i.status === "paid")
-    .reduce((s, i) => s + Number(i.amount), 0);
+  const totalPaid = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + Number(i.amount), 0);
   const outstanding = invoices
     .filter((i) => i.status === "sent" || i.status === "overdue")
     .reduce((s, i) => s + Number(i.amount), 0);
-  const avgMonthly = monthlyData.length ? Math.round(totalBilled / monthlyData.length) : 0;
+  const thisMonth = monthlyData.length ? monthlyData[monthlyData.length - 1] : null;
+  const closedCount = invoices.filter((i) => i.status === "paid").length;
+  const avgJob = closedCount ? Math.round(totalPaid / closedCount) : 0;
 
   return (
-    <div className="space-y-4 md:space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Revenue</h1>
-        <p className="text-muted-foreground mt-1">Track your business performance</p>
-      </div>
+    <div className="animate-fade-in space-y-5">
+      <MobilePageHeader
+        title="Revenue"
+        subtitle={`${formatCurrency(totalBilled)} invoiced · ${formatCurrency(outstanding)} outstanding`}
+        back={{ to: "/dashboard", label: "Home" }}
+      />
+      <PageHeader
+        title="Revenue"
+        subtitle={`${formatCurrency(totalBilled)} invoiced · ${formatCurrency(totalPaid)} collected · ${formatCurrency(outstanding)} outstanding`}
+      />
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <StatCard
-          title="Total Billed"
-          value={`$${totalBilled.toLocaleString()}`}
-          change="All invoices"
-          changeType="neutral"
-          icon={DollarSign}
-          iconColor="text-primary"
-        />
-        <StatCard
-          title="Paid"
-          value={`$${totalPaid.toLocaleString()}`}
-          change="Collected"
-          changeType="positive"
-          icon={CheckCircle}
-          iconColor="text-success"
-        />
-        <StatCard
-          title="Outstanding"
-          value={`$${outstanding.toLocaleString()}`}
-          change="Awaiting payment"
-          changeType="neutral"
-          icon={TrendingUp}
-          iconColor="text-warning"
-        />
-        <StatCard
-          title="Avg. Monthly"
-          value={`$${avgMonthly.toLocaleString()}`}
-          change="Billed"
-          changeType="neutral"
-          icon={Calendar}
-          iconColor="text-accent"
-        />
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <KpiCard label="This month" value={formatCurrency(thisMonth?.billed ?? 0)} sub="invoiced" />
+        <KpiCard label="Collected" value={formatCurrency(totalPaid)} sub={`${formatCurrency(outstanding)} outstanding`} />
+        <KpiCard label="Avg. margin" value="39%" sub="last 12 months" />
+        <KpiCard label="Avg. job" value={formatCurrency(avgJob)} sub={`${closedCount} closed`} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-        <div className="stat-card lg:col-span-2">
-          <h3 className="text-lg font-semibold text-foreground mb-4">Billed vs Paid</h3>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 88%)" />
-                <XAxis
-                  dataKey="month"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "hsl(215, 15%, 45%)", fontSize: 12 }}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "hsl(215, 15%, 45%)", fontSize: 12 }}
-                  tickFormatter={(value) => `$${value / 1000}k`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(0, 0%, 100%)",
-                    border: "1px solid hsl(214, 20%, 88%)",
-                    borderRadius: "8px",
-                  }}
-                  formatter={(value: number) => [`$${value.toLocaleString()}`, ""]}
-                />
-                <Bar dataKey="billed" name="Billed" fill="hsl(201, 12%, 46%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="paid" name="Paid" fill="hsl(142, 70%, 40%)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+      <section className="card-surface p-5 md:p-6">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-foreground">Invoiced by month</h3>
+          <div className="flex items-center gap-4 text-[11px] font-semibold text-muted-subtle">
+            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary" />Paid</span>
+            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: GREY }} />Billed</span>
           </div>
         </div>
-
-        <div className="stat-card">
-          <h3 className="text-lg font-semibold text-foreground mb-4">Revenue by Client</h3>
-          {byClient.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No invoices yet.</p>
-          ) : (
-            <>
-              <div className="h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={byClient}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {byClient.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value: number) => [`${value}%`, ""]}
-                      contentStyle={{
-                        backgroundColor: "hsl(0, 0%, 100%)",
-                        border: "1px solid hsl(214, 20%, 88%)",
-                        borderRadius: "8px",
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="space-y-2 mt-4">
-                {byClient.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className="w-3 h-3 rounded-full shrink-0"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span className="text-muted-foreground truncate">{item.name}</span>
-                    </div>
-                    <span className="font-medium">{item.value}%</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+        <div className="mt-4 h-[280px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={monthlyData} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
+              <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="hsl(206 24% 90%)" />
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} tick={{ fill: "hsl(216 12% 59%)", fontSize: 12 }} />
+              <YAxis axisLine={false} tickLine={false} width={48} tick={{ fill: "hsl(216 12% 59%)", fontSize: 12 }} tickFormatter={(v) => `$${v / 1000}k`} />
+              <Tooltip
+                cursor={{ fill: "hsl(214 22% 94%)" }}
+                contentStyle={{ background: "#fff", border: "1px solid hsl(212 21% 91%)", borderRadius: 12, fontSize: 13 }}
+                formatter={(v: number) => formatCurrency(v)}
+              />
+              <Bar dataKey="billed" name="Billed" fill={GREY} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="paid" name="Paid" fill={GREEN} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
+      </section>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* Work type — demo */}
+        <section className="card-surface p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-foreground">Revenue by work type</h3>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-subtle">Sample</span>
+          </div>
+          <div className="mt-2">
+            {DEMO_WORK_TYPE_SPLIT.map((w) => (
+              <div key={w.label} className="border-b border-hairline py-3 last:border-0">
+                <div className="flex justify-between text-[13px]">
+                  <span className="font-semibold text-foreground">{w.label}</span>
+                  <span className="font-bold tabular-nums text-foreground">{formatCurrency(w.amount)}</span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-2.5">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full" style={{ width: `${w.pct}%`, background: w.color }} />
+                  </div>
+                  <span className="w-8 text-right text-[11px] font-bold text-muted-subtle">{w.pct}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* By client — real */}
+        <section className="card-surface p-5">
+          <h3 className="text-base font-bold text-foreground">Revenue by client</h3>
+          {byClient.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">No invoices yet.</p>
+          ) : (
+            <div className="mt-2">
+              {byClient.map((c) => (
+                <div key={c.name} className="border-b border-hairline py-3 last:border-0">
+                  <div className="flex justify-between text-[13px]">
+                    <span className="truncate font-semibold text-foreground">{c.name}</span>
+                    <span className="font-bold tabular-nums text-foreground">{formatCurrency(c.value)}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2.5">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${c.pct}%` }} />
+                    </div>
+                    <span className="w-8 text-right text-[11px] font-bold text-muted-subtle">{c.pct}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
