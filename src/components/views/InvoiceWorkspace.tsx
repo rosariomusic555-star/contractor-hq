@@ -1,47 +1,35 @@
 import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Copy } from "lucide-react";
+import { ChevronLeft, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { StatusPill } from "@/components/common/StatusPill";
+import { MoneyRow } from "@/components/common/MoneyRow";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils";
 import {
   listInvoices,
   updateInvoice,
   updateProject,
   generateShareLink,
   type Invoice,
-  type InvoiceStatus,
   type ProjectStatus,
 } from "@/lib/api";
-
-const STATUS_META: Record<InvoiceStatus, { label: string; badge: string }> = {
-  draft: { label: "Draft", badge: "badge-status badge-draft" },
-  sent: { label: "Sent", badge: "badge-status badge-info" },
-  paid: { label: "Paid", badge: "badge-status badge-paid" },
-  overdue: { label: "Overdue", badge: "badge-status badge-overdue" },
-};
+import { invoiceStatusMeta } from "@/lib/statusMeta";
+import { invoiceDaysLate } from "@/lib/aging";
+import { demoInvoiceHistory, demoInvoiceLineItems } from "@/lib/demoData";
 
 interface InvoiceWorkspaceProps {
   invoice: Invoice;
-  // Null for a standalone invoice (no linked project) — the project-status
-  // promotion on send/mark-paid is skipped entirely.
   projectId: string | null;
   projectStatus: ProjectStatus | null;
-  /** Where "Back to ..." goes — the only thing that differs between
-   * reaching this from a project vs. from the invoices list. */
   backHref: string;
   backLabel: string;
 }
 
-/**
- * The invoice detail/edit view — amount/due date/notes, status, client link,
- * send/mark-paid actions. Shared by ProjectInvoiceDetailView
- * (/projects/:id/invoices/:invoiceId) and InvoiceDetailView
- * (/invoices/:invoiceId) so there's exactly one place that knows how to
- * render an invoice; only how you get here and get back differs.
- */
 export function InvoiceWorkspace({
   invoice,
   projectId,
@@ -108,100 +96,163 @@ export function InvoiceWorkspace({
     }
   };
 
-  const meta = STATUS_META[invoice.status];
-  const number = invoice.invoice_number ?? "—";
+  const meta = invoiceStatusMeta(invoice.status);
+  const number = invoice.invoice_number ?? "Invoice";
+  const amount = Number(invoice.amount);
+  const daysLate = invoiceDaysLate(invoice, new Date());
   const persistedLink =
     invoice.share_token && invoice.status !== "draft"
       ? `${window.location.origin}/invoice/${invoice.share_token}`
       : null;
 
-  return (
-    <div className="space-y-6 animate-fade-in max-w-2xl">
-      <Link
-        to={backHref}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        {backLabel}
-      </Link>
+  const lineItems = demoInvoiceLineItems(invoice);
+  const history = demoInvoiceHistory(invoice);
+  const clientName = invoice.project?.client?.name ?? null;
 
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Invoice {number}</h1>
-        <span className={meta.badge}>{meta.label}</span>
+  const actionButton =
+    invoice.status === "draft" ? (
+      <Button onClick={() => sendMut.mutate()} disabled={sendMut.isPending} className="w-full font-bold">
+        {sendMut.isPending ? "Sending…" : "Send invoice"}
+      </Button>
+    ) : invoice.status === "sent" ? (
+      <Button onClick={() => markPaidMut.mutate()} disabled={markPaidMut.isPending} className="w-full font-bold">
+        {markPaidMut.isPending ? "Saving…" : "Mark as paid"}
+      </Button>
+    ) : (
+      <p className="text-center text-sm text-muted-foreground">Paid — no further action.</p>
+    );
+
+  return (
+    <div className="animate-fade-in space-y-5">
+      <MobilePageHeader
+        title={number}
+        subtitle={`${invoice.project?.name ?? "Standalone"}${clientName ? ` · ${clientName}` : ""}`}
+        back={{ to: backHref, label: backLabel }}
+        pills={
+          <>
+            {daysLate > 0 ? (
+              <span className="badge-status !bg-white/20 !text-sidebar-foreground">{daysLate} days late</span>
+            ) : (
+              <StatusPill meta={meta} className="!bg-white/20 !text-sidebar-foreground" />
+            )}
+            {invoice.due_date && (
+              <span className="badge-status !bg-white/15 !text-sidebar-foreground/90">
+                Due {invoice.due_date.slice(0, 10)}
+              </span>
+            )}
+          </>
+        }
+      />
+
+      <div className="hidden md:block">
+        <Link to={backHref} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="h-3.5 w-3.5" /> {backLabel}
+        </Link>
+        <div className="mt-2 flex items-center gap-2.5">
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">{number}</h1>
+          {daysLate > 0 ? (
+            <span className="badge-status badge-overdue">{daysLate} days late</span>
+          ) : (
+            <StatusPill meta={meta} />
+          )}
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {invoice.project?.name ?? "Standalone"}
+          {clientName ? ` · ${clientName}` : ""}
+          {invoice.due_date ? ` · due ${invoice.due_date.slice(0, 10)}` : ""}
+        </p>
       </div>
 
       {persistedLink && (
-        <div className="stat-card flex items-center justify-between gap-3 flex-wrap">
+        <div className="card-surface flex flex-wrap items-center justify-between gap-3 p-4">
           <div className="min-w-0">
-            <p className="text-sm text-muted-foreground">Client link</p>
-            <p className="font-mono text-sm truncate">{persistedLink}</p>
+            <p className="text-xs font-semibold text-muted-foreground">Client link</p>
+            <p className="truncate font-mono text-sm">{persistedLink}</p>
           </div>
           <Button variant="outline" size="sm" onClick={() => copyLink(persistedLink)}>
-            <Copy className="w-4 h-4 mr-2" />
+            <Copy className="mr-2 h-4 w-4" />
             Copy link
           </Button>
         </div>
       )}
 
-      <div className="stat-card space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="invoice-amount">Amount</Label>
-          <div className="relative max-w-xs">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-              $
-            </span>
-            <Input
-              id="invoice-amount"
-              type="number"
-              step="0.01"
-              defaultValue={invoice.amount}
-              className="pl-6"
-              onBlur={(e) => saveFieldMut.mutate({ amount: parseFloat(e.target.value) || 0 })}
-            />
-          </div>
-        </div>
-        <div className="space-y-2 max-w-xs">
-          <Label htmlFor="invoice-due">Due date</Label>
-          <Input
-            id="invoice-due"
-            type="date"
-            defaultValue={invoice.due_date ?? ""}
-            onBlur={(e) => saveFieldMut.mutate({ due_date: e.target.value || null })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="invoice-notes">Notes</Label>
-          <Textarea
-            id="invoice-notes"
-            defaultValue={invoice.notes ?? ""}
-            placeholder="Progress payment — foundation complete"
-            onBlur={(e) => saveFieldMut.mutate({ notes: e.target.value || null })}
-          />
-        </div>
-      </div>
+      <div className="grid gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          {/* Editable fields (real) */}
+          <section className="card-surface space-y-5 p-5">
+            <h3 className="text-base font-bold text-foreground">Details</h3>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-amount">Amount</Label>
+              <div className="relative max-w-xs">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                <Input
+                  id="invoice-amount"
+                  type="number"
+                  step="0.01"
+                  defaultValue={invoice.amount}
+                  className="pl-6"
+                  onBlur={(e) => saveFieldMut.mutate({ amount: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
+            <div className="max-w-xs space-y-2">
+              <Label htmlFor="invoice-due">Due date</Label>
+              <Input
+                id="invoice-due"
+                type="date"
+                defaultValue={invoice.due_date ?? ""}
+                onBlur={(e) => saveFieldMut.mutate({ due_date: e.target.value || null })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-notes">Notes</Label>
+              <Textarea
+                id="invoice-notes"
+                defaultValue={invoice.notes ?? ""}
+                placeholder="Progress payment — foundation complete"
+                onBlur={(e) => saveFieldMut.mutate({ notes: e.target.value || null })}
+              />
+            </div>
+          </section>
 
-      <div className="flex justify-end items-center gap-3">
-        {invoice.status === "draft" && (
-          <Button
-            onClick={() => sendMut.mutate()}
-            disabled={sendMut.isPending}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
-          >
-            {sendMut.isPending ? "Sending…" : "Send invoice"}
-          </Button>
-        )}
-        {invoice.status === "sent" && (
-          <Button
-            onClick={() => markPaidMut.mutate()}
-            disabled={markPaidMut.isPending}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
-          >
-            {markPaidMut.isPending ? "Saving…" : "Mark as paid"}
-          </Button>
-        )}
-        {invoice.status === "paid" && (
-          <p className="text-sm text-muted-foreground">Paid — no further action needed.</p>
-        )}
+          {/* Line-item preview (demo) */}
+          <section className="card-surface p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-foreground">Line items</h3>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-subtle">Preview</span>
+            </div>
+            <div className="mt-2">
+              {lineItems.map((li, i) => (
+                <MoneyRow key={i} label={li.label} value={formatCurrency(li.amount)} />
+              ))}
+              <MoneyRow label="Total" value={formatCurrency(amount)} strong />
+            </div>
+          </section>
+        </div>
+
+        {/* Right rail */}
+        <div className="space-y-5">
+          <section className="card-surface p-5">
+            <p className="text-[13px] font-semibold text-muted-foreground">Amount due</p>
+            <p className="mt-1 text-[32px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
+              {formatCurrency(invoice.status === "paid" ? 0 : amount)}
+            </p>
+            <p className="mt-1 text-xs text-muted-subtle">of {formatCurrency(amount)}</p>
+            <div className="mt-4">{actionButton}</div>
+          </section>
+
+          <section className="card-surface p-5">
+            <h3 className="text-base font-bold text-foreground">History</h3>
+            <ul className="mt-3 space-y-3">
+              {history.map((h) => (
+                <li key={h.when}>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{h.when}</div>
+                  <div className="mt-0.5 text-[13px] text-foreground/80">{h.text}</div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
       </div>
     </div>
   );

@@ -193,6 +193,33 @@ export function demoJobActivity(project: ProjectLike): { when: string; text: str
   ];
 }
 
+const WEEK_TASKS = [
+  "Excavate + haul",
+  "Base + compact",
+  "Paver field",
+  "Cuts + border",
+  "Polymeric + seal",
+] as const;
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
+
+export interface DemoWeekDay {
+  day: string;
+  task: string;
+  state: "done" | "today" | "upcoming";
+}
+
+/** A 5-day build-week strip for the job-detail schedule card. */
+export function demoJobWeek(project: ProjectLike): DemoWeekDay[] {
+  const meta = demoJobMeta(project);
+  const doneThrough =
+    meta.stage === "complete" ? 5 : meta.stage === "in_progress" ? meta.dayOfTotal?.day ?? 2 : meta.stage === "scheduled" ? 0 : 1;
+  return WEEKDAYS.map((day, i) => ({
+    day,
+    task: WEEK_TASKS[i],
+    state: i < doneThrough - 1 ? "done" : i === doneThrough - 1 ? "today" : "upcoming",
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Quote financials — layered on the REAL quote total
 // ---------------------------------------------------------------------------

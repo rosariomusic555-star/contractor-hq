@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Trash2, Copy } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,6 +35,11 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
+import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { StatusPill } from "@/components/common/StatusPill";
+import { MoneyRow } from "@/components/common/MoneyRow";
+import { quoteStatusMeta } from "@/lib/statusMeta";
+import { demoQuoteFinancials } from "@/lib/demoData";
 import {
   listClients,
   listProjects,
@@ -53,14 +58,7 @@ import {
   type Quote,
   type QuoteSection,
   type QuoteItem,
-  type QuoteStatus,
 } from "@/lib/api";
-
-const STATUS_META: Record<QuoteStatus, { label: string; badge: string }> = {
-  draft: { label: "Draft", badge: "badge-status badge-draft" },
-  sent: { label: "Sent", badge: "badge-status badge-info" },
-  approved: { label: "Approved", badge: "badge-status badge-paid" },
-};
 
 const NONE = "__none__";
 
@@ -229,52 +227,77 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     }
   };
 
-  const meta = STATUS_META[quote.status];
+  const meta = quoteStatusMeta(quote.status);
+  const fin = demoQuoteFinancials(quoteTotalLive);
+  const depositAmount = Math.round((quoteTotalLive * Number(quote.deposit_percentage)) / 100);
   const persistedLink =
     quote.share_token && quote.status !== "draft"
       ? `${window.location.origin}/quote/${quote.share_token}`
       : null;
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-5xl">
-      <Link
-        to={backHref}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        {backLabel}
-      </Link>
+    <div className="animate-fade-in space-y-5 max-w-5xl">
+      <MobilePageHeader
+        title={quote.project?.name ?? "Standalone quote"}
+        subtitle={`${meta.label} · ${quote.client?.name ?? quote.project?.client?.name ?? "no client"}`}
+        back={{ to: backHref, label: backLabel }}
+        pills={
+          <>
+            <span className="badge-status !bg-white/20 !text-sidebar-foreground">{formatCurrency(quoteTotalLive)}</span>
+            {projectId && (
+              <span className="badge-status !bg-white/15 !text-sidebar-foreground/90">Margin {marginPct.toFixed(0)}%</span>
+            )}
+          </>
+        }
+      />
 
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quote</h1>
-          <p className="text-muted-foreground mt-1">{quote.project?.name ?? "No project linked"}</p>
-          <span className={cn(meta.badge, "mt-2 inline-block")}>{meta.label}</span>
-        </div>
-
-        <div className="w-full md:w-72 shrink-0 rounded-xl border border-border bg-muted/50 p-4 space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Quote total</span>
-            <span className="font-semibold text-foreground">{formatCurrency(quoteTotalLive)}</span>
-          </div>
-          {projectId ? (
-            <>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Materials cost</span>
-                <span className="font-semibold text-foreground">{formatCurrency(materialsCost)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
-                <span className="text-muted-foreground">Margin</span>
-                <span className={cn("font-bold", marginColor)}>
-                  {formatCurrency(margin)} ({marginPct.toFixed(0)}%)
-                </span>
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-muted-foreground pt-2 border-t border-border">
-              Materials cost unavailable — link a project to see margin.
+      <div className="hidden md:block">
+        <Link to={backHref} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="h-3.5 w-3.5" /> {backLabel}
+        </Link>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">
+                {quote.project?.name ?? "Standalone quote"}
+              </h1>
+              <StatusPill meta={meta} />
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {quote.client?.name ?? quote.project?.client?.name ?? "No client"}
             </p>
-          )}
+          </div>
+
+          <div className="w-full shrink-0 space-y-3 md:w-80">
+            <div className="card-surface p-4">
+              <MoneyRow label="Line items + add-ons" value={formatCurrency(quoteTotalLive)} />
+              <MoneyRow label={`Material markup ${fin.markupPct}%`} value={formatCurrency(fin.markupAmount)} />
+              <MoneyRow label={`Sales tax ${fin.taxPct}% (materials)`} value={formatCurrency(fin.taxAmount)} />
+            </div>
+            <div className="rounded-card bg-foreground p-4 text-background">
+              <div className="text-xs font-semibold text-background/70">Quote total</div>
+              <div className="mt-1 text-[30px] font-extrabold leading-none tracking-tight tabular-nums">
+                {formatCurrency(quoteTotalLive + fin.markupAmount + fin.taxAmount)}
+              </div>
+              <div className="mt-1.5 text-xs text-background/75">
+                Deposit {quote.deposit_percentage}% · {formatCurrency(depositAmount)} at signing
+              </div>
+            </div>
+            {projectId ? (
+              <div className="rounded-card bg-primary/10 p-3">
+                <div className="flex justify-between text-xs font-semibold text-success">
+                  <span>Est. cost</span>
+                  <span>{formatCurrency(fin.estCost)}</span>
+                </div>
+                <div className="mt-1 flex justify-between text-xs font-semibold text-success">
+                  <span>Margin</span>
+                  <span className={cn("text-[15px] font-extrabold", marginColor)}>{marginPct.toFixed(0)}%</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Link a project to track cost &amp; margin.</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -336,7 +359,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         <Button
           size="sm"
           onClick={() => addSectionMut.mutate()}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground"
+          className="font-bold"
         >
           <Plus className="w-4 h-4 mr-2" />
           Add section
@@ -423,7 +446,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           <Button
             onClick={() => sendQuoteMut.mutate()}
             disabled={sendQuoteMut.isPending}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
+            className="font-bold"
           >
             {sendQuoteMut.isPending ? "Sending…" : "Send quote"}
           </Button>

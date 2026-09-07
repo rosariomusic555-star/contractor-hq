@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ChevronLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,14 +84,14 @@ export function ProjectExpensesView() {
     <div className="space-y-6 animate-fade-in max-w-3xl">
       <Link
         to={`/projects/${id}`}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="w-4 h-4" />
+        <ChevronLeft className="h-3.5 w-3.5" />
         Back to project
       </Link>
 
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Expenses</h1>
+        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Expenses</h1>
         <p className="text-muted-foreground mt-1">{project?.name ?? " "}</p>
       </div>
 
@@ -131,7 +131,7 @@ export function ProjectExpensesView() {
           <Button
             onClick={() => addMut.mutate()}
             disabled={!canSave || addMut.isPending}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
+            className="font-bold"
           >
             {addMut.isPending ? "Saving…" : "Save"}
           </Button>
