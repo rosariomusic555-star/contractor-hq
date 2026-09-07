@@ -1,6 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { MobileNav } from "@/components/layout/MobileNav";
+import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { useAuth } from "@/lib/auth";
 
@@ -10,7 +10,7 @@ export function AppLayout() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="h-8 w-8 rounded-full border-2 border-muted border-t-accent animate-spin" />
+        <div className="h-8 w-8 rounded-full border-2 border-muted border-t-primary animate-spin" />
       </div>
     );
   }
@@ -23,10 +23,12 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <MobileNav />
       <Sidebar />
-      <main className="pt-20 md:pt-0 md:ml-64 p-4 md:p-8">
-        <Outlet />
+      <BottomTabBar />
+      <main className="p-4 pb-24 md:ml-64 md:p-8">
+        <div className="mx-auto w-full max-w-[1200px]">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
