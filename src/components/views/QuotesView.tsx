@@ -1,26 +1,34 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, MoreHorizontal, Trash2 } from "lucide-react";
+import { MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PageHeader } from "@/components/common/PageHeader";
+import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { KpiCard } from "@/components/common/KpiCard";
+import { SearchInput } from "@/components/common/SearchInput";
+import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
+import { ListCard } from "@/components/common/ListCard";
+import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency, pluralize } from "@/lib/utils";
 import { listQuotes, createQuote, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
+import { quoteStatusMeta } from "@/lib/statusMeta";
 
-const statusStyles: Record<QuoteStatus, string> = {
-  draft: "badge-status badge-draft",
-  sent: "badge-status badge-info",
-  approved: "badge-status badge-paid",
-};
+type Filter = "all" | QuoteStatus;
+
+const clientOf = (q: { client?: { name: string } | null; project?: { client?: { name: string } | null } | null }) =>
+  q.client?.name ?? q.project?.client?.name ?? "—";
 
 export function QuotesView() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -37,8 +45,6 @@ export function QuotesView() {
       toast({ title: "Couldn't delete quote", description: err.message, variant: "destructive" }),
   });
 
-  // Blank draft — no client, no project, default deposit — straight into
-  // the quote builder, which is where all quote configuration now happens.
   const createMutation = useMutation({
     mutationFn: () => createQuote(),
     onSuccess: (quote) => navigate(`/quotes/${quote.id}`),
@@ -46,120 +52,169 @@ export function QuotesView() {
       toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = quotes.filter((quote) => {
-    const term = searchTerm.toLowerCase();
+  const withTotals = useMemo(
+    () => quotes.map((q) => ({ q, total: quoteTotal(q.quote_sections) })),
+    [quotes],
+  );
+
+  const sumByStatus = (s: QuoteStatus) =>
+    withTotals.filter((x) => x.q.status === s).reduce((acc, x) => acc + x.total, 0);
+  const countByStatus = (s: QuoteStatus) => quotes.filter((q) => q.status === s).length;
+  const priced = withTotals.filter((x) => x.total > 0);
+  const avgQuote = priced.length ? priced.reduce((a, x) => a + x.total, 0) / priced.length : 0;
+
+  const options: FilterOption<Filter>[] = [
+    { value: "all", label: "All", count: quotes.length },
+    { value: "draft", label: "Draft", count: countByStatus("draft") },
+    { value: "sent", label: "Sent", count: countByStatus("sent") },
+    { value: "approved", label: "Approved", count: countByStatus("approved") },
+  ];
+
+  const filtered = withTotals.filter(({ q }) => {
+    if (filter !== "all" && q.status !== filter) return false;
+    const term = search.toLowerCase();
     return (
-      (quote.project?.name ?? "").toLowerCase().includes(term) ||
-      (quote.client?.name ?? quote.project?.client?.name ?? "").toLowerCase().includes(term)
+      !term ||
+      (q.project?.name ?? "").toLowerCase().includes(term) ||
+      clientOf(q).toLowerCase().includes(term)
     );
   });
 
   return (
-    <div className="space-y-4 md:space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quotes</h1>
-          <p className="text-muted-foreground mt-1">
-            Every quote — standalone or linked to a project.
-          </p>
-        </div>
-        <Button
-          onClick={() => createMutation.mutate()}
-          disabled={createMutation.isPending}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          New Quote
-        </Button>
+    <div className="animate-fade-in space-y-4 md:space-y-5">
+      <MobilePageHeader
+        title="Quotes"
+        subtitle={`${pluralize(quotes.length, "quote")} · ${formatCurrency(sumByStatus("sent"))} out for signature`}
+        actions={
+          <button
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+            className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground"
+          >
+            + New
+          </button>
+        }
+      >
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search quotes or clients"
+          className="mt-3 border-white/20 bg-white/15 text-sidebar-foreground placeholder:text-sidebar-foreground/60 [&_svg]:text-sidebar-foreground/60"
+        />
+      </MobilePageHeader>
+
+      <PageHeader
+        title="Quotes"
+        subtitle={`${pluralize(quotes.length, "quote")} · ${formatCurrency(sumByStatus("sent"))} out for signature · ${formatCurrency(sumByStatus("approved"))} approved`}
+        actions={
+          <Button
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+            className="font-bold"
+          >
+            + New quote
+          </Button>
+        }
+      />
+
+      {/* KPI cards — desktop */}
+      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Out for signature" value={formatCurrency(sumByStatus("sent"))} sub={`${countByStatus("sent")} quotes`} />
+        <KpiCard label="Approved" value={formatCurrency(sumByStatus("approved"))} sub={`${countByStatus("approved")} signed`} subTone="positive" />
+        <KpiCard label="Avg. quote" value={formatCurrency(Math.round(avgQuote))} sub={`${priced.length} priced`} />
+        <KpiCard label="Drafts" value={countByStatus("draft")} sub="not sent" />
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search quotes..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search quotes or clients"
+          className="hidden md:flex md:max-w-xs"
         />
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading quotes…</p>}
-      {isError && (
-        <p className="text-destructive">Failed to load quotes: {(error as Error).message}</p>
-      )}
+      {isError && <p className="text-destructive">Failed to load quotes: {(error as Error).message}</p>}
 
       {!isLoading && !isError && (
-        <div className="stat-card overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr className="bg-muted/50">
-                  <th>Project</th>
-                  <th>Client</th>
-                  <th>Total</th>
-                  <th>Status</th>
-                  <th>Updated</th>
-                  <th className="w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((quote) => (
-                  <tr
-                    key={quote.id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/quotes/${quote.id}`)}
-                  >
-                    <td className="font-medium">{quote.project?.name ?? "—"}</td>
-                    <td className="text-muted-foreground">
-                      {quote.client?.name ?? quote.project?.client?.name ?? "—"}
-                    </td>
-                    <td className="font-semibold">
-                      ${Math.round(quoteTotal(quote.quote_sections)).toLocaleString()}
-                    </td>
-                    <td>
-                      <span className={statusStyles[quote.status]}>
-                        {quote.status.charAt(0).toUpperCase() + quote.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="text-muted-foreground">{quote.updated_at.slice(0, 10)}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {quote.project_id && (
-                            <DropdownMenuItem
-                              onClick={() => navigate(`/projects/${quote.project_id}`)}
-                            >
-                              Open project
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => deleteMutation.mutate(quote.id)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
+        <>
+          {/* Desktop table */}
+          <div className="card-surface hidden overflow-hidden md:block">
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
                   <tr>
-                    <td colSpan={6} className="text-muted-foreground text-center py-8">
-                      No quotes yet.
-                    </td>
+                    <th>Quote</th>
+                    <th>Client</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                    <th className="w-12" />
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filtered.map(({ q, total }) => (
+                    <tr key={q.id} className="cursor-pointer" onClick={() => navigate(`/quotes/${q.id}`)}>
+                      <td className="font-bold text-foreground">{q.project?.name ?? "Standalone quote"}</td>
+                      <td className="text-muted-foreground">{clientOf(q)}</td>
+                      <td className="font-bold tabular-nums">{total > 0 ? formatCurrency(total) : "—"}</td>
+                      <td><StatusPill meta={quoteStatusMeta(q.status)} /></td>
+                      <td className="text-muted-foreground">{q.updated_at.slice(0, 10)}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {q.project_id && (
+                              <DropdownMenuItem onClick={() => navigate(`/projects/${q.project_id}`)}>
+                                Open project
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(q.id)}>
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground">No quotes here.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-2.5 md:hidden">
+            {filtered.map(({ q, total }) => {
+              const meta = quoteStatusMeta(q.status);
+              return (
+                <ListCard
+                  key={q.id}
+                  to={`/quotes/${q.id}`}
+                  borderColor={meta.border}
+                  eyebrow={meta.label}
+                  eyebrowColor={meta.border}
+                  eyebrowRight={total > 0 ? formatCurrency(total) : ""}
+                  title={q.project?.name ?? "Standalone quote"}
+                  subtitle={`${clientOf(q)} · updated ${q.updated_at.slice(0, 10)}`}
+                />
+              );
+            })}
+            {filtered.length === 0 && <p className="text-sm text-muted-foreground">No quotes here.</p>}
+          </div>
+        </>
       )}
     </div>
   );

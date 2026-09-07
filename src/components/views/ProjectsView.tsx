@@ -1,24 +1,40 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProjectModal, type ProjectSubmit } from "@/components/modals/ProjectModal";
+import { PageHeader } from "@/components/common/PageHeader";
+import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { SearchInput } from "@/components/common/SearchInput";
+import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
+import { ListCard } from "@/components/common/ListCard";
+import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
-import { listProjects, listClients, createProject, createClient } from "@/lib/api";
-import { projectStatusMeta } from "@/lib/projectStatus";
+import { formatCurrency, pluralize } from "@/lib/utils";
+import {
+  listProjects,
+  listClients,
+  listQuotes,
+  createProject,
+  createClient,
+  quoteTotal,
+  pickHeadlineQuote,
+  type ProjectStatus,
+} from "@/lib/api";
+import { PROJECT_STATUSES, projectStatusMeta, VISUAL_STATUS_META } from "@/lib/statusMeta";
+import { demoJobMeta, DEMO_WEEKS_BOOKED } from "@/lib/demoData";
 
-const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+type Filter = "all" | ProjectStatus;
 
 export function ProjectsView() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Deep-link `?new=1` (from the mobile create sheet) opens the modal once.
   useEffect(() => {
     if (searchParams.get("new") === "1") {
       setIsModalOpen(true);
@@ -32,6 +48,7 @@ export function ProjectsView() {
     queryFn: listProjects,
   });
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
+  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
 
   const createMutation = useMutation({
     mutationFn: async (data: ProjectSubmit) => {
@@ -52,54 +69,159 @@ export function ProjectsView() {
       toast({ title: "Couldn't create project", description: err.message, variant: "destructive" }),
   });
 
+  /** Real contract value per project = total of its headline quote. */
+  const contractOf = useMemo(() => {
+    const byProject = new Map<string, number>();
+    for (const p of projects) {
+      const mine = quotes.filter((q) => q.project_id === p.id);
+      const headline = pickHeadlineQuote(mine);
+      byProject.set(p.id, headline ? quoteTotal(headline.quote_sections) : 0);
+    }
+    return byProject;
+  }, [projects, quotes]);
+
+  const underContract = [...contractOf.values()].reduce((a, b) => a + b, 0);
+  const countByStatus = (s: ProjectStatus) => projects.filter((p) => p.status === s).length;
+
+  const options: FilterOption<Filter>[] = [
+    { value: "all", label: "All", count: projects.length },
+    ...PROJECT_STATUSES.map((s) => ({
+      value: s as Filter,
+      label: projectStatusMeta(s).label,
+      count: countByStatus(s),
+    })),
+  ];
+
+  const filtered = projects.filter((p) => {
+    if (filter !== "all" && p.status !== filter) return false;
+    const term = search.toLowerCase();
+    return !term || p.name.toLowerCase().includes(term) || (p.client?.name ?? "").toLowerCase().includes(term);
+  });
+
   return (
-    <div className="space-y-4 md:space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Projects</h1>
-        <Button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          New Project
-        </Button>
+    <div className="animate-fade-in space-y-4 md:space-y-5">
+      <MobilePageHeader
+        title="Projects"
+        subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract`}
+        actions={
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground"
+          >
+            + New
+          </button>
+        }
+      >
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search projects or clients"
+          className="mt-3 border-white/20 bg-white/15 text-sidebar-foreground placeholder:text-sidebar-foreground/60 [&_svg]:text-sidebar-foreground/60"
+        />
+      </MobilePageHeader>
+
+      <PageHeader
+        title="Projects"
+        subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract · ${DEMO_WEEKS_BOOKED} weeks booked out`}
+        actions={
+          <Button onClick={() => setIsModalOpen(true)} className="font-bold">
+            + New project
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search projects or clients" className="hidden md:flex md:max-w-xs" />
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading projects…</p>}
-      {isError && (
-        <p className="text-destructive">Failed to load projects: {(error as Error).message}</p>
-      )}
+      {isError && <p className="text-destructive">Failed to load projects: {(error as Error).message}</p>}
 
       {!isLoading && !isError && projects.length === 0 && (
-        <div className="stat-card text-center py-12">
-          <p className="text-muted-foreground">
-            No projects yet. Create your first project to get started.
-          </p>
+        <div className="card-surface p-12 text-center text-muted-foreground">
+          No projects yet. Create your first project to get started.
         </div>
       )}
 
       {!isLoading && !isError && projects.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map((project) => {
-            const meta = projectStatusMeta(project.status);
-            return (
-              <button
-                key={project.id}
-                onClick={() => navigate(`/projects/${project.id}`)}
-                className="stat-card text-left hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <h3 className="font-semibold text-foreground">{project.name}</h3>
-                  <span className={meta.badge}>{meta.label}</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{project.client?.name ?? "No client"}</p>
-                <p className="text-xs text-muted-foreground mt-4">
-                  Created {formatDate(project.created_at)}
-                </p>
-              </button>
-            );
-          })}
-        </div>
+        <>
+          {/* Desktop table */}
+          <div className="card-surface hidden overflow-hidden md:block">
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Client</th>
+                    <th>Contract</th>
+                    <th>Stage</th>
+                    <th>Progress</th>
+                    <th>Next</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((p) => {
+                    const contract = contractOf.get(p.id) ?? 0;
+                    const demo = demoJobMeta(p);
+                    return (
+                      <tr key={p.id} className="cursor-pointer" onClick={() => navigate(`/projects/${p.id}`)}>
+                        <td>
+                          <div className="font-bold text-foreground">{p.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {projectStatusMeta(p.status).label}
+                          </div>
+                        </td>
+                        <td className="text-muted-foreground">{p.client?.name ?? "No client"}</td>
+                        <td className="font-bold tabular-nums">{contract > 0 ? formatCurrency(contract) : "—"}</td>
+                        <td><StatusPill meta={VISUAL_STATUS_META[demo.stage]} /></td>
+                        <td className="min-w-[140px]">
+                          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${demo.progressPct}%` }} />
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-muted-subtle">
+                            {demo.dayOfTotal ? `Day ${demo.dayOfTotal.day} of ${demo.dayOfTotal.total} · ${demo.crew}` : demo.crew}
+                          </div>
+                        </td>
+                        <td className="text-[13px] text-muted-foreground">{demo.nextAction}</td>
+                      </tr>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No projects here.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-2.5 md:hidden">
+            {filtered.map((p) => {
+              const contract = contractOf.get(p.id) ?? 0;
+              const demo = demoJobMeta(p);
+              const meta = VISUAL_STATUS_META[demo.stage];
+              return (
+                <ListCard
+                  key={p.id}
+                  to={`/projects/${p.id}`}
+                  borderColor={meta.border}
+                  eyebrow={meta.label}
+                  eyebrowColor={meta.border}
+                  eyebrowRight={contract > 0 ? formatCurrency(contract) : ""}
+                  title={p.name}
+                  subtitle={`${p.client?.name ?? "No client"} · ${demo.crew}`}
+                >
+                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${demo.progressPct}%` }} />
+                  </div>
+                </ListCard>
+              );
+            })}
+            {filtered.length === 0 && <p className="text-sm text-muted-foreground">No projects here.</p>}
+          </div>
+        </>
       )}
 
       <ProjectModal
