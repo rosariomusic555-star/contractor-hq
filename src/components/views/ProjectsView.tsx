@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProjectModal, type ProjectSubmit } from "@/components/modals/ProjectModal";
@@ -16,6 +16,16 @@ export function ProjectsView() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep-link `?new=1` (from the mobile create sheet) opens the modal once.
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setIsModalOpen(true);
+      searchParams.delete("new");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const { data: projects = [], isLoading, isError, error } = useQuery({
     queryKey: ["projects"],

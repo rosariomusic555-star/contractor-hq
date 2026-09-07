@@ -2,64 +2,83 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Inter — the app's only typeface (matches the ContractorPro design system). */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 215 25% 15%;
+    /* ---------------------------------------------------------------------
+       ContractorPro design tokens. Ink #1D242E, body #626B7A, micro-label
+       #8A93A2, border #E2E7EC / hairline #EDF1F4, app bg #F7F8FA, card #FFF,
+       primary green #82C48E (ink-on-green #14301E), sidebar slate #687B85.
+       ------------------------------------------------------------------- */
+    --background: 216 22% 97%;
+    --foreground: 215 23% 15%;
 
     --card: 0 0% 100%;
-    --card-foreground: 215 25% 15%;
+    --card-foreground: 215 23% 15%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 215 25% 15%;
+    --popover-foreground: 215 23% 15%;
 
     /* Brand: #82C48E (green) is the primary action color — buttons, active
        states, highlights, accents. #687B85 (blue-grey) is reserved for the
        sidebar/nav background (see --sidebar-* below). */
     --primary: 131 36% 64%;
-    --primary-foreground: 215 25% 15%;
+    --primary-foreground: 140 41% 13%;
 
-    --secondary: 210 15% 93%;
-    --secondary-foreground: 215 25% 25%;
+    --secondary: 214 20% 95%;
+    --secondary-foreground: 215 23% 25%;
 
-    --muted: 210 15% 95%;
-    --muted-foreground: 215 15% 45%;
+    --muted: 214 22% 94%;
+    --muted-foreground: 216 11% 43%;
+    /* Uppercase micro-labels on cards / table headers (#8A93A2). */
+    --muted-foreground-subtle: 216 12% 59%;
 
     --accent: 131 36% 64%;
-    --accent-foreground: 215 25% 15%;
+    --accent-foreground: 140 41% 13%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 6 63% 46%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 142 70% 40%;
+    --success: 147 64% 29%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 45 93% 47%;
-    --warning-foreground: 215 50% 15%;
+    --warning: 44 100% 27%;
+    --warning-foreground: 0 0% 100%;
+    /* Saturated amber for progress fills / accents (#E9B10A). */
+    --warning-strong: 45 92% 48%;
 
-    --border: 214 20% 88%;
-    --input: 214 20% 88%;
+    /* "Scheduled" blue — pill + left-border for calendar states (#39527A). */
+    --info: 217 36% 35%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 212 21% 91%;
+    --input: 212 21% 91%;
+    /* Inner row separators, lighter than --border (#EDF1F4). */
+    --hairline: 206 24% 94%;
     --ring: 131 36% 64%;
 
-    --radius: 0.625rem;
+    --radius: 0.7rem;
+    /* Card corner radius — the design's 16px. */
+    --radius-card: 1rem;
 
     --sidebar-background: 201 12% 46%;
     --sidebar-foreground: 210 20% 95%;
     --sidebar-primary: 131 36% 64%;
-    --sidebar-primary-foreground: 215 25% 15%;
+    --sidebar-primary-foreground: 140 41% 13%;
     --sidebar-accent: 131 36% 64%;
-    --sidebar-accent-foreground: 215 25% 15%;
+    --sidebar-accent-foreground: 140 41% 13%;
     --sidebar-border: 201 12% 38%;
     --sidebar-ring: 131 36% 64%;
 
     /* Custom tokens */
     --gradient-hero: linear-gradient(135deg, hsl(131 36% 64%) 0%, hsl(131 36% 54%) 100%);
     --gradient-accent: linear-gradient(135deg, hsl(201 12% 46%) 0%, hsl(201 12% 38%) 100%);
-    --shadow-card: 0 1px 3px 0 hsl(215 25% 15% / 0.08), 0 1px 2px -1px hsl(215 25% 15% / 0.08);
-    --shadow-card-hover: 0 4px 12px 0 hsl(215 25% 15% / 0.12), 0 2px 4px -2px hsl(215 25% 15% / 0.08);
-    --shadow-lg: 0 10px 25px -5px hsl(215 25% 15% / 0.15), 0 8px 10px -6px hsl(215 25% 15% / 0.1);
+    --shadow-card: 0 1px 3px 0 hsl(215 23% 15% / 0.06);
+    --shadow-card-hover: 0 4px 14px -2px hsl(215 23% 15% / 0.12), 0 2px 6px -3px hsl(215 23% 15% / 0.08);
+    --shadow-lg: 0 10px 25px -5px hsl(215 23% 15% / 0.15), 0 8px 10px -6px hsl(215 23% 15% / 0.1);
+    --shadow-elevated: 0 30px 70px -20px hsl(215 23% 15% / 0.18);
   }
 
   .dark {
@@ -73,36 +92,42 @@
     --popover-foreground: 210 20% 95%;
 
     --primary: 131 36% 64%;
-    --primary-foreground: 215 25% 15%;
+    --primary-foreground: 140 41% 13%;
 
     --secondary: 215 25% 20%;
     --secondary-foreground: 210 20% 90%;
 
     --muted: 215 25% 18%;
     --muted-foreground: 210 15% 60%;
+    --muted-foreground-subtle: 210 12% 52%;
 
     --accent: 131 36% 64%;
-    --accent-foreground: 215 25% 15%;
+    --accent-foreground: 140 41% 13%;
 
-    --destructive: 0 65% 50%;
+    --destructive: 0 65% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 142 65% 45%;
+    --success: 142 55% 55%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 45 90% 50%;
+    --warning: 45 85% 60%;
     --warning-foreground: 215 50% 12%;
+    --warning-strong: 45 90% 55%;
+
+    --info: 213 45% 65%;
+    --info-foreground: 215 30% 12%;
 
     --border: 215 25% 22%;
     --input: 215 25% 22%;
+    --hairline: 215 25% 19%;
     --ring: 131 36% 64%;
 
     --sidebar-background: 201 12% 46%;
     --sidebar-foreground: 210 20% 95%;
     --sidebar-primary: 131 36% 64%;
-    --sidebar-primary-foreground: 215 25% 15%;
+    --sidebar-primary-foreground: 140 41% 13%;
     --sidebar-accent: 131 36% 64%;
-    --sidebar-accent-foreground: 215 25% 15%;
+    --sidebar-accent-foreground: 140 41% 13%;
     --sidebar-border: 201 12% 38%;
     --sidebar-ring: 131 36% 64%;
   }
@@ -124,8 +149,12 @@
 }
 
 @layer components {
+  /* Primary surface — white card, 16px radius, hairline border, soft shadow.
+     Used app-wide (~15 views). `.stat-card` keeps a hover lift; `.card-surface`
+     is the static variant. */
   .stat-card {
-    @apply bg-card rounded-xl p-6 border border-border;
+    @apply bg-card p-6 border border-border;
+    border-radius: var(--radius-card);
     box-shadow: var(--shadow-card);
     transition: box-shadow 0.2s ease, transform 0.2s ease;
   }
@@ -135,16 +164,22 @@
     transform: translateY(-1px);
   }
 
+  .card-surface {
+    @apply bg-card border border-border;
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
   .nav-item {
-    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground/80 transition-all duration-200;
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-[0.625rem] text-sm font-medium text-sidebar-foreground/80 transition-all duration-200;
   }
 
   .nav-item:hover {
-    @apply bg-sidebar-accent text-sidebar-foreground;
+    @apply bg-white/10 text-sidebar-foreground;
   }
 
   .nav-item.active {
-    @apply bg-sidebar-accent text-sidebar-foreground font-medium;
+    @apply bg-sidebar-accent text-sidebar-accent-foreground font-semibold;
   }
 
   .data-table {
@@ -152,19 +187,28 @@
   }
 
   .data-table th {
-    @apply text-left font-medium text-muted-foreground py-3 px-4 border-b border-border;
+    @apply text-left py-3 px-4 text-[11px] font-bold uppercase tracking-wide;
+    color: hsl(var(--muted-foreground-subtle));
+    background: hsl(var(--muted));
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .data-table td {
-    @apply py-4 px-4 border-b border-border;
+    @apply py-4 px-4;
+    border-bottom: 1px solid hsl(var(--hairline));
+  }
+
+  .data-table tr:last-child td {
+    border-bottom: 0;
   }
 
   .data-table tr:hover td {
     @apply bg-muted/50;
   }
 
+  /* Status pills — tinted background + saturated text (ContractorPro spec). */
   .badge-status {
-    @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium;
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold;
   }
 
   .badge-paid {
@@ -179,16 +223,47 @@
     @apply bg-muted text-muted-foreground;
   }
 
-  .badge-overdue {
+  .badge-overdue,
+  .badge-declined {
     @apply bg-destructive/15 text-destructive;
   }
 
-  .badge-info {
-    @apply bg-primary/15 text-primary;
+  .badge-info,
+  .badge-scheduled {
+    @apply bg-info/15 text-info;
   }
 
   .badge-paid-solid {
     @apply bg-success text-success-foreground;
+  }
+
+  /* Slate header block that tops every phone screen (#687B85). */
+  .mobile-header {
+    @apply bg-sidebar text-sidebar-foreground px-[18px] pb-4;
+    padding-top: max(env(safe-area-inset-top), 0.75rem);
+  }
+
+  /* Small "uppercase label + big number + sub-line" card (Quotes/Invoices/Revenue). */
+  .kpi-card {
+    @apply card-surface p-4;
+  }
+
+  .kpi-card-label {
+    @apply text-[11px] font-bold uppercase tracking-wide;
+    color: hsl(var(--muted-foreground-subtle));
+  }
+
+  /* Desktop segmented filter control. */
+  .filter-segment {
+    @apply inline-flex gap-1 rounded-xl bg-muted p-1;
+  }
+
+  .filter-segment-item {
+    @apply inline-flex h-8 items-center rounded-lg px-3.5 text-[13px] font-semibold text-muted-foreground transition-colors;
+  }
+
+  .filter-segment-item[data-active="true"] {
+    @apply bg-card text-foreground shadow-sm;
   }
 }
 
