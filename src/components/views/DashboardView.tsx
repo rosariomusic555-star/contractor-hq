@@ -1,112 +1,206 @@
-import { DollarSign, FileText, Receipt, TrendingUp } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { PageHeader } from "@/components/common/PageHeader";
+import { KpiCard } from "@/components/common/KpiCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
-import { QuickActions } from "@/components/dashboard/QuickActions";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
-import { listQuotes, listInvoices } from "@/lib/api";
+import { TodaySchedule } from "@/components/dashboard/TodaySchedule";
+import { NeedsYou } from "@/components/dashboard/NeedsYou";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
+import { cn, formatCurrency } from "@/lib/utils";
+import { listQuotes, listInvoices, createQuote } from "@/lib/api";
+import { monthlyRevenue } from "@/lib/metrics";
+import { overdueCount } from "@/lib/aging";
+import { DEMO_HOURS_PER_WEEK, DEMO_REVENUE_GOAL, DEMO_WEEKS_BOOKED } from "@/lib/demoData";
 
-const currency = (n: number) => `$${Math.round(n).toLocaleString()}`;
-const count = (n: number) => String(Math.round(n));
-const monthKey = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
 
 export function DashboardView() {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { session } = useAuth();
+
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+
+  const newQuoteMut = useMutation({
+    mutationFn: () => createQuote(),
+    onSuccess: (quote) => navigate(`/quotes/${quote.id}`),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
+  });
 
   const now = new Date();
   const thisMonth = monthKey(now);
   const lastMonth = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-
   const sumFor = (m: string) =>
-    invoices
-      .filter((i) => i.created_at.slice(0, 7) === m)
-      .reduce((s, i) => s + Number(i.amount), 0);
+    invoices.filter((i) => i.created_at.slice(0, 7) === m).reduce((s, i) => s + Number(i.amount), 0);
 
-  const totalRevenue = invoices.reduce((s, i) => s + Number(i.amount), 0);
   const thisMonthRevenue = sumFor(thisMonth);
   const lastMonthRevenue = sumFor(lastMonth);
   const momChange =
-    lastMonthRevenue > 0
-      ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
-      : null;
+    lastMonthRevenue > 0 ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 : null;
 
   const openQuotes = quotes.filter((q) => q.status === "draft" || q.status === "sent");
   const awaitingResponse = quotes.filter((q) => q.status === "sent").length;
-
   const outstanding = invoices.filter((i) => i.status === "sent" || i.status === "overdue");
   const outstandingTotal = outstanding.reduce((s, i) => s + Number(i.amount), 0);
+  const over30 = overdueCount(invoices, 30, now);
 
-  const todayLabel = now.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const goalPct = Math.min(100, Math.round((thisMonthRevenue / DEMO_REVENUE_GOAL) * 100));
+  const spark = monthlyRevenue(invoices).slice(-7);
+  const sparkMax = Math.max(1, ...spark.map((p) => p.revenue));
+
+  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const initials = (session?.user.email ?? "?").slice(0, 2).toUpperCase();
+
+  const momPill =
+    momChange == null ? null : (
+      <span
+        className={cn(
+          "inline-flex items-center gap-0.5",
+          momChange >= 0 ? "text-success" : "text-destructive",
+        )}
+      >
+        {momChange >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+        {momChange >= 0 ? "+" : ""}
+        {momChange.toFixed(1)}% vs last month
+      </span>
+    );
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
-          <p className="mt-1 text-muted-foreground">Welcome back! Here's your business overview.</p>
+    <div className="animate-fade-in space-y-6">
+      {/* ---- Mobile slate header ---- */}
+      <div className="mobile-header -mx-4 -mt-4 md:hidden">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-sidebar-foreground/70">
+              {dateLabel}
+            </p>
+            <h1 className="mt-0.5 text-2xl font-bold tracking-tight">{greeting()}</h1>
+          </div>
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-sidebar-primary text-sm font-extrabold text-sidebar-primary-foreground">
+            {initials}
+          </span>
         </div>
-        <span className="rounded-full border border-border/70 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground">
-          {todayLabel}
-        </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <DashboardStatCard
-          title="Total Revenue"
-          value={totalRevenue}
-          format={currency}
-          trend={momChange}
-          hint={momChange == null ? "All time" : "vs last month"}
-          icon={DollarSign}
-          accent="green"
-          to="/revenue"
-          delay={0}
+      {/* ---- Desktop header ---- */}
+      <PageHeader
+        title="Dashboard"
+        subtitle={`${dateLabel} · here's your business overview`}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => navigate("/invoices/new")}
+              className="border-border font-semibold"
+            >
+              New invoice
+            </Button>
+            <Button
+              onClick={() => newQuoteMut.mutate()}
+              disabled={newQuoteMut.isPending}
+              className="font-bold"
+            >
+              New quote
+            </Button>
+          </>
+        }
+      />
+
+      {/* ---- Desktop KPI row ---- */}
+      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          label="This month"
+          value={formatCurrency(thisMonthRevenue)}
+          sub={momPill ?? "Revenue invoiced"}
+          subTone={momChange == null ? "muted" : momChange >= 0 ? "positive" : "negative"}
         />
-        <DashboardStatCard
-          title="Open Quotes"
+        <KpiCard
+          label="Open quotes"
           value={openQuotes.length}
-          format={count}
-          hint={`${awaitingResponse} awaiting response`}
-          icon={FileText}
-          accent="grey"
-          to="/quotes"
-          delay={70}
+          sub={`${awaitingResponse} awaiting reply`}
         />
-        <DashboardStatCard
-          title="Outstanding Invoices"
-          value={outstandingTotal}
-          format={currency}
-          hint={`${outstanding.length} invoice${outstanding.length === 1 ? "" : "s"} pending`}
-          icon={Receipt}
-          accent="amber"
-          to="/invoices"
-          delay={140}
+        <KpiCard
+          label="Unpaid"
+          value={formatCurrency(outstandingTotal)}
+          sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
+          subTone={over30 > 0 ? "negative" : "muted"}
         />
-        <DashboardStatCard
-          title="This Month"
-          value={thisMonthRevenue}
-          format={currency}
-          trend={momChange}
-          hint={momChange == null ? "Revenue this month" : "vs last month"}
-          icon={TrendingUp}
-          accent="green"
-          to="/revenue"
-          delay={210}
+        <KpiCard
+          label="Booked out"
+          value={`${DEMO_WEEKS_BOOKED} wks`}
+          sub={`${DEMO_HOURS_PER_WEEK} hrs/wk logged`}
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <RevenueChart />
-        <div className="space-y-5">
-          <QuickActions />
-          <RecentActivity />
+      {/* ---- Mobile revenue card ---- */}
+      <section className="card-surface p-5 md:hidden">
+        <p className="text-[13px] font-semibold text-muted-foreground">This month</p>
+        <p className="mt-1 text-[34px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
+          {formatCurrency(thisMonthRevenue)}
+        </p>
+        {momPill && <p className="mt-1.5 text-xs font-bold">{momPill}</p>}
+
+        {spark.length > 1 && (
+          <div className="mt-4 flex h-12 items-end gap-1.5">
+            {spark.map((p, i) => (
+              <div
+                key={p.key}
+                className={cn(
+                  "flex-1 rounded",
+                  i === spark.length - 1 ? "bg-primary" : "bg-muted",
+                )}
+                style={{ height: `${Math.max(6, (p.revenue / sparkMax) * 100)}%` }}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="mt-3 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+          <span>{goalPct}% of {formatCurrency(DEMO_REVENUE_GOAL)} goal</span>
+          <span className="text-foreground">
+            {formatCurrency(Math.max(0, DEMO_REVENUE_GOAL - thisMonthRevenue))} to go
+          </span>
         </div>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${goalPct}%` }} />
+        </div>
+      </section>
+
+      {/* ---- Mobile tiles ---- */}
+      <div className="grid grid-cols-2 gap-3 md:hidden">
+        <KpiCard label="Open quotes" value={openQuotes.length} sub={`${awaitingResponse} awaiting reply`} />
+        <KpiCard
+          label="Unpaid"
+          value={formatCurrency(outstandingTotal)}
+          sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
+          subTone={over30 > 0 ? "negative" : "muted"}
+        />
+      </div>
+
+      {/* ---- Desktop chart + schedule ---- */}
+      <div className="hidden grid-cols-1 gap-5 md:grid lg:grid-cols-3">
+        <RevenueChart className="lg:col-span-2" />
+        <TodaySchedule />
+      </div>
+
+      {/* ---- Mobile: schedule ---- */}
+      <TodaySchedule className="md:hidden" />
+
+      {/* ---- Needs you + recent activity ---- */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <NeedsYou />
+        <RecentActivity />
       </div>
     </div>
   );
