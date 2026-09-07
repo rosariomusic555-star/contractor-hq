@@ -45,7 +45,7 @@ export function DashboardView() {
   });
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8 animate-fade-in pt-4 md:pt-0">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
@@ -56,7 +56,7 @@ export function DashboardView() {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <DashboardStatCard
           title="Total Revenue"
           value={totalRevenue}
