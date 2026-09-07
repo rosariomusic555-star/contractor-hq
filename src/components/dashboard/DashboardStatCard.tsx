@@ -90,7 +90,7 @@ export function DashboardStatCard({
         </div>
       </div>
 
-      <p className="mt-3 text-3xl font-bold tracking-tight text-foreground tabular-nums">
+      <p className="mt-3 text-2xl font-bold tracking-tight text-foreground tabular-nums sm:text-3xl">
         {format(shown)}
       </p>
 
@@ -116,7 +116,7 @@ export function DashboardStatCard({
   );
 
   const base =
-    "group relative block overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-[0_1px_3px_0_hsl(215_25%_15%/0.06)] transition-all duration-300 animate-fade-in [animation-fill-mode:backwards]";
+    "group relative block overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-[0_1px_3px_0_hsl(215_25%_15%/0.06)] transition-all duration-300 animate-fade-in [animation-fill-mode:backwards] sm:p-5";
 
   if (to) {
     return (
