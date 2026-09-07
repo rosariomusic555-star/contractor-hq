@@ -11,3 +11,8 @@ export function formatCurrency(n: number): string {
     currency: "USD",
   });
 }
+
+/** "1 client", "3 clients". Pass an explicit plural for irregular words. */
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}

@@ -1,30 +1,38 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, MoreHorizontal, Trash2 } from "lucide-react";
+import { MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PageHeader } from "@/components/common/PageHeader";
+import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { KpiCard } from "@/components/common/KpiCard";
+import { SearchInput } from "@/components/common/SearchInput";
+import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
+import { ListCard } from "@/components/common/ListCard";
+import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
-import { listInvoices, deleteInvoice, type InvoiceStatus } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
+import { listInvoices, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
+import { invoiceStatusMeta } from "@/lib/statusMeta";
+import { agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/aging";
 
-const statusStyles: Record<InvoiceStatus, string> = {
-  draft: "badge-status badge-draft",
-  sent: "badge-status badge-pending",
-  paid: "badge-status badge-paid",
-  overdue: "badge-status badge-overdue",
-};
+type Filter = "all" | InvoiceStatus;
+
+const DAY = 86_400_000;
 
 export function InvoicesView() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const now = new Date();
 
   const { data: invoices = [], isLoading, isError, error } = useQuery({
     queryKey: ["invoices"],
@@ -38,124 +46,183 @@ export function InvoicesView() {
       toast({ title: "Couldn't delete invoice", description: err.message, variant: "destructive" }),
   });
 
-  const filtered = invoices.filter((invoice) => {
-    const term = searchTerm.toLowerCase();
+  const buckets = agingBuckets(invoices, now);
+  const outstandingTotal = buckets.reduce((s, b) => s + b.amount, 0);
+  const over30 = overdueCount(invoices, 30, now);
+  const paidLast30 = invoices
+    .filter((i) => i.status === "paid" && i.paid_at && now.getTime() - new Date(i.paid_at).getTime() <= 30 * DAY)
+    .reduce((s, i) => s + Number(i.amount), 0);
+  const paidLast30Count = invoices.filter(
+    (i) => i.status === "paid" && i.paid_at && now.getTime() - new Date(i.paid_at).getTime() <= 30 * DAY,
+  ).length;
+
+  const countByStatus = (s: InvoiceStatus) => invoices.filter((i) => i.status === s).length;
+
+  const options: FilterOption<Filter>[] = [
+    { value: "all", label: "All", count: invoices.length },
+    { value: "draft", label: "Draft", count: countByStatus("draft") },
+    { value: "sent", label: "Sent", count: countByStatus("sent") },
+    { value: "overdue", label: "Overdue", count: countByStatus("overdue") },
+    { value: "paid", label: "Paid", count: countByStatus("paid") },
+  ];
+
+  const lateLabel = (inv: Invoice) => {
+    const d = invoiceDaysLate(inv, now);
+    return d > 0 ? `${d} days late` : null;
+  };
+
+  const filtered = invoices.filter((inv) => {
+    if (filter !== "all" && inv.status !== filter) return false;
+    const term = search.toLowerCase();
     return (
-      (invoice.project?.name ?? "").toLowerCase().includes(term) ||
-      (invoice.project?.client?.name ?? "").toLowerCase().includes(term)
+      !term ||
+      (inv.invoice_number ?? "").toLowerCase().includes(term) ||
+      (inv.project?.name ?? "").toLowerCase().includes(term) ||
+      (inv.project?.client?.name ?? "").toLowerCase().includes(term)
     );
   });
 
-  const totalOutstanding = invoices
-    .filter((inv) => inv.status === "sent" || inv.status === "overdue")
-    .reduce((sum, inv) => sum + Number(inv.amount), 0);
-
   return (
-    <div className="space-y-4 md:space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Invoices</h1>
-          <p className="text-muted-foreground mt-1">
-            Outstanding:{" "}
-            <span className="font-semibold text-foreground">
-              ${totalOutstanding.toLocaleString()}
-            </span>
-          </p>
-        </div>
-        <Button
-          onClick={() => navigate("/invoices/new")}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          New Invoice
-        </Button>
+    <div className="animate-fade-in space-y-4 md:space-y-5">
+      <MobilePageHeader
+        title="Invoices"
+        subtitle={`Outstanding ${formatCurrency(outstandingTotal)}${over30 ? ` · ${over30} over 30 days` : ""}`}
+        actions={
+          <button
+            onClick={() => navigate("/invoices/new")}
+            className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground"
+          >
+            + New
+          </button>
+        }
+      >
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search invoices or jobs"
+          className="mt-3 border-white/20 bg-white/15 text-sidebar-foreground placeholder:text-sidebar-foreground/60 [&_svg]:text-sidebar-foreground/60"
+        />
+      </MobilePageHeader>
+
+      <PageHeader
+        title="Invoices"
+        subtitle={
+          <>
+            Outstanding <span className="font-bold text-foreground">{formatCurrency(outstandingTotal)}</span>
+            {over30 ? ` · ${over30} over 30 days` : ""}
+          </>
+        }
+        actions={
+          <Button onClick={() => navigate("/invoices/new")} className="font-bold">
+            + New invoice
+          </Button>
+        }
+      />
+
+      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="Current" value={formatCurrency(buckets[0].amount)} sub={`${buckets[0].count} due soon`} />
+        <KpiCard label="1–30 days" value={formatCurrency(buckets[1].amount)} sub={`${buckets[1].count} invoice${buckets[1].count === 1 ? "" : "s"}`} />
+        <KpiCard label="31–60 days" value={formatCurrency(buckets[2].amount + buckets[3].amount)} sub={`${buckets[2].count + buckets[3].count} invoice${buckets[2].count + buckets[3].count === 1 ? "" : "s"}`} subTone={buckets[2].amount + buckets[3].amount > 0 ? "negative" : "muted"} />
+        <KpiCard label="Paid, last 30 days" value={formatCurrency(paidLast30)} sub={`${paidLast30Count} invoice${paidLast30Count === 1 ? "" : "s"}`} subTone="positive" />
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search invoices..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
-        />
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search invoices or jobs" className="hidden md:flex md:max-w-xs" />
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading invoices…</p>}
-      {isError && (
-        <p className="text-destructive">Failed to load invoices: {(error as Error).message}</p>
-      )}
+      {isError && <p className="text-destructive">Failed to load invoices: {(error as Error).message}</p>}
 
       {!isLoading && !isError && (
-        <div className="stat-card overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr className="bg-muted/50">
-                  <th>Project</th>
-                  <th>Client</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>Due Date</th>
-                  <th className="w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((invoice) => (
-                  <tr
-                    key={invoice.id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/invoices/${invoice.id}`)}
-                  >
-                    <td className="font-medium">{invoice.project?.name ?? "—"}</td>
-                    <td className="text-muted-foreground">
-                      {invoice.project?.client?.name ?? "—"}
-                    </td>
-                    <td className="font-semibold">${Number(invoice.amount).toLocaleString()}</td>
-                    <td>
-                      <span className={statusStyles[invoice.status]}>
-                        {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="text-muted-foreground">{invoice.due_date ?? "—"}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {invoice.project_id && (
-                            <DropdownMenuItem
-                              onClick={() => navigate(`/projects/${invoice.project_id}`)}
-                            >
-                              Open project
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => deleteMutation.mutate(invoice.id)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
+        <>
+          <div className="card-surface hidden overflow-hidden md:block">
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
                   <tr>
-                    <td colSpan={6} className="text-muted-foreground text-center py-8">
-                      No invoices yet.
-                    </td>
+                    <th>Invoice</th>
+                    <th>Job / client</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Due</th>
+                    <th className="w-12" />
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filtered.map((inv) => {
+                    const late = lateLabel(inv);
+                    return (
+                      <tr key={inv.id} className="cursor-pointer" onClick={() => navigate(`/invoices/${inv.id}`)}>
+                        <td className="font-bold text-foreground">{inv.invoice_number ?? "—"}</td>
+                        <td>
+                          <div className="font-semibold text-foreground">{inv.project?.name ?? "Standalone"}</div>
+                          <div className="text-xs text-muted-foreground">{inv.project?.client?.name ?? "—"}</div>
+                        </td>
+                        <td className="font-bold tabular-nums">{formatCurrency(Number(inv.amount))}</td>
+                        <td>
+                          {late ? (
+                            <span className="badge-status badge-overdue">{late}</span>
+                          ) : (
+                            <StatusPill meta={invoiceStatusMeta(inv.status)} />
+                          )}
+                        </td>
+                        <td className="text-muted-foreground">{inv.due_date?.slice(0, 10) ?? "—"}</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {inv.project_id && (
+                                <DropdownMenuItem onClick={() => navigate(`/projects/${inv.project_id}`)}>
+                                  Open project
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(inv.id)}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground">No invoices here.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          <div className="space-y-2.5 md:hidden">
+            {filtered.map((inv) => {
+              const late = lateLabel(inv);
+              const meta = invoiceStatusMeta(inv.status);
+              const border = late ? "hsl(var(--destructive))" : meta.border;
+              return (
+                <ListCard
+                  key={inv.id}
+                  to={`/invoices/${inv.id}`}
+                  borderColor={border}
+                  eyebrow={`${inv.invoice_number ?? "Invoice"} · ${late ?? meta.label}`}
+                  eyebrowColor={border}
+                  eyebrowRight={formatCurrency(Number(inv.amount))}
+                  title={inv.project?.name ?? "Standalone"}
+                  subtitle={`${inv.project?.client?.name ?? "—"}${inv.due_date ? ` · due ${inv.due_date.slice(0, 10)}` : ""}`}
+                />
+              );
+            })}
+            {filtered.length === 0 && <p className="text-sm text-muted-foreground">No invoices here.</p>}
+          </div>
+        </>
       )}
     </div>
   );

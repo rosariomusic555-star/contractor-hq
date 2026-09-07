@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, MoreHorizontal, Phone, Mail, MapPin } from "lucide-react";
+import { MoreHorizontal, Phone, Mail, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,18 +10,36 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ClientModal } from "@/components/modals/ClientModal";
+import { PageHeader } from "@/components/common/PageHeader";
+import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { SearchInput } from "@/components/common/SearchInput";
+import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
+import { ListCard } from "@/components/common/ListCard";
 import { useToast } from "@/hooks/use-toast";
+import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { listClients, createClient, deleteClient, listInvoices, listProjects } from "@/lib/api";
 
+type Kind = "active" | "repeat" | "lead" | "client";
+type Filter = "all" | "active" | "repeat" | "lead";
+
+const KIND_META: Record<Kind, { label: string; tone: string; border: string }> = {
+  active: { label: "Active", tone: "text-success", border: "hsl(var(--success))" },
+  repeat: { label: "Repeat client", tone: "text-info", border: "hsl(var(--info))" },
+  lead: { label: "Lead", tone: "text-muted-subtle", border: "hsl(var(--border))" },
+  client: { label: "Client", tone: "text-muted-subtle", border: "hsl(var(--border))" },
+};
+
+const initials = (name: string) =>
+  name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "?";
+
 export function ClientsView() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Dashboard's "Add Client" quick action links here with ?new=1 to open
-  // the modal immediately instead of landing on the plain list.
   useEffect(() => {
     if (searchParams.get("new") === "1") {
       setIsModalOpen(true);
@@ -37,10 +54,7 @@ export function ClientsView() {
     queryKey: ["clients"],
     queryFn: listClients,
   });
-  const { data: invoices = [] } = useQuery({
-    queryKey: ["invoices"],
-    queryFn: () => listInvoices(),
-  });
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
 
   const createMutation = useMutation({
@@ -57,134 +71,169 @@ export function ClientsView() {
       toast({ title: "Couldn't delete client", description: err.message, variant: "destructive" }),
   });
 
-  // Derived per-client stats, keyed by client id.
-  const statsByClient = useMemo(() => {
-    const projectClient = new Map<string, string | null>(); // project id -> client id
-    const map = new Map<string, { projects: number; revenue: number }>();
-    const ensure = (clientId: string) => {
-      if (!map.has(clientId)) map.set(clientId, { projects: 0, revenue: 0 });
-      return map.get(clientId)!;
+  const stats = useMemo(() => {
+    const projectClient = new Map<string, string | null>();
+    const map = new Map<string, { projects: number; active: number; revenue: number; kind: Kind }>();
+    const ensure = (id: string) => {
+      if (!map.has(id)) map.set(id, { projects: 0, active: 0, revenue: 0, kind: "lead" });
+      return map.get(id)!;
     };
-    projects.forEach((p) => {
+    for (const p of projects) {
       projectClient.set(p.id, p.client_id);
-      if (p.client_id) ensure(p.client_id).projects += 1;
-    });
-    invoices.forEach((inv) => {
-      const clientId = inv.project_id ? (projectClient.get(inv.project_id) ?? null) : null;
-      if (clientId) ensure(clientId).revenue += Number(inv.amount);
-    });
+      if (p.client_id) {
+        const s = ensure(p.client_id);
+        s.projects += 1;
+        if (p.status !== "paid") s.active += 1;
+      }
+    }
+    for (const inv of invoices) {
+      const cid = inv.project_id ? projectClient.get(inv.project_id) ?? null : null;
+      if (cid) ensure(cid).revenue += Number(inv.amount);
+    }
+    for (const s of map.values()) {
+      s.kind = s.active > 0 ? "active" : s.projects > 1 ? "repeat" : s.projects === 0 ? "lead" : "client";
+    }
     return map;
   }, [projects, invoices]);
 
-  const filteredClients = clients.filter((client) => {
-    const term = searchTerm.toLowerCase();
+  const get = (id: string) => stats.get(id) ?? { projects: 0, active: 0, revenue: 0, kind: "lead" as Kind };
+  const lifetime = [...stats.values()].reduce((a, s) => a + s.revenue, 0);
+  const withActive = [...stats.values()].filter((s) => s.active > 0).length;
+  const countKind = (k: Kind) => clients.filter((c) => get(c.id).kind === k).length;
+
+  const options: FilterOption<Filter>[] = [
+    { value: "all", label: "All", count: clients.length },
+    { value: "active", label: "Active", count: countKind("active") },
+    { value: "repeat", label: "Repeat", count: countKind("repeat") },
+    { value: "lead", label: "Leads", count: countKind("lead") },
+  ];
+
+  const filtered = clients.filter((c) => {
+    if (filter !== "all" && get(c.id).kind !== filter) return false;
+    const term = search.toLowerCase();
     return (
-      client.name.toLowerCase().includes(term) ||
-      (client.email ?? "").toLowerCase().includes(term)
+      !term ||
+      c.name.toLowerCase().includes(term) ||
+      (c.email ?? "").toLowerCase().includes(term) ||
+      (c.address ?? "").toLowerCase().includes(term)
     );
   });
 
   return (
-    <div className="space-y-4 md:space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Clients</h1>
-          <p className="text-muted-foreground mt-1">{clients.length} total clients</p>
-        </div>
-        <Button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Client
-        </Button>
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search clients..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
+    <div className="animate-fade-in space-y-4 md:space-y-5">
+      <MobilePageHeader
+        title="Clients"
+        subtitle={`${pluralize(clients.length, "client")} · ${formatCurrency(lifetime)} lifetime`}
+        actions={
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground"
+          >
+            + Add
+          </button>
+        }
+      >
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search name, email, address"
+          className="mt-3 border-white/20 bg-white/15 text-sidebar-foreground placeholder:text-sidebar-foreground/60 [&_svg]:text-sidebar-foreground/60"
         />
+      </MobilePageHeader>
+
+      <PageHeader
+        title="Clients"
+        subtitle={`${pluralize(clients.length, "client")} · ${withActive} with active work · ${formatCurrency(lifetime)} lifetime`}
+        actions={
+          <Button onClick={() => setIsModalOpen(true)} className="font-bold">
+            + Add client
+          </Button>
+        }
+      />
+
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search name, email, address" className="hidden md:flex md:max-w-xs" />
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading clients…</p>}
-      {isError && (
-        <p className="text-destructive">Failed to load clients: {(error as Error).message}</p>
-      )}
+      {isError && <p className="text-destructive">Failed to load clients: {(error as Error).message}</p>}
 
       {!isLoading && !isError && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredClients.map((client) => {
-            const stats = statsByClient.get(client.id);
-            const totalProjects = stats?.projects ?? 0;
-            const totalRevenue = stats?.revenue ?? 0;
-
-            return (
-              <div key={client.id} className="stat-card">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
-                      <span className="text-lg font-semibold text-primary-foreground">
-                        {client.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+        <>
+          {/* Desktop card grid */}
+          <div className="hidden gap-3.5 md:grid md:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((client) => {
+              const s = get(client.id);
+              const kind = KIND_META[s.kind];
+              return (
+                <div key={client.id} className="card-surface p-[18px]">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-sm font-extrabold text-primary-foreground">
+                        {initials(client.name)}
                       </span>
+                      <div className="min-w-0">
+                        <h3 className="font-bold tracking-tight text-foreground">{client.name}</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {s.projects} project{s.projects === 1 ? "" : "s"} ·{" "}
+                          <span className={cn("font-semibold", kind.tone)}>{kind.label}</span>
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-semibold text-foreground">{client.name}</h3>
-                      <p className="text-sm text-muted-foreground">{totalProjects} projects</p>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(client.id)}>
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => deleteMutation.mutate(client.id)}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
 
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Mail className="w-4 h-4" />
-                    <span>{client.email ?? "—"}</span>
+                  <div className="mt-3.5 space-y-1.5 text-[13px] text-muted-foreground">
+                    <p className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 shrink-0" />{client.email ?? "—"}</p>
+                    <p className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 shrink-0" />{client.phone ?? "—"}</p>
+                    <p className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5 shrink-0" />{client.address ?? "—"}</p>
                   </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Phone className="w-4 h-4" />
-                    <span>{client.phone ?? "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <MapPin className="w-4 h-4" />
-                    <span>{client.address ?? "—"}</span>
-                  </div>
-                </div>
 
-                <div className="mt-4 pt-4 border-t border-border">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Total Revenue</span>
-                    <span className="text-lg font-bold text-foreground">
-                      ${totalRevenue.toLocaleString()}
+                  <div className="mt-3.5 flex items-center justify-between border-t border-hairline pt-3.5">
+                    <span className="text-xs font-semibold text-muted-foreground">Lifetime revenue</span>
+                    <span className="text-base font-extrabold tabular-nums text-foreground">
+                      {formatCurrency(s.revenue)}
                     </span>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-          {filteredClients.length === 0 && (
-            <p className="text-muted-foreground text-sm">No clients yet.</p>
-          )}
-        </div>
+              );
+            })}
+            {filtered.length === 0 && <p className="text-sm text-muted-foreground">No clients here.</p>}
+          </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-2.5 md:hidden">
+            {filtered.map((client) => {
+              const s = get(client.id);
+              const kind = KIND_META[s.kind];
+              return (
+                <ListCard
+                  key={client.id}
+                  borderColor={kind.border}
+                  eyebrow={`${kind.label} · ${s.projects} project${s.projects === 1 ? "" : "s"}`}
+                  eyebrowColor={kind.border}
+                  eyebrowRight={formatCurrency(s.revenue)}
+                  title={client.name}
+                  subtitle={`${client.phone ?? client.email ?? "—"}${client.address ? ` · ${client.address}` : ""}`}
+                />
+              );
+            })}
+            {filtered.length === 0 && <p className="text-sm text-muted-foreground">No clients here.</p>}
+          </div>
+        </>
       )}
 
       <ClientModal
