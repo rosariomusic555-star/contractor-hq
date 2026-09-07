@@ -1,7 +1,7 @@
-import { FileText, Receipt, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { FileText, Receipt, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { listQuotes, listInvoices, quoteTotal, type Quote, type Invoice } from "@/lib/api";
 
 type ActivityType = "quote" | "invoice" | "payment";
@@ -15,19 +15,23 @@ interface Activity {
   amount: number;
   status: ActivityStatus;
   createdAt: string;
-  // Quote builder for quotes; invoice detail for both invoices and
-  // payments (a payment is just a paid invoice).
   linkTo: string;
 }
 
 const iconMap: Record<ActivityType, typeof FileText> = {
   quote: FileText,
   invoice: Receipt,
-  payment: CheckCircle,
+  payment: CheckCircle2,
 };
 
-const statusConfig: Record<ActivityStatus, { icon: typeof CheckCircle; class: string }> = {
-  completed: { icon: CheckCircle, class: "text-success" },
+const chipClass: Record<ActivityType, string> = {
+  quote: "bg-primary/15 text-primary",
+  invoice: "bg-info/15 text-info",
+  payment: "bg-success/15 text-success",
+};
+
+const statusConfig: Record<ActivityStatus, { icon: typeof CheckCircle2; class: string }> = {
+  completed: { icon: CheckCircle2, class: "text-success" },
   pending: { icon: Clock, class: "text-warning" },
   overdue: { icon: AlertCircle, class: "text-destructive" },
 };
@@ -80,13 +84,10 @@ function timeAgo(iso: string): string {
   return "just now";
 }
 
-const money = (n: number) =>
-  `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 const projectLabel = (project?: { name: string; client: { name: string } | null } | null) =>
   project?.client?.name ?? project?.name ?? "—";
 
-export function RecentActivity() {
+export function RecentActivity({ className }: { className?: string }) {
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
 
@@ -113,51 +114,51 @@ export function RecentActivity() {
     })),
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 5);
+    .slice(0, 6);
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-card p-6 shadow-[0_1px_3px_0_hsl(215_25%_15%/0.06)]">
-      <h3 className="mb-4 text-base font-semibold text-foreground">Recent Activity</h3>
-      <div className="space-y-1">
-        {activities.length === 0 && (
-          <p className="py-4 text-sm text-muted-foreground">No activity yet.</p>
-        )}
-        {activities.map((activity, i) => {
-          const Icon = iconMap[activity.type];
-          const StatusIcon = statusConfig[activity.status].icon;
-
-          return (
-            <Link
-              key={activity.id}
-              to={activity.linkTo}
-              style={{ animationDelay: `${i * 60}ms` }}
-              className="group flex animate-fade-in items-center gap-3 rounded-xl p-3 transition-all duration-200 [animation-fill-mode:backwards] hover:bg-muted/60 hover:translate-x-0.5"
-            >
-              <div
-                className={cn(
-                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors",
-                  activity.type === "quote" && "bg-primary/15 text-primary",
-                  activity.type === "invoice" && "bg-[#687B85]/15 text-[#687B85]",
-                  activity.type === "payment" && "bg-success/15 text-success",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="truncate text-sm font-semibold text-foreground">{activity.title}</p>
-                  <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", statusConfig[activity.status].class)} />
-                </div>
-                <p className="truncate text-xs text-muted-foreground">{activity.subtitle}</p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-sm font-semibold tabular-nums text-foreground">{money(activity.amount)}</p>
-                <p className="text-xs text-muted-foreground">{timeAgo(activity.createdAt)}</p>
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
+    <section className={cn("card-surface p-5", className)}>
+      <h3 className="mb-3 text-base font-bold text-foreground">Recent activity</h3>
+      {activities.length === 0 ? (
+        <p className="py-3 text-sm text-muted-foreground">No activity yet.</p>
+      ) : (
+        <ul className="divide-y divide-hairline">
+          {activities.map((activity) => {
+            const Icon = iconMap[activity.type];
+            const StatusIcon = statusConfig[activity.status].icon;
+            return (
+              <li key={activity.id}>
+                <Link
+                  to={activity.linkTo}
+                  className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-muted/50"
+                >
+                  <span
+                    className={cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                      chipClass[activity.type],
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 text-sm font-bold text-foreground">
+                      <span className="truncate">{activity.title}</span>
+                      <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", statusConfig[activity.status].class)} />
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{activity.subtitle}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-bold tabular-nums text-foreground">
+                      {formatCurrency(activity.amount)}
+                    </p>
+                    <p className="text-[11px] text-muted-subtle">{timeAgo(activity.createdAt)}</p>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
