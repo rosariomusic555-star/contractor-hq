@@ -25,7 +25,7 @@ export function AppLayout() {
     <div className="min-h-screen bg-background">
       <MobileNav />
       <Sidebar />
-      <main className="pt-16 md:pt-0 md:ml-64 p-4 md:p-8">
+      <main className="pt-20 md:pt-0 md:ml-64 p-4 md:p-8">
         <Outlet />
       </main>
     </div>

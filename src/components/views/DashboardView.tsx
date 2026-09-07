@@ -45,7 +45,7 @@ export function DashboardView() {
   });
 
   return (
-    <div className="space-y-8 animate-fade-in pt-4 md:pt-0">
+    <div className="space-y-8 animate-fade-in">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
