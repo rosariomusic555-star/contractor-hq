@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -124,20 +124,20 @@ export function ProjectMaterialsView() {
     <div className="space-y-6 animate-fade-in max-w-4xl">
       <Link
         to={`/projects/${id}`}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="w-4 h-4" />
+        <ChevronLeft className="h-3.5 w-3.5" />
         Back to project
       </Link>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Materials sheet</h1>
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
           <p className="text-muted-foreground mt-1">{project?.name ?? " "}</p>
         </div>
         <Button
           onClick={() => addSectionMut.mutate()}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground w-full sm:w-auto"
+          className="font-bold w-full sm:w-auto"
         >
           <Plus className="w-4 h-4 mr-2" />
           Add section
@@ -159,7 +159,7 @@ export function ProjectMaterialsView() {
           <p className="text-muted-foreground">No costs added yet. Add a section to get started.</p>
           <Button
             onClick={() => addSectionMut.mutate()}
-            className="bg-accent hover:bg-accent/90 text-accent-foreground"
+            className="font-bold"
           >
             <Plus className="w-4 h-4 mr-2" />
             Add section

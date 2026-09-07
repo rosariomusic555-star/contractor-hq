@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,20 +47,18 @@ export function InvoiceNewView() {
   const canSave = amount.trim().length > 0 && !Number.isNaN(parseFloat(amount));
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-2xl">
+    <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
       <Link
         to="/invoices"
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="w-4 h-4" />
-        Back to invoices
+        <ChevronLeft className="h-3.5 w-3.5" />
+        Invoices
       </Link>
 
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground">New invoice</h1>
-      </div>
+      <h1 className="text-[28px] font-bold tracking-tight text-foreground">New invoice</h1>
 
-      <div className="stat-card space-y-5">
+      <div className="card-surface space-y-5 p-5">
         <div className="space-y-2">
           <Label htmlFor="invoice-amount">Amount</Label>
           <div className="relative max-w-xs">
@@ -122,7 +120,7 @@ export function InvoiceNewView() {
         <Button
           onClick={() => createMut.mutate()}
           disabled={!canSave || createMut.isPending}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground"
+          className="font-bold"
         >
           {createMut.isPending ? "Creating…" : "Create invoice"}
         </Button>

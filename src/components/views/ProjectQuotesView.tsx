@@ -1,6 +1,6 @@
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ChevronLeft, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
@@ -52,21 +52,21 @@ export function ProjectQuotesView() {
     <div className="space-y-6 animate-fade-in max-w-4xl">
       <Link
         to={`/projects/${id}`}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="w-4 h-4" />
+        <ChevronLeft className="h-3.5 w-3.5" />
         Back to project
       </Link>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Quotes</h1>
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Quotes</h1>
           <p className="text-muted-foreground mt-1">{project.name}</p>
         </div>
         <Button
           onClick={() => addMut.mutate()}
           disabled={addMut.isPending}
-          className="bg-accent hover:bg-accent/90 text-accent-foreground"
+          className="font-bold"
         >
           <Plus className="w-4 h-4 mr-2" />
           Add quote
