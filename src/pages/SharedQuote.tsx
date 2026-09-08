@@ -7,7 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
-import { getSharedQuote, signSharedQuote, type SharedQuoteSection } from "@/lib/api";
+import {
+  getSharedQuote,
+  quoteLineTotal,
+  signSharedQuote,
+  type SharedQuoteSection,
+} from "@/lib/api";
 
 function PageShell({ children }: { children: ReactNode }) {
   return (
@@ -93,7 +98,8 @@ export default function SharedQuotePage() {
 
   const subtotal = sections.reduce(
     (sum, section) =>
-      sum + section.items.reduce((s, item) => (isIncluded(section, item) ? s + Number(item.price) : s), 0),
+      sum +
+      section.items.reduce((s, item) => (isIncluded(section, item) ? s + quoteLineTotal(item) : s), 0),
     0,
   );
   const deposit = (subtotal * Number(quote.deposit_percentage)) / 100;
@@ -221,7 +227,7 @@ function SectionBlock({
   onToggleItem: (itemId: string, checked: boolean) => void;
 }) {
   if (section.is_optional) {
-    const subtotal = section.items.reduce((sum, i) => sum + Number(i.price), 0);
+    const subtotal = section.items.reduce((sum, i) => sum + quoteLineTotal(i), 0);
 
     return (
       <div className="space-y-3">
@@ -249,7 +255,7 @@ function SectionBlock({
   }
 
   const subtotal = section.items.reduce(
-    (sum, item) => sum + (!item.is_optional || itemChecked(item.id) ? Number(item.price) : 0),
+    (sum, item) => sum + (!item.is_optional || itemChecked(item.id) ? quoteLineTotal(item) : 0),
     0,
   );
 
@@ -284,6 +290,7 @@ function ItemsTable({
     <div className="divide-y divide-border/60 border-y border-border/60">
       {items.map((item) => {
         const included = showItemCheckbox && item.is_optional ? itemChecked(item.id) : true;
+        const qty = item.quantity == null ? 1 : Number(item.quantity);
         return (
           <div
             key={item.id}
@@ -299,15 +306,17 @@ function ItemsTable({
               )}
               <div className="min-w-0">
                 <p className="text-sm text-foreground [overflow-wrap:anywhere]">{item.name || "—"}</p>
-                {item.description && (
+                {(qty !== 1 || item.description) && (
                   <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                    {qty !== 1 && `${qty} × ${formatCurrency(Number(item.price))}`}
+                    {qty !== 1 && item.description && " · "}
                     {item.description}
                   </p>
                 )}
               </div>
             </div>
             <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">
-              {formatCurrency(Number(item.price))}
+              {formatCurrency(quoteLineTotal(item))}
             </span>
           </div>
         );
