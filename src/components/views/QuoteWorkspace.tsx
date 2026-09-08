@@ -372,7 +372,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const isDirty = dirty.current;
 
   return (
-    <div className="animate-fade-in space-y-5 max-w-5xl pb-40 md:pb-24">
+    <div className={cn("animate-fade-in space-y-5 max-w-5xl", isDirty && "pb-40 md:pb-28")}>
       <MobilePageHeader
         title={quote.project?.name ?? "Standalone quote"}
         subtitle={`${meta.label} · ${quote.client?.name ?? quote.project?.client?.name ?? "no client"}`}
