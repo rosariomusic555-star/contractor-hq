@@ -27,7 +27,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
@@ -35,7 +35,7 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { quoteStatusMeta } from "@/lib/statusMeta";
-import { demoQuoteFinancials } from "@/lib/demoData";
+import { demoQuoteFinancials, demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
 import {
   listClients,
   listProjects,
@@ -107,9 +107,14 @@ const seed = (quote: Quote): QuoteDraft => ({
   depositPct: Number(quote.deposit_percentage),
 });
 
+/** An item is an "optional add-on" if its section or the item itself is flagged. */
+const itemIsAddon = (s: DraftSection, i: DraftItem) => s.is_optional || i.is_optional;
 /** Whether a draft line item counts toward the shown total. */
 const itemIncluded = (s: DraftSection, i: DraftItem) =>
-  s.is_optional || i.is_optional ? i.client_selected : true;
+  itemIsAddon(s, i) ? i.client_selected : true;
+/** A section's base (non-optional) subtotal — what always counts. */
+const baseSubtotal = (s: DraftSection) =>
+  s.is_optional ? 0 : s.items.reduce((sum, i) => (i.is_optional ? sum : sum + i.price), 0);
 
 interface QuoteWorkspaceProps {
   quote: Quote;
@@ -120,17 +125,17 @@ interface QuoteWorkspaceProps {
 }
 
 /**
- * The full quote editor — client/project linking, sections/items, margin
- * panel, notes/terms/deposit, send flow. This is the single place all quote
+ * The full quote editor — client/project linking, sections/items, totals /
+ * margin panel, notes/terms/deposit, send flow. Single place all quote
  * configuration happens, whether the quote started standalone or from a
- * project: project_id/client_id are derived straight from `quote` (not
- * passed in), so linking or unlinking a project here just works.
+ * project: project_id/client_id are derived straight from `quote`.
  */
 export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspaceProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   const projectId = quote.project_id;
 
@@ -322,7 +327,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     },
     onSuccess: (token) => {
       invalidate();
-      void logProjectEvent(projectId, "quote_sent", `Quote shared · ${formatCurrency(quoteTotalLive)}`, {
+      void logProjectEvent(projectId, "quote_sent", `Quote shared · ${formatCurrency(grandTotal)}`, {
         quote_id: quote.id,
       });
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
@@ -335,12 +340,28 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const sectionSubtotal = (s: DraftSection) =>
     s.items.reduce((sum, i) => (itemIncluded(s, i) ? sum + i.price : sum), 0);
   const quoteTotalLive = draft.sections.reduce((sum, s) => sum + sectionSubtotal(s), 0);
+  const baseTotal = draft.sections.reduce((sum, s) => sum + baseSubtotal(s), 0);
+  // Add-ons the client has picked (roll into the total); vs. everything optional.
+  const selectedAddonsTotal = draft.sections.reduce(
+    (sum, s) =>
+      sum + s.items.reduce((a, i) => a + (itemIsAddon(s, i) && i.client_selected ? i.price : 0), 0),
+    0,
+  );
+  const optionalAvailableTotal = draft.sections.reduce(
+    (sum, s) =>
+      sum + s.items.reduce((a, i) => a + (itemIsAddon(s, i) && !i.client_selected ? i.price : 0), 0),
+    0,
+  );
 
   const materialsCost = materialsCogs(materials);
-  const margin = quoteTotalLive - materialsCost;
-  const marginPct = quoteTotalLive > 0 ? (margin / quoteTotalLive) * 100 : 0;
+  const fin = demoQuoteFinancials(quoteTotalLive);
+  const grandTotal = quoteTotalLive + fin.markupAmount + fin.taxAmount;
+  const depositAmount = Math.round((grandTotal * draft.depositPct) / 100);
+  const estCost = projectId ? materialsCost : fin.estCost;
+  const margin = grandTotal - estCost;
+  const marginPct = grandTotal > 0 ? (margin / grandTotal) * 100 : 0;
   const marginColor =
-    quoteTotalLive === 0
+    grandTotal === 0
       ? "text-muted-foreground"
       : marginPct > 20
         ? "text-success"
@@ -348,9 +369,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           ? "text-warning"
           : "text-destructive";
 
+  const itemCount = draft.sections.reduce((n, s) => n + s.items.length, 0);
+  const sectionRows = draft.sections
+    .filter((s) => !s.is_optional && s.items.some((i) => !i.is_optional))
+    .map((s) => ({ id: s.id, name: s.name || "Untitled section", subtotal: baseSubtotal(s) }));
+  const terms = demoQuoteTerms(quote, draft.depositPct);
+
   const meta = quoteStatusMeta(quote.status);
-  const fin = demoQuoteFinancials(quoteTotalLive);
-  const depositAmount = Math.round((quoteTotalLive * draft.depositPct) / 100);
+  const clientName = quote.client?.name ?? quote.project?.client?.name ?? "No client";
   const persistedLink =
     quote.share_token && quote.status !== "draft"
       ? `${window.location.origin}/quote/${quote.share_token}`
@@ -358,73 +384,133 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   const isDirty = dirty.current;
 
+  const primaryAction = (fullWidth?: boolean) =>
+    quote.status === "draft" ? (
+      <Button
+        onClick={() => shareQuoteMut.mutate()}
+        disabled={shareQuoteMut.isPending || isDirty}
+        className={cn("font-bold", fullWidth && "w-full")}
+      >
+        {shareQuoteMut.isPending ? "Preparing…" : "Send for signature"}
+      </Button>
+    ) : (
+      <Button
+        variant="outline"
+        onClick={() => persistedLink && setShareUrl(persistedLink)}
+        disabled={!persistedLink}
+        className={cn(fullWidth && "w-full")}
+      >
+        <Share2 className="mr-2 h-4 w-4" />
+        Share link
+      </Button>
+    );
+
   return (
-    <div className={cn("animate-fade-in space-y-5 max-w-5xl", isDirty && "pb-40 md:pb-28")}>
+    <div className={cn("animate-fade-in max-w-6xl space-y-5", isDirty && "pb-40 md:pb-28")}>
       <MobilePageHeader
         title={quote.project?.name ?? "Standalone quote"}
-        subtitle={`${meta.label} · ${quote.client?.name ?? quote.project?.client?.name ?? "no client"}`}
+        subtitle={`${meta.label} · ${clientName}`}
         back={{ to: backHref, label: backLabel }}
         pills={
           <>
-            <span className="badge-status !bg-white/20 !text-sidebar-foreground">{formatCurrency(quoteTotalLive)}</span>
-            {projectId && (
-              <span className="badge-status !bg-white/15 !text-sidebar-foreground/90">Margin {marginPct.toFixed(0)}%</span>
-            )}
+            <span className="badge-status !bg-white/20 !text-sidebar-foreground">
+              {pluralize(itemCount, "item")}
+            </span>
+            <span className="badge-status !bg-white/15 !text-sidebar-foreground/90">{meta.label}</span>
           </>
         }
       />
 
+      {/* Mobile: sticky dark quote-total card with an expandable breakdown. */}
+      <div className="sticky top-0 z-10 -mx-4 bg-background px-4 pb-2 md:hidden">
+        <button
+          type="button"
+          onClick={() => setBreakdownOpen((o) => !o)}
+          className="w-full rounded-2xl bg-foreground p-4 text-left text-background shadow-lg"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-background/60">
+                Quote total
+              </div>
+              <div className="mt-0.5 text-[32px] font-extrabold leading-none tracking-tight tabular-nums">
+                {formatCurrency(grandTotal)}
+              </div>
+            </div>
+            {projectId && (
+              <span className="shrink-0 rounded-full bg-primary px-2.5 py-1 text-xs font-extrabold text-primary-foreground">
+                Margin {marginPct.toFixed(0)}%
+              </span>
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-xl bg-white/[0.08] px-3 py-2">
+              <div className="text-[11px] font-semibold text-background/60">
+                Deposit {draft.depositPct}%
+              </div>
+              <div className="mt-0.5 text-base font-extrabold tabular-nums">
+                {formatCurrency(depositAmount)}
+              </div>
+            </div>
+            <div className="rounded-xl bg-white/[0.08] px-3 py-2">
+              <div className="text-[11px] font-semibold text-background/60">Est. cost</div>
+              <div className="mt-0.5 text-base font-extrabold tabular-nums">
+                {formatCurrency(estCost)}
+              </div>
+            </div>
+          </div>
+          {breakdownOpen && (
+            <div className="mt-3 border-t border-white/10 pt-1">
+              {sectionRows.map((r) => (
+                <DarkRow key={r.id} label={r.name} value={formatCurrency(r.subtotal)} />
+              ))}
+              {selectedAddonsTotal > 0 && (
+                <DarkRow label="Selected add-ons" value={formatCurrency(selectedAddonsTotal)} />
+              )}
+              <DarkRow
+                label={`Material markup ${fin.markupPct}%`}
+                value={formatCurrency(fin.markupAmount)}
+              />
+              <DarkRow label={`Sales tax ${fin.taxPct}%`} value={formatCurrency(fin.taxAmount)} />
+            </div>
+          )}
+          <div className="mt-2.5 text-center text-[11px] font-bold text-background/60">
+            {breakdownOpen ? "Hide breakdown ⌃" : "Show breakdown ⌄"}
+          </div>
+        </button>
+      </div>
+
+      {/* Desktop header */}
       <div className="hidden md:block">
-        <Link to={backHref} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
+        <Link
+          to={backHref}
+          className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
+        >
           <ChevronLeft className="h-3.5 w-3.5" /> {backLabel}
         </Link>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2.5">
+            <div className="text-xs font-semibold text-muted-subtle">
+              Quotes{quote.status === "draft" ? " · Draft" : ""}
+            </div>
+            <div className="mt-1 flex items-center gap-2.5">
               <h1 className="text-[28px] font-bold tracking-tight text-foreground">
                 {quote.project?.name ?? "Standalone quote"}
               </h1>
               <StatusPill meta={meta} />
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {quote.client?.name ?? quote.project?.client?.name ?? "No client"}
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{clientName}</p>
           </div>
-
-          <div className="w-full shrink-0 space-y-3 md:w-80">
-            <div className="card-surface p-4">
-              <MoneyRow label="Line items + add-ons" value={formatCurrency(quoteTotalLive)} />
-              <MoneyRow label={`Material markup ${fin.markupPct}%`} value={formatCurrency(fin.markupAmount)} />
-              <MoneyRow label={`Sales tax ${fin.taxPct}% (materials)`} value={formatCurrency(fin.taxAmount)} />
-            </div>
-            <div className="rounded-card bg-foreground p-4 text-background">
-              <div className="text-xs font-semibold text-background/70">Quote total</div>
-              <div className="mt-1 text-[30px] font-extrabold leading-none tracking-tight tabular-nums">
-                {formatCurrency(quoteTotalLive + fin.markupAmount + fin.taxAmount)}
-              </div>
-              <div className="mt-1.5 text-xs text-background/75">
-                Deposit {draft.depositPct}% · {formatCurrency(depositAmount)} at signing
-              </div>
-            </div>
-            {projectId ? (
-              <div className="rounded-card bg-primary/10 p-3">
-                <div className="flex justify-between text-xs font-semibold text-success">
-                  <span>Est. cost</span>
-                  <span>{formatCurrency(fin.estCost)}</span>
-                </div>
-                <div className="mt-1 flex justify-between text-xs font-semibold text-success">
-                  <span>Margin</span>
-                  <span className={cn("text-[15px] font-extrabold", marginColor)}>{marginPct.toFixed(0)}%</span>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">Link a project to track cost &amp; margin.</p>
+          <div className="flex items-center gap-2">
+            {isDirty && quote.status === "draft" && (
+              <span className="text-xs text-muted-foreground">Save your changes first</span>
             )}
+            {primaryAction()}
           </div>
         </div>
       </div>
 
-      <div className="stat-card grid grid-cols-1 sm:grid-cols-2 gap-5">
+      <div className="stat-card grid grid-cols-1 gap-5 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>Client</Label>
           <Select
@@ -466,33 +552,34 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       </div>
 
       {persistedLink && (
-        <div className="stat-card flex items-center justify-between gap-3 flex-wrap">
+        <div className="stat-card flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm text-muted-foreground">Client link</p>
-            <p className="font-mono text-sm truncate">{persistedLink}</p>
+            <p className="truncate font-mono text-sm">{persistedLink}</p>
           </div>
           <Button variant="outline" size="sm" onClick={() => setShareUrl(persistedLink)}>
-            <Share2 className="w-4 h-4 mr-2" />
+            <Share2 className="mr-2 h-4 w-4" />
             Share
           </Button>
         </div>
       )}
 
-      <div className="flex justify-start">
-        <Button size="sm" onClick={addSection} className="font-bold">
-          <Plus className="w-4 h-4 mr-2" />
-          Add section
-        </Button>
-      </div>
-
-      {draft.sections.length === 0 && (
-        <div className="stat-card text-center py-12">
-          <p className="text-muted-foreground">No sections yet. Add a section to build the quote.</p>
-        </div>
-      )}
-
-      {draft.sections.length > 0 && (
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        {/* Left column — sections + notes */}
         <div className="space-y-4">
+          <div className="flex justify-start">
+            <Button size="sm" onClick={addSection} className="font-bold">
+              <Plus className="mr-2 h-4 w-4" />
+              Add section
+            </Button>
+          </div>
+
+          {draft.sections.length === 0 && (
+            <div className="stat-card py-12 text-center text-muted-foreground">
+              No sections yet. Add a section to build the quote.
+            </div>
+          )}
+
           {draft.sections.map((section) => (
             <QuoteSectionCard
               key={section.id}
@@ -506,77 +593,126 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               onDeleteItem={(iid) => removeItem(section.id, iid)}
             />
           ))}
-        </div>
-      )}
 
-      <div className="stat-card space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="quote-notes">Notes</Label>
-          <Textarea
-            id="quote-notes"
-            value={draft.notes}
-            placeholder="Any notes for the client about this job..."
-            onChange={(e) => edit((d) => ({ ...d, notes: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="quote-terms">Terms &amp; conditions</Label>
-          <Textarea
-            id="quote-terms"
-            value={draft.terms}
-            placeholder="Payment terms, warranty info, etc."
-            onChange={(e) => edit((d) => ({ ...d, terms: e.target.value }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="quote-deposit">Deposit required</Label>
-          <div className="relative w-32">
-            <Input
-              id="quote-deposit"
-              type="number"
-              min="0"
-              max="100"
-              inputMode="decimal"
-              value={String(draft.depositPct)}
-              className="pr-7"
-              onChange={(e) =>
-                edit((d) => ({ ...d, depositPct: parseFloat(e.target.value) || 0 }))
-              }
-            />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-              %
-            </span>
+          <div className="stat-card space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="quote-notes">Notes</Label>
+              <Textarea
+                id="quote-notes"
+                value={draft.notes}
+                placeholder="Any notes for the client about this job..."
+                onChange={(e) => edit((d) => ({ ...d, notes: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="quote-terms">Terms &amp; conditions</Label>
+              <Textarea
+                id="quote-terms"
+                value={draft.terms}
+                placeholder="Payment terms, warranty info, etc."
+                onChange={(e) => edit((d) => ({ ...d, terms: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="quote-deposit">Deposit required</Label>
+              <div className="relative w-32">
+                <Input
+                  id="quote-deposit"
+                  type="number"
+                  min="0"
+                  max="100"
+                  inputMode="decimal"
+                  value={String(draft.depositPct)}
+                  className="pr-7"
+                  onChange={(e) =>
+                    edit((d) => ({ ...d, depositPct: parseFloat(e.target.value) || 0 }))
+                  }
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  %
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Percentage of the quote total required upfront.
+              </p>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Percentage of the quote total required upfront.
-          </p>
+        </div>
+
+        {/* Desktop right rail — totals, margin, terms */}
+        <div className="hidden lg:sticky lg:top-4 lg:flex lg:flex-col lg:gap-4">
+          <div className="card-surface p-4">
+            <div className="text-base font-bold text-foreground">Totals</div>
+            <div className="mt-2.5">
+              {sectionRows.map((r) => (
+                <MoneyRow key={r.id} label={r.name} value={formatCurrency(r.subtotal)} />
+              ))}
+              {selectedAddonsTotal > 0 && (
+                <MoneyRow label="Selected add-ons" value={formatCurrency(selectedAddonsTotal)} />
+              )}
+              <MoneyRow
+                label={`Material markup ${fin.markupPct}%`}
+                value={formatCurrency(fin.markupAmount)}
+              />
+              <MoneyRow
+                label={`Sales tax ${fin.taxPct}% (materials)`}
+                value={formatCurrency(fin.taxAmount)}
+              />
+            </div>
+            {optionalAvailableTotal > 0 && (
+              <p className="mt-2.5 text-[11px] text-muted-foreground">
+                + {formatCurrency(optionalAvailableTotal)} in optional add-ons the client can pick
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-card bg-foreground p-4 text-background">
+            <div className="text-xs font-semibold text-background/70">Quote total</div>
+            <div className="mt-1 text-[30px] font-extrabold leading-none tracking-tight tabular-nums">
+              {formatCurrency(grandTotal)}
+            </div>
+            <div className="mt-1.5 text-xs text-background/75">
+              Deposit {draft.depositPct}% · {formatCurrency(depositAmount)} at signing
+            </div>
+          </div>
+
+          {projectId ? (
+            <div className="rounded-card bg-primary/10 p-3">
+              <div className="flex justify-between text-xs font-semibold text-success">
+                <span>Est. cost</span>
+                <span>{formatCurrency(estCost)}</span>
+              </div>
+              <div className="mt-1 flex justify-between text-xs font-semibold text-success">
+                <span>Margin</span>
+                <span className={cn("text-[15px] font-extrabold", marginColor)}>
+                  {marginPct.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Link a project to track cost &amp; margin.</p>
+          )}
+
+          <QuoteTermsCard terms={terms} />
         </div>
       </div>
 
-      <div className="flex flex-wrap justify-end items-center gap-3">
-        {quote.status === "draft" ? (
-          <>
-            {isDirty && (
-              <p className="text-sm text-muted-foreground">Save your changes first.</p>
+      {/* Below-lg: totals + terms (the right rail is lg-only) */}
+      <div className="space-y-4 lg:hidden">
+        <div className="card-surface p-4">
+          <div className="text-base font-bold text-foreground">Totals</div>
+          <div className="mt-2.5">
+            <MoneyRow label="Line items" value={formatCurrency(baseTotal)} />
+            {selectedAddonsTotal > 0 && (
+              <MoneyRow label="Selected add-ons" value={formatCurrency(selectedAddonsTotal)} />
             )}
-            <Button
-              onClick={() => shareQuoteMut.mutate()}
-              disabled={shareQuoteMut.isPending || isDirty}
-              className="font-bold"
-            >
-              {shareQuoteMut.isPending ? "Preparing…" : "Share quote"}
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="outline"
-            onClick={() => persistedLink && setShareUrl(persistedLink)}
-            disabled={!persistedLink}
-          >
-            <Share2 className="mr-2 h-4 w-4" />
-            Share link
-          </Button>
-        )}
+            <MoneyRow label={`Markup ${fin.markupPct}%`} value={formatCurrency(fin.markupAmount)} />
+            <MoneyRow label={`Tax ${fin.taxPct}%`} value={formatCurrency(fin.taxAmount)} />
+            <MoneyRow label="Total" value={formatCurrency(grandTotal)} strong />
+          </div>
+          <div className="mt-3">{primaryAction(true)}</div>
+        </div>
+        <QuoteTermsCard terms={terms} />
       </div>
 
       <DraftSaveBar
@@ -597,6 +733,36 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 }
 
 // ---------------------------------------------------------------------------
+
+function DarkRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between py-[7px]">
+      <span className="text-[13px] text-background/70">{label}</span>
+      <span className="text-[13px] font-bold tabular-nums text-background">{value}</span>
+    </div>
+  );
+}
+
+function QuoteTermsCard({ terms }: { terms: DemoQuoteTerms }) {
+  const row = (label: string, value: string) => (
+    <div className="flex justify-between text-[13px]">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold text-foreground">{value}</span>
+    </div>
+  );
+  return (
+    <div className="card-surface p-4">
+      <div className="text-base font-bold text-foreground">Terms</div>
+      <div className="mt-2.5 space-y-2.5">
+        {row("Valid until", terms.validUntil)}
+        {row("Deposit", terms.depositLabel)}
+        {row("Balance", terms.balance)}
+        {row("Warranty", terms.warranty)}
+        {row("Crew window", terms.crewWindow)}
+      </div>
+    </div>
+  );
+}
 
 interface QuoteSectionCardProps {
   section: DraftSection;
@@ -622,34 +788,37 @@ function QuoteSectionCard({
   const items = section.items;
 
   return (
-    <div className="stat-card space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Input
+    <div className="card-surface overflow-hidden p-0">
+      <div className="flex items-start justify-between gap-3 border-b border-hairline p-4">
+        <div className="min-w-0 flex-1">
+          <input
             value={section.name}
             onChange={(e) => onRename(e.target.value)}
             placeholder="New section"
-            className="h-9 max-w-xs font-semibold"
+            className="-mx-1 w-full max-w-xs rounded-md border border-transparent bg-transparent px-1 text-base font-bold text-foreground outline-none placeholder:font-medium placeholder:text-muted-foreground hover:border-input focus:border-input focus:bg-background focus:ring-2 focus:ring-ring"
           />
-          {section.is_optional && <span className="badge-status badge-draft shrink-0">Optional</span>}
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {pluralize(items.length, "item")} · {formatCurrency(subtotal)}
+            </span>
+            {section.is_optional && <span className="badge-status badge-draft">Optional</span>}
+          </div>
         </div>
 
-        <div className="flex items-center gap-4 shrink-0">
-          <div className="flex items-center gap-2">
-            <Label htmlFor={`optional-${section.id}`} className="text-xs text-muted-foreground">
-              Optional section
-            </Label>
+        <div className="flex shrink-0 items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            Optional
             <Switch
-              id={`optional-${section.id}`}
               checked={section.is_optional}
               onCheckedChange={onToggleOptional}
+              aria-label="Optional section"
             />
-          </div>
+          </label>
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <button className="text-muted-foreground hover:text-destructive">
-                <Trash2 className="w-4 h-4" />
+              <button className="text-muted-foreground hover:text-destructive" aria-label="Delete section">
+                <Trash2 className="h-4 w-4" />
               </button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -676,13 +845,10 @@ function QuoteSectionCard({
       </div>
 
       {items.length > 0 && (
-        <div className="space-y-2 lg:space-y-1">
-          {/* column headers — wide screens only; below lg the rows stack so
-              the name & description always get a full-width line */}
-          <div className="hidden gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-muted-subtle lg:grid lg:grid-cols-[minmax(8rem,2fr)_minmax(8rem,2fr)_7rem_5rem_1.5rem]">
+        <>
+          <div className="hidden grid-cols-[minmax(8rem,1fr)_7rem_5rem_1.5rem] gap-3 bg-muted/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted-subtle lg:grid">
             <span>Item</span>
-            <span>Description</span>
-            <span className="text-right">Price</span>
+            <span className="text-right">Amount</span>
             <span className="text-center">Optional</span>
             <span />
           </div>
@@ -694,16 +860,16 @@ function QuoteSectionCard({
               onDelete={() => onDeleteItem(item.id)}
             />
           ))}
-        </div>
+        </>
       )}
 
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex items-center justify-between border-t border-hairline p-3">
         <Button variant="outline" size="sm" onClick={onAddItem}>
-          <Plus className="w-4 h-4 mr-1" />
+          <Plus className="mr-1 h-4 w-4" />
           Add item
         </Button>
         <div className="text-sm">
-          <span className="text-muted-foreground mr-2">Subtotal</span>
+          <span className="mr-2 text-muted-foreground">Subtotal</span>
           <span className="font-semibold tabular-nums">{formatCurrency(subtotal)}</span>
         </div>
       </div>
@@ -724,20 +890,23 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
   useEffect(() => setPriceStr(String(item.price)), [item.price]);
 
   return (
-    <div className="rounded-xl border border-hairline p-2.5 lg:grid lg:grid-cols-[minmax(8rem,2fr)_minmax(8rem,2fr)_7rem_5rem_1.5rem] lg:items-center lg:gap-3 lg:border-0 lg:p-0">
-      {/* Textareas so a long name / description wraps instead of scrolling
-          off in one line. */}
-      <AutoGrowTextarea
-        value={item.name}
-        onChange={(e) => onEdit({ name: e.target.value })}
-        placeholder="Item name"
-      />
-      <AutoGrowTextarea
-        value={item.description}
-        onChange={(e) => onEdit({ description: e.target.value })}
-        placeholder="Short description"
-        className="mt-2 lg:mt-0"
-      />
+    <div className="border-b border-hairline p-3 last:border-b-0 lg:grid lg:grid-cols-[minmax(8rem,1fr)_7rem_5rem_1.5rem] lg:items-start lg:gap-3 lg:px-4">
+      {/* Name + description (the mockup's grey "meta" line). Textareas so long
+          text wraps instead of scrolling off. */}
+      <div className="min-w-0">
+        <AutoGrowTextarea
+          value={item.name}
+          onChange={(e) => onEdit({ name: e.target.value })}
+          placeholder="Item name"
+          className="border-transparent px-1 -mx-1 font-semibold hover:border-input focus-visible:border-input"
+        />
+        <AutoGrowTextarea
+          value={item.description}
+          onChange={(e) => onEdit({ description: e.target.value })}
+          placeholder="Short description"
+          className="mt-1 border-transparent px-1 -mx-1 text-xs text-muted-foreground hover:border-input focus-visible:border-input"
+        />
+      </div>
 
       <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
         <div className="relative min-w-0 flex-1 lg:flex-none">
@@ -753,11 +922,11 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
               setPriceStr(e.target.value);
               onEdit({ price: parseFloat(e.target.value) || 0 });
             }}
-            className="h-9 pl-5 text-right"
-            aria-label="Price"
+            className="h-9 pl-5 text-right font-semibold"
+            aria-label="Amount"
           />
         </div>
-        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground lg:justify-self-center">
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground lg:justify-self-center lg:pt-1.5">
           <Checkbox
             checked={item.is_optional}
             onCheckedChange={(c) => onEdit({ is_optional: c === true })}
@@ -767,7 +936,7 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
         <button
           type="button"
           onClick={onDelete}
-          className="shrink-0 text-muted-foreground hover:text-destructive"
+          className="shrink-0 text-muted-foreground hover:text-destructive lg:pt-1.5"
           aria-label="Remove item"
         >
           <Trash2 className="h-3.5 w-3.5" />

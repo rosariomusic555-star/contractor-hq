@@ -221,3 +221,36 @@ export function demoQuoteFinancials(realQuoteTotal: number): DemoQuoteFinancials
   };
 }
 
+// ---------------------------------------------------------------------------
+// Quote "Terms" card rows. Deposit % is real (passed in); the rest is demo
+// decoration for the mockup's completeness — never persisted.
+// ---------------------------------------------------------------------------
+
+export interface DemoQuoteTerms {
+  validUntil: string;
+  depositLabel: string;
+  balance: string;
+  warranty: string;
+  crewWindow: string;
+}
+
+export function demoQuoteTerms(
+  quote: { id: string; created_at: string },
+  depositPct: number,
+): DemoQuoteTerms {
+  const DAY = 86_400_000;
+  const created = new Date(quote.created_at || "2026-01-01");
+  const long = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const short = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  const start = new Date(created.getTime() + (18 + seededInt(quote.id + "crew", 0, 10)) * DAY);
+  return {
+    validUntil: long(new Date(created.getTime() + DEMO_QUOTE_DEFAULTS.quoteValidityDays * DAY)),
+    depositLabel: `${depositPct}% at signing`,
+    balance: "Net 14 from completion",
+    warranty: "5-year workmanship",
+    crewWindow: `${short(start)} – ${short(new Date(start.getTime() + 4 * DAY))}`,
+  };
+}
+
