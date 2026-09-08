@@ -208,7 +208,7 @@ export function ProjectMaterialsView() {
   const isDirty = dirty.current;
 
   return (
-    <div className="mx-auto max-w-4xl animate-fade-in space-y-5 pb-40 md:pb-24">
+    <div className={cn("mx-auto max-w-4xl animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
       <Link
         to={`/projects/${id}`}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"

@@ -11,7 +11,7 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import {
   getQuote,
@@ -211,7 +211,7 @@ export function InvoiceWorkspace({
     );
 
   return (
-    <div className="animate-fade-in space-y-5 pb-40 md:pb-24">
+    <div className={cn("animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
       <MobilePageHeader
         title={number}
         subtitle={`${invoice.project?.name ?? "Standalone"}${clientName ? ` · ${clientName}` : ""}`}
