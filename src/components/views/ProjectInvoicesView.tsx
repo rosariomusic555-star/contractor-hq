@@ -1,24 +1,12 @@
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import {
-  getProject,
-  listInvoices,
-  listQuotes,
-  createInvoice,
-  quoteTotal,
-  type InvoiceStatus,
-} from "@/lib/api";
-
-const STATUS_META: Record<InvoiceStatus, { label: string; badge: string }> = {
-  draft: { label: "Draft", badge: "badge-status badge-draft" },
-  sent: { label: "Sent", badge: "badge-status badge-info" },
-  paid: { label: "Paid", badge: "badge-status badge-paid" },
-  overdue: { label: "Overdue", badge: "badge-status badge-overdue" },
-};
+import { getProject, listInvoices, listQuotes, createInvoice, quoteTotal } from "@/lib/api";
+import { invoiceStatusMeta } from "@/lib/statusMeta";
 
 // Append a local midnight so a date-only string ("2026-09-15") isn't parsed
 // as UTC midnight, which shifts it back a day in negative-offset timezones.
@@ -109,35 +97,25 @@ export function ProjectInvoicesView() {
         </div>
       ) : (
         <div className="space-y-3">
-          {sorted.map((invoice) => {
-            const meta = STATUS_META[invoice.status];
-            return (
-              <div
-                key={invoice.id}
-                className="stat-card flex flex-wrap items-center justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground">
-                    {invoice.invoice_number ?? "—"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Due {formatDate(invoice.due_date)}</p>
-                </div>
-                <div className="flex items-center gap-4 shrink-0">
-                  <span className="font-semibold text-foreground">
-                    {formatCurrency(Number(invoice.amount))}
-                  </span>
-                  <span className={meta.badge}>{meta.label}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate(`/projects/${id}/invoices/${invoice.id}`)}
-                  >
-                    Open
-                  </Button>
-                </div>
+          {sorted.map((invoice) => (
+            <Link
+              key={invoice.id}
+              to={`/projects/${id}/invoices/${invoice.id}`}
+              className="card-surface flex flex-wrap items-center justify-between gap-3 p-5 transition-shadow hover:shadow-card-hover"
+            >
+              <div className="min-w-0">
+                <p className="font-bold text-foreground">{invoice.invoice_number ?? "—"}</p>
+                <p className="text-sm text-muted-foreground">Due {formatDate(invoice.due_date)}</p>
               </div>
-            );
-          })}
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="font-bold tabular-nums text-foreground">
+                  {formatCurrency(Number(invoice.amount))}
+                </span>
+                <StatusPill meta={invoiceStatusMeta(invoice.status)} />
+                <ChevronRight className="h-4 w-4 text-muted-subtle" />
+              </div>
+            </Link>
+          ))}
         </div>
       )}
     </div>

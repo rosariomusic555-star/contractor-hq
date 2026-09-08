@@ -116,12 +116,7 @@ export function ProjectDetailView() {
         title={project.name}
         subtitle={`${project.client?.name ?? "No client"} · ${demo.crew}`}
         back={{ to: "/projects", label: "Projects" }}
-        pills={
-          <>
-            <StatusPill meta={meta} className="!bg-white/20 !text-sidebar-foreground" />
-            <span className="badge-status !bg-white/15 !text-sidebar-foreground/90">{PROJECT_STATUS_META[project.status].label}</span>
-          </>
-        }
+        pills={<StatusPill meta={meta} className="!bg-white/20 !text-sidebar-foreground" />}
       />
 
       {/* Desktop header */}

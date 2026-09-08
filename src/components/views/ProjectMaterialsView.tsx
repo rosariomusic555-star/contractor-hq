@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,7 +16,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import {
   getProject,
   listMaterials,
@@ -27,10 +27,42 @@ import {
   updateMaterialsItem,
   deleteMaterialsItem,
   type MaterialsSection,
-  type MaterialsItem,
 } from "@/lib/api";
 
-type LiveValues = Record<string, { quantity: number; unit_cost: number }>;
+// ---------------------------------------------------------------------------
+// Draft model — the whole sheet is edited locally and only written to
+// Supabase when "Save changes" is pressed. New rows get a "tmp-" id.
+// ---------------------------------------------------------------------------
+
+interface DraftItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit_cost: number;
+}
+interface DraftSection {
+  id: string;
+  name: string;
+  items: DraftItem[];
+}
+
+const tmpId = () => `tmp-${crypto.randomUUID()}`;
+const isTmp = (id: string) => id.startsWith("tmp-");
+
+const seed = (sections: MaterialsSection[]): DraftSection[] =>
+  sections.map((s) => ({
+    id: s.id,
+    name: s.name,
+    items: s.materials_items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      quantity: Number(i.quantity),
+      unit_cost: Number(i.unit_cost),
+    })),
+  }));
+
+const itemChanged = (a: DraftItem, b: { name: string; quantity: number; unit_cost: number }) =>
+  a.name !== b.name || a.quantity !== b.quantity || a.unit_cost !== b.unit_cost;
 
 export function ProjectMaterialsView() {
   const { id = "" } = useParams();
@@ -41,87 +73,141 @@ export function ProjectMaterialsView() {
   const { data: sections = [], isLoading, isError, error } = useQuery({
     queryKey: ["materials", { project: id }],
     queryFn: () => listMaterials(id),
+    refetchOnWindowFocus: false,
   });
 
-  // Local live values drive instant total recalculation; Supabase is only
-  // written to on blur (see ItemRow). Re-seeded whenever the server data
-  // (re)loads, e.g. after a save elsewhere in the sheet.
-  const [live, setLive] = useState<LiveValues>({});
+  const [draft, setDraft] = useState<DraftSection[]>([]);
+  const dirty = useRef(false);
+
+  // Seed the draft from the server — but never clobber unsaved edits.
   useEffect(() => {
-    const next: LiveValues = {};
-    for (const section of sections) {
-      for (const item of section.materials_items) {
-        next[item.id] = { quantity: Number(item.quantity), unit_cost: Number(item.unit_cost) };
-      }
-    }
-    setLive(next);
+    if (dirty.current) return;
+    setDraft(seed(sections));
   }, [sections]);
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["materials", { project: id }] });
-  const invalidateProjects = () => qc.invalidateQueries({ queryKey: ["projects"] });
-  const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
+  const markDirty = () => {
+    dirty.current = true;
+  };
+  const edit = (fn: (d: DraftSection[]) => DraftSection[]) => {
+    markDirty();
+    setDraft((d) => fn(d));
+  };
 
-  const addSectionMut = useMutation({
-    mutationFn: () => createMaterialsSection(id, { name: "New section", sort_order: sections.length }),
-    onSuccess: () => {
-      invalidate();
-      invalidateProjects();
+  const discard = () => {
+    dirty.current = false;
+    setDraft(seed(sections));
+  };
+
+  // --- local mutators -------------------------------------------------------
+  const renameSection = (sid: string, name: string) =>
+    edit((d) => d.map((s) => (s.id === sid ? { ...s, name } : s)));
+  const deleteSection = (sid: string) => edit((d) => d.filter((s) => s.id !== sid));
+  const addSection = () =>
+    edit((d) => [...d, { id: tmpId(), name: "New section", items: [] }]);
+  const addItem = (sid: string) =>
+    edit((d) =>
+      d.map((s) =>
+        s.id === sid
+          ? { ...s, items: [...s.items, { id: tmpId(), name: "", quantity: 0, unit_cost: 0 }] }
+          : s,
+      ),
+    );
+  const editItem = (sid: string, iid: string, patch: Partial<DraftItem>) =>
+    edit((d) =>
+      d.map((s) =>
+        s.id === sid
+          ? { ...s, items: s.items.map((i) => (i.id === iid ? { ...i, ...patch } : i)) }
+          : s,
+      ),
+    );
+  const deleteItem = (sid: string, iid: string) =>
+    edit((d) =>
+      d.map((s) => (s.id === sid ? { ...s, items: s.items.filter((i) => i.id !== iid) } : s)),
+    );
+
+  // --- save (diff draft against the server data) --------------------------
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const serverSections = new Map(sections.map((s) => [s.id, s]));
+      const draftSectionIds = new Set(draft.map((s) => s.id));
+
+      // 1. deletes — server sections no longer in the draft (cascades their items)
+      for (const s of sections) {
+        if (!draftSectionIds.has(s.id)) await deleteMaterialsSection(s.id);
+      }
+
+      // 2. per section: create / rename, then its items
+      for (let si = 0; si < draft.length; si++) {
+        const ds = draft[si];
+        let sectionId = ds.id;
+        const server = serverSections.get(ds.id);
+
+        if (!server) {
+          const created = await createMaterialsSection(id, { name: ds.name, sort_order: si });
+          sectionId = created.id;
+        } else if (server.name !== ds.name) {
+          await updateMaterialsSection(server.id, { name: ds.name });
+        }
+
+        const serverItems = new Map((server?.materials_items ?? []).map((i) => [i.id, i]));
+        const draftItemIds = new Set(ds.items.filter((i) => !isTmp(i.id)).map((i) => i.id));
+
+        // 2a. item deletes (skip if the section itself is new — nothing to delete)
+        if (server) {
+          for (const i of server.materials_items) {
+            if (!draftItemIds.has(i.id)) await deleteMaterialsItem(i.id);
+          }
+        }
+
+        // 2b. item creates / updates
+        for (let ii = 0; ii < ds.items.length; ii++) {
+          const di = ds.items[ii];
+          const srv = serverItems.get(di.id);
+          if (!srv) {
+            await addMaterialsItem(sectionId, {
+              name: di.name,
+              quantity: di.quantity,
+              unit_cost: di.unit_cost,
+              sort_order: ii,
+            });
+          } else if (
+            itemChanged(di, {
+              name: srv.name,
+              quantity: Number(srv.quantity),
+              unit_cost: Number(srv.unit_cost),
+            })
+          ) {
+            await updateMaterialsItem(srv.id, {
+              name: di.name,
+              quantity: di.quantity,
+              unit_cost: di.unit_cost,
+            });
+          }
+        }
+      }
     },
-    onError,
-  });
-  const renameSectionMut = useMutation({
-    mutationFn: (v: { id: string; name: string }) => updateMaterialsSection(v.id, { name: v.name }),
-    onSuccess: invalidate,
-    onError,
-  });
-  const deleteSectionMut = useMutation({
-    mutationFn: (sectionId: string) => deleteMaterialsSection(sectionId),
     onSuccess: () => {
-      invalidate();
-      invalidateProjects();
+      dirty.current = false;
+      qc.invalidateQueries({ queryKey: ["materials", { project: id }] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      toast({ title: "Materials sheet saved" });
     },
-    onError,
-  });
-  const addItemMut = useMutation({
-    mutationFn: (v: { sectionId: string; sortOrder: number }) =>
-      addMaterialsItem(v.sectionId, { sort_order: v.sortOrder }),
-    onSuccess: () => {
-      invalidate();
-      invalidateProjects();
-    },
-    onError,
-  });
-  const saveItemMut = useMutation({
-    mutationFn: (v: { itemId: string; patch: Parameters<typeof updateMaterialsItem>[1] }) =>
-      updateMaterialsItem(v.itemId, v.patch),
-    onSuccess: () => {
-      invalidate();
-      invalidateProjects();
-    },
-    onError,
-  });
-  const deleteItemMut = useMutation({
-    mutationFn: (itemId: string) => deleteMaterialsItem(itemId),
-    onSuccess: () => {
-      invalidate();
-      invalidateProjects();
-    },
-    onError,
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
-  const liveFor = (item: MaterialsItem) =>
-    live[item.id] ?? { quantity: Number(item.quantity), unit_cost: Number(item.unit_cost) };
+  const grandTotal = useMemo(
+    () =>
+      draft.reduce(
+        (sum, s) => sum + s.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0),
+        0,
+      ),
+    [draft],
+  );
 
-  const sectionSubtotal = (section: MaterialsSection) =>
-    section.materials_items.reduce((sum, item) => {
-      const v = liveFor(item);
-      return sum + v.quantity * v.unit_cost;
-    }, 0);
-
-  const grandTotal = sections.reduce((sum, section) => sum + sectionSubtotal(section), 0);
+  const isDirty = dirty.current;
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-4xl">
+    <div className="mx-auto max-w-4xl animate-fade-in space-y-5 pb-40 md:pb-24">
       <Link
         to={`/projects/${id}`}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
@@ -130,202 +216,161 @@ export function ProjectMaterialsView() {
         Back to project
       </Link>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
-          <p className="text-muted-foreground mt-1">{project?.name ?? " "}</p>
+          <p className="mt-1 text-muted-foreground">{project?.name ?? " "}</p>
         </div>
-        <Button
-          onClick={() => addSectionMut.mutate()}
-          className="font-bold w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4 mr-2" />
+        <Button onClick={addSection} className="w-full font-bold sm:w-auto">
+          <Plus className="mr-2 h-4 w-4" />
           Add section
         </Button>
       </div>
 
-      <div className="stat-card flex items-center justify-between">
+      <div className="card-surface flex items-center justify-between p-5">
         <span className="text-muted-foreground">Total cost</span>
-        <span className="text-2xl font-bold text-foreground">{formatCurrency(grandTotal)}</span>
+        <span className="text-2xl font-bold tabular-nums text-foreground">{formatCurrency(grandTotal)}</span>
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading materials sheet…</p>}
-      {isError && (
-        <p className="text-destructive">Failed to load materials: {(error as Error).message}</p>
-      )}
+      {isError && <p className="text-destructive">Failed to load materials: {(error as Error).message}</p>}
 
-      {!isLoading && !isError && sections.length === 0 && (
-        <div className="stat-card flex flex-col items-center gap-4 py-12 text-center">
+      {!isLoading && !isError && draft.length === 0 && (
+        <div className="card-surface flex flex-col items-center gap-4 p-12 text-center">
           <p className="text-muted-foreground">No costs added yet. Add a section to get started.</p>
-          <Button
-            onClick={() => addSectionMut.mutate()}
-            className="font-bold"
-          >
-            <Plus className="w-4 h-4 mr-2" />
+          <Button onClick={addSection} className="font-bold">
+            <Plus className="mr-2 h-4 w-4" />
             Add section
           </Button>
         </div>
       )}
 
-      {!isLoading && !isError && sections.length > 0 && (
-        <div className="space-y-4">
-          {sections.map((section) => (
-            <SectionCard
-              key={section.id}
-              section={section}
-              subtotal={sectionSubtotal(section)}
-              liveFor={liveFor}
-              onRename={(name) => renameSectionMut.mutate({ id: section.id, name })}
-              onDeleteSection={() => deleteSectionMut.mutate(section.id)}
-              onAddItem={() =>
-                addItemMut.mutate({ sectionId: section.id, sortOrder: section.materials_items.length })
-              }
-              onLiveChange={(itemId, patch) =>
-                setLive((prev) => ({ ...prev, [itemId]: { ...liveForId(prev, itemId), ...patch } }))
-              }
-              onSaveItem={(itemId, patch) => saveItemMut.mutate({ itemId, patch })}
-              onDeleteItem={(itemId) => deleteItemMut.mutate(itemId)}
-            />
-          ))}
+      {draft.map((section) => (
+        <SectionCard
+          key={section.id}
+          section={section}
+          onRename={(name) => renameSection(section.id, name)}
+          onDelete={() => deleteSection(section.id)}
+          onAddItem={() => addItem(section.id)}
+          onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
+          onDeleteItem={(iid) => deleteItem(section.id, iid)}
+        />
+      ))}
+
+      {/* Sticky save bar — sits above the mobile bottom tab bar. */}
+      {isDirty && (
+        <div className="fixed inset-x-0 bottom-[68px] z-40 border-t border-border bg-card/95 px-4 py-3 shadow-[0_-4px_16px_-4px_hsl(215_23%_15%/0.1)] backdrop-blur md:bottom-0 md:left-64">
+          <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
+            <span className="hidden text-sm font-semibold text-muted-foreground sm:block">
+              Unsaved changes
+            </span>
+            <div className="flex flex-1 gap-2 sm:flex-none">
+              <Button
+                variant="outline"
+                onClick={discard}
+                disabled={saveMut.isPending}
+                className="flex-1 sm:flex-none"
+              >
+                <X className="mr-1.5 h-4 w-4" />
+                Discard
+              </Button>
+              <Button
+                onClick={() => saveMut.mutate()}
+                disabled={saveMut.isPending}
+                className="flex-1 font-bold sm:flex-none"
+              >
+                {saveMut.isPending ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function liveForId(live: LiveValues, itemId: string) {
-  return live[itemId] ?? { quantity: 0, unit_cost: 0 };
-}
+// ---------------------------------------------------------------------------
 
 interface SectionCardProps {
-  section: MaterialsSection;
-  subtotal: number;
-  liveFor: (item: MaterialsItem) => { quantity: number; unit_cost: number };
+  section: DraftSection;
   onRename: (name: string) => void;
-  onDeleteSection: () => void;
+  onDelete: () => void;
   onAddItem: () => void;
-  onLiveChange: (itemId: string, patch: Partial<{ quantity: number; unit_cost: number }>) => void;
-  onSaveItem: (itemId: string, patch: { name?: string; quantity?: number; unit_cost?: number }) => void;
+  onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
 }
 
-function SectionCard({
-  section,
-  subtotal,
-  liveFor,
-  onRename,
-  onDeleteSection,
-  onAddItem,
-  onLiveChange,
-  onSaveItem,
-  onDeleteItem,
-}: SectionCardProps) {
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(section.name);
-
-  useEffect(() => setNameDraft(section.name), [section.name]);
-
-  const items = section.materials_items;
-
-  const commitName = () => {
-    setEditingName(false);
-    const trimmed = nameDraft.trim();
-    if (trimmed && trimmed !== section.name) onRename(trimmed);
-    else setNameDraft(section.name);
-  };
+function SectionCard({ section, onRename, onDelete, onAddItem, onEditItem, onDeleteItem }: SectionCardProps) {
+  const subtotal = section.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0);
 
   return (
-    <div className="stat-card space-y-3">
+    <div className="card-surface space-y-3 p-5">
       <div className="flex items-center justify-between gap-3">
-        {editingName ? (
-          <Input
-            autoFocus
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              if (e.key === "Escape") {
-                setNameDraft(section.name);
-                setEditingName(false);
-              }
-            }}
-            className="h-8 max-w-xs font-medium"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditingName(true)}
-            className="text-left font-medium text-foreground hover:underline underline-offset-2"
-          >
-            {section.name || "Untitled section"}
-          </button>
-        )}
-
+        <Input
+          value={section.name}
+          onChange={(e) => onRename(e.target.value)}
+          placeholder="Section name"
+          className="h-9 max-w-xs font-semibold"
+        />
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <button className="text-muted-foreground hover:text-destructive shrink-0">
-              <Trash2 className="w-4 h-4" />
+            <button className="shrink-0 text-muted-foreground hover:text-destructive">
+              <Trash2 className="h-4 w-4" />
             </button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
               <AlertDialogDescription>
-                {items.length > 0
-                  ? `This section has ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Deleting it removes those items too. This can't be undone.`
-                  : "This section is empty. This can't be undone."}
+                {section.items.length > 0
+                  ? `Removes ${section.items.length} item${section.items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)} from the sheet. Nothing is saved until you press Save changes.`
+                  : "This section is empty."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={onDeleteSection}
+                onClick={onDelete}
               >
-                Delete
+                Remove
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
       </div>
 
-      {items.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-muted-foreground">
-                <th className="text-left font-medium py-1 px-1">Item</th>
-                <th className="text-right font-medium py-1 px-1 w-24">Qty</th>
-                <th className="text-right font-medium py-1 px-1 w-32">Unit cost</th>
-                <th className="text-right font-medium py-1 px-1 w-32">Total</th>
-                <th className="w-8"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <ItemRow
-                  key={item.id}
-                  item={item}
-                  live={liveFor(item)}
-                  onLiveChange={(patch) => onLiveChange(item.id, patch)}
-                  onSave={(patch) => onSaveItem(item.id, patch)}
-                  onDelete={() => onDeleteItem(item.id)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {section.items.length > 0 && (
+        <>
+          {/* column headers — desktop only */}
+          <div className="hidden gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-muted-subtle sm:grid sm:grid-cols-[1fr_5rem_7rem_6rem_1.5rem]">
+            <span>Item</span>
+            <span className="text-right">Qty</span>
+            <span className="text-right">Unit cost</span>
+            <span className="text-right">Total</span>
+            <span />
+          </div>
+          <div className="space-y-2 sm:space-y-1">
+            {section.items.map((item) => (
+              <ItemRow
+                key={item.id}
+                item={item}
+                onEdit={(patch) => onEditItem(item.id, patch)}
+                onDelete={() => onDeleteItem(item.id)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       <div className="flex items-center justify-between pt-1">
         <Button variant="outline" size="sm" onClick={onAddItem}>
-          <Plus className="w-4 h-4 mr-1" />
+          <Plus className="mr-1 h-4 w-4" />
           Add item
         </Button>
         <div className="text-sm">
-          <span className="text-muted-foreground mr-2">Subtotal</span>
-          <span className="font-semibold">{formatCurrency(subtotal)}</span>
+          <span className="mr-2 text-muted-foreground">Subtotal</span>
+          <span className="font-bold tabular-nums">{formatCurrency(subtotal)}</span>
         </div>
       </div>
     </div>
@@ -333,79 +378,74 @@ function SectionCard({
 }
 
 interface ItemRowProps {
-  item: MaterialsItem;
-  live: { quantity: number; unit_cost: number };
-  onLiveChange: (patch: Partial<{ quantity: number; unit_cost: number }>) => void;
-  onSave: (patch: { name?: string; quantity?: number; unit_cost?: number }) => void;
+  item: DraftItem;
+  onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
 
-function ItemRow({ item, live, onLiveChange, onSave, onDelete }: ItemRowProps) {
-  const [name, setName] = useState(item.name);
+function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
+  // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
+  // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
   const [costStr, setCostStr] = useState(String(item.unit_cost));
-
-  useEffect(() => setName(item.name), [item.name]);
   useEffect(() => setQtyStr(String(item.quantity)), [item.quantity]);
   useEffect(() => setCostStr(String(item.unit_cost)), [item.unit_cost]);
 
-  const total = live.quantity * live.unit_cost;
-  const fieldClass = "h-8 border-0 shadow-none bg-transparent focus-visible:ring-1 focus-visible:ring-offset-0 px-2";
+  const total = item.quantity * item.unit_cost;
+  const numClass = "h-9 text-right";
 
   return (
-    <tr className="border-b border-border last:border-0">
-      <td className="py-1 px-0">
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => onSave({ name })}
-          placeholder="Item name"
-          className={fieldClass}
-        />
-      </td>
-      <td className="py-1 px-0">
+    <div className="rounded-xl border border-hairline p-2.5 sm:grid sm:grid-cols-[1fr_5rem_7rem_6rem_1.5rem] sm:items-center sm:gap-3 sm:border-0 sm:p-0">
+      {/* Name — full width on mobile, first column on desktop */}
+      <Input
+        value={item.name}
+        onChange={(e) => onEdit({ name: e.target.value })}
+        placeholder="Item name"
+        className="h-9"
+      />
+
+      <div className="mt-2 flex items-center gap-2 sm:mt-0 sm:contents">
         <Input
           type="number"
           step="any"
+          inputMode="decimal"
           value={qtyStr}
           onChange={(e) => {
             setQtyStr(e.target.value);
-            onLiveChange({ quantity: parseFloat(e.target.value) || 0 });
+            onEdit({ quantity: parseFloat(e.target.value) || 0 });
           }}
-          onBlur={() => onSave({ quantity: parseFloat(qtyStr) || 0 })}
-          className={`${fieldClass} text-right`}
+          className={cn(numClass, "min-w-0 flex-1 sm:flex-none")}
+          aria-label="Quantity"
         />
-      </td>
-      <td className="py-1 px-0">
-        <div className="relative">
-          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">
-            $
-          </span>
+        <span className="text-muted-subtle sm:hidden">×</span>
+        <div className="relative min-w-0 flex-1 sm:flex-none">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
           <Input
             type="number"
             step="0.01"
+            inputMode="decimal"
             value={costStr}
             onChange={(e) => {
               setCostStr(e.target.value);
-              onLiveChange({ unit_cost: parseFloat(e.target.value) || 0 });
+              onEdit({ unit_cost: parseFloat(e.target.value) || 0 });
             }}
-            onBlur={() => onSave({ unit_cost: parseFloat(costStr) || 0 })}
-            className={`${fieldClass} text-right pl-5`}
+            className={cn(numClass, "pl-5")}
+            aria-label="Unit cost"
           />
         </div>
-      </td>
-      <td className="py-1 px-1 text-right text-muted-foreground tabular-nums whitespace-nowrap">
-        {formatCurrency(total)}
-      </td>
-      <td className="py-1 px-1">
+        <span className="text-muted-subtle sm:hidden">=</span>
+        <span className="shrink-0 text-right text-sm font-bold tabular-nums text-foreground sm:font-semibold sm:text-muted-foreground">
+          {formatCurrency(total)}
+        </span>
         <button
           type="button"
-          className="text-muted-foreground hover:text-destructive"
           onClick={onDelete}
+          className="shrink-0 text-muted-foreground hover:text-destructive"
+          aria-label="Remove item"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }

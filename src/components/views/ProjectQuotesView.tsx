@@ -1,16 +1,12 @@
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { getProject, listQuotes, createQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
-
-const STATUS_META: Record<QuoteStatus, { label: string; badge: string }> = {
-  draft: { label: "Draft", badge: "badge-status badge-draft" },
-  sent: { label: "Sent", badge: "badge-status badge-info" },
-  approved: { label: "Approved", badge: "badge-status badge-paid" },
-};
+import { getProject, listQuotes, createQuote, quoteTotal } from "@/lib/api";
+import { quoteStatusMeta } from "@/lib/statusMeta";
 
 export function ProjectQuotesView() {
   const { id = "" } = useParams();
@@ -79,29 +75,21 @@ export function ProjectQuotesView() {
         </div>
       ) : (
         <div className="space-y-3">
-          {quotes.map((quote) => {
-            const meta = STATUS_META[quote.status];
-            return (
-              <div
-                key={quote.id}
-                className="stat-card flex flex-wrap items-center justify-between gap-3"
-              >
-                <span className="font-semibold text-foreground">
-                  {formatCurrency(quoteTotal(quote.quote_sections))}
-                </span>
-                <div className="flex items-center gap-4 shrink-0">
-                  <span className={meta.badge}>{meta.label}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate(`/projects/${id}/quotes/${quote.id}`)}
-                  >
-                    Open
-                  </Button>
-                </div>
+          {quotes.map((quote) => (
+            <Link
+              key={quote.id}
+              to={`/projects/${id}/quotes/${quote.id}`}
+              className="card-surface flex items-center justify-between gap-3 p-5 transition-shadow hover:shadow-card-hover"
+            >
+              <span className="font-bold text-foreground">
+                {formatCurrency(quoteTotal(quote.quote_sections))}
+              </span>
+              <div className="flex items-center gap-3 shrink-0">
+                <StatusPill meta={quoteStatusMeta(quote.status)} />
+                <ChevronRight className="h-4 w-4 text-muted-subtle" />
               </div>
-            );
-          })}
+            </Link>
+          ))}
         </div>
       )}
     </div>

@@ -355,7 +355,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-start">
         <Button
           size="sm"
           onClick={() => addSectionMut.mutate()}
