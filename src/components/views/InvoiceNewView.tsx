@@ -83,7 +83,7 @@ export function InvoiceNewView() {
       <div className="card-surface space-y-5 p-5">
         <div className="space-y-2">
           <Label htmlFor="invoice-amount">Amount</Label>
-          <div className="relative max-w-xs">
+          <div className="relative sm:max-w-xs">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
               $
             </span>
@@ -99,7 +99,7 @@ export function InvoiceNewView() {
           </div>
         </div>
 
-        <div className="space-y-2 max-w-xs">
+        <div className="space-y-2 sm:max-w-xs">
           <Label htmlFor="invoice-due">Due date</Label>
           <Input
             id="invoice-due"
