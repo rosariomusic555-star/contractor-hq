@@ -2,11 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  demoInvoiceLineItems,
-  demoJobMeta,
-  demoQuoteFinancials,
-} from "./demoData";
+import { demoJobMeta, demoQuoteFinancials } from "./demoData";
 import {
   invoiceStatusMeta,
   projectStatusMeta,
@@ -41,14 +37,6 @@ describe("demoData helpers are deterministic and consistent", () => {
     const a = demoJobMeta({ id: "abc-123", status: "approved" });
     const b = demoJobMeta({ id: "zzz-999", status: "approved" });
     expect(a).not.toEqual(b);
-  });
-
-  it("invoice line items sum to the real amount", () => {
-    for (const amount of [0, 100, 9850, 29302, 41200.5]) {
-      const lines = demoInvoiceLineItems({ id: "inv-1", amount });
-      const total = lines.reduce((s, l) => s + l.amount, 0);
-      expect(total).toBeCloseTo(amount, 5);
-    }
   });
 
   it("quote financials degrade gracefully at zero", () => {

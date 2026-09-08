@@ -14,7 +14,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { listProjects, createInvoice } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
+import {
+  listProjects,
+  listQuotes,
+  createInvoice,
+  logProjectEvent,
+  pickHeadlineQuote,
+} from "@/lib/api";
 
 const NONE = "__none__";
 
@@ -33,14 +40,29 @@ export function InvoiceNewView() {
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
 
   const createMut = useMutation({
-    mutationFn: () =>
-      createInvoice({
-        project_id: projectId === NONE ? null : projectId,
+    mutationFn: async () => {
+      const linkedProject = projectId === NONE ? null : projectId;
+      let quoteId: string | null = null;
+      if (linkedProject) {
+        quoteId = pickHeadlineQuote(await listQuotes(linkedProject))?.id ?? null;
+      }
+      return createInvoice({
+        project_id: linkedProject,
+        quote_id: quoteId,
         amount: parseFloat(amount) || 0,
         due_date: dueDate || null,
         notes: notes || null,
-      }),
-    onSuccess: (invoice) => navigate(`/invoices/${invoice.id}`),
+      });
+    },
+    onSuccess: (invoice) => {
+      void logProjectEvent(
+        invoice.project_id,
+        "invoice_created",
+        `${invoice.invoice_number ?? "Invoice"} drafted · ${formatCurrency(Number(invoice.amount))}`,
+        { invoice_id: invoice.id, invoice_number: invoice.invoice_number },
+      );
+      navigate(`/invoices/${invoice.id}`);
+    },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 

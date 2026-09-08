@@ -641,6 +641,59 @@ export async function deleteExpense(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Project activity log (0013). Written by the app when things happen; the
+// project page and the invoice page both read from it.
+// ---------------------------------------------------------------------------
+
+export type ProjectEventKind =
+  | "project_created"
+  | "status_changed"
+  | "quote_sent"
+  | "quote_signed"
+  | "invoice_created"
+  | "invoice_sent"
+  | "invoice_paid"
+  | "expense_logged";
+
+export interface ProjectEvent {
+  id: string;
+  project_id: string;
+  user_id: string;
+  kind: ProjectEventKind;
+  summary: string;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function listProjectEvents(projectId: string): Promise<ProjectEvent[]> {
+  const { data, error } = await supabase
+    .from("project_events")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Fire-and-forget: record an activity event. Callers `void logProjectEvent(...)`
+ * from a mutation's onSuccess so a logging failure never fails the real action.
+ * A null projectId (standalone quote/invoice) is a no-op.
+ */
+export async function logProjectEvent(
+  projectId: string | null | undefined,
+  kind: ProjectEventKind,
+  summary: string,
+  meta: Record<string, unknown> = {},
+): Promise<void> {
+  if (!projectId) return;
+  const { error } = await supabase
+    .from("project_events")
+    .insert({ project_id: projectId, kind, summary, meta });
+  if (error) console.warn("logProjectEvent failed:", error.message);
+}
+
+// ---------------------------------------------------------------------------
 // Share links (owner side). Client-facing reads go through RPCs (phase 3).
 // ---------------------------------------------------------------------------
 
