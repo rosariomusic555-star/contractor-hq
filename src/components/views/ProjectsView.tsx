@@ -17,6 +17,7 @@ import {
   listQuotes,
   createProject,
   createClient,
+  logProjectEvent,
   quoteTotal,
   pickHeadlineQuote,
   type ProjectStatus,
@@ -62,6 +63,7 @@ export function ProjectsView() {
     onSuccess: (project) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["clients"] });
+      void logProjectEvent(project.id, "project_created", "Project created");
       setIsModalOpen(false);
       navigate(`/projects/${project.id}`);
     },

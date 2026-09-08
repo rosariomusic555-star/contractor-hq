@@ -18,7 +18,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { getProject, listExpenses, createExpense, deleteExpense, type Expense } from "@/lib/api";
+import {
+  getProject,
+  listExpenses,
+  createExpense,
+  deleteExpense,
+  logProjectEvent,
+  type Expense,
+} from "@/lib/api";
 
 // Reference only, per spec — appended with a local midnight so a date-only
 // string ("2026-09-15") isn't parsed as UTC midnight and shown a day early.
@@ -62,8 +69,14 @@ export function ProjectExpensesView() {
         amount: parseFloat(amount) || 0,
         date: date || null,
       }),
-    onSuccess: () => {
+    onSuccess: (expense) => {
       invalidate();
+      void logProjectEvent(
+        id,
+        "expense_logged",
+        `Expense: ${expense.name || "unnamed"} · ${formatCurrency(Number(expense.amount))}`,
+      );
+      qc.invalidateQueries({ queryKey: ["project-events", id] });
       setName("");
       setAmount("");
       setDate("");

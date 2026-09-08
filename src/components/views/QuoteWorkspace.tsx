@@ -53,6 +53,7 @@ import {
   updateQuoteItem,
   deleteQuoteItem,
   generateShareLink,
+  logProjectEvent,
   quoteItemIncluded,
   materialsCogs,
   type Quote,
@@ -192,6 +193,13 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     },
     onSuccess: (token) => {
       invalidate();
+      void logProjectEvent(
+        projectId,
+        "quote_sent",
+        `Quote sent · ${formatCurrency(quoteTotalLive)}`,
+        { quote_id: quote.id },
+      );
+      qc.invalidateQueries({ queryKey: ["project-events", projectId] });
       setShareUrl(`${window.location.origin}/quote/${token}`);
     },
     onError,

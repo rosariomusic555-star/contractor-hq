@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,17 +10,25 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
+import { timeAgo } from "@/lib/time";
 import {
+  getQuote,
   listInvoices,
+  listQuotes,
+  listProjectEvents,
+  logProjectEvent,
+  pickHeadlineQuote,
+  quoteItemIncluded,
+  quoteTotal,
   updateInvoice,
   updateProject,
   generateShareLink,
   type Invoice,
   type ProjectStatus,
+  type Quote,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceDaysLate } from "@/lib/aging";
-import { demoInvoiceHistory, demoInvoiceLineItems } from "@/lib/demoData";
 
 interface InvoiceWorkspaceProps {
   invoice: Invoice;
@@ -40,12 +48,30 @@ export function InvoiceWorkspace({
   const { toast } = useToast();
   const qc = useQueryClient();
 
+  // The quote this invoice bills against: its explicit quote_id, else the
+  // project's headline quote.
+  const { data: quote } = useQuery<Quote | null>({
+    queryKey: ["invoice-source-quote", invoice.id, invoice.quote_id, projectId],
+    queryFn: async () => {
+      if (invoice.quote_id) return getQuote(invoice.quote_id);
+      if (!projectId) return null;
+      return pickHeadlineQuote(await listQuotes(projectId)) ?? null;
+    },
+  });
+
+  const { data: events = [] } = useQuery({
+    queryKey: ["project-events", projectId],
+    queryFn: () => listProjectEvents(projectId!),
+    enabled: !!projectId,
+  });
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["invoice", invoice.id] });
     qc.invalidateQueries({ queryKey: ["invoices", { project: projectId }] });
     qc.invalidateQueries({ queryKey: ["invoices"] });
     qc.invalidateQueries({ queryKey: ["projects"] });
     qc.invalidateQueries({ queryKey: ["projects", projectId] });
+    qc.invalidateQueries({ queryKey: ["project-events", projectId] });
   };
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
@@ -65,6 +91,10 @@ export function InvoiceWorkspace({
       return token;
     },
     onSuccess: () => {
+      void logProjectEvent(projectId, "invoice_sent", `${number} sent · ${formatCurrency(amount)}`, {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+      });
       invalidate();
       toast({ title: "Invoice sent" });
     },
@@ -81,6 +111,12 @@ export function InvoiceWorkspace({
       }
     },
     onSuccess: () => {
+      void logProjectEvent(
+        projectId,
+        "invoice_paid",
+        `Payment received · ${number} · ${formatCurrency(amount)}`,
+        { invoice_id: invoice.id, invoice_number: invoice.invoice_number },
+      );
       invalidate();
       toast({ title: "Invoice marked as paid" });
     },
@@ -105,8 +141,8 @@ export function InvoiceWorkspace({
       ? `${window.location.origin}/invoice/${invoice.share_token}`
       : null;
 
-  const lineItems = demoInvoiceLineItems(invoice);
-  const history = demoInvoiceHistory(invoice);
+  const quoteContract = quote ? quoteTotal(quote.quote_sections) : 0;
+  const invoiceHistory = events.filter((e) => e.meta?.invoice_id === invoice.id);
   const clientName = invoice.project?.client?.name ?? null;
 
   const actionButton =
@@ -178,7 +214,7 @@ export function InvoiceWorkspace({
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          {/* Editable fields (real) */}
+          {/* Editable fields */}
           <section className="card-surface space-y-5 p-5">
             <h3 className="text-base font-bold text-foreground">Details</h3>
             <div className="space-y-2">
@@ -215,18 +251,66 @@ export function InvoiceWorkspace({
             </div>
           </section>
 
-          {/* Line-item preview (demo) */}
+          {/* Line items — from the linked quote */}
           <section className="card-surface p-5">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-foreground">Line items</h3>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-subtle">Preview</span>
+              {quote?.project?.name && (
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-subtle">
+                  From quote
+                </span>
+              )}
             </div>
-            <div className="mt-2">
-              {lineItems.map((li, i) => (
-                <MoneyRow key={i} label={li.label} value={formatCurrency(li.amount)} />
-              ))}
-              <MoneyRow label="Total" value={formatCurrency(amount)} strong />
-            </div>
+
+            {!quote || quote.quote_sections.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No linked quote — this invoice isn't itemised.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-4">
+                {quote.quote_sections.map((section) => {
+                  const items = section.quote_items.filter((i) => quoteItemIncluded(section, i));
+                  if (items.length === 0) return null;
+                  const subtotal = items.reduce((s, i) => s + Number(i.price), 0);
+                  return (
+                    <div key={section.id}>
+                      <p className="text-[13px] font-bold text-foreground">{section.name}</p>
+                      <div className="mt-1">
+                        {items.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex items-start justify-between gap-3 border-b border-hairline py-2 last:border-0"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-[13px] font-semibold text-foreground">{item.name || "Item"}</p>
+                              {item.description && (
+                                <p className="text-xs text-muted-foreground">{item.description}</p>
+                              )}
+                            </div>
+                            <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
+                              {formatCurrency(Number(item.price))}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-1 flex justify-between text-xs font-semibold text-muted-foreground">
+                        <span>Section subtotal</span>
+                        <span className="tabular-nums">{formatCurrency(subtotal)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="border-t border-border pt-3">
+                  <MoneyRow label="Quote total" value={formatCurrency(quoteContract)} strong />
+                </div>
+                {Math.abs(amount - quoteContract) > 0.01 && (
+                  <p className="text-xs text-muted-foreground">
+                    This invoice bills {formatCurrency(amount)} of the {formatCurrency(quoteContract)} contract.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         </div>
 
@@ -243,14 +327,20 @@ export function InvoiceWorkspace({
 
           <section className="card-surface p-5">
             <h3 className="text-base font-bold text-foreground">History</h3>
-            <ul className="mt-3 space-y-3">
-              {history.map((h) => (
-                <li key={h.when}>
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{h.when}</div>
-                  <div className="mt-0.5 text-[13px] text-foreground/80">{h.text}</div>
-                </li>
-              ))}
-            </ul>
+            {invoiceHistory.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">Nothing yet.</p>
+            ) : (
+              <ul className="mt-3 space-y-3">
+                {invoiceHistory.map((e) => (
+                  <li key={e.id}>
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+                      {timeAgo(e.created_at)}
+                    </div>
+                    <div className="mt-0.5 text-[13px] text-foreground/80">{e.summary}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
       </div>

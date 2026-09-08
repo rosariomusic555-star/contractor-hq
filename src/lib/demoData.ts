@@ -164,35 +164,6 @@ export function demoJobMeta(project: ProjectLike): DemoJobMeta {
   };
 }
 
-export interface DemoCostSplit {
-  materials: number;
-  labor: number;
-  equipment: number;
-  disposal: number;
-}
-
-/** Materials figure is real (from the materials sheet); the rest is fake. */
-export function demoJobCostSplit(project: ProjectLike, materialsReal: number): DemoCostSplit {
-  const base = materialsReal > 0 ? materialsReal : seededInt(project.id + "m", 2200, 9000);
-  return {
-    materials: materialsReal,
-    labor: Math.round(base * (0.7 + (hash(project.id + "l") % 30) / 100)),
-    equipment: seededInt(project.id + "e", 180, 900),
-    disposal: seededInt(project.id + "z", 120, 600),
-  };
-}
-
-export function demoJobActivity(project: ProjectLike): { when: string; text: string }[] {
-  const crew = seededPick(DEMO_CREWS, project.id).name;
-  return [
-    { when: "Today 7:04a", text: `${crew} clocked in` },
-    { when: "Yesterday", text: "Base compacted, inspected at 6 in" },
-    { when: "3 days ago", text: "Progress draw 1 paid" },
-    { when: "Last week", text: "Materials delivered to site" },
-    { when: "2 weeks ago", text: "Quote signed by client" },
-  ];
-}
-
 const WEEK_TASKS = [
   "Excavate + haul",
   "Base + compact",
@@ -250,42 +221,3 @@ export function demoQuoteFinancials(realQuoteTotal: number): DemoQuoteFinancials
   };
 }
 
-// ---------------------------------------------------------------------------
-// Invoice detail — breakdown that sums to the REAL amount
-// ---------------------------------------------------------------------------
-
-interface InvoiceLike {
-  id: string;
-  amount: number;
-}
-
-const LINE_LABELS = [
-  "Excavation, base and compaction",
-  "Paver field install",
-  "Soldier border + step",
-  "Polymeric sand and seal",
-  "Site prep & disposal",
-] as const;
-
-export function demoInvoiceLineItems(invoice: InvoiceLike): { label: string; amount: number }[] {
-  const amount = Number(invoice.amount) || 0;
-  const count = 3 + (hash(invoice.id) % 2);
-  const weights = Array.from({ length: count }, (_, i) => 1 + (hash(invoice.id + i) % 5));
-  const sum = weights.reduce((a, b) => a + b, 0);
-  let allocated = 0;
-  return weights.map((w, i) => {
-    const isLast = i === count - 1;
-    const line = isLast ? amount - allocated : Math.round((amount * w) / sum);
-    allocated += line;
-    return { label: LINE_LABELS[i % LINE_LABELS.length], amount: line };
-  });
-}
-
-export function demoInvoiceHistory(invoice: InvoiceLike): { when: string; text: string }[] {
-  return [
-    { when: "This week", text: "Reminder emailed — opened, no reply" },
-    { when: "2 weeks ago", text: "Invoice sent" },
-    { when: "1 month ago", text: `Progress draw paid — ${Math.round((Number(invoice.amount) || 0) * 0.4).toLocaleString()}` },
-    { when: "6 weeks ago", text: "Deposit paid" },
-  ];
-}

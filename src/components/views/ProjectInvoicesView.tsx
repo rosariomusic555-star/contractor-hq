@@ -5,7 +5,15 @@ import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { getProject, listInvoices, listQuotes, createInvoice, quoteTotal } from "@/lib/api";
+import {
+  getProject,
+  listInvoices,
+  listQuotes,
+  createInvoice,
+  logProjectEvent,
+  pickHeadlineQuote,
+  quoteTotal,
+} from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 
 // Append a local midnight so a date-only string ("2026-09-15") isn't parsed
@@ -44,16 +52,24 @@ export function ProjectInvoicesView() {
   const createMut = useMutation({
     mutationFn: async () => {
       const quotes = await listQuotes(id);
-      const qTotal = quotes[0] ? quoteTotal(quotes[0].quote_sections) : 0;
+      const headline = pickHeadlineQuote(quotes);
+      const qTotal = headline ? quoteTotal(headline.quote_sections) : 0;
       const paidSum = invoices
         .filter((i) => i.status === "paid")
         .reduce((sum, i) => sum + Number(i.amount), 0);
       const amount = Math.round(Math.max(0, qTotal - paidSum) * 100) / 100;
-      return createInvoice({ project_id: id, amount });
+      return createInvoice({ project_id: id, amount, quote_id: headline?.id ?? null });
     },
     onSuccess: (invoice) => {
       qc.invalidateQueries({ queryKey: ["invoices", { project: id }] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      void logProjectEvent(
+        id,
+        "invoice_created",
+        `${invoice.invoice_number ?? "Invoice"} drafted · ${formatCurrency(Number(invoice.amount))}`,
+        { invoice_id: invoice.id, invoice_number: invoice.invoice_number },
+      );
+      qc.invalidateQueries({ queryKey: ["project-events", id] });
       navigate(`/projects/${id}/invoices/${invoice.id}`);
     },
     onError,

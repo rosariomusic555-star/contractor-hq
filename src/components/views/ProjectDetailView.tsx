@@ -14,12 +14,15 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
+import { timeAgo } from "@/lib/time";
 import {
   getProject,
   listQuotes,
   listInvoices,
   listMaterials,
   listExpenses,
+  listProjectEvents,
+  logProjectEvent,
   updateProject,
   quoteTotal,
   pickHeadlineQuote,
@@ -32,7 +35,12 @@ import {
   projectStatusMeta,
   quoteStatusMeta,
 } from "@/lib/statusMeta";
-import { demoJobActivity, demoJobCostSplit, demoJobMeta, demoJobWeek } from "@/lib/demoData";
+import { demoJobMeta, demoJobWeek } from "@/lib/demoData";
+
+const expenseDate = (iso: string | null) =>
+  iso
+    ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : "";
 
 export function ProjectDetailView() {
   const { id = "" } = useParams();
@@ -48,10 +56,15 @@ export function ProjectDetailView() {
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: id }], queryFn: () => listInvoices(id) });
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: id }], queryFn: () => listMaterials(id) });
   const { data: expenses = [] } = useQuery({ queryKey: ["expenses", { project: id }], queryFn: () => listExpenses(id) });
+  const { data: events = [] } = useQuery({ queryKey: ["project-events", id], queryFn: () => listProjectEvents(id) });
 
   const statusMutation = useMutation({
     mutationFn: (status: ProjectStatus) => updateProject(id, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+    onSuccess: (_data, status) => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      void logProjectEvent(id, "status_changed", `Status → ${projectStatusMeta(status).label}`);
+      qc.invalidateQueries({ queryKey: ["project-events", id] });
+    },
     onError: (err: Error) =>
       toast({ title: "Couldn't update status", description: err.message, variant: "destructive" }),
   });
@@ -77,8 +90,9 @@ export function ProjectDetailView() {
   const meta = projectStatusMeta(project.status);
   const demo = demoJobMeta(project);
   const week = demoJobWeek(project);
-  const costSplit = demoJobCostSplit(project, materialsCogs(materials));
-  const activity = demoJobActivity(project);
+  const recentExpenses = [...expenses]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 5);
 
   const materialsSummary =
     materials.length === 0
@@ -183,23 +197,45 @@ export function ProjectDetailView() {
             actualCost={actualCost}
           />
 
-          {/* Costs to date (materials real, rest demo) */}
+          {/* Costs to date — real logged expenses only */}
           <section className="card-surface p-5">
-            <h3 className="text-base font-bold text-foreground">Costs to date</h3>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                { label: "Materials", value: costSplit.materials, note: materials.length ? "from sheet" : "no sheet yet" },
-                { label: "Labor", value: costSplit.labor, note: "est." },
-                { label: "Equipment", value: costSplit.equipment, note: "est." },
-                { label: "Disposal", value: costSplit.disposal, note: "est." },
-              ].map((c) => (
-                <div key={c.label} className="rounded-xl border border-border p-3">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{c.label}</div>
-                  <div className="mt-1 text-lg font-extrabold tabular-nums text-foreground">{formatCurrency(c.value)}</div>
-                  <div className="mt-0.5 text-[11px] text-muted-subtle">{c.note}</div>
-                </div>
-              ))}
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-foreground">Costs to date</h3>
+              <Link
+                to={`/projects/${id}/expenses`}
+                className="text-[13px] font-semibold text-primary"
+              >
+                {expenses.length ? "Manage" : "Add expense"}
+              </Link>
             </div>
+            <p className="mt-1 text-[28px] font-extrabold tracking-tight tabular-nums text-foreground">
+              {formatCurrency(expensesTotal)}
+            </p>
+            {expenses.length === 0 ? (
+              <p className="mt-1 text-sm text-muted-foreground">No expenses logged yet.</p>
+            ) : (
+              <div className="mt-3">
+                {recentExpenses.map((e) => (
+                  <div
+                    key={e.id}
+                    className="flex items-center justify-between gap-3 border-b border-hairline py-2 last:border-0"
+                  >
+                    <span className="min-w-0 truncate text-[13px] text-foreground">
+                      {e.name || "Expense"}
+                      {e.date && <span className="text-muted-subtle"> · {expenseDate(e.date)}</span>}
+                    </span>
+                    <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
+                      {formatCurrency(Number(e.amount))}
+                    </span>
+                  </div>
+                ))}
+                {expenses.length > recentExpenses.length && (
+                  <p className="pt-2 text-xs font-semibold text-muted-foreground">
+                    +{expenses.length - recentExpenses.length} more
+                  </p>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Section nav */}
@@ -242,14 +278,20 @@ export function ProjectDetailView() {
 
           <section className="card-surface p-5">
             <h3 className="text-base font-bold text-foreground">Activity</h3>
-            <ul className="mt-3 space-y-3">
-              {activity.map((a) => (
-                <li key={a.when}>
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{a.when}</div>
-                  <div className="mt-0.5 text-[13px] text-foreground/80">{a.text}</div>
-                </li>
-              ))}
-            </ul>
+            {events.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
+            ) : (
+              <ul className="mt-3 space-y-3">
+                {events.map((e) => (
+                  <li key={e.id}>
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+                      {timeAgo(e.created_at)}
+                    </div>
+                    <div className="mt-0.5 text-[13px] text-foreground/80">{e.summary}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
       </div>

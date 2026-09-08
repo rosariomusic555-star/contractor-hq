@@ -2,6 +2,7 @@ import { FileText, Receipt, CheckCircle2, Clock, AlertCircle } from "lucide-reac
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn, formatCurrency } from "@/lib/utils";
+import { timeAgo } from "@/lib/time";
 import { listQuotes, listInvoices, quoteTotal, type Quote, type Invoice } from "@/lib/api";
 
 type ActivityType = "quote" | "invoice" | "payment";
@@ -61,28 +62,6 @@ const invoiceStatus: Record<Invoice["status"], ActivityStatus> = {
   paid: "completed",
   overdue: "overdue",
 };
-
-function timeAgo(iso: string): string {
-  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  const units: [number, string][] = [
-    [60, "second"],
-    [60, "minute"],
-    [24, "hour"],
-    [30, "day"],
-    [12, "month"],
-    [Number.POSITIVE_INFINITY, "year"],
-  ];
-  let value = seconds;
-  for (const [size, label] of units) {
-    if (value < size) {
-      const rounded = Math.floor(value);
-      if (label === "second") return "just now";
-      return `${rounded} ${label}${rounded === 1 ? "" : "s"} ago`;
-    }
-    value /= size;
-  }
-  return "just now";
-}
 
 const projectLabel = (project?: { name: string; client: { name: string } | null } | null) =>
   project?.client?.name ?? project?.name ?? "—";
