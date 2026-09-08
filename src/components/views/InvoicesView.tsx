@@ -61,7 +61,7 @@ export function InvoicesView() {
   const options: FilterOption<Filter>[] = [
     { value: "all", label: "All", count: invoices.length },
     { value: "draft", label: "Draft", count: countByStatus("draft") },
-    { value: "sent", label: "Sent", count: countByStatus("sent") },
+    { value: "sent", label: "Shared", count: countByStatus("sent") },
     { value: "overdue", label: "Overdue", count: countByStatus("overdue") },
     { value: "paid", label: "Paid", count: countByStatus("paid") },
   ];

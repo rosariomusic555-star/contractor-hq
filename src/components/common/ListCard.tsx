@@ -15,6 +15,7 @@ export function ListCard({
   subtitle,
   children,
   to,
+  onClick,
   className,
 }: {
   /** CSS colour for the left edge (see `StatusMeta.border`). */
@@ -27,6 +28,7 @@ export function ListCard({
   subtitle?: ReactNode;
   children?: ReactNode;
   to?: string;
+  onClick?: () => void;
   className?: string;
 }) {
   const inner = (
@@ -49,17 +51,27 @@ export function ListCard({
   );
 
   const cls = cn(
-    "block card-surface border-l-[3px] p-3.5 transition-shadow",
-    to && "hover:shadow-card-hover",
+    "block w-full card-surface border-l-[3px] p-3.5 text-left transition-shadow",
+    (to || onClick) && "hover:shadow-card-hover",
     className,
   );
   const style = borderColor ? { borderLeftColor: borderColor } : undefined;
 
-  return to ? (
-    <Link to={to} className={cls} style={style}>
-      {inner}
-    </Link>
-  ) : (
+  if (to) {
+    return (
+      <Link to={to} className={cls} style={style}>
+        {inner}
+      </Link>
+    );
+  }
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={cls} style={style}>
+        {inner}
+      </button>
+    );
+  }
+  return (
     <div className={cls} style={style}>
       {inner}
     </div>

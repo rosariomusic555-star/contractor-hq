@@ -89,7 +89,7 @@ export function BottomTabBar() {
             <h2 className="px-1 pb-2 text-base font-bold text-foreground">Create</h2>
             <ActionRow icon={FileText} label="New quote" hint="Blank draft in the builder" disabled={newQuoteMut.isPending} onClick={() => newQuoteMut.mutate()} />
             <ActionRow icon={Receipt} label="New invoice" hint="Bill a project" onClick={() => go("/invoices/new", () => setCreateOpen(false))} />
-            <ActionRow icon={Briefcase} label="New project" hint="Start a job" onClick={() => go("/projects?new=1", () => setCreateOpen(false))} />
+            <ActionRow icon={Briefcase} label="New project" hint="Start a job" onClick={() => go("/projects/new", () => setCreateOpen(false))} />
             <ActionRow icon={Users} label="Add client" hint="Create a contact" onClick={() => go("/clients?new=1", () => setCreateOpen(false))} />
           </div>
         </SheetContent>

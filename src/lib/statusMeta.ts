@@ -39,7 +39,8 @@ export type QuoteVisualStatus = QuoteStatus | "declined" | "expired";
 
 const QUOTE_META: Record<QuoteVisualStatus, StatusMeta> = {
   draft: meta("Draft", "grey"),
-  sent: meta("Sent", "blue"),
+  // "Shared" not "Sent" — generating the client link doesn't notify anyone.
+  sent: meta("Shared", "blue"),
   approved: meta("Approved", "green"),
   declined: meta("Declined", "red"),
   expired: meta("Expired", "red"),
@@ -55,7 +56,7 @@ export function quoteStatusMeta(status: string): StatusMeta {
 
 const INVOICE_META: Record<InvoiceStatus, StatusMeta> = {
   draft: meta("Draft", "grey"),
-  sent: meta("Sent", "amber"),
+  sent: meta("Shared", "amber"),
   paid: meta("Paid", "green"),
   overdue: meta("Overdue", "red"),
 };
@@ -70,7 +71,7 @@ export function invoiceStatusMeta(status: string): StatusMeta {
 
 export const PROJECT_STATUS_META: Record<ProjectStatus, StatusMeta> = {
   draft: meta("Draft", "grey"),
-  quote_sent: meta("Quote sent", "blue"),
+  quote_sent: meta("Quote shared", "blue"),
   approved: meta("Approved", "green"),
   invoiced: meta("Invoiced", "amber"),
   paid: meta("Paid", "greenSolid"),
