@@ -265,7 +265,7 @@ export function InvoiceWorkspace({
             <h3 className="text-base font-bold text-foreground">Details</h3>
             <div className="space-y-2">
               <Label htmlFor="invoice-amount">Amount</Label>
-              <div className="relative max-w-xs">
+              <div className="relative sm:max-w-xs">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                 <Input
                   id="invoice-amount"
@@ -278,7 +278,7 @@ export function InvoiceWorkspace({
                 />
               </div>
             </div>
-            <div className="max-w-xs space-y-2">
+            <div className="space-y-2 sm:max-w-xs">
               <Label htmlFor="invoice-due">Due date</Label>
               <Input
                 id="invoice-due"
@@ -321,17 +321,23 @@ export function InvoiceWorkspace({
                   const subtotal = items.reduce((s, i) => s + Number(i.price), 0);
                   return (
                     <div key={section.id}>
-                      <p className="text-[13px] font-bold text-foreground">{section.name}</p>
+                      <p className="text-[13px] font-bold text-foreground [overflow-wrap:anywhere]">
+                        {section.name}
+                      </p>
                       <div className="mt-1">
                         {items.map((item) => (
                           <div
                             key={item.id}
                             className="flex items-start justify-between gap-3 border-b border-hairline py-2 last:border-0"
                           >
-                            <div className="min-w-0">
-                              <p className="text-[13px] font-semibold text-foreground">{item.name || "Item"}</p>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] font-semibold text-foreground [overflow-wrap:anywhere]">
+                                {item.name || "Item"}
+                              </p>
                               {item.description && (
-                                <p className="text-xs text-muted-foreground">{item.description}</p>
+                                <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                                  {item.description}
+                                </p>
                               )}
                             </div>
                             <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
