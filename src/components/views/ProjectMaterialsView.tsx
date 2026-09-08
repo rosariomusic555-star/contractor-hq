@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2, X } from "lucide-react";
+import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -257,34 +258,12 @@ export function ProjectMaterialsView() {
         />
       ))}
 
-      {/* Sticky save bar — sits above the mobile bottom tab bar. */}
-      {isDirty && (
-        <div className="fixed inset-x-0 bottom-[68px] z-40 border-t border-border bg-card/95 px-4 py-3 shadow-[0_-4px_16px_-4px_hsl(215_23%_15%/0.1)] backdrop-blur md:bottom-0 md:left-64">
-          <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
-            <span className="hidden text-sm font-semibold text-muted-foreground sm:block">
-              Unsaved changes
-            </span>
-            <div className="flex flex-1 gap-2 sm:flex-none">
-              <Button
-                variant="outline"
-                onClick={discard}
-                disabled={saveMut.isPending}
-                className="flex-1 sm:flex-none"
-              >
-                <X className="mr-1.5 h-4 w-4" />
-                Discard
-              </Button>
-              <Button
-                onClick={() => saveMut.mutate()}
-                disabled={saveMut.isPending}
-                className="flex-1 font-bold sm:flex-none"
-              >
-                {saveMut.isPending ? "Saving…" : "Save changes"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DraftSaveBar
+        visible={isDirty}
+        onDiscard={discard}
+        onSave={() => saveMut.mutate()}
+        saving={saveMut.isPending}
+      />
     </div>
   );
 }
@@ -342,15 +321,16 @@ function SectionCard({ section, onRename, onDelete, onAddItem, onEditItem, onDel
 
       {section.items.length > 0 && (
         <>
-          {/* column headers — desktop only */}
-          <div className="hidden gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-muted-subtle sm:grid sm:grid-cols-[1fr_5rem_7rem_6rem_1.5rem]">
+          {/* column headers — wide screens only; below lg the rows stack so
+              the item name always gets a full-width line */}
+          <div className="hidden gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-muted-subtle lg:grid lg:grid-cols-[minmax(8rem,1fr)_5rem_7rem_6rem_1.5rem]">
             <span>Item</span>
             <span className="text-right">Qty</span>
             <span className="text-right">Unit cost</span>
             <span className="text-right">Total</span>
             <span />
           </div>
-          <div className="space-y-2 sm:space-y-1">
+          <div className="space-y-2 lg:space-y-1">
             {section.items.map((item) => (
               <ItemRow
                 key={item.id}
@@ -395,8 +375,8 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
   const numClass = "h-9 text-right";
 
   return (
-    <div className="rounded-xl border border-hairline p-2.5 sm:grid sm:grid-cols-[1fr_5rem_7rem_6rem_1.5rem] sm:items-center sm:gap-3 sm:border-0 sm:p-0">
-      {/* Name — full width on mobile, first column on desktop */}
+    <div className="rounded-xl border border-hairline p-2.5 lg:grid lg:grid-cols-[minmax(8rem,1fr)_5rem_7rem_6rem_1.5rem] lg:items-center lg:gap-3 lg:border-0 lg:p-0">
+      {/* Name — full-width line below lg, first column at lg+ */}
       <Input
         value={item.name}
         onChange={(e) => onEdit({ name: e.target.value })}
@@ -404,7 +384,7 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
         className="h-9"
       />
 
-      <div className="mt-2 flex items-center gap-2 sm:mt-0 sm:contents">
+      <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
         <Input
           type="number"
           step="any"
@@ -414,11 +394,11 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
             setQtyStr(e.target.value);
             onEdit({ quantity: parseFloat(e.target.value) || 0 });
           }}
-          className={cn(numClass, "min-w-0 flex-1 sm:flex-none")}
+          className={cn(numClass, "min-w-0 flex-1 lg:flex-none")}
           aria-label="Quantity"
         />
-        <span className="text-muted-subtle sm:hidden">×</span>
-        <div className="relative min-w-0 flex-1 sm:flex-none">
+        <span className="text-muted-subtle lg:hidden">×</span>
+        <div className="relative min-w-0 flex-1 lg:flex-none">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
           <Input
             type="number"
@@ -433,8 +413,8 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
             aria-label="Unit cost"
           />
         </div>
-        <span className="text-muted-subtle sm:hidden">=</span>
-        <span className="shrink-0 text-right text-sm font-bold tabular-nums text-foreground sm:font-semibold sm:text-muted-foreground">
+        <span className="text-muted-subtle lg:hidden">=</span>
+        <span className="shrink-0 text-right text-sm font-bold tabular-nums text-foreground lg:font-semibold lg:text-muted-foreground">
           {formatCurrency(total)}
         </span>
         <button

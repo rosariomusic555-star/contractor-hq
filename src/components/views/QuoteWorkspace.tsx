@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Plus, Trash2, Copy } from "lucide-react";
@@ -38,6 +38,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
+import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteFinancials } from "@/lib/demoData";
 import {
@@ -54,16 +55,66 @@ import {
   deleteQuoteItem,
   generateShareLink,
   logProjectEvent,
-  quoteItemIncluded,
   materialsCogs,
   type Quote,
-  type QuoteSection,
-  type QuoteItem,
 } from "@/lib/api";
 
 const NONE = "__none__";
 
-type LivePrices = Record<string, number>;
+// ---------------------------------------------------------------------------
+// Draft model — the whole quote body (sections, items, notes, terms, deposit)
+// is edited locally and only written to Supabase when "Save changes" is
+// pressed. New rows get a "tmp-" id. Mirrors ProjectMaterialsView. The Client
+// and Link-to-project selects are NOT part of the draft — they save on change.
+// ---------------------------------------------------------------------------
+
+interface DraftItem {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  is_optional: boolean;
+  /** Set by the client on the share page; carried through, never edited here. */
+  client_selected: boolean;
+}
+interface DraftSection {
+  id: string;
+  name: string;
+  is_optional: boolean;
+  items: DraftItem[];
+}
+interface QuoteDraft {
+  sections: DraftSection[];
+  notes: string;
+  terms: string;
+  depositPct: number;
+}
+
+const tmpId = () => `tmp-${crypto.randomUUID()}`;
+const isTmp = (id: string) => id.startsWith("tmp-");
+
+const seed = (quote: Quote): QuoteDraft => ({
+  sections: quote.quote_sections.map((s) => ({
+    id: s.id,
+    name: s.name,
+    is_optional: s.is_optional,
+    items: s.quote_items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      description: i.description ?? "",
+      price: Number(i.price),
+      is_optional: i.is_optional,
+      client_selected: i.client_selected,
+    })),
+  })),
+  notes: quote.notes ?? "",
+  terms: quote.terms ?? "",
+  depositPct: Number(quote.deposit_percentage),
+});
+
+/** Whether a draft line item counts toward the shown total. */
+const itemIncluded = (s: DraftSection, i: DraftItem) =>
+  s.is_optional || i.is_optional ? i.client_selected : true;
 
 interface QuoteWorkspaceProps {
   quote: Quote;
@@ -78,9 +129,7 @@ interface QuoteWorkspaceProps {
  * panel, notes/terms/deposit, send flow. This is the single place all quote
  * configuration happens, whether the quote started standalone or from a
  * project: project_id/client_id are derived straight from `quote` (not
- * passed in), so linking or unlinking a project here just works — the
- * materials/margin panel and project-status-promotion on send react to
- * whatever `quote.project_id` currently is.
+ * passed in), so linking or unlinking a project here just works.
  */
 export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspaceProps) {
   const { toast } = useToast();
@@ -99,25 +148,67 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     enabled: !!projectId,
   });
 
-  const sections = quote.quote_sections;
+  // --- draft state --------------------------------------------------------
+  const [draft, setDraft] = useState<QuoteDraft>(() => seed(quote));
+  const dirty = useRef(false);
 
-  // Live prices drive instant total/margin recalculation; Supabase is only
-  // written to on blur (see ItemRow). Re-seeded whenever the quote reloads.
-  const [live, setLive] = useState<LivePrices>({});
+  // Re-seed from the server when the quote reloads — but never clobber unsaved
+  // edits. (Changing the Client / project link refetches the quote; the draft
+  // is preserved across that.)
   useEffect(() => {
-    const next: LivePrices = {};
-    for (const section of sections) {
-      for (const item of section.quote_items) next[item.id] = Number(item.price);
-    }
-    setLive(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (dirty.current) return;
+    setDraft(seed(quote));
   }, [quote]);
 
+  const markDirty = () => {
+    dirty.current = true;
+  };
+  const edit = (fn: (d: QuoteDraft) => QuoteDraft) => {
+    markDirty();
+    setDraft(fn);
+  };
+  const setSections = (fn: (s: DraftSection[]) => DraftSection[]) =>
+    edit((d) => ({ ...d, sections: fn(d.sections) }));
+
+  const discard = () => {
+    dirty.current = false;
+    setDraft(seed(quote));
+  };
+
+  // --- local mutators ----------------------------------------------------
+  const addSection = () =>
+    setSections((s) => [...s, { id: tmpId(), name: "New section", is_optional: false, items: [] }]);
+  const renameSection = (sid: string, name: string) =>
+    setSections((s) => s.map((x) => (x.id === sid ? { ...x, name } : x)));
+  const toggleSectionOptional = (sid: string, v: boolean) =>
+    setSections((s) => s.map((x) => (x.id === sid ? { ...x, is_optional: v } : x)));
+  const removeSection = (sid: string) => setSections((s) => s.filter((x) => x.id !== sid));
+  const addItem = (sid: string) =>
+    setSections((s) =>
+      s.map((x) =>
+        x.id === sid
+          ? {
+              ...x,
+              items: [
+                ...x.items,
+                { id: tmpId(), name: "", description: "", price: 0, is_optional: false, client_selected: false },
+              ],
+            }
+          : x,
+      ),
+    );
+  const editItem = (sid: string, iid: string, patch: Partial<DraftItem>) =>
+    setSections((s) =>
+      s.map((x) =>
+        x.id === sid ? { ...x, items: x.items.map((i) => (i.id === iid ? { ...i, ...patch } : i)) } : x,
+      ),
+    );
+  const removeItem = (sid: string, iid: string) =>
+    setSections((s) => s.map((x) => (x.id === sid ? { ...x, items: x.items.filter((i) => i.id !== iid) } : x)));
+
+  // --- server sync -------------------------------------------------------
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["quote", quote.id] });
-    // Partial match also covers ["quotes", { project: id }] for the
-    // project-scoped quotes list, and ["projects", id] for the headline-quote
-    // summary on the project overview.
     qc.invalidateQueries({ queryKey: ["quotes"] });
     qc.invalidateQueries({ queryKey: ["projects"] });
   };
@@ -134,56 +225,98 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     onError,
   });
 
-  const addSectionMut = useMutation({
-    mutationFn: () =>
-      addQuoteSection(quote.id, { name: "New section", sort_order: sections.length }),
-    onSuccess: invalidate,
+  // Diff the draft against the server quote and write only what changed.
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const serverSections = new Map(quote.quote_sections.map((s) => [s.id, s]));
+      const draftSectionIds = new Set(draft.sections.map((s) => s.id));
+
+      // 1. deletes — server sections no longer in the draft (cascades items)
+      for (const s of quote.quote_sections) {
+        if (!draftSectionIds.has(s.id)) await deleteQuoteSection(s.id);
+      }
+
+      // 2. per section: create / update, then its items
+      for (let si = 0; si < draft.sections.length; si++) {
+        const ds = draft.sections[si];
+        let sectionId = ds.id;
+        const server = serverSections.get(ds.id);
+
+        if (!server) {
+          const created = await addQuoteSection(quote.id, {
+            name: ds.name,
+            is_optional: ds.is_optional,
+            sort_order: si,
+          });
+          sectionId = created.id;
+        } else if (
+          server.name !== ds.name ||
+          server.is_optional !== ds.is_optional ||
+          server.sort_order !== si
+        ) {
+          await updateQuoteSection(server.id, {
+            name: ds.name,
+            is_optional: ds.is_optional,
+            sort_order: si,
+          });
+        }
+
+        const serverItems = new Map((server?.quote_items ?? []).map((i) => [i.id, i]));
+        const draftItemIds = new Set(ds.items.filter((i) => !isTmp(i.id)).map((i) => i.id));
+
+        if (server) {
+          for (const i of server.quote_items) {
+            if (!draftItemIds.has(i.id)) await deleteQuoteItem(i.id);
+          }
+        }
+
+        for (let ii = 0; ii < ds.items.length; ii++) {
+          const di = ds.items[ii];
+          const desc = di.description.trim() || null;
+          const srv = serverItems.get(di.id);
+          if (!srv) {
+            await addQuoteItem(sectionId, {
+              name: di.name,
+              description: desc,
+              price: di.price,
+              is_optional: di.is_optional,
+              sort_order: ii,
+            });
+          } else if (
+            srv.name !== di.name ||
+            (srv.description ?? null) !== desc ||
+            Number(srv.price) !== di.price ||
+            srv.is_optional !== di.is_optional ||
+            srv.sort_order !== ii
+          ) {
+            await updateQuoteItem(srv.id, {
+              name: di.name,
+              description: desc,
+              price: di.price,
+              is_optional: di.is_optional,
+              sort_order: ii,
+            });
+          }
+        }
+      }
+
+      // 3. quote-level fields
+      const patch: Parameters<typeof updateQuote>[1] = {};
+      if ((quote.notes ?? "") !== draft.notes) patch.notes = draft.notes.trim() || null;
+      if ((quote.terms ?? "") !== draft.terms) patch.terms = draft.terms.trim() || null;
+      if (Number(quote.deposit_percentage) !== draft.depositPct)
+        patch.deposit_percentage = draft.depositPct;
+      if (Object.keys(patch).length) await updateQuote(quote.id, patch);
+    },
+    onSuccess: () => {
+      dirty.current = false;
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["projects", projectId] });
+      toast({ title: "Quote saved" });
+    },
     onError,
   });
-  const renameSectionMut = useMutation({
-    mutationFn: (v: { id: string; name: string }) => updateQuoteSection(v.id, { name: v.name }),
-    onSuccess: invalidate,
-    onError,
-  });
-  const toggleSectionOptionalMut = useMutation({
-    mutationFn: (v: { id: string; is_optional: boolean }) =>
-      updateQuoteSection(v.id, { is_optional: v.is_optional }),
-    onSuccess: invalidate,
-    onError,
-  });
-  const deleteSectionMut = useMutation({
-    mutationFn: (sectionId: string) => deleteQuoteSection(sectionId),
-    onSuccess: invalidate,
-    onError,
-  });
-  const addItemMut = useMutation({
-    mutationFn: (v: { sectionId: string; sortOrder: number }) =>
-      addQuoteItem(v.sectionId, { name: "", price: 0, sort_order: v.sortOrder }),
-    onSuccess: invalidate,
-    onError,
-  });
-  const saveItemMut = useMutation({
-    mutationFn: (v: { itemId: string; patch: Parameters<typeof updateQuoteItem>[1] }) =>
-      updateQuoteItem(v.itemId, v.patch),
-    onSuccess: invalidate,
-    onError,
-  });
-  const toggleItemOptionalMut = useMutation({
-    mutationFn: (v: { itemId: string; is_optional: boolean }) =>
-      updateQuoteItem(v.itemId, { is_optional: v.is_optional }),
-    onSuccess: invalidate,
-    onError,
-  });
-  const deleteItemMut = useMutation({
-    mutationFn: (itemId: string) => deleteQuoteItem(itemId),
-    onSuccess: invalidate,
-    onError,
-  });
-  const saveFieldMut = useMutation({
-    mutationFn: (patch: Parameters<typeof updateQuote>[1]) => updateQuote(quote.id, patch),
-    onSuccess: invalidate,
-    onError,
-  });
+
   const sendQuoteMut = useMutation({
     mutationFn: async () => {
       const token = quote.share_token ?? (await generateShareLink("quotes", quote.id));
@@ -193,27 +326,20 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     },
     onSuccess: (token) => {
       invalidate();
-      void logProjectEvent(
-        projectId,
-        "quote_sent",
-        `Quote sent · ${formatCurrency(quoteTotalLive)}`,
-        { quote_id: quote.id },
-      );
+      void logProjectEvent(projectId, "quote_sent", `Quote sent · ${formatCurrency(quoteTotalLive)}`, {
+        quote_id: quote.id,
+      });
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
       setShareUrl(`${window.location.origin}/quote/${token}`);
     },
     onError,
   });
 
-  const livePriceFor = (item: QuoteItem) => live[item.id] ?? Number(item.price);
+  // --- derived amounts (from the draft) ---------------------------------
+  const sectionSubtotal = (s: DraftSection) =>
+    s.items.reduce((sum, i) => (itemIncluded(s, i) ? sum + i.price : sum), 0);
+  const quoteTotalLive = draft.sections.reduce((sum, s) => sum + sectionSubtotal(s), 0);
 
-  const sectionSubtotal = (section: QuoteSection) =>
-    section.quote_items.reduce(
-      (sum, item) => (quoteItemIncluded(section, item) ? sum + livePriceFor(item) : sum),
-      0,
-    );
-
-  const quoteTotalLive = sections.reduce((sum, section) => sum + sectionSubtotal(section), 0);
   const materialsCost = materialsCogs(materials);
   const margin = quoteTotalLive - materialsCost;
   const marginPct = quoteTotalLive > 0 ? (margin / quoteTotalLive) * 100 : 0;
@@ -237,14 +363,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   const meta = quoteStatusMeta(quote.status);
   const fin = demoQuoteFinancials(quoteTotalLive);
-  const depositAmount = Math.round((quoteTotalLive * Number(quote.deposit_percentage)) / 100);
+  const depositAmount = Math.round((quoteTotalLive * draft.depositPct) / 100);
   const persistedLink =
     quote.share_token && quote.status !== "draft"
       ? `${window.location.origin}/quote/${quote.share_token}`
       : null;
 
+  const isDirty = dirty.current;
+
   return (
-    <div className="animate-fade-in space-y-5 max-w-5xl">
+    <div className="animate-fade-in space-y-5 max-w-5xl pb-40 md:pb-24">
       <MobilePageHeader
         title={quote.project?.name ?? "Standalone quote"}
         subtitle={`${meta.label} · ${quote.client?.name ?? quote.project?.client?.name ?? "no client"}`}
@@ -288,7 +416,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 {formatCurrency(quoteTotalLive + fin.markupAmount + fin.taxAmount)}
               </div>
               <div className="mt-1.5 text-xs text-background/75">
-                Deposit {quote.deposit_percentage}% · {formatCurrency(depositAmount)} at signing
+                Deposit {draft.depositPct}% · {formatCurrency(depositAmount)} at signing
               </div>
             </div>
             {projectId ? (
@@ -364,43 +492,31 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       )}
 
       <div className="flex justify-start">
-        <Button
-          size="sm"
-          onClick={() => addSectionMut.mutate()}
-          className="font-bold"
-        >
+        <Button size="sm" onClick={addSection} className="font-bold">
           <Plus className="w-4 h-4 mr-2" />
           Add section
         </Button>
       </div>
 
-      {sections.length === 0 && (
+      {draft.sections.length === 0 && (
         <div className="stat-card text-center py-12">
           <p className="text-muted-foreground">No sections yet. Add a section to build the quote.</p>
         </div>
       )}
 
-      {sections.length > 0 && (
+      {draft.sections.length > 0 && (
         <div className="space-y-4">
-          {sections.map((section) => (
+          {draft.sections.map((section) => (
             <QuoteSectionCard
               key={section.id}
               section={section}
               subtotal={sectionSubtotal(section)}
-              onRename={(name) => renameSectionMut.mutate({ id: section.id, name })}
-              onToggleOptional={(checked) =>
-                toggleSectionOptionalMut.mutate({ id: section.id, is_optional: checked })
-              }
-              onDeleteSection={() => deleteSectionMut.mutate(section.id)}
-              onAddItem={() =>
-                addItemMut.mutate({ sectionId: section.id, sortOrder: section.quote_items.length })
-              }
-              onLivePriceChange={(itemId, price) => setLive((prev) => ({ ...prev, [itemId]: price }))}
-              onSaveItem={(itemId, patch) => saveItemMut.mutate({ itemId, patch })}
-              onToggleItemOptional={(itemId, checked) =>
-                toggleItemOptionalMut.mutate({ itemId, is_optional: checked })
-              }
-              onDeleteItem={(itemId) => deleteItemMut.mutate(itemId)}
+              onRename={(name) => renameSection(section.id, name)}
+              onToggleOptional={(checked) => toggleSectionOptional(section.id, checked)}
+              onDeleteSection={() => removeSection(section.id)}
+              onAddItem={() => addItem(section.id)}
+              onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
+              onDeleteItem={(iid) => removeItem(section.id, iid)}
             />
           ))}
         </div>
@@ -411,18 +527,18 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           <Label htmlFor="quote-notes">Notes</Label>
           <Textarea
             id="quote-notes"
-            defaultValue={quote.notes ?? ""}
+            value={draft.notes}
             placeholder="Any notes for the client about this job..."
-            onBlur={(e) => saveFieldMut.mutate({ notes: e.target.value || null })}
+            onChange={(e) => edit((d) => ({ ...d, notes: e.target.value }))}
           />
         </div>
         <div className="space-y-2">
           <Label htmlFor="quote-terms">Terms &amp; conditions</Label>
           <Textarea
             id="quote-terms"
-            defaultValue={quote.terms ?? ""}
+            value={draft.terms}
             placeholder="Payment terms, warranty info, etc."
-            onBlur={(e) => saveFieldMut.mutate({ terms: e.target.value || null })}
+            onChange={(e) => edit((d) => ({ ...d, terms: e.target.value }))}
           />
         </div>
         <div className="space-y-2">
@@ -433,10 +549,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               type="number"
               min="0"
               max="100"
-              defaultValue={quote.deposit_percentage}
+              inputMode="decimal"
+              value={String(draft.depositPct)}
               className="pr-7"
-              onBlur={(e) =>
-                saveFieldMut.mutate({ deposit_percentage: parseFloat(e.target.value) || 0 })
+              onChange={(e) =>
+                edit((d) => ({ ...d, depositPct: parseFloat(e.target.value) || 0 }))
               }
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -449,21 +566,33 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         </div>
       </div>
 
-      <div className="flex justify-end items-center gap-3">
+      <div className="flex flex-wrap justify-end items-center gap-3">
         {quote.status === "draft" ? (
-          <Button
-            onClick={() => sendQuoteMut.mutate()}
-            disabled={sendQuoteMut.isPending}
-            className="font-bold"
-          >
-            {sendQuoteMut.isPending ? "Sending…" : "Send quote"}
-          </Button>
+          <>
+            {isDirty && (
+              <p className="text-sm text-muted-foreground">Save your changes before sending.</p>
+            )}
+            <Button
+              onClick={() => sendQuoteMut.mutate()}
+              disabled={sendQuoteMut.isPending || isDirty}
+              className="font-bold"
+            >
+              {sendQuoteMut.isPending ? "Sending…" : "Send quote"}
+            </Button>
+          </>
         ) : (
           <p className="text-sm text-muted-foreground">
             Quote {meta.label.toLowerCase()} — share link above.
           </p>
         )}
       </div>
+
+      <DraftSaveBar
+        visible={isDirty}
+        onDiscard={discard}
+        onSave={() => saveMut.mutate()}
+        saving={saveMut.isPending}
+      />
 
       <Dialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)}>
         <DialogContent className="sm:max-w-md">
@@ -490,16 +619,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   );
 }
 
+// ---------------------------------------------------------------------------
+
 interface QuoteSectionCardProps {
-  section: QuoteSection;
+  section: DraftSection;
   subtotal: number;
   onRename: (name: string) => void;
   onToggleOptional: (checked: boolean) => void;
   onDeleteSection: () => void;
   onAddItem: () => void;
-  onLivePriceChange: (itemId: string, price: number) => void;
-  onSaveItem: (itemId: string, patch: { name?: string; description?: string | null; price?: number }) => void;
-  onToggleItemOptional: (itemId: string, checked: boolean) => void;
+  onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
 }
 
@@ -510,53 +639,21 @@ function QuoteSectionCard({
   onToggleOptional,
   onDeleteSection,
   onAddItem,
-  onLivePriceChange,
-  onSaveItem,
-  onToggleItemOptional,
+  onEditItem,
   onDeleteItem,
 }: QuoteSectionCardProps) {
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(section.name);
-
-  useEffect(() => setNameDraft(section.name), [section.name]);
-
-  const items = section.quote_items;
-
-  const commitName = () => {
-    setEditingName(false);
-    const trimmed = nameDraft.trim();
-    if (trimmed && trimmed !== section.name) onRename(trimmed);
-    else setNameDraft(section.name);
-  };
+  const items = section.items;
 
   return (
     <div className="stat-card space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          {editingName ? (
-            <Input
-              autoFocus
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                if (e.key === "Escape") {
-                  setNameDraft(section.name);
-                  setEditingName(false);
-                }
-              }}
-              className="h-8 max-w-xs font-medium"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setEditingName(true)}
-              className="text-left font-medium text-foreground hover:underline underline-offset-2 truncate"
-            >
-              {section.name || "Untitled section"}
-            </button>
-          )}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Input
+            value={section.name}
+            onChange={(e) => onRename(e.target.value)}
+            placeholder="Section name"
+            className="h-9 max-w-xs font-semibold"
+          />
           {section.is_optional && <span className="badge-status badge-draft shrink-0">Optional</span>}
         </div>
 
@@ -583,8 +680,8 @@ function QuoteSectionCard({
                 <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
                 <AlertDialogDescription>
                   {items.length > 0
-                    ? `This section has ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Deleting it removes those items too. This can't be undone.`
-                    : "This section is empty. This can't be undone."}
+                    ? `Removes ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Nothing is saved until you press Save changes.`
+                    : "This section is empty."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -593,7 +690,7 @@ function QuoteSectionCard({
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   onClick={onDeleteSection}
                 >
-                  Delete
+                  Remove
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -602,30 +699,24 @@ function QuoteSectionCard({
       </div>
 
       {items.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-muted-foreground">
-                <th className="text-left font-medium py-1 px-1">Item</th>
-                <th className="text-left font-medium py-1 px-1">Description</th>
-                <th className="text-right font-medium py-1 px-1 w-28">Price</th>
-                <th className="text-center font-medium py-1 px-1 w-20">Optional</th>
-                <th className="w-8"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <QuoteItemRow
-                  key={item.id}
-                  item={item}
-                  onLivePriceChange={(price) => onLivePriceChange(item.id, price)}
-                  onSave={(patch) => onSaveItem(item.id, patch)}
-                  onToggleOptional={(checked) => onToggleItemOptional(item.id, checked)}
-                  onDelete={() => onDeleteItem(item.id)}
-                />
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-2 lg:space-y-1">
+          {/* column headers — wide screens only; below lg the rows stack so
+              the name & description always get a full-width line */}
+          <div className="hidden gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-muted-subtle lg:grid lg:grid-cols-[minmax(8rem,2fr)_minmax(8rem,2fr)_7rem_5rem_1.5rem]">
+            <span>Item</span>
+            <span>Description</span>
+            <span className="text-right">Price</span>
+            <span className="text-center">Optional</span>
+            <span />
+          </div>
+          {items.map((item) => (
+            <QuoteItemRow
+              key={item.id}
+              item={item}
+              onEdit={(patch) => onEditItem(item.id, patch)}
+              onDelete={() => onDeleteItem(item.id)}
+            />
+          ))}
         </div>
       )}
 
@@ -636,7 +727,7 @@ function QuoteSectionCard({
         </Button>
         <div className="text-sm">
           <span className="text-muted-foreground mr-2">Subtotal</span>
-          <span className="font-semibold">{formatCurrency(subtotal)}</span>
+          <span className="font-semibold tabular-nums">{formatCurrency(subtotal)}</span>
         </div>
       </div>
     </div>
@@ -644,77 +735,66 @@ function QuoteSectionCard({
 }
 
 interface QuoteItemRowProps {
-  item: QuoteItem;
-  onLivePriceChange: (price: number) => void;
-  onSave: (patch: { name?: string; description?: string | null; price?: number }) => void;
-  onToggleOptional: (checked: boolean) => void;
+  item: DraftItem;
+  onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
 
-function QuoteItemRow({
-  item,
-  onLivePriceChange,
-  onSave,
-  onToggleOptional,
-  onDelete,
-}: QuoteItemRowProps) {
-  const [name, setName] = useState(item.name);
-  const [description, setDescription] = useState(item.description ?? "");
+function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
+  // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
+  // out from under the cursor. Re-synced when the draft is reseeded.
   const [priceStr, setPriceStr] = useState(String(item.price));
-
-  useEffect(() => setName(item.name), [item.name]);
-  useEffect(() => setDescription(item.description ?? ""), [item.description]);
   useEffect(() => setPriceStr(String(item.price)), [item.price]);
 
-  const fieldClass =
-    "h-8 border-0 shadow-none bg-transparent focus-visible:ring-1 focus-visible:ring-offset-0 px-2";
-
   return (
-    <tr className="border-b border-border last:border-0">
-      <td className="py-1 px-0">
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => onSave({ name })}
-          placeholder="Item name"
-          className={fieldClass}
-        />
-      </td>
-      <td className="py-1 px-0">
-        <Input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={() => onSave({ description: description || null })}
-          placeholder="Short description"
-          className={fieldClass}
-        />
-      </td>
-      <td className="py-1 px-0">
-        <div className="relative">
-          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">
+    <div className="rounded-xl border border-hairline p-2.5 lg:grid lg:grid-cols-[minmax(8rem,2fr)_minmax(8rem,2fr)_7rem_5rem_1.5rem] lg:items-center lg:gap-3 lg:border-0 lg:p-0">
+      <Input
+        value={item.name}
+        onChange={(e) => onEdit({ name: e.target.value })}
+        placeholder="Item name"
+        className="h-9"
+      />
+      <Input
+        value={item.description}
+        onChange={(e) => onEdit({ description: e.target.value })}
+        placeholder="Short description"
+        className="mt-2 h-9 lg:mt-0"
+      />
+
+      <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
+        <div className="relative min-w-0 flex-1 lg:flex-none">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
             $
           </span>
           <Input
             type="number"
             step="0.01"
+            inputMode="decimal"
             value={priceStr}
             onChange={(e) => {
               setPriceStr(e.target.value);
-              onLivePriceChange(parseFloat(e.target.value) || 0);
+              onEdit({ price: parseFloat(e.target.value) || 0 });
             }}
-            onBlur={() => onSave({ price: parseFloat(priceStr) || 0 })}
-            className={`${fieldClass} text-right pl-5`}
+            className="h-9 pl-5 text-right"
+            aria-label="Price"
           />
         </div>
-      </td>
-      <td className="py-1 px-1 text-center">
-        <Checkbox checked={item.is_optional} onCheckedChange={(c) => onToggleOptional(c === true)} />
-      </td>
-      <td className="py-1 px-1">
-        <button type="button" className="text-muted-foreground hover:text-destructive" onClick={onDelete}>
-          <Trash2 className="w-3.5 h-3.5" />
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground lg:justify-self-center">
+          <Checkbox
+            checked={item.is_optional}
+            onCheckedChange={(c) => onEdit({ is_optional: c === true })}
+          />
+          <span className="lg:hidden">Optional</span>
+        </label>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="shrink-0 text-muted-foreground hover:text-destructive"
+          aria-label="Remove item"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
