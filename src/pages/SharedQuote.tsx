@@ -105,12 +105,14 @@ export default function SharedQuotePage() {
         <header className="space-y-2">
           <p className="text-sm font-bold tracking-wide text-primary">ContractorPro</p>
           <div className="flex items-start justify-between gap-4 flex-wrap">
-            <h1 className="text-2xl font-bold text-foreground">
+            <h1 className="min-w-0 text-2xl font-bold text-foreground [overflow-wrap:anywhere]">
               {project ? `${project.name} — Proposal` : "Proposal"}
             </h1>
             {isApproved && <span className="badge-status badge-paid shrink-0">Approved ✓</span>}
           </div>
-          {client?.name && <p className="text-muted-foreground">Prepared for {client.name}</p>}
+          {client?.name && (
+            <p className="text-muted-foreground [overflow-wrap:anywhere]">Prepared for {client.name}</p>
+          )}
         </header>
 
         {sections.length > 0 && (
@@ -223,10 +225,16 @@ function SectionBlock({
 
     return (
       <div className="space-y-3">
-        <label className="flex items-center gap-3 cursor-pointer select-none">
-          <Checkbox checked={sectionChecked} onCheckedChange={(c) => onToggleSection(c === true)} />
-          <span className="font-semibold text-foreground">{section.name}</span>
-          <span className="text-sm text-muted-foreground">— Add to my quote</span>
+        <label className="flex items-start gap-3 cursor-pointer select-none">
+          <Checkbox
+            className="mt-0.5 shrink-0"
+            checked={sectionChecked}
+            onCheckedChange={(c) => onToggleSection(c === true)}
+          />
+          <span className="min-w-0">
+            <span className="font-semibold text-foreground [overflow-wrap:anywhere]">{section.name}</span>
+            <span className="text-sm text-muted-foreground"> — Add to my quote</span>
+          </span>
         </label>
         <div className={cn("space-y-2", !sectionChecked && "opacity-40 pointer-events-none")}>
           <ItemsTable items={section.items} showItemCheckbox={false} itemChecked={itemChecked} onToggleItem={onToggleItem} />
@@ -247,7 +255,7 @@ function SectionBlock({
 
   return (
     <div className="space-y-3">
-      <h3 className="font-semibold text-foreground">{section.name}</h3>
+      <h3 className="font-semibold text-foreground [overflow-wrap:anywhere]">{section.name}</h3>
       <ItemsTable
         items={section.items}
         showItemCheckbox
@@ -273,46 +281,37 @@ function ItemsTable({
   onToggleItem: (itemId: string, checked: boolean) => void;
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-xs text-muted-foreground text-left">
-            <th className="py-1 font-medium">Item</th>
-            <th className="py-1 font-medium">Description</th>
-            <th className="py-1 font-medium text-right">Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => {
-            const included = showItemCheckbox && item.is_optional ? itemChecked(item.id) : true;
-            return (
-              <tr
-                key={item.id}
-                className={cn(
-                  "border-b border-border/60 last:border-0",
-                  !included && "opacity-40",
+    <div className="divide-y divide-border/60 border-y border-border/60">
+      {items.map((item) => {
+        const included = showItemCheckbox && item.is_optional ? itemChecked(item.id) : true;
+        return (
+          <div
+            key={item.id}
+            className={cn("flex items-start justify-between gap-3 py-2.5", !included && "opacity-40")}
+          >
+            <div className="flex min-w-0 flex-1 items-start gap-2">
+              {showItemCheckbox && item.is_optional && (
+                <Checkbox
+                  className="mt-0.5 shrink-0"
+                  checked={itemChecked(item.id)}
+                  onCheckedChange={(c) => onToggleItem(item.id, c === true)}
+                />
+              )}
+              <div className="min-w-0">
+                <p className="text-sm text-foreground [overflow-wrap:anywhere]">{item.name || "—"}</p>
+                {item.description && (
+                  <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                    {item.description}
+                  </p>
                 )}
-              >
-                <td className="py-2 pr-2">
-                  <div className="flex items-center gap-2">
-                    {showItemCheckbox && item.is_optional && (
-                      <Checkbox
-                        checked={itemChecked(item.id)}
-                        onCheckedChange={(c) => onToggleItem(item.id, c === true)}
-                      />
-                    )}
-                    <span className="text-foreground">{item.name || "—"}</span>
-                  </div>
-                </td>
-                <td className="py-2 pr-2 text-muted-foreground">{item.description}</td>
-                <td className="py-2 text-right text-foreground whitespace-nowrap">
-                  {formatCurrency(Number(item.price))}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+              </div>
+            </div>
+            <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">
+              {formatCurrency(Number(item.price))}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

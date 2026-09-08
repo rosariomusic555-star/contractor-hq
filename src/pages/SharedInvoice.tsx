@@ -66,10 +66,12 @@ export default function SharedInvoicePage() {
 
         <header className="space-y-2">
           <p className="text-sm font-bold tracking-wide text-primary">ContractorPro</p>
-          <h1 className="text-2xl font-bold text-foreground">
+          <h1 className="text-2xl font-bold text-foreground [overflow-wrap:anywhere]">
             {project ? `${project.name} — ` : ""}Invoice {number}
           </h1>
-          {client?.name && <p className="text-muted-foreground">Prepared for {client.name}</p>}
+          {client?.name && (
+            <p className="text-muted-foreground [overflow-wrap:anywhere]">Prepared for {client.name}</p>
+          )}
         </header>
 
         <div className="rounded-xl border border-border bg-muted/40 p-6 space-y-1.5 text-center">
