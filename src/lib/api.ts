@@ -20,6 +20,11 @@ export interface Client {
 
 interface ClientRef {
   name: string;
+  // Only populated where the select asks for them (e.g. PROJECT_SELECT).
+  // Quote / invoice selects fetch `name` alone and leave these undefined.
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
 }
 interface ProjectRef {
   name: string;
@@ -225,7 +230,7 @@ export async function deleteClient(id: string): Promise<void> {
 // Projects
 // ---------------------------------------------------------------------------
 
-const PROJECT_SELECT = "*, client:clients(name)";
+const PROJECT_SELECT = "*, client:clients(name, email, phone, address)";
 
 export async function listProjects(): Promise<Project[]> {
   const { data, error } = await supabase
