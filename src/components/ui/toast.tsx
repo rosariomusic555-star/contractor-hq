@@ -14,10 +14,11 @@ const ToastViewport = React.forwardRef<
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      // Mobile: top, toasts hug the RIGHT edge (items-end + w-auto on the toast)
-      // so they never cover the top-left back / nav button. Desktop (sm+):
-      // bottom-right, full-width column as before.
-      "fixed right-0 top-0 z-[100] flex max-h-screen w-full flex-col-reverse items-end gap-2 p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:max-w-[420px] sm:flex-col sm:items-stretch",
+      // pointer-events-none on the viewport (the toasts themselves re-enable
+      // it) so the transparent container never eats clicks on whatever sits
+      // under it — e.g. the top-left back button while a toast is up.
+      // Mobile: top, toasts hug the RIGHT edge. Desktop (sm+): bottom-right.
+      "pointer-events-none fixed right-0 top-0 z-[100] flex max-h-screen w-full flex-col-reverse items-end gap-2 p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:max-w-[420px] sm:flex-col sm:items-stretch",
       className,
     )}
     {...props}

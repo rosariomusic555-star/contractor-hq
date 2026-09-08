@@ -33,6 +33,7 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
+import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteFinancials } from "@/lib/demoData";
 import {
@@ -724,17 +725,18 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
 
   return (
     <div className="rounded-xl border border-hairline p-2.5 lg:grid lg:grid-cols-[minmax(8rem,2fr)_minmax(8rem,2fr)_7rem_5rem_1.5rem] lg:items-center lg:gap-3 lg:border-0 lg:p-0">
-      <Input
+      {/* Textareas so a long name / description wraps instead of scrolling
+          off in one line. */}
+      <AutoGrowTextarea
         value={item.name}
         onChange={(e) => onEdit({ name: e.target.value })}
         placeholder="Item name"
-        className="h-9"
       />
-      <Input
+      <AutoGrowTextarea
         value={item.description}
         onChange={(e) => onEdit({ description: e.target.value })}
         placeholder="Short description"
-        className="mt-2 h-9 lg:mt-0"
+        className="mt-2 lg:mt-0"
       />
 
       <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">

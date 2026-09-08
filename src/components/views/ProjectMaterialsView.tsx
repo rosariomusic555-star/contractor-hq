@@ -5,6 +5,7 @@ import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
+import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -373,12 +374,12 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
 
   return (
     <div className="rounded-xl border border-hairline p-2.5 lg:grid lg:grid-cols-[minmax(8rem,1fr)_5rem_7rem_6rem_1.5rem] lg:items-center lg:gap-3 lg:border-0 lg:p-0">
-      {/* Name — full-width line below lg, first column at lg+ */}
-      <Input
+      {/* Name — full-width line below lg, first column at lg+. Textarea so a
+          long name wraps instead of scrolling off in one line. */}
+      <AutoGrowTextarea
         value={item.name}
         onChange={(e) => onEdit({ name: e.target.value })}
         placeholder="Item name"
-        className="h-9"
       />
 
       <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
