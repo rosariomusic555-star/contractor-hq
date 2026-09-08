@@ -80,14 +80,14 @@ export function DashboardView() {
     <div className="animate-fade-in space-y-6">
       {/* ---- Mobile slate header ---- */}
       <div className="mobile-header -mx-4 -mt-4 md:hidden">
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-wide text-sidebar-foreground/70">
               {dateLabel}
             </p>
             <h1 className="mt-0.5 text-2xl font-bold tracking-tight">{greeting()}</h1>
           </div>
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-sidebar-primary text-sm font-extrabold text-sidebar-primary-foreground">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full bg-sidebar-primary text-sm font-extrabold text-sidebar-primary-foreground shadow-sm ring-1 ring-white/10">
             {initials}
           </span>
         </div>

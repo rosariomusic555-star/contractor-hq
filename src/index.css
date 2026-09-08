@@ -237,10 +237,19 @@
     @apply bg-success text-success-foreground;
   }
 
-  /* Slate header block that tops every phone screen (#687B85). */
+  /* Slate header block that tops every phone screen (#687B85). A soft
+     top-left bloom + vertical gradient give it depth; the inset hairline
+     reads as "lit from above" and the low shadow lifts it off the content. */
   .mobile-header {
-    @apply bg-sidebar text-sidebar-foreground px-[18px] pb-4;
-    padding-top: max(env(safe-area-inset-top), 0.75rem);
+    @apply text-sidebar-foreground px-[18px] pb-5;
+    padding-top: max(env(safe-area-inset-top), 0.875rem);
+    background-color: hsl(var(--sidebar-background));
+    background-image:
+      radial-gradient(115% 90% at 0% 0%, hsl(210 16% 53% / 0.55), transparent 62%),
+      linear-gradient(180deg, hsl(201 12% 48%), hsl(201 12% 42%));
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.08),
+      0 10px 24px -16px hsl(201 12% 20% / 0.7);
   }
 
   /* Small "uppercase label + big number + sub-line" card (Quotes/Invoices/Revenue). */
