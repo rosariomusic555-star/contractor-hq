@@ -63,7 +63,7 @@ export const DEMO_TODAY_SCHEDULE: {
   crew: string;
 }[] = [
   { time: "7:00a", title: "Kellerman patio", subtitle: "480 sf paver · 214 Ridgeway Dr", status: "in_progress", crew: "Crew A · 3" },
-  { time: "9:30a", title: "Alvarez retaining wall", subtitle: "Block course 2 · 88 Linden Ave", status: "blocked", crew: "Crew B · 2" },
+  { time: "9:30a", title: "Alvarez retaining wall", subtitle: "Block course 2 · 88 Linden Ave", status: "scheduled", crew: "Crew B · 2" },
   { time: "2:00p", title: "Whitmore walkway", subtitle: "Site visit + measure · 7 Coldbrook Rd", status: "site_visit", crew: "You" },
 ];
 

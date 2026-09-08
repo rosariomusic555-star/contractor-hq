@@ -5,7 +5,7 @@ import type { InvoiceStatus, ProjectStatus, QuoteStatus } from "./api";
  * a phone-card left-border colour, and a tone key. Replaces the per-view
  * `STATUS_META` / `statusStyles` maps that had drifted out of sync.
  *
- * Some keys ("declined", "expired", "scheduled", "blocked", "in_progress") are
+ * Some keys ("declined", "expired", "scheduled", "in_progress") are
  * visual-only states the schema does not persist — they come from demoData and
  * are surfaced here so the pills render consistently.
  */
@@ -90,7 +90,6 @@ export function projectStatusMeta(status: string): StatusMeta {
 export const VISUAL_STATUS_META = {
   scheduled: meta("Scheduled", "blue"),
   in_progress: meta("In progress", "green"),
-  blocked: meta("Blocked", "amber"),
   complete: meta("Complete", "green"),
   quoting: meta("Quoting", "grey"),
   site_visit: meta("Site visit", "grey"),
