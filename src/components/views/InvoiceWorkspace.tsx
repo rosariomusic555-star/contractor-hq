@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Copy } from "lucide-react";
@@ -8,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
+import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -75,9 +77,41 @@ export function InvoiceWorkspace({
   };
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
-  const saveFieldMut = useMutation({
-    mutationFn: (patch: Parameters<typeof updateInvoice>[1]) => updateInvoice(invoice.id, patch),
-    onSuccess: invalidate,
+  // ---- draft: the Details form is edited locally, saved on "Save changes" ----
+  const seedDraft = () => ({
+    amount: String(invoice.amount),
+    dueDate: invoice.due_date ?? "",
+    notes: invoice.notes ?? "",
+  });
+  const [draft, setDraft] = useState(seedDraft);
+  const dirty = useRef(false);
+  useEffect(() => {
+    if (dirty.current) return;
+    setDraft(seedDraft());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoice]);
+  const editDraft = (patch: Partial<ReturnType<typeof seedDraft>>) => {
+    dirty.current = true;
+    setDraft((d) => ({ ...d, ...patch }));
+  };
+  const discard = () => {
+    dirty.current = false;
+    setDraft(seedDraft());
+  };
+  const isDirty = dirty.current;
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      updateInvoice(invoice.id, {
+        amount: parseFloat(draft.amount) || 0,
+        due_date: draft.dueDate || null,
+        notes: draft.notes.trim() || null,
+      }),
+    onSuccess: () => {
+      dirty.current = false;
+      invalidate();
+      toast({ title: "Invoice saved" });
+    },
     onError,
   });
 
@@ -147,19 +181,37 @@ export function InvoiceWorkspace({
 
   const actionButton =
     invoice.status === "draft" ? (
-      <Button onClick={() => sendMut.mutate()} disabled={sendMut.isPending} className="w-full font-bold">
-        {sendMut.isPending ? "Sending…" : "Send invoice"}
-      </Button>
+      <>
+        <Button
+          onClick={() => sendMut.mutate()}
+          disabled={sendMut.isPending || isDirty}
+          className="w-full font-bold"
+        >
+          {sendMut.isPending ? "Sending…" : "Send invoice"}
+        </Button>
+        {isDirty && (
+          <p className="mt-2 text-center text-xs text-muted-foreground">Save your changes first.</p>
+        )}
+      </>
     ) : invoice.status === "sent" ? (
-      <Button onClick={() => markPaidMut.mutate()} disabled={markPaidMut.isPending} className="w-full font-bold">
-        {markPaidMut.isPending ? "Saving…" : "Mark as paid"}
-      </Button>
+      <>
+        <Button
+          onClick={() => markPaidMut.mutate()}
+          disabled={markPaidMut.isPending || isDirty}
+          className="w-full font-bold"
+        >
+          {markPaidMut.isPending ? "Saving…" : "Mark as paid"}
+        </Button>
+        {isDirty && (
+          <p className="mt-2 text-center text-xs text-muted-foreground">Save your changes first.</p>
+        )}
+      </>
     ) : (
       <p className="text-center text-sm text-muted-foreground">Paid — no further action.</p>
     );
 
   return (
-    <div className="animate-fade-in space-y-5">
+    <div className="animate-fade-in space-y-5 pb-40 md:pb-24">
       <MobilePageHeader
         title={number}
         subtitle={`${invoice.project?.name ?? "Standalone"}${clientName ? ` · ${clientName}` : ""}`}
@@ -225,9 +277,10 @@ export function InvoiceWorkspace({
                   id="invoice-amount"
                   type="number"
                   step="0.01"
-                  defaultValue={invoice.amount}
+                  inputMode="decimal"
+                  value={draft.amount}
                   className="pl-6"
-                  onBlur={(e) => saveFieldMut.mutate({ amount: parseFloat(e.target.value) || 0 })}
+                  onChange={(e) => editDraft({ amount: e.target.value })}
                 />
               </div>
             </div>
@@ -236,17 +289,17 @@ export function InvoiceWorkspace({
               <Input
                 id="invoice-due"
                 type="date"
-                defaultValue={invoice.due_date ?? ""}
-                onBlur={(e) => saveFieldMut.mutate({ due_date: e.target.value || null })}
+                value={draft.dueDate}
+                onChange={(e) => editDraft({ dueDate: e.target.value })}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="invoice-notes">Notes</Label>
               <Textarea
                 id="invoice-notes"
-                defaultValue={invoice.notes ?? ""}
+                value={draft.notes}
                 placeholder="Progress payment — foundation complete"
-                onBlur={(e) => saveFieldMut.mutate({ notes: e.target.value || null })}
+                onChange={(e) => editDraft({ notes: e.target.value })}
               />
             </div>
           </section>
@@ -344,6 +397,13 @@ export function InvoiceWorkspace({
           </section>
         </div>
       </div>
+
+      <DraftSaveBar
+        visible={isDirty}
+        onDiscard={discard}
+        onSave={() => saveMut.mutate()}
+        saving={saveMut.isPending}
+      />
     </div>
   );
 }
