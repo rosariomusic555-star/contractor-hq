@@ -104,7 +104,7 @@ export function ProjectMaterialsView() {
     edit((d) => d.map((s) => (s.id === sid ? { ...s, name } : s)));
   const deleteSection = (sid: string) => edit((d) => d.filter((s) => s.id !== sid));
   const addSection = () =>
-    edit((d) => [...d, { id: tmpId(), name: "New section", items: [] }]);
+    edit((d) => [...d, { id: tmpId(), name: "", items: [] }]);
   const addItem = (sid: string) =>
     edit((d) =>
       d.map((s) =>
@@ -140,14 +140,15 @@ export function ProjectMaterialsView() {
       // 2. per section: create / rename, then its items
       for (let si = 0; si < draft.length; si++) {
         const ds = draft[si];
+        const name = ds.name.trim() || "New section";
         let sectionId = ds.id;
         const server = serverSections.get(ds.id);
 
         if (!server) {
-          const created = await createMaterialsSection(id, { name: ds.name, sort_order: si });
+          const created = await createMaterialsSection(id, { name, sort_order: si });
           sectionId = created.id;
-        } else if (server.name !== ds.name) {
-          await updateMaterialsSection(server.id, { name: ds.name });
+        } else if (server.name !== name) {
+          await updateMaterialsSection(server.id, { name });
         }
 
         const serverItems = new Map((server?.materials_items ?? []).map((i) => [i.id, i]));
@@ -237,12 +238,8 @@ export function ProjectMaterialsView() {
       {isError && <p className="text-destructive">Failed to load materials: {(error as Error).message}</p>}
 
       {!isLoading && !isError && draft.length === 0 && (
-        <div className="card-surface flex flex-col items-center gap-4 p-12 text-center">
-          <p className="text-muted-foreground">No costs added yet. Add a section to get started.</p>
-          <Button onClick={addSection} className="font-bold">
-            <Plus className="mr-2 h-4 w-4" />
-            Add section
-          </Button>
+        <div className="card-surface p-12 text-center text-muted-foreground">
+          Add a section to get started.
         </div>
       )}
 
@@ -288,7 +285,7 @@ function SectionCard({ section, onRename, onDelete, onAddItem, onEditItem, onDel
         <Input
           value={section.name}
           onChange={(e) => onRename(e.target.value)}
-          placeholder="Section name"
+          placeholder="New section"
           className="h-9 max-w-xs font-semibold"
         />
         <AlertDialog>

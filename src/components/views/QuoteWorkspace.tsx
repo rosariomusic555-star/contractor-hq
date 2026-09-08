@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2, Copy } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,19 +26,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
+import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteFinancials } from "@/lib/demoData";
 import {
@@ -177,7 +171,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   // --- local mutators ----------------------------------------------------
   const addSection = () =>
-    setSections((s) => [...s, { id: tmpId(), name: "New section", is_optional: false, items: [] }]);
+    setSections((s) => [...s, { id: tmpId(), name: "", is_optional: false, items: [] }]);
   const renameSection = (sid: string, name: string) =>
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, name } : x)));
   const toggleSectionOptional = (sid: string, v: boolean) =>
@@ -239,23 +233,24 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       // 2. per section: create / update, then its items
       for (let si = 0; si < draft.sections.length; si++) {
         const ds = draft.sections[si];
+        const name = ds.name.trim() || "New section";
         let sectionId = ds.id;
         const server = serverSections.get(ds.id);
 
         if (!server) {
           const created = await addQuoteSection(quote.id, {
-            name: ds.name,
+            name,
             is_optional: ds.is_optional,
             sort_order: si,
           });
           sectionId = created.id;
         } else if (
-          server.name !== ds.name ||
+          server.name !== name ||
           server.is_optional !== ds.is_optional ||
           server.sort_order !== si
         ) {
           await updateQuoteSection(server.id, {
-            name: ds.name,
+            name,
             is_optional: ds.is_optional,
             sort_order: si,
           });
@@ -317,7 +312,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     onError,
   });
 
-  const sendQuoteMut = useMutation({
+  const shareQuoteMut = useMutation({
     mutationFn: async () => {
       const token = quote.share_token ?? (await generateShareLink("quotes", quote.id));
       await updateQuote(quote.id, { status: "sent" });
@@ -326,7 +321,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     },
     onSuccess: (token) => {
       invalidate();
-      void logProjectEvent(projectId, "quote_sent", `Quote sent · ${formatCurrency(quoteTotalLive)}`, {
+      void logProjectEvent(projectId, "quote_sent", `Quote shared · ${formatCurrency(quoteTotalLive)}`, {
         quote_id: quote.id,
       });
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
@@ -351,15 +346,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         : marginPct >= 10
           ? "text-warning"
           : "text-destructive";
-
-  const copyLink = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      toast({ title: "Link copied to clipboard" });
-    } catch {
-      toast({ title: "Share link", description: url });
-    }
-  };
 
   const meta = quoteStatusMeta(quote.status);
   const fin = demoQuoteFinancials(quoteTotalLive);
@@ -484,9 +470,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             <p className="text-sm text-muted-foreground">Client link</p>
             <p className="font-mono text-sm truncate">{persistedLink}</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => copyLink(persistedLink)}>
-            <Copy className="w-4 h-4 mr-2" />
-            Copy link
+          <Button variant="outline" size="sm" onClick={() => setShareUrl(persistedLink)}>
+            <Share2 className="w-4 h-4 mr-2" />
+            Share
           </Button>
         </div>
       )}
@@ -570,20 +556,25 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         {quote.status === "draft" ? (
           <>
             {isDirty && (
-              <p className="text-sm text-muted-foreground">Save your changes before sending.</p>
+              <p className="text-sm text-muted-foreground">Save your changes first.</p>
             )}
             <Button
-              onClick={() => sendQuoteMut.mutate()}
-              disabled={sendQuoteMut.isPending || isDirty}
+              onClick={() => shareQuoteMut.mutate()}
+              disabled={shareQuoteMut.isPending || isDirty}
               className="font-bold"
             >
-              {sendQuoteMut.isPending ? "Sending…" : "Send quote"}
+              {shareQuoteMut.isPending ? "Preparing…" : "Share quote"}
             </Button>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Quote {meta.label.toLowerCase()} — share link above.
-          </p>
+          <Button
+            variant="outline"
+            onClick={() => persistedLink && setShareUrl(persistedLink)}
+            disabled={!persistedLink}
+          >
+            <Share2 className="mr-2 h-4 w-4" />
+            Share link
+          </Button>
         )}
       </div>
 
@@ -594,27 +585,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         saving={saveMut.isPending}
       />
 
-      <Dialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Quote sent</DialogTitle>
-            <DialogDescription>
-              Share this link with your client so they can review and approve the quote.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2">
-            <Input readOnly value={shareUrl ?? ""} className="font-mono text-sm" />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => shareUrl && copyLink(shareUrl)}
-            >
-              <Copy className="w-4 h-4 mr-2" />
-              Copy link
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ShareLinkDialog
+        open={!!shareUrl}
+        onOpenChange={(open) => !open && setShareUrl(null)}
+        url={shareUrl ?? ""}
+        kind="quote"
+      />
     </div>
   );
 }
@@ -651,7 +627,7 @@ function QuoteSectionCard({
           <Input
             value={section.name}
             onChange={(e) => onRename(e.target.value)}
-            placeholder="Section name"
+            placeholder="New section"
             className="h-9 max-w-xs font-semibold"
           />
           {section.is_optional && <span className="badge-status badge-draft shrink-0">Optional</span>}

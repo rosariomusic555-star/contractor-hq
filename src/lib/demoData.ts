@@ -74,7 +74,7 @@ export const DEMO_NEEDS_YOU: {
   action: string;
 }[] = [
   { tone: "red", title: "Invoice 41 days late", subtitle: "Delgado driveway · $9,850", action: "Remind" },
-  { tone: "grey", title: "Quote sent 6 days ago", subtitle: "Brennan fire pit + seat wall · $22,300", action: "Follow up" },
+  { tone: "grey", title: "Quote shared 6 days ago", subtitle: "Brennan fire pit + seat wall · $22,300", action: "Follow up" },
   { tone: "green", title: "Quote approved — needs deposit", subtitle: "Okonkwo patio · 30% of $34,600", action: "Bill" },
   { tone: "amber", title: "Base delivery unconfirmed", subtitle: "Alvarez retaining wall · Crew B idle 9:30a", action: "Call" },
 ];

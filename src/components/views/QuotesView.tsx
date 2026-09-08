@@ -66,7 +66,7 @@ export function QuotesView() {
   const options: FilterOption<Filter>[] = [
     { value: "all", label: "All", count: quotes.length },
     { value: "draft", label: "Draft", count: countByStatus("draft") },
-    { value: "sent", label: "Sent", count: countByStatus("sent") },
+    { value: "sent", label: "Shared", count: countByStatus("sent") },
     { value: "approved", label: "Approved", count: countByStatus("approved") },
   ];
 

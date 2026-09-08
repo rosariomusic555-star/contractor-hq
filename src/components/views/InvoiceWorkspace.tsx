@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Copy } from "lucide-react";
+import { ChevronLeft, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,6 +10,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
+import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -49,6 +50,8 @@ export function InvoiceWorkspace({
 }: InvoiceWorkspaceProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
 
   // The quote this invoice bills against: its explicit quote_id, else the
   // project's headline quote.
@@ -115,7 +118,7 @@ export function InvoiceWorkspace({
     onError,
   });
 
-  const sendMut = useMutation({
+  const shareMut = useMutation({
     mutationFn: async () => {
       const token = invoice.share_token ?? (await generateShareLink("invoices", invoice.id));
       await updateInvoice(invoice.id, { status: "sent" });
@@ -124,13 +127,13 @@ export function InvoiceWorkspace({
       }
       return token;
     },
-    onSuccess: () => {
-      void logProjectEvent(projectId, "invoice_sent", `${number} sent · ${formatCurrency(amount)}`, {
+    onSuccess: (token) => {
+      void logProjectEvent(projectId, "invoice_sent", `${number} shared · ${formatCurrency(amount)}`, {
         invoice_id: invoice.id,
         invoice_number: invoice.invoice_number,
       });
       invalidate();
-      toast({ title: "Invoice sent" });
+      setShareUrl(`${window.location.origin}/invoice/${token}`);
     },
     onError,
   });
@@ -157,15 +160,6 @@ export function InvoiceWorkspace({
     onError,
   });
 
-  const copyLink = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      toast({ title: "Link copied to clipboard" });
-    } catch {
-      toast({ title: "Share link", description: url });
-    }
-  };
-
   const meta = invoiceStatusMeta(invoice.status);
   const number = invoice.invoice_number ?? "Invoice";
   const amount = Number(invoice.amount);
@@ -183,11 +177,11 @@ export function InvoiceWorkspace({
     invoice.status === "draft" ? (
       <>
         <Button
-          onClick={() => sendMut.mutate()}
-          disabled={sendMut.isPending || isDirty}
+          onClick={() => shareMut.mutate()}
+          disabled={shareMut.isPending || isDirty}
           className="w-full font-bold"
         >
-          {sendMut.isPending ? "Sending…" : "Send invoice"}
+          {shareMut.isPending ? "Preparing…" : "Share invoice"}
         </Button>
         {isDirty && (
           <p className="mt-2 text-center text-xs text-muted-foreground">Save your changes first.</p>
@@ -257,9 +251,9 @@ export function InvoiceWorkspace({
             <p className="text-xs font-semibold text-muted-foreground">Client link</p>
             <p className="truncate font-mono text-sm">{persistedLink}</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => copyLink(persistedLink)}>
-            <Copy className="mr-2 h-4 w-4" />
-            Copy link
+          <Button variant="outline" size="sm" onClick={() => setShareUrl(persistedLink)}>
+            <Share2 className="mr-2 h-4 w-4" />
+            Share
           </Button>
         </div>
       )}
@@ -403,6 +397,13 @@ export function InvoiceWorkspace({
         onDiscard={discard}
         onSave={() => saveMut.mutate()}
         saving={saveMut.isPending}
+      />
+
+      <ShareLinkDialog
+        open={!!shareUrl}
+        onOpenChange={(open) => !open && setShareUrl(null)}
+        url={shareUrl ?? ""}
+        kind="invoice"
       />
     </div>
   );

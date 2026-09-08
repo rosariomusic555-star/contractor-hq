@@ -39,7 +39,7 @@ const statusConfig: Record<ActivityStatus, { icon: typeof CheckCircle2; class: s
 
 const quoteTitle: Record<Quote["status"], string> = {
   draft: "Quote drafted",
-  sent: "Quote sent",
+  sent: "Quote shared",
   approved: "Quote approved",
 };
 
@@ -51,7 +51,7 @@ const quoteStatus: Record<Quote["status"], ActivityStatus> = {
 
 const invoiceTitle: Record<Invoice["status"], string> = {
   draft: "Invoice drafted",
-  sent: "Invoice sent",
+  sent: "Invoice shared",
   paid: "Payment received",
   overdue: "Invoice overdue",
 };

@@ -7,6 +7,7 @@ import { AuthProvider } from "@/lib/auth";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DashboardView } from "@/components/views/DashboardView";
 import { ProjectsView } from "@/components/views/ProjectsView";
+import { NewProjectView } from "@/components/views/NewProjectView";
 import { ProjectDetailView } from "@/components/views/ProjectDetailView";
 import { ProjectMaterialsView } from "@/components/views/ProjectMaterialsView";
 import { ProjectQuotesView } from "@/components/views/ProjectQuotesView";
@@ -44,6 +45,7 @@ const App = () => (
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardView />} />
               <Route path="/projects" element={<ProjectsView />} />
+              <Route path="/projects/new" element={<NewProjectView />} />
               <Route path="/projects/:id" element={<ProjectDetailView />} />
               <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
               <Route path="/projects/:id/quotes" element={<ProjectQuotesView />} />

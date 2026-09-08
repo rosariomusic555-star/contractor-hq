@@ -1,23 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ProjectModal, type ProjectSubmit } from "@/components/modals/ProjectModal";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
 import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
-import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, pluralize } from "@/lib/utils";
 import {
   listProjects,
-  listClients,
   listQuotes,
-  createProject,
-  createClient,
-  logProjectEvent,
   quoteTotal,
   pickHeadlineQuote,
   type ProjectStatus,
@@ -28,48 +22,15 @@ import { demoJobMeta, DEMO_WEEKS_BOOKED } from "@/lib/demoData";
 type Filter = "all" | ProjectStatus;
 
 export function ProjectsView() {
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  useEffect(() => {
-    if (searchParams.get("new") === "1") {
-      setIsModalOpen(true);
-      searchParams.delete("new");
-      setSearchParams(searchParams, { replace: true });
-    }
-  }, [searchParams, setSearchParams]);
 
   const { data: projects = [], isLoading, isError, error } = useQuery({
     queryKey: ["projects"],
     queryFn: listProjects,
   });
-  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
-
-  const createMutation = useMutation({
-    mutationFn: async (data: ProjectSubmit) => {
-      let clientId = data.clientId;
-      if (data.newClient) {
-        const client = await createClient({ ...data.newClient, address: "" });
-        clientId = client.id;
-      }
-      return createProject({ name: data.name, client_id: clientId, status: "draft" });
-    },
-    onSuccess: (project) => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
-      void logProjectEvent(project.id, "project_created", "Project created");
-      setIsModalOpen(false);
-      navigate(`/projects/${project.id}`);
-    },
-    onError: (err: Error) =>
-      toast({ title: "Couldn't create project", description: err.message, variant: "destructive" }),
-  });
 
   /** Real contract value per project = total of its headline quote. */
   const contractOf = useMemo(() => {
@@ -107,7 +68,7 @@ export function ProjectsView() {
         subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract`}
         actions={
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => navigate("/projects/new")}
             className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground"
           >
             + New
@@ -126,7 +87,7 @@ export function ProjectsView() {
         title="Projects"
         subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract · ${DEMO_WEEKS_BOOKED} weeks booked out`}
         actions={
-          <Button onClick={() => setIsModalOpen(true)} className="font-bold">
+          <Button onClick={() => navigate("/projects/new")} className="font-bold">
             + New project
           </Button>
         }
@@ -226,13 +187,6 @@ export function ProjectsView() {
         </>
       )}
 
-      <ProjectModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        clients={clients}
-        submitting={createMutation.isPending}
-        onSubmit={(data) => createMutation.mutate(data)}
-      />
     </div>
   );
 }
