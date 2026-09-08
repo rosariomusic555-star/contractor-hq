@@ -22,6 +22,7 @@ import { InvoiceNewView } from "@/components/views/InvoiceNewView";
 import { InvoiceDetailView } from "@/components/views/InvoiceDetailView";
 import { RevenueView } from "@/components/views/RevenueView";
 import { ClientsView } from "@/components/views/ClientsView";
+import { ClientFormView } from "@/components/views/ClientFormView";
 import { SettingsView } from "@/components/views/SettingsView";
 import SharedQuotePage from "./pages/SharedQuote";
 import SharedInvoicePage from "./pages/SharedInvoice";
@@ -63,6 +64,8 @@ const App = () => (
               <Route path="/invoices/:invoiceId" element={<InvoiceDetailView />} />
               <Route path="/revenue" element={<RevenueView />} />
               <Route path="/clients" element={<ClientsView />} />
+              <Route path="/clients/new" element={<ClientFormView />} />
+              <Route path="/clients/:clientId/edit" element={<ClientFormView />} />
               <Route path="/settings" element={<SettingsView />} />
             </Route>
             <Route path="*" element={<NotFound />} />

@@ -193,6 +193,12 @@ export async function listClients(): Promise<Client[]> {
   return data ?? [];
 }
 
+export async function getClient(id: string): Promise<Client> {
+  const { data, error } = await supabase.from("clients").select("*").eq("id", id).single();
+  if (error) throw error;
+  return data;
+}
+
 export async function createClient(input: {
   name: string;
   email: string;

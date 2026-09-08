@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal, Phone, Mail, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ClientModal, type ClientFormData } from "@/components/modals/ClientModal";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
@@ -17,15 +16,7 @@ import { FilterSegment, FilterPills, type FilterOption } from "@/components/comm
 import { ListCard } from "@/components/common/ListCard";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
-import {
-  listClients,
-  createClient,
-  updateClient,
-  deleteClient,
-  listInvoices,
-  listProjects,
-  type Client,
-} from "@/lib/api";
+import { listClients, deleteClient, listInvoices, listProjects } from "@/lib/api";
 
 type Kind = "active" | "repeat" | "lead" | "client";
 type Filter = "all" | "active" | "repeat" | "lead";
@@ -43,21 +34,9 @@ const initials = (name: string) =>
 export function ClientsView() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Client | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  useEffect(() => {
-    if (searchParams.get("new") === "1") {
-      setIsModalOpen(true);
-      const next = new URLSearchParams(searchParams);
-      next.delete("new");
-      setSearchParams(next, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const navigate = useNavigate();
 
   const { data: clients = [], isLoading, isError, error } = useQuery({
     queryKey: ["clients"],
@@ -65,26 +44,6 @@ export function ClientsView() {
   });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
-
-  const createMutation = useMutation({
-    mutationFn: createClient,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
-    onError: (err: Error) =>
-      toast({ title: "Couldn't add client", description: err.message, variant: "destructive" }),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: ClientFormData }) =>
-      updateClient(id, {
-        name: data.name,
-        email: data.email || null,
-        phone: data.phone || null,
-        address: data.address || null,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["clients"] }),
-    onError: (err: Error) =>
-      toast({ title: "Couldn't save client", description: err.message, variant: "destructive" }),
-  });
 
   const deleteMutation = useMutation({
     mutationFn: deleteClient,
@@ -148,7 +107,7 @@ export function ClientsView() {
         subtitle={`${pluralize(clients.length, "client")} · ${formatCurrency(lifetime)} lifetime`}
         actions={
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => navigate("/clients/new")}
             className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground"
           >
             + Add
@@ -167,7 +126,7 @@ export function ClientsView() {
         title="Clients"
         subtitle={`${pluralize(clients.length, "client")} · ${withActive} with active work · ${formatCurrency(lifetime)} lifetime`}
         actions={
-          <Button onClick={() => setIsModalOpen(true)} className="font-bold">
+          <Button onClick={() => navigate("/clients/new")} className="font-bold">
             + Add client
           </Button>
         }
@@ -211,7 +170,9 @@ export function ClientsView() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditing(client)}>Edit</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => navigate(`/clients/${client.id}/edit`)}>
+                          Edit
+                        </DropdownMenuItem>
                         <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(client.id)}>
                           Delete
                         </DropdownMenuItem>
@@ -245,7 +206,7 @@ export function ClientsView() {
               return (
                 <ListCard
                   key={client.id}
-                  onClick={() => setEditing(client)}
+                  onClick={() => navigate(`/clients/${client.id}/edit`)}
                   borderColor={kind.border}
                   eyebrow={`${kind.label} · ${s.projects} project${s.projects === 1 ? "" : "s"}`}
                   eyebrowColor={kind.border}
@@ -260,21 +221,6 @@ export function ClientsView() {
         </>
       )}
 
-      <ClientModal
-        isOpen={isModalOpen || !!editing}
-        onClose={() => {
-          setIsModalOpen(false);
-          setEditing(null);
-        }}
-        initial={editing ?? undefined}
-        title={editing ? "Edit client" : "Add New Client"}
-        submitLabel={editing ? "Save changes" : "Add Client"}
-        onSubmit={(data) =>
-          editing
-            ? updateMutation.mutate({ id: editing.id, data })
-            : createMutation.mutate(data)
-        }
-      />
     </div>
   );
 }
