@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Mail, Phone, MapPin } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -273,6 +273,30 @@ export function ProjectDetailView() {
             <section className="card-surface p-5">
               <h3 className="text-base font-bold text-foreground">Client</h3>
               <p className="mt-2 text-sm font-bold text-foreground">{project.client.name}</p>
+              <div className="mt-2 space-y-1.5 text-[13px] text-muted-foreground">
+                {project.client.address && (
+                  <p className="flex items-start gap-2">
+                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{project.client.address}</span>
+                  </p>
+                )}
+                {project.client.phone && (
+                  <p className="flex items-center gap-2">
+                    <Phone className="h-3.5 w-3.5 shrink-0" />
+                    <a href={`tel:${project.client.phone}`} className="hover:text-foreground">
+                      {project.client.phone}
+                    </a>
+                  </p>
+                )}
+                {project.client.email && (
+                  <p className="flex items-center gap-2">
+                    <Mail className="h-3.5 w-3.5 shrink-0" />
+                    <a href={`mailto:${project.client.email}`} className="hover:text-foreground">
+                      {project.client.email}
+                    </a>
+                  </p>
+                )}
+              </div>
             </section>
           )}
 
