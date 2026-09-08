@@ -22,6 +22,7 @@ import {
   logProjectEvent,
   pickHeadlineQuote,
   quoteItemIncluded,
+  quoteLineTotal,
   quoteTotal,
   updateInvoice,
   updateProject,
@@ -318,33 +319,38 @@ export function InvoiceWorkspace({
                 {quote.quote_sections.map((section) => {
                   const items = section.quote_items.filter((i) => quoteItemIncluded(section, i));
                   if (items.length === 0) return null;
-                  const subtotal = items.reduce((s, i) => s + Number(i.price), 0);
+                  const subtotal = items.reduce((s, i) => s + quoteLineTotal(i), 0);
                   return (
                     <div key={section.id}>
                       <p className="text-[13px] font-bold text-foreground [overflow-wrap:anywhere]">
                         {section.name}
                       </p>
                       <div className="mt-1">
-                        {items.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-start justify-between gap-3 border-b border-hairline py-2 last:border-0"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[13px] font-semibold text-foreground [overflow-wrap:anywhere]">
-                                {item.name || "Item"}
-                              </p>
-                              {item.description && (
-                                <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                                  {item.description}
+                        {items.map((item) => {
+                          const qty = item.quantity == null ? 1 : Number(item.quantity);
+                          return (
+                            <div
+                              key={item.id}
+                              className="flex items-start justify-between gap-3 border-b border-hairline py-2 last:border-0"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[13px] font-semibold text-foreground [overflow-wrap:anywhere]">
+                                  {item.name || "Item"}
                                 </p>
-                              )}
+                                {(qty !== 1 || item.description) && (
+                                  <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                                    {qty !== 1 && `${qty} × ${formatCurrency(Number(item.price))}`}
+                                    {qty !== 1 && item.description && " · "}
+                                    {item.description}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
+                                {formatCurrency(quoteLineTotal(item))}
+                              </span>
                             </div>
-                            <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
-                              {formatCurrency(Number(item.price))}
-                            </span>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div className="mt-1 flex justify-between text-xs font-semibold text-muted-foreground">
                         <span>Section subtotal</span>

@@ -47,7 +47,9 @@ export interface QuoteItem {
   section_id: string;
   name: string;
   description: string | null;
+  /** Unit price. Line total = quantity × price. */
   price: number;
+  quantity: number;
   is_optional: boolean;
   client_selected: boolean;
   sort_order: number;
@@ -146,12 +148,17 @@ export function quoteItemIncluded(section: QuoteSection, item: QuoteItem): boole
   return true;
 }
 
+/** Line total = quantity × unit price. Quantity defaults to 1 (pre-0014 rows). */
+export function quoteLineTotal(item: { price: number; quantity?: number | null }): number {
+  return Number(item.price) * (item.quantity == null ? 1 : Number(item.quantity));
+}
+
 /** Quote total = sum of included line items (quotes have no stored amount). */
 export function quoteTotal(sections: QuoteSection[] = []): number {
   let total = 0;
   for (const section of sections) {
     for (const item of section.quote_items ?? []) {
-      if (quoteItemIncluded(section, item)) total += Number(item.price);
+      if (quoteItemIncluded(section, item)) total += quoteLineTotal(item);
     }
   }
   return total;
@@ -486,6 +493,7 @@ export async function addQuoteItem(
     name: string;
     description?: string | null;
     price: number;
+    quantity?: number;
     is_optional?: boolean;
     sort_order?: number;
   },
@@ -497,6 +505,7 @@ export async function addQuoteItem(
       name: input.name,
       description: input.description ?? null,
       price: input.price,
+      quantity: input.quantity ?? 1,
       is_optional: input.is_optional ?? false,
       sort_order: input.sort_order ?? 0,
     })
@@ -509,7 +518,10 @@ export async function addQuoteItem(
 export async function updateQuoteItem(
   id: string,
   patch: Partial<
-    Pick<QuoteItem, "name" | "description" | "price" | "is_optional" | "client_selected" | "sort_order">
+    Pick<
+      QuoteItem,
+      "name" | "description" | "price" | "quantity" | "is_optional" | "client_selected" | "sort_order"
+    >
   >,
 ): Promise<void> {
   const { error } = await supabase.from("quote_items").update(patch).eq("id", id);
@@ -734,6 +746,7 @@ export interface SharedQuoteItem {
   name: string;
   description: string | null;
   price: number;
+  quantity: number;
   is_optional: boolean;
   client_selected: boolean;
   sort_order: number;

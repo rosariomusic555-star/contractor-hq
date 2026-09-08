@@ -67,7 +67,9 @@ interface DraftItem {
   id: string;
   name: string;
   description: string;
+  /** Unit price. Line total = quantity × price. */
   price: number;
+  quantity: number;
   is_optional: boolean;
   /** Set by the client on the share page; carried through, never edited here. */
   client_selected: boolean;
@@ -98,6 +100,7 @@ const seed = (quote: Quote): QuoteDraft => ({
       name: i.name,
       description: i.description ?? "",
       price: Number(i.price),
+      quantity: i.quantity == null ? 1 : Number(i.quantity),
       is_optional: i.is_optional,
       client_selected: i.client_selected,
     })),
@@ -107,6 +110,8 @@ const seed = (quote: Quote): QuoteDraft => ({
   depositPct: Number(quote.deposit_percentage),
 });
 
+/** Line total = quantity × unit price. */
+const lineTotal = (i: DraftItem) => i.price * i.quantity;
 /** An item is an "optional add-on" if its section or the item itself is flagged. */
 const itemIsAddon = (s: DraftSection, i: DraftItem) => s.is_optional || i.is_optional;
 /** Whether a draft line item counts toward the shown total. */
@@ -114,7 +119,7 @@ const itemIncluded = (s: DraftSection, i: DraftItem) =>
   itemIsAddon(s, i) ? i.client_selected : true;
 /** A section's base (non-optional) subtotal — what always counts. */
 const baseSubtotal = (s: DraftSection) =>
-  s.is_optional ? 0 : s.items.reduce((sum, i) => (i.is_optional ? sum : sum + i.price), 0);
+  s.is_optional ? 0 : s.items.reduce((sum, i) => (i.is_optional ? sum : sum + lineTotal(i)), 0);
 
 interface QuoteWorkspaceProps {
   quote: Quote;
@@ -191,7 +196,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               ...x,
               items: [
                 ...x.items,
-                { id: tmpId(), name: "", description: "", price: 0, is_optional: false, client_selected: false },
+                {
+                  id: tmpId(),
+                  name: "",
+                  description: "",
+                  price: 0,
+                  quantity: 1,
+                  is_optional: false,
+                  client_selected: false,
+                },
               ],
             }
           : x,
@@ -280,6 +293,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               name: di.name,
               description: desc,
               price: di.price,
+              quantity: di.quantity,
               is_optional: di.is_optional,
               sort_order: ii,
             });
@@ -287,6 +301,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             srv.name !== di.name ||
             (srv.description ?? null) !== desc ||
             Number(srv.price) !== di.price ||
+            (srv.quantity == null ? 1 : Number(srv.quantity)) !== di.quantity ||
             srv.is_optional !== di.is_optional ||
             srv.sort_order !== ii
           ) {
@@ -294,6 +309,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               name: di.name,
               description: desc,
               price: di.price,
+              quantity: di.quantity,
               is_optional: di.is_optional,
               sort_order: ii,
             });
@@ -338,18 +354,20 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   // --- derived amounts (from the draft) ---------------------------------
   const sectionSubtotal = (s: DraftSection) =>
-    s.items.reduce((sum, i) => (itemIncluded(s, i) ? sum + i.price : sum), 0);
+    s.items.reduce((sum, i) => (itemIncluded(s, i) ? sum + lineTotal(i) : sum), 0);
   const quoteTotalLive = draft.sections.reduce((sum, s) => sum + sectionSubtotal(s), 0);
   const baseTotal = draft.sections.reduce((sum, s) => sum + baseSubtotal(s), 0);
   // Add-ons the client has picked (roll into the total); vs. everything optional.
   const selectedAddonsTotal = draft.sections.reduce(
     (sum, s) =>
-      sum + s.items.reduce((a, i) => a + (itemIsAddon(s, i) && i.client_selected ? i.price : 0), 0),
+      sum +
+      s.items.reduce((a, i) => a + (itemIsAddon(s, i) && i.client_selected ? lineTotal(i) : 0), 0),
     0,
   );
   const optionalAvailableTotal = draft.sections.reduce(
     (sum, s) =>
-      sum + s.items.reduce((a, i) => a + (itemIsAddon(s, i) && !i.client_selected ? i.price : 0), 0),
+      sum +
+      s.items.reduce((a, i) => a + (itemIsAddon(s, i) && !i.client_selected ? lineTotal(i) : 0), 0),
     0,
   );
 
@@ -846,10 +864,12 @@ function QuoteSectionCard({
 
       {items.length > 0 && (
         <>
-          <div className="hidden grid-cols-[minmax(8rem,1fr)_7rem_5rem_1.5rem] gap-3 bg-muted/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted-subtle lg:grid">
+          <div className="hidden grid-cols-[minmax(8rem,1fr)_4.5rem_6.5rem_5.5rem_4rem_1.5rem] gap-3 bg-muted/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted-subtle lg:grid">
             <span>Item</span>
-            <span className="text-right">Amount</span>
-            <span className="text-center">Optional</span>
+            <span className="text-right">Qty</span>
+            <span className="text-right">Unit price</span>
+            <span className="text-right">Total</span>
+            <span className="text-center">Opt</span>
             <span />
           </div>
           {items.map((item) => (
@@ -886,11 +906,15 @@ interface QuoteItemRowProps {
 function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
+  const [qtyStr, setQtyStr] = useState(String(item.quantity));
   const [priceStr, setPriceStr] = useState(String(item.price));
+  useEffect(() => setQtyStr(String(item.quantity)), [item.quantity]);
   useEffect(() => setPriceStr(String(item.price)), [item.price]);
 
+  const total = item.quantity * item.price;
+
   return (
-    <div className="border-b border-hairline p-3 last:border-b-0 lg:grid lg:grid-cols-[minmax(8rem,1fr)_7rem_5rem_1.5rem] lg:items-start lg:gap-3 lg:px-4">
+    <div className="border-b border-hairline p-3 last:border-b-0 lg:grid lg:grid-cols-[minmax(8rem,1fr)_4.5rem_6.5rem_5.5rem_4rem_1.5rem] lg:items-start lg:gap-3 lg:px-4">
       {/* Name + description (the mockup's grey "meta" line). Textareas so long
           text wraps instead of scrolling off. */}
       <div className="min-w-0">
@@ -909,6 +933,19 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
       </div>
 
       <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
+        <Input
+          type="number"
+          step="any"
+          inputMode="decimal"
+          value={qtyStr}
+          onChange={(e) => {
+            setQtyStr(e.target.value);
+            onEdit({ quantity: parseFloat(e.target.value) || 0 });
+          }}
+          className="h-9 min-w-0 flex-1 text-right lg:flex-none"
+          aria-label="Quantity"
+        />
+        <span className="text-muted-subtle lg:hidden">×</span>
         <div className="relative min-w-0 flex-1 lg:flex-none">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
             $
@@ -922,10 +959,14 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
               setPriceStr(e.target.value);
               onEdit({ price: parseFloat(e.target.value) || 0 });
             }}
-            className="h-9 pl-5 text-right font-semibold"
-            aria-label="Amount"
+            className="h-9 pl-5 text-right"
+            aria-label="Unit price"
           />
         </div>
+        <span className="text-muted-subtle lg:hidden">=</span>
+        <span className="shrink-0 text-right text-sm font-bold tabular-nums text-foreground lg:pt-1.5">
+          {formatCurrency(total)}
+        </span>
         <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground lg:justify-self-center lg:pt-1.5">
           <Checkbox
             checked={item.is_optional}
