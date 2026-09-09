@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
@@ -26,7 +26,7 @@ function greeting(): string {
 /** Wraps a KpiCard so it's clickable — keeps the card's own look, just adds
  * a hover lift + focus ring since it's now a real link. */
 const KPI_LINK_CLASS =
-  "block rounded-card transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+  "group block rounded-card transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
 export function DashboardView() {
   const navigate = useNavigate();
@@ -130,6 +130,7 @@ export function DashboardView() {
             value={formatCurrency(thisMonthRevenue)}
             sub={momPill ?? "Revenue invoiced"}
             subTone={momChange == null ? "muted" : momChange >= 0 ? "positive" : "negative"}
+            clickable
           />
         </Link>
         <Link to="/quotes?filter=open" className={KPI_LINK_CLASS}>
@@ -137,6 +138,7 @@ export function DashboardView() {
             label="Open quotes"
             value={openQuotes.length}
             sub={`${awaitingResponse} awaiting reply`}
+            clickable
           />
         </Link>
         <Link to="/invoices?filter=unpaid" className={KPI_LINK_CLASS}>
@@ -145,6 +147,7 @@ export function DashboardView() {
             value={formatCurrency(outstandingTotal)}
             sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
             subTone={over30 > 0 ? "negative" : "muted"}
+            clickable
           />
         </Link>
         <KpiCard
@@ -155,9 +158,12 @@ export function DashboardView() {
       </div>
 
       {/* ---- Mobile revenue card ---- */}
-      <Link to="/revenue" className="block md:hidden">
+      <Link to="/revenue" className="group block md:hidden">
         <section className="card-surface p-5 transition-shadow hover:shadow-card-hover">
-          <p className="text-[13px] font-semibold text-muted-foreground">This month</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[13px] font-semibold text-muted-foreground">This month</p>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
+          </div>
           <p className="mt-1 text-[34px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
             {formatCurrency(thisMonthRevenue)}
           </p>
@@ -193,7 +199,12 @@ export function DashboardView() {
       {/* ---- Mobile tiles ---- */}
       <div className="grid grid-cols-2 gap-3 md:hidden">
         <Link to="/quotes?filter=open" className={KPI_LINK_CLASS}>
-          <KpiCard label="Open quotes" value={openQuotes.length} sub={`${awaitingResponse} awaiting reply`} />
+          <KpiCard
+            label="Open quotes"
+            value={openQuotes.length}
+            sub={`${awaitingResponse} awaiting reply`}
+            clickable
+          />
         </Link>
         <Link to="/invoices?filter=unpaid" className={KPI_LINK_CLASS}>
           <KpiCard
@@ -201,6 +212,7 @@ export function DashboardView() {
             value={formatCurrency(outstandingTotal)}
             sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
             subTone={over30 > 0 ? "negative" : "muted"}
+            clickable
           />
         </Link>
       </div>
