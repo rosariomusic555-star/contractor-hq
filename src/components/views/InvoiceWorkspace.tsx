@@ -328,6 +328,8 @@ export function InvoiceWorkspace({
                       <div className="mt-1">
                         {items.map((item) => {
                           const qty = item.quantity == null ? 1 : Number(item.quantity);
+                          const unit = item.unit?.trim();
+                          const showQtyMeta = qty !== 1 || !!unit;
                           return (
                             <div
                               key={item.id}
@@ -337,10 +339,11 @@ export function InvoiceWorkspace({
                                 <p className="text-[15px] font-semibold text-foreground [overflow-wrap:anywhere]">
                                   {item.name || "Item"}
                                 </p>
-                                {(qty !== 1 || item.description) && (
+                                {(showQtyMeta || item.description) && (
                                   <p className="text-[13px] text-muted-foreground [overflow-wrap:anywhere]">
-                                    {qty !== 1 && `${qty} × ${formatCurrency(Number(item.price))}`}
-                                    {qty !== 1 && item.description && " · "}
+                                    {showQtyMeta &&
+                                      `${qty}${unit ? ` ${unit}` : ""} × ${formatCurrency(Number(item.price))}`}
+                                    {showQtyMeta && item.description && " · "}
                                     {item.description}
                                   </p>
                                 )}

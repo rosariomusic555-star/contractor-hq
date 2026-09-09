@@ -291,6 +291,8 @@ function ItemsTable({
       {items.map((item) => {
         const included = showItemCheckbox && item.is_optional ? itemChecked(item.id) : true;
         const qty = item.quantity == null ? 1 : Number(item.quantity);
+        const unit = item.unit?.trim();
+        const showMeta = qty !== 1 || !!unit || !!item.description;
         return (
           <div
             key={item.id}
@@ -306,10 +308,11 @@ function ItemsTable({
               )}
               <div className="min-w-0">
                 <p className="text-sm text-foreground [overflow-wrap:anywhere]">{item.name || "—"}</p>
-                {(qty !== 1 || item.description) && (
+                {showMeta && (
                   <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                    {qty !== 1 && `${qty} × ${formatCurrency(Number(item.price))}`}
-                    {qty !== 1 && item.description && " · "}
+                    {(qty !== 1 || unit) &&
+                      `${qty}${unit ? ` ${unit}` : ""} × ${formatCurrency(Number(item.price))}`}
+                    {(qty !== 1 || unit) && item.description && " · "}
                     {item.description}
                   </p>
                 )}
