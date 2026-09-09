@@ -825,7 +825,7 @@ function QuoteSummaryCard({
         <div className="grid grid-cols-3 gap-2">
           <SummaryTile label={`Deposit ${depositPct}%`} value={formatCurrency(deposit)} />
           <SummaryTile label="Est. cost" value={formatCurrency(cost)} />
-          <SummaryTile label="Profit" value={formatCurrency(profit)} highlight />
+          <SummaryTile label="Expected profit" value={formatCurrency(profit)} highlight />
         </div>
       ) : (
         <div className="flex flex-col gap-2">
