@@ -1057,14 +1057,11 @@ function QuoteSectionCard({
           blue-gray the mobile top banner used before it switched to ink. */}
       <div className="flex items-center justify-between gap-5 bg-sidebar px-5 py-4">
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-background/50">
-            Section name
-          </div>
           <input
             value={section.name}
             onChange={(e) => onRename(e.target.value)}
             placeholder="New section"
-            className="mt-0.5 -ml-2.5 w-full rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
+            className="-ml-2.5 w-full rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
           />
         </div>
         <div className="shrink-0 text-right">
