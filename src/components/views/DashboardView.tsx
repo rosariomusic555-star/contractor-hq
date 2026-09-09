@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
@@ -22,6 +22,11 @@ function greeting(): string {
   const h = new Date().getHours();
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
+
+/** Wraps a KpiCard so it's clickable — keeps the card's own look, just adds
+ * a hover lift + focus ring since it's now a real link. */
+const KPI_LINK_CLASS =
+  "block rounded-card transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
 export function DashboardView() {
   const navigate = useNavigate();
@@ -119,23 +124,29 @@ export function DashboardView() {
 
       {/* ---- Desktop KPI row ---- */}
       <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          label="This month"
-          value={formatCurrency(thisMonthRevenue)}
-          sub={momPill ?? "Revenue invoiced"}
-          subTone={momChange == null ? "muted" : momChange >= 0 ? "positive" : "negative"}
-        />
-        <KpiCard
-          label="Open quotes"
-          value={openQuotes.length}
-          sub={`${awaitingResponse} awaiting reply`}
-        />
-        <KpiCard
-          label="Unpaid"
-          value={formatCurrency(outstandingTotal)}
-          sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
-          subTone={over30 > 0 ? "negative" : "muted"}
-        />
+        <Link to="/revenue" className={KPI_LINK_CLASS}>
+          <KpiCard
+            label="This month"
+            value={formatCurrency(thisMonthRevenue)}
+            sub={momPill ?? "Revenue invoiced"}
+            subTone={momChange == null ? "muted" : momChange >= 0 ? "positive" : "negative"}
+          />
+        </Link>
+        <Link to="/quotes?filter=open" className={KPI_LINK_CLASS}>
+          <KpiCard
+            label="Open quotes"
+            value={openQuotes.length}
+            sub={`${awaitingResponse} awaiting reply`}
+          />
+        </Link>
+        <Link to="/invoices?filter=unpaid" className={KPI_LINK_CLASS}>
+          <KpiCard
+            label="Unpaid"
+            value={formatCurrency(outstandingTotal)}
+            sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
+            subTone={over30 > 0 ? "negative" : "muted"}
+          />
+        </Link>
         <KpiCard
           label="Booked out"
           value={`${DEMO_WEEKS_BOOKED} wks`}
@@ -144,48 +155,54 @@ export function DashboardView() {
       </div>
 
       {/* ---- Mobile revenue card ---- */}
-      <section className="card-surface p-5 md:hidden">
-        <p className="text-[13px] font-semibold text-muted-foreground">This month</p>
-        <p className="mt-1 text-[34px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
-          {formatCurrency(thisMonthRevenue)}
-        </p>
-        {momPill && <p className="mt-1.5 text-xs font-bold">{momPill}</p>}
+      <Link to="/revenue" className="block md:hidden">
+        <section className="card-surface p-5 transition-shadow hover:shadow-card-hover">
+          <p className="text-[13px] font-semibold text-muted-foreground">This month</p>
+          <p className="mt-1 text-[34px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
+            {formatCurrency(thisMonthRevenue)}
+          </p>
+          {momPill && <p className="mt-1.5 text-xs font-bold">{momPill}</p>}
 
-        {spark.length > 1 && (
-          <div className="mt-4 flex h-12 items-end gap-1.5">
-            {spark.map((p, i) => (
-              <div
-                key={p.key}
-                className={cn(
-                  "flex-1 rounded",
-                  i === spark.length - 1 ? "bg-primary" : "bg-muted",
-                )}
-                style={{ height: `${Math.max(6, (p.revenue / sparkMax) * 100)}%` }}
-              />
-            ))}
+          {spark.length > 1 && (
+            <div className="mt-4 flex h-12 items-end gap-1.5">
+              {spark.map((p, i) => (
+                <div
+                  key={p.key}
+                  className={cn(
+                    "flex-1 rounded",
+                    i === spark.length - 1 ? "bg-primary" : "bg-muted",
+                  )}
+                  style={{ height: `${Math.max(6, (p.revenue / sparkMax) * 100)}%` }}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center justify-between text-xs font-semibold text-muted-foreground">
+            <span>{goalPct}% of {formatCurrency(DEMO_REVENUE_GOAL)} goal</span>
+            <span className="text-foreground">
+              {formatCurrency(Math.max(0, DEMO_REVENUE_GOAL - thisMonthRevenue))} to go
+            </span>
           </div>
-        )}
-
-        <div className="mt-3 flex items-center justify-between text-xs font-semibold text-muted-foreground">
-          <span>{goalPct}% of {formatCurrency(DEMO_REVENUE_GOAL)} goal</span>
-          <span className="text-foreground">
-            {formatCurrency(Math.max(0, DEMO_REVENUE_GOAL - thisMonthRevenue))} to go
-          </span>
-        </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-primary" style={{ width: `${goalPct}%` }} />
-        </div>
-      </section>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${goalPct}%` }} />
+          </div>
+        </section>
+      </Link>
 
       {/* ---- Mobile tiles ---- */}
       <div className="grid grid-cols-2 gap-3 md:hidden">
-        <KpiCard label="Open quotes" value={openQuotes.length} sub={`${awaitingResponse} awaiting reply`} />
-        <KpiCard
-          label="Unpaid"
-          value={formatCurrency(outstandingTotal)}
-          sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
-          subTone={over30 > 0 ? "negative" : "muted"}
-        />
+        <Link to="/quotes?filter=open" className={KPI_LINK_CLASS}>
+          <KpiCard label="Open quotes" value={openQuotes.length} sub={`${awaitingResponse} awaiting reply`} />
+        </Link>
+        <Link to="/invoices?filter=unpaid" className={KPI_LINK_CLASS}>
+          <KpiCard
+            label="Unpaid"
+            value={formatCurrency(outstandingTotal)}
+            sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
+            subTone={over30 > 0 ? "negative" : "muted"}
+          />
+        </Link>
       </div>
 
       {/* ---- Desktop chart + ongoing jobs ---- */}

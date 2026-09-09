@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,13 +22,22 @@ import { listInvoices, deleteInvoice, type Invoice, type InvoiceStatus } from "@
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/aging";
 
-type Filter = "all" | InvoiceStatus;
+/** "unpaid" is a combined filter — sent + overdue, i.e. billed but not yet
+ * paid. Same definition the Dashboard's own "Unpaid" KPI uses, so arriving
+ * from that card shows the same total. */
+type Filter = "all" | InvoiceStatus | "unpaid";
+const VALID_FILTERS: Filter[] = ["all", "unpaid", "draft", "sent", "overdue", "paid"];
 
 const DAY = 86_400_000;
 
 export function InvoicesView() {
+  const [searchParams] = useSearchParams();
+  const initialFilter = searchParams.get("filter");
+
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>(
+    VALID_FILTERS.includes(initialFilter as Filter) ? (initialFilter as Filter) : "all",
+  );
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -58,8 +67,11 @@ export function InvoicesView() {
 
   const countByStatus = (s: InvoiceStatus) => invoices.filter((i) => i.status === s).length;
 
+  const unpaidCount = countByStatus("sent") + countByStatus("overdue");
+
   const options: FilterOption<Filter>[] = [
     { value: "all", label: "All", count: invoices.length },
+    { value: "unpaid", label: "Unpaid", count: unpaidCount },
     { value: "draft", label: "Draft", count: countByStatus("draft") },
     { value: "sent", label: "Shared", count: countByStatus("sent") },
     { value: "overdue", label: "Overdue", count: countByStatus("overdue") },
@@ -72,7 +84,12 @@ export function InvoicesView() {
   };
 
   const filtered = invoices.filter((inv) => {
-    if (filter !== "all" && inv.status !== filter) return false;
+    if (
+      filter === "unpaid"
+        ? inv.status !== "sent" && inv.status !== "overdue"
+        : filter !== "all" && inv.status !== filter
+    )
+      return false;
     const term = search.toLowerCase();
     return (
       !term ||
