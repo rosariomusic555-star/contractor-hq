@@ -412,14 +412,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       s.items.reduce((a, i) => a + (itemIsAddon(s, i) && !i.client_selected ? lineTotal(i) : 0), 0),
     0,
   );
-  const selectedAddonCount = draft.sections.reduce(
-    (n, s) => n + s.items.filter((i) => itemIsAddon(s, i) && i.client_selected).length,
-    0,
-  );
-
   const materialsCost = materialsCogs(materials);
   const fin = demoQuoteFinancials(quoteTotalLive);
-  const grandTotal = quoteTotalLive + fin.markupAmount + fin.taxAmount;
+  // Material markup was a synthetic demo percentage — it never counted toward
+  // the real quote total (api.ts quoteTotal(), the shared client-facing page,
+  // and the Project detail "Contract" figure all only ever summed real line
+  // items). Folding it in here made the Builder's own total disagree with
+  // every other number in the app; sales tax stays, unrelated to this.
+  const grandTotal = quoteTotalLive + fin.taxAmount;
   const depositAmount = Math.round((grandTotal * draft.depositPct) / 100);
   const estCost = projectId ? materialsCost : fin.estCost;
   const margin = grandTotal - estCost;
@@ -625,10 +625,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 <MoneyRow label="Selected add-ons" value={formatCurrency(selectedAddonsTotal)} />
               )}
               <MoneyRow
-                label={`Material markup ${fin.markupPct}%`}
-                value={formatCurrency(fin.markupAmount)}
-              />
-              <MoneyRow
                 label={`Sales tax ${fin.taxPct}% (materials)`}
                 value={formatCurrency(fin.taxAmount)}
               />
@@ -649,10 +645,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             depositPct={draft.depositPct}
             deposit={depositAmount}
             lineItems={baseTotal}
-            addonsTotal={selectedAddonsTotal}
-            addonCount={selectedAddonCount}
-            markupPct={fin.markupPct}
-            markup={fin.markupAmount}
             taxPct={fin.taxPct}
             tax={fin.taxAmount}
             open={breakdownOpen}
@@ -680,10 +672,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           depositPct={draft.depositPct}
           deposit={depositAmount}
           lineItems={baseTotal}
-          addonsTotal={selectedAddonsTotal}
-          addonCount={selectedAddonCount}
-          markupPct={fin.markupPct}
-          markup={fin.markupAmount}
           taxPct={fin.taxPct}
           tax={fin.taxAmount}
           open={breakdownOpen}
@@ -726,10 +714,6 @@ interface QuoteSummaryCardProps {
   depositPct: number;
   deposit: number;
   lineItems: number;
-  addonsTotal: number;
-  addonCount: number;
-  markupPct: number;
-  markup: number;
   taxPct: number;
   tax: number;
   open: boolean;
@@ -757,10 +741,6 @@ function QuoteSummaryCard({
   depositPct,
   deposit,
   lineItems,
-  addonsTotal,
-  addonCount,
-  markupPct,
-  markup,
   taxPct,
   tax,
   open,
@@ -822,8 +802,6 @@ function QuoteSummaryCard({
       {open && (
         <div className="flex flex-col">
           <MoneyRow label="Line items" value={formatCurrency(lineItems)} />
-          <MoneyRow label={`Add-ons (${addonCount})`} value={formatCurrency(addonsTotal)} />
-          <MoneyRow label={`Material markup ${markupPct}%`} value={formatCurrency(markup)} />
           <MoneyRow label={`Sales tax ${taxPct}%`} value={formatCurrency(tax)} />
         </div>
       )}
