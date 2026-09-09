@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,14 +21,23 @@ import { formatCurrency, pluralize } from "@/lib/utils";
 import { listQuotes, createQuote, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 
-type Filter = "all" | QuoteStatus;
+/** "open" is a combined filter — draft + sent, i.e. not yet approved/declined/
+ * expired. Same definition the Dashboard's own "Open quotes" KPI uses, so
+ * arriving from that card shows the same count. */
+type Filter = "all" | QuoteStatus | "open";
+const VALID_FILTERS: Filter[] = ["all", "open", "draft", "sent", "approved"];
 
 const clientOf = (q: { client?: { name: string } | null; project?: { client?: { name: string } | null } | null }) =>
   q.client?.name ?? q.project?.client?.name ?? "—";
 
 export function QuotesView() {
+  const [searchParams] = useSearchParams();
+  const initialFilter = searchParams.get("filter");
+
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>(
+    VALID_FILTERS.includes(initialFilter as Filter) ? (initialFilter as Filter) : "all",
+  );
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -63,15 +72,19 @@ export function QuotesView() {
   const priced = withTotals.filter((x) => x.total > 0);
   const avgQuote = priced.length ? priced.reduce((a, x) => a + x.total, 0) / priced.length : 0;
 
+  const openCount = countByStatus("draft") + countByStatus("sent");
+
   const options: FilterOption<Filter>[] = [
     { value: "all", label: "All", count: quotes.length },
+    { value: "open", label: "Open", count: openCount },
     { value: "draft", label: "Draft", count: countByStatus("draft") },
     { value: "sent", label: "Shared", count: countByStatus("sent") },
     { value: "approved", label: "Approved", count: countByStatus("approved") },
   ];
 
   const filtered = withTotals.filter(({ q }) => {
-    if (filter !== "all" && q.status !== filter) return false;
+    if (filter === "open" ? q.status !== "draft" && q.status !== "sent" : filter !== "all" && q.status !== filter)
+      return false;
     const term = search.toLowerCase();
     return (
       !term ||
