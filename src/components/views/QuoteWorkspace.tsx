@@ -923,7 +923,7 @@ function ClientShareCard({
   const pillValueClass = "min-w-0 flex-1 truncate text-right text-[15px] font-bold text-background";
 
   return (
-    <div className="overflow-hidden rounded-card shadow-card">
+    <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
       {/* Dark header — Client / Project pickers, styled as pills */}
       <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
         <Select value={clientId ?? NONE} onValueChange={(v) => onClientChange(v === NONE ? null : v)}>
