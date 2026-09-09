@@ -4,6 +4,8 @@ import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { RecentQuotes } from "@/components/dashboard/RecentQuotes";
+import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
@@ -230,6 +232,12 @@ export function DashboardView() {
       <div className="grid gap-5 lg:grid-cols-2">
         <NeedsYou />
         <RecentActivity />
+      </div>
+
+      {/* ---- Recent quotes + recent invoices ---- */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <RecentQuotes />
+        <RecentInvoices />
       </div>
     </div>
   );
