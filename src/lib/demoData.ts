@@ -55,18 +55,6 @@ export const DEMO_WEEKS_BOOKED = 5.5;
 export const DEMO_HOURS_PER_WEEK = 38;
 export const DEMO_AVG_DAYS_TO_PAY = 19;
 
-export const DEMO_TODAY_SCHEDULE: {
-  time: string;
-  title: string;
-  subtitle: string;
-  status: VisualOnlyStatus;
-  crew: string;
-}[] = [
-  { time: "7:00a", title: "Kellerman patio", subtitle: "480 sf paver · 214 Ridgeway Dr", status: "in_progress", crew: "Crew A · 3" },
-  { time: "9:30a", title: "Alvarez retaining wall", subtitle: "Block course 2 · 88 Linden Ave", status: "scheduled", crew: "Crew B · 2" },
-  { time: "2:00p", title: "Whitmore walkway", subtitle: "Site visit + measure · 7 Coldbrook Rd", status: "site_visit", crew: "You" },
-];
-
 export const DEMO_NEEDS_YOU: {
   tone: "red" | "amber" | "green" | "grey";
   title: string;
