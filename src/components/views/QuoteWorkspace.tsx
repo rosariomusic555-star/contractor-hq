@@ -455,6 +455,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   return (
     <div className={cn("animate-fade-in max-w-6xl space-y-5", isDirty && "pb-40 md:pb-28")}>
       <MobilePageHeader
+        className="mobile-header-ink"
         title={quote.project?.name ?? "Standalone quote"}
         subtitle={`${meta.label} · ${clientName}`}
         back={{ to: backHref, label: backLabel }}
