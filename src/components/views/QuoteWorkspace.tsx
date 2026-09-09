@@ -70,6 +70,8 @@ interface DraftItem {
   /** Unit price. Line total = quantity × price. */
   price: number;
   quantity: number;
+  /** Unit of measure label (sf, cy, ea…). Not part of the math. */
+  unit: string;
   is_optional: boolean;
   /** Set by the client on the share page; carried through, never edited here. */
   client_selected: boolean;
@@ -101,6 +103,7 @@ const seed = (quote: Quote): QuoteDraft => ({
       description: i.description ?? "",
       price: Number(i.price),
       quantity: i.quantity == null ? 1 : Number(i.quantity),
+      unit: i.unit ?? "",
       is_optional: i.is_optional,
       client_selected: i.client_selected,
     })),
@@ -202,6 +205,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   description: "",
                   price: 0,
                   quantity: 1,
+                  unit: "ea",
                   is_optional: false,
                   client_selected: false,
                 },
@@ -287,6 +291,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         for (let ii = 0; ii < ds.items.length; ii++) {
           const di = ds.items[ii];
           const desc = di.description.trim() || null;
+          const unit = di.unit.trim() || null;
           const srv = serverItems.get(di.id);
           if (!srv) {
             await addQuoteItem(sectionId, {
@@ -294,6 +299,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               description: desc,
               price: di.price,
               quantity: di.quantity,
+              unit,
               is_optional: di.is_optional,
               sort_order: ii,
             });
@@ -302,6 +308,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             (srv.description ?? null) !== desc ||
             Number(srv.price) !== di.price ||
             (srv.quantity == null ? 1 : Number(srv.quantity)) !== di.quantity ||
+            (srv.unit ?? null) !== unit ||
             srv.is_optional !== di.is_optional ||
             srv.sort_order !== ii
           ) {
@@ -310,6 +317,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               description: desc,
               price: di.price,
               quantity: di.quantity,
+              unit,
               is_optional: di.is_optional,
               sort_order: ii,
             });
@@ -368,6 +376,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     (sum, s) =>
       sum +
       s.items.reduce((a, i) => a + (itemIsAddon(s, i) && !i.client_selected ? lineTotal(i) : 0), 0),
+    0,
+  );
+  const selectedAddonCount = draft.sections.reduce(
+    (n, s) => n + s.items.filter((i) => itemIsAddon(s, i) && i.client_selected).length,
     0,
   );
 
@@ -438,65 +450,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </>
         }
       />
-
-      {/* Mobile: sticky dark quote-total card with an expandable breakdown. */}
-      <div className="sticky top-0 z-10 -mx-4 bg-background px-4 pb-2 md:hidden">
-        <button
-          type="button"
-          onClick={() => setBreakdownOpen((o) => !o)}
-          className="w-full rounded-2xl bg-foreground p-4 text-left text-background shadow-lg"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-wide text-background/60">
-                Quote total
-              </div>
-              <div className="mt-0.5 text-[32px] font-extrabold leading-none tracking-tight tabular-nums">
-                {formatCurrency(grandTotal)}
-              </div>
-            </div>
-            {projectId && (
-              <span className="shrink-0 rounded-full bg-primary px-2.5 py-1 text-xs font-extrabold text-primary-foreground">
-                Margin {marginPct.toFixed(0)}%
-              </span>
-            )}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="rounded-xl bg-white/[0.08] px-3 py-2">
-              <div className="text-[11px] font-semibold text-background/60">
-                Deposit {draft.depositPct}%
-              </div>
-              <div className="mt-0.5 text-base font-extrabold tabular-nums">
-                {formatCurrency(depositAmount)}
-              </div>
-            </div>
-            <div className="rounded-xl bg-white/[0.08] px-3 py-2">
-              <div className="text-[11px] font-semibold text-background/60">Est. cost</div>
-              <div className="mt-0.5 text-base font-extrabold tabular-nums">
-                {formatCurrency(estCost)}
-              </div>
-            </div>
-          </div>
-          {breakdownOpen && (
-            <div className="mt-3 border-t border-white/10 pt-1">
-              {sectionRows.map((r) => (
-                <DarkRow key={r.id} label={r.name} value={formatCurrency(r.subtotal)} />
-              ))}
-              {selectedAddonsTotal > 0 && (
-                <DarkRow label="Selected add-ons" value={formatCurrency(selectedAddonsTotal)} />
-              )}
-              <DarkRow
-                label={`Material markup ${fin.markupPct}%`}
-                value={formatCurrency(fin.markupAmount)}
-              />
-              <DarkRow label={`Sales tax ${fin.taxPct}%`} value={formatCurrency(fin.taxAmount)} />
-            </div>
-          )}
-          <div className="mt-2.5 text-center text-[11px] font-bold text-background/60">
-            {breakdownOpen ? "Hide breakdown ⌃" : "Show breakdown ⌄"}
-          </div>
-        </button>
-      </div>
 
       {/* Desktop header */}
       <div className="hidden md:block">
@@ -585,13 +538,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         {/* Left column — sections + notes */}
         <div className="space-y-4">
-          <div className="flex justify-start">
-            <Button size="sm" onClick={addSection} className="font-bold">
-              <Plus className="mr-2 h-4 w-4" />
-              Add section
-            </Button>
-          </div>
-
           {draft.sections.length === 0 && (
             <div className="stat-card py-12 text-center text-muted-foreground">
               No sections yet. Add a section to build the quote.
@@ -611,6 +557,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               onDeleteItem={(iid) => removeItem(section.id, iid)}
             />
           ))}
+
+          <button
+            type="button"
+            onClick={addSection}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+          >
+            <Plus className="h-4 w-4" />
+            Add section
+          </button>
 
           <div className="stat-card space-y-5">
             <div className="space-y-2">
@@ -657,9 +612,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </div>
         </div>
 
-        {/* Desktop right rail — totals, margin, terms */}
+        {/* Desktop right rail — totals + quote total + margin, then terms */}
         <div className="hidden lg:sticky lg:top-4 lg:flex lg:flex-col lg:gap-4">
-          <div className="card-surface p-4">
+          <div className="card-surface p-[18px]">
             <div className="text-base font-bold text-foreground">Totals</div>
             <div className="mt-2.5">
               {sectionRows.map((r) => (
@@ -682,55 +637,113 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 + {formatCurrency(optionalAvailableTotal)} in optional add-ons the client can pick
               </p>
             )}
-          </div>
 
-          <div className="rounded-card bg-foreground p-4 text-background">
-            <div className="text-xs font-semibold text-background/70">Quote total</div>
-            <div className="mt-1 text-[30px] font-extrabold leading-none tracking-tight tabular-nums">
-              {formatCurrency(grandTotal)}
-            </div>
-            <div className="mt-1.5 text-xs text-background/75">
-              Deposit {draft.depositPct}% · {formatCurrency(depositAmount)} at signing
-            </div>
-          </div>
-
-          {projectId ? (
-            <div className="rounded-card bg-primary/10 p-3">
-              <div className="flex justify-between text-xs font-semibold text-success">
-                <span>Est. cost</span>
-                <span>{formatCurrency(estCost)}</span>
+            <div className="mt-3.5 rounded-xl bg-foreground p-3.5 text-background">
+              <div className="text-xs font-semibold text-background/70">Quote total</div>
+              <div className="mt-1 text-[30px] font-extrabold leading-none tracking-tight tabular-nums">
+                {formatCurrency(grandTotal)}
               </div>
-              <div className="mt-1 flex justify-between text-xs font-semibold text-success">
-                <span>Margin</span>
-                <span className={cn("text-[15px] font-extrabold", marginColor)}>
-                  {marginPct.toFixed(0)}%
-                </span>
+              <div className="mt-1.5 text-xs text-background/75">
+                Deposit {draft.depositPct}% · {formatCurrency(depositAmount)} due at signing
               </div>
             </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Link a project to track cost &amp; margin.</p>
-          )}
+
+            {projectId ? (
+              <div className="mt-3 rounded-xl bg-primary/10 p-3">
+                <div className="flex justify-between text-xs font-semibold text-success">
+                  <span>Est. cost</span>
+                  <span className="tabular-nums">{formatCurrency(estCost)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-xs font-semibold text-success">
+                  <span>Margin</span>
+                  <span className={cn("text-[15px] font-extrabold", marginColor)}>
+                    {marginPct.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Link a project to track cost &amp; margin.
+              </p>
+            )}
+          </div>
 
           <QuoteTermsCard terms={terms} />
         </div>
       </div>
 
-      {/* Below-lg: totals + terms (the right rail is lg-only) */}
-      <div className="space-y-4 lg:hidden">
-        <div className="card-surface p-4">
-          <div className="text-base font-bold text-foreground">Totals</div>
-          <div className="mt-2.5">
-            <MoneyRow label="Line items" value={formatCurrency(baseTotal)} />
-            {selectedAddonsTotal > 0 && (
-              <MoneyRow label="Selected add-ons" value={formatCurrency(selectedAddonsTotal)} />
+      {/* Mobile: one quote-total summary card at the bottom of the page. */}
+      <div className="lg:hidden">
+        <div className="card-surface flex flex-col gap-4 rounded-3xl p-[18px] shadow-card-hover">
+          <div className="flex items-start justify-between gap-3.5">
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+                Quote total
+              </div>
+              <div className="mt-1 text-[34px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
+                {formatCurrency(grandTotal)}
+              </div>
+            </div>
+            {projectId && (
+              <span
+                className={cn(
+                  "shrink-0 rounded-full border px-3 py-1 text-xs font-extrabold",
+                  marginPct > 20
+                    ? "border-primary/40 bg-primary/10 text-success"
+                    : marginPct >= 10
+                      ? "border-warning/40 bg-warning/10 text-warning"
+                      : "border-destructive/40 bg-destructive/10 text-destructive",
+                )}
+              >
+                Margin {marginPct.toFixed(0)}%
+              </span>
             )}
-            <MoneyRow label={`Markup ${fin.markupPct}%`} value={formatCurrency(fin.markupAmount)} />
-            <MoneyRow label={`Tax ${fin.taxPct}%`} value={formatCurrency(fin.taxAmount)} />
-            <MoneyRow label="Total" value={formatCurrency(grandTotal)} strong />
           </div>
-          <div className="mt-3">{primaryAction(true)}</div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="rounded-xl bg-muted px-3 py-2.5">
+              <div className="text-[11px] font-semibold text-muted-foreground">
+                Deposit {draft.depositPct}%
+              </div>
+              <div className="mt-1 text-[17px] font-extrabold tabular-nums text-foreground">
+                {formatCurrency(depositAmount)}
+              </div>
+            </div>
+            <div className="rounded-xl bg-muted px-3 py-2.5">
+              <div className="text-[11px] font-semibold text-muted-foreground">Est. cost</div>
+              <div className="mt-1 text-[17px] font-extrabold tabular-nums text-foreground">
+                {formatCurrency(estCost)}
+              </div>
+            </div>
+          </div>
+
+          {breakdownOpen && (
+            <div className="flex flex-col">
+              <MoneyRow label="Line items" value={formatCurrency(baseTotal)} />
+              {selectedAddonsTotal > 0 && (
+                <MoneyRow
+                  label={`Add-ons (${selectedAddonCount})`}
+                  value={formatCurrency(selectedAddonsTotal)}
+                />
+              )}
+              <MoneyRow
+                label={`Material markup ${fin.markupPct}%`}
+                value={formatCurrency(fin.markupAmount)}
+              />
+              <MoneyRow label={`Sales tax ${fin.taxPct}%`} value={formatCurrency(fin.taxAmount)} />
+            </div>
+          )}
+
+          {primaryAction(true)}
+
+          <button
+            type="button"
+            onClick={() => setBreakdownOpen((o) => !o)}
+            className="-mx-[18px] -mb-[18px] flex items-center justify-center gap-1.5 border-t border-hairline px-[18px] pb-4 pt-3 text-xs font-bold text-muted-foreground"
+          >
+            {breakdownOpen ? "Hide breakdown ⌃" : "Show breakdown ⌄"}
+          </button>
         </div>
-        <QuoteTermsCard terms={terms} />
       </div>
 
       <DraftSaveBar
@@ -751,15 +764,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 }
 
 // ---------------------------------------------------------------------------
-
-function DarkRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between py-[7px]">
-      <span className="text-[13px] text-background/70">{label}</span>
-      <span className="text-[13px] font-bold tabular-nums text-background">{value}</span>
-    </div>
-  );
-}
 
 function QuoteTermsCard({ terms }: { terms: DemoQuoteTerms }) {
   const row = (label: string, value: string) => (
@@ -806,92 +810,88 @@ function QuoteSectionCard({
   const items = section.items;
 
   return (
-    <div className="card-surface overflow-hidden p-0">
-      <div className="flex items-start justify-between gap-3 border-b border-hairline p-4">
+    <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
+      {/* Dark section header — editable name + running subtotal */}
+      <div className="flex items-center justify-between gap-5 bg-foreground px-5 py-4">
         <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-background/50">
+            Section name
+          </div>
           <input
             value={section.name}
             onChange={(e) => onRename(e.target.value)}
             placeholder="New section"
-            className="-mx-1 w-full max-w-xs rounded-md border border-transparent bg-transparent px-1 text-base font-bold text-foreground outline-none placeholder:font-medium placeholder:text-muted-foreground hover:border-input focus:border-input focus:bg-background focus:ring-2 focus:ring-ring"
+            className="mt-0.5 -ml-2.5 w-full rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
           />
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-            <span>
-              {pluralize(items.length, "item")} · {formatCurrency(subtotal)}
-            </span>
-            {section.is_optional && <span className="badge-status badge-draft">Optional</span>}
-          </div>
         </div>
-
-        <div className="flex shrink-0 items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            Optional
-            <Switch
-              checked={section.is_optional}
-              onCheckedChange={onToggleOptional}
-              aria-label="Optional section"
-            />
-          </label>
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button className="text-muted-foreground hover:text-destructive" aria-label="Delete section">
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {items.length > 0
-                    ? `Removes ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Nothing is saved until you press Save changes.`
-                    : "This section is empty."}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  onClick={onDeleteSection}
-                >
-                  Remove
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        <div className="shrink-0 text-right">
+          <div className="text-[11px] text-background/55">{pluralize(items.length, "item")}</div>
+          <div className="mt-0.5 text-[19px] font-extrabold tracking-tight tabular-nums text-background">
+            {formatCurrency(subtotal)}
+          </div>
         </div>
       </div>
 
-      {items.length > 0 && (
-        <>
-          <div className="hidden grid-cols-[minmax(8rem,1fr)_4.5rem_7rem_5.5rem_3.5rem_1.5rem] gap-3 bg-muted/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted-subtle lg:grid">
-            <span>Item</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Unit price</span>
-            <span className="text-right">Total</span>
-            <span className="text-center">Opt</span>
-            <span />
-          </div>
-          {items.map((item) => (
-            <QuoteItemRow
-              key={item.id}
-              item={item}
-              onEdit={(patch) => onEditItem(item.id, patch)}
-              onDelete={() => onDeleteItem(item.id)}
-            />
-          ))}
-        </>
-      )}
+      {/* Optional toggle + delete */}
+      <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
+        <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <Switch
+            checked={section.is_optional}
+            onCheckedChange={onToggleOptional}
+            aria-label="Optional section"
+          />
+          Optional section — client can add or drop it
+        </label>
 
-      <div className="flex items-center justify-between border-t border-hairline p-3">
-        <Button variant="outline" size="sm" onClick={onAddItem}>
-          <Plus className="mr-1 h-4 w-4" />
-          Add item
-        </Button>
-        <div className="text-sm">
-          <span className="mr-2 text-muted-foreground">Subtotal</span>
-          <span className="font-semibold tabular-nums">{formatCurrency(subtotal)}</span>
-        </div>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button
+              className="shrink-0 text-muted-foreground hover:text-destructive"
+              aria-label="Delete section"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {items.length > 0
+                  ? `Removes ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Nothing is saved until you press Save changes.`
+                  : "This section is empty."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={onDeleteSection}
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+
+      {/* Items */}
+      <div className="flex flex-col gap-3 p-[18px]">
+        {items.map((item) => (
+          <QuoteItemRow
+            key={item.id}
+            item={item}
+            onEdit={(patch) => onEditItem(item.id, patch)}
+            onDelete={() => onDeleteItem(item.id)}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={onAddItem}
+          className="flex h-[52px] items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+        >
+          <Plus className="h-4 w-4" />
+          Add item to this section
+        </button>
       </div>
     </div>
   );
@@ -902,6 +902,8 @@ interface QuoteItemRowProps {
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
+
+const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
 function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
@@ -914,43 +916,68 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
   const total = item.quantity * item.price;
 
   return (
-    <div className="border-b border-hairline p-3 last:border-b-0 lg:grid lg:grid-cols-[minmax(8rem,1fr)_4.5rem_7rem_5.5rem_3.5rem_1.5rem] lg:items-start lg:gap-3 lg:px-4">
-      {/* Name + description. Textareas so long text wraps instead of scrolling
-          off; they auto-grow so the bigger type stays fully visible. */}
-      <div className="min-w-0">
-        <AutoGrowTextarea
-          value={item.name}
-          onChange={(e) => onEdit({ name: e.target.value })}
-          placeholder="Item name"
-          className="-mx-1 border-transparent px-1 text-base font-semibold hover:border-input focus-visible:border-input"
-        />
+    <div className="flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover">
+      {/* Item name + delete. Textarea so long names wrap and it auto-grows. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] items-end gap-3">
+        <div className="min-w-0">
+          <div className={ITEM_FIELD_LABEL}>Item</div>
+          <AutoGrowTextarea
+            value={item.name}
+            onChange={(e) => onEdit({ name: e.target.value })}
+            placeholder="Item name"
+            className="mt-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="mb-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Remove item"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Description */}
+      <div>
+        <div className={ITEM_FIELD_LABEL}>Description</div>
         <AutoGrowTextarea
           value={item.description}
           onChange={(e) => onEdit({ description: e.target.value })}
           placeholder="Short description"
-          className="-mx-1 mt-0.5 border-transparent px-1 text-sm text-muted-foreground hover:border-input focus-visible:border-input"
+          className="mt-1 min-h-[44px] rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground hover:border-input focus-visible:border-primary"
         />
       </div>
 
-      {/* Qty × Unit price — full, editable, always visible on mobile too. */}
-      <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
-        <Input
-          type="number"
-          step="any"
-          inputMode="decimal"
-          value={qtyStr}
-          onChange={(e) => {
-            setQtyStr(e.target.value);
-            onEdit({ quantity: parseFloat(e.target.value) || 0 });
-          }}
-          className="h-10 w-[4.5rem] shrink-0 text-right lg:h-9 lg:w-full"
-          aria-label="Quantity"
-        />
-        <span className="shrink-0 text-muted-subtle lg:hidden">×</span>
-        <div className="relative min-w-0 flex-1 lg:flex-none">
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
-            $
-          </span>
+      {/* Qty · Unit · Rate · Line total — two-up on mobile, four-up from sm. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <label className="block">
+          <div className={ITEM_FIELD_LABEL}>Qty</div>
+          <Input
+            type="number"
+            step="any"
+            inputMode="decimal"
+            value={qtyStr}
+            onChange={(e) => {
+              setQtyStr(e.target.value);
+              onEdit({ quantity: parseFloat(e.target.value) || 0 });
+            }}
+            className="mt-1 h-[42px] tabular-nums"
+            aria-label="Quantity"
+          />
+        </label>
+        <label className="block">
+          <div className={ITEM_FIELD_LABEL}>Unit</div>
+          <Input
+            value={item.unit}
+            onChange={(e) => onEdit({ unit: e.target.value })}
+            placeholder="ea"
+            className="mt-1 h-[42px]"
+            aria-label="Unit"
+          />
+        </label>
+        <label className="block">
+          <div className={ITEM_FIELD_LABEL}>Rate ($)</div>
           <Input
             type="number"
             step="0.01"
@@ -960,37 +987,26 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
               setPriceStr(e.target.value);
               onEdit({ price: parseFloat(e.target.value) || 0 });
             }}
-            className="h-10 pl-5 text-right lg:h-9"
+            className="mt-1 h-[42px] tabular-nums"
             aria-label="Unit price"
           />
+        </label>
+        <div>
+          <div className={ITEM_FIELD_LABEL}>Line total</div>
+          <div className="mt-1 flex h-[42px] items-center justify-end rounded-md bg-primary/10 px-3 text-base font-extrabold tabular-nums text-success">
+            {formatCurrency(total)}
+          </div>
         </div>
       </div>
 
-      {/* Line total + optional + delete. Its own row on mobile so Qty / Unit
-          price above get real width. */}
-      <div className="mt-2 flex items-center justify-between gap-3 lg:mt-0 lg:contents">
-        <span className="text-sm font-bold tabular-nums text-foreground lg:pt-1.5 lg:text-right">
-          <span className="font-normal text-muted-subtle lg:hidden">= </span>
-          {formatCurrency(total)}
-        </span>
-        <div className="flex items-center gap-3 lg:contents">
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground lg:justify-self-center lg:pt-1.5">
-            <Checkbox
-              checked={item.is_optional}
-              onCheckedChange={(c) => onEdit({ is_optional: c === true })}
-            />
-            <span className="lg:hidden">Optional</span>
-          </label>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="shrink-0 text-muted-foreground hover:text-destructive lg:pt-1.5"
-            aria-label="Remove item"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+      {/* Optional add-on */}
+      <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Checkbox
+          checked={item.is_optional}
+          onCheckedChange={(c) => onEdit({ is_optional: c === true })}
+        />
+        Optional add-on — client chooses whether to include this line
+      </label>
     </div>
   );
 }

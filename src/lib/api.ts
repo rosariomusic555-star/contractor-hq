@@ -50,6 +50,8 @@ export interface QuoteItem {
   /** Unit price. Line total = quantity × price. */
   price: number;
   quantity: number;
+  /** Free-text unit of measure (sf, cy, lf, ea…). Label only — not in the math. */
+  unit: string | null;
   is_optional: boolean;
   client_selected: boolean;
   sort_order: number;
@@ -494,6 +496,7 @@ export async function addQuoteItem(
     description?: string | null;
     price: number;
     quantity?: number;
+    unit?: string | null;
     is_optional?: boolean;
     sort_order?: number;
   },
@@ -506,6 +509,7 @@ export async function addQuoteItem(
       description: input.description ?? null,
       price: input.price,
       quantity: input.quantity ?? 1,
+      unit: input.unit ?? null,
       is_optional: input.is_optional ?? false,
       sort_order: input.sort_order ?? 0,
     })
@@ -520,7 +524,14 @@ export async function updateQuoteItem(
   patch: Partial<
     Pick<
       QuoteItem,
-      "name" | "description" | "price" | "quantity" | "is_optional" | "client_selected" | "sort_order"
+      | "name"
+      | "description"
+      | "price"
+      | "quantity"
+      | "unit"
+      | "is_optional"
+      | "client_selected"
+      | "sort_order"
     >
   >,
 ): Promise<void> {
@@ -747,6 +758,7 @@ export interface SharedQuoteItem {
   description: string | null;
   price: number;
   quantity: number;
+  unit: string | null;
   is_optional: boolean;
   client_selected: boolean;
   sort_order: number;
