@@ -360,6 +360,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     onError,
   });
 
+  // Preview never changes the quote's status — it just makes sure a share
+  // token exists (even for a draft) and opens the client-facing page.
+  const previewMut = useMutation({
+    mutationFn: async () => quote.share_token ?? generateShareLink("quotes", quote.id),
+    onSuccess: (token) => {
+      invalidate();
+      window.open(`${window.location.origin}/quote/${token}`, "_blank", "noopener,noreferrer");
+    },
+    onError,
+  });
+
   // --- derived amounts (from the draft) ---------------------------------
   const sectionSubtotal = (s: DraftSection) =>
     s.items.reduce((sum, i) => (itemIncluded(s, i) ? sum + lineTotal(i) : sum), 0);
@@ -390,14 +401,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const estCost = projectId ? materialsCost : fin.estCost;
   const margin = grandTotal - estCost;
   const marginPct = grandTotal > 0 ? (margin / grandTotal) * 100 : 0;
-  const marginColor =
-    grandTotal === 0
-      ? "text-muted-foreground"
-      : marginPct > 20
-        ? "text-success"
-        : marginPct >= 10
-          ? "text-warning"
-          : "text-destructive";
 
   const itemCount = draft.sections.reduce((n, s) => n + s.items.length, 0);
   const sectionRows = draft.sections
@@ -434,6 +437,20 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         Share link
       </Button>
     );
+
+  // Same Send/Share choice as primaryAction, as plain label/onClick/disabled
+  // for the QuoteSummaryCard's own button styling.
+  const sendLabel =
+    quote.status === "draft"
+      ? shareQuoteMut.isPending
+        ? "Preparing…"
+        : "Send for signature"
+      : "Share link";
+  const sendDisabled =
+    quote.status === "draft" ? shareQuoteMut.isPending || isDirty : !persistedLink;
+  const onSendClick = () =>
+    quote.status === "draft" ? shareQuoteMut.mutate() : persistedLink && setShareUrl(persistedLink);
+  const previewLabel = previewMut.isPending ? "Opening…" : "Preview";
 
   return (
     <div className={cn("animate-fade-in max-w-6xl space-y-5", isDirty && "pb-40 md:pb-28")}>
@@ -637,36 +654,32 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 + {formatCurrency(optionalAvailableTotal)} in optional add-ons the client can pick
               </p>
             )}
-
-            <div className="mt-3.5 rounded-xl bg-foreground p-3.5 text-background">
-              <div className="text-xs font-semibold text-background/70">Quote total</div>
-              <div className="mt-1 text-[30px] font-extrabold leading-none tracking-tight tabular-nums">
-                {formatCurrency(grandTotal)}
-              </div>
-              <div className="mt-1.5 text-xs text-background/75">
-                Deposit {draft.depositPct}% · {formatCurrency(depositAmount)} due at signing
-              </div>
-            </div>
-
-            {projectId ? (
-              <div className="mt-3 rounded-xl bg-primary/10 p-3">
-                <div className="flex justify-between text-xs font-semibold text-success">
-                  <span>Est. cost</span>
-                  <span className="tabular-nums">{formatCurrency(estCost)}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between text-xs font-semibold text-success">
-                  <span>Margin</span>
-                  <span className={cn("text-[15px] font-extrabold", marginColor)}>
-                    {marginPct.toFixed(0)}%
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-muted-foreground">
-                Link a project to track cost &amp; margin.
-              </p>
-            )}
           </div>
+
+          <QuoteSummaryCard
+            variant="desktop"
+            total={grandTotal}
+            cost={estCost}
+            profit={margin}
+            marginPct={marginPct}
+            depositPct={draft.depositPct}
+            deposit={depositAmount}
+            lineItems={baseTotal}
+            addonsTotal={selectedAddonsTotal}
+            addonCount={selectedAddonCount}
+            markupPct={fin.markupPct}
+            markup={fin.markupAmount}
+            taxPct={fin.taxPct}
+            tax={fin.taxAmount}
+            open={breakdownOpen}
+            onToggle={() => setBreakdownOpen((o) => !o)}
+            sendLabel={sendLabel}
+            sendDisabled={sendDisabled}
+            onSend={onSendClick}
+            previewLabel={previewLabel}
+            previewDisabled={isDirty || previewMut.isPending}
+            onPreview={() => previewMut.mutate()}
+          />
 
           <QuoteTermsCard terms={terms} />
         </div>
@@ -674,76 +687,30 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
       {/* Mobile: one quote-total summary card at the bottom of the page. */}
       <div className="lg:hidden">
-        <div className="card-surface flex flex-col gap-4 rounded-3xl p-[18px] shadow-card-hover">
-          <div className="flex items-start justify-between gap-3.5">
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
-                Quote total
-              </div>
-              <div className="mt-1 text-[34px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
-                {formatCurrency(grandTotal)}
-              </div>
-            </div>
-            {projectId && (
-              <span
-                className={cn(
-                  "shrink-0 rounded-full border px-3 py-1 text-xs font-extrabold",
-                  marginPct > 20
-                    ? "border-primary/40 bg-primary/10 text-success"
-                    : marginPct >= 10
-                      ? "border-warning/40 bg-warning/10 text-warning"
-                      : "border-destructive/40 bg-destructive/10 text-destructive",
-                )}
-              >
-                Margin {marginPct.toFixed(0)}%
-              </span>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="rounded-xl bg-muted px-3 py-2.5">
-              <div className="text-[11px] font-semibold text-muted-foreground">
-                Deposit {draft.depositPct}%
-              </div>
-              <div className="mt-1 text-[17px] font-extrabold tabular-nums text-foreground">
-                {formatCurrency(depositAmount)}
-              </div>
-            </div>
-            <div className="rounded-xl bg-muted px-3 py-2.5">
-              <div className="text-[11px] font-semibold text-muted-foreground">Est. cost</div>
-              <div className="mt-1 text-[17px] font-extrabold tabular-nums text-foreground">
-                {formatCurrency(estCost)}
-              </div>
-            </div>
-          </div>
-
-          {breakdownOpen && (
-            <div className="flex flex-col">
-              <MoneyRow label="Line items" value={formatCurrency(baseTotal)} />
-              {selectedAddonsTotal > 0 && (
-                <MoneyRow
-                  label={`Add-ons (${selectedAddonCount})`}
-                  value={formatCurrency(selectedAddonsTotal)}
-                />
-              )}
-              <MoneyRow
-                label={`Material markup ${fin.markupPct}%`}
-                value={formatCurrency(fin.markupAmount)}
-              />
-              <MoneyRow label={`Sales tax ${fin.taxPct}%`} value={formatCurrency(fin.taxAmount)} />
-            </div>
-          )}
-
-          {primaryAction(true)}
-
-          <button
-            type="button"
-            onClick={() => setBreakdownOpen((o) => !o)}
-            className="-mx-[18px] -mb-[18px] flex items-center justify-center gap-1.5 border-t border-hairline px-[18px] pb-4 pt-3 text-xs font-bold text-muted-foreground"
-          >
-            {breakdownOpen ? "Hide breakdown ⌃" : "Show breakdown ⌄"}
-          </button>
-        </div>
+        <QuoteSummaryCard
+          variant="mobile"
+          total={grandTotal}
+          cost={estCost}
+          profit={margin}
+          marginPct={marginPct}
+          depositPct={draft.depositPct}
+          deposit={depositAmount}
+          lineItems={baseTotal}
+          addonsTotal={selectedAddonsTotal}
+          addonCount={selectedAddonCount}
+          markupPct={fin.markupPct}
+          markup={fin.markupAmount}
+          taxPct={fin.taxPct}
+          tax={fin.taxAmount}
+          open={breakdownOpen}
+          onToggle={() => setBreakdownOpen((o) => !o)}
+          sendLabel={sendLabel}
+          sendDisabled={sendDisabled}
+          onSend={onSendClick}
+          previewLabel={previewLabel}
+          previewDisabled={isDirty || previewMut.isPending}
+          onPreview={() => previewMut.mutate()}
+        />
       </div>
 
       <DraftSaveBar
@@ -764,6 +731,193 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 }
 
 // ---------------------------------------------------------------------------
+
+interface QuoteSummaryCardProps {
+  /** "mobile" = full-width bottom card; "desktop" = 340px sidebar card. */
+  variant: "mobile" | "desktop";
+  total: number;
+  cost: number;
+  profit: number;
+  marginPct: number;
+  depositPct: number;
+  deposit: number;
+  lineItems: number;
+  addonsTotal: number;
+  addonCount: number;
+  markupPct: number;
+  markup: number;
+  taxPct: number;
+  tax: number;
+  open: boolean;
+  onToggle: () => void;
+  sendLabel: string;
+  sendDisabled?: boolean;
+  onSend: () => void;
+  previewLabel: string;
+  previewDisabled?: boolean;
+  onPreview: () => void;
+}
+
+/**
+ * Quote total + margin + deposit/cost/profit + expandable breakdown, with
+ * its own Send/Preview actions. Used both as the sticky-free bottom card on
+ * mobile and as a card in the desktop right rail — same content, tuned
+ * sizing per breakpoint (see the "Quote Summary Card" design mockup).
+ */
+function QuoteSummaryCard({
+  variant,
+  total,
+  cost,
+  profit,
+  marginPct,
+  depositPct,
+  deposit,
+  lineItems,
+  addonsTotal,
+  addonCount,
+  markupPct,
+  markup,
+  taxPct,
+  tax,
+  open,
+  onToggle,
+  sendLabel,
+  sendDisabled,
+  onSend,
+  previewLabel,
+  previewDisabled,
+  onPreview,
+}: QuoteSummaryCardProps) {
+  const isMobile = variant === "mobile";
+
+  return (
+    <div
+      className={cn(
+        "card-surface flex flex-col",
+        isMobile ? "gap-4 rounded-3xl p-[18px] shadow-card-hover" : "gap-[18px] p-5",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3.5">
+        <div className="min-w-0">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+            Quote total
+          </div>
+          <div
+            className={cn(
+              "mt-1 font-extrabold leading-none tracking-tight tabular-nums text-foreground",
+              isMobile ? "text-[34px]" : "text-[30px]",
+            )}
+          >
+            {formatCurrency(total)}
+          </div>
+        </div>
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 font-extrabold text-success",
+            isMobile ? "h-[30px] px-3.5 text-xs" : "h-7 px-3 text-xs",
+          )}
+        >
+          Margin {marginPct.toFixed(0)}%
+        </span>
+      </div>
+
+      {isMobile ? (
+        <div className="grid grid-cols-3 gap-2">
+          <SummaryTile label={`Deposit ${depositPct}%`} value={formatCurrency(deposit)} />
+          <SummaryTile label="Est. cost" value={formatCurrency(cost)} />
+          <SummaryTile label="Profit" value={formatCurrency(profit)} highlight />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <SummaryRow label={`Deposit ${depositPct}%`} value={formatCurrency(deposit)} />
+          <SummaryRow label="Est. cost" value={formatCurrency(cost)} />
+          <SummaryRow label="Profit" value={formatCurrency(profit)} highlight />
+        </div>
+      )}
+
+      {open && (
+        <div className="flex flex-col">
+          <MoneyRow label="Line items" value={formatCurrency(lineItems)} />
+          <MoneyRow label={`Add-ons (${addonCount})`} value={formatCurrency(addonsTotal)} />
+          <MoneyRow label={`Material markup ${markupPct}%`} value={formatCurrency(markup)} />
+          <MoneyRow label={`Sales tax ${taxPct}%`} value={formatCurrency(tax)} />
+        </div>
+      )}
+
+      <div className="flex gap-2.5">
+        <Button
+          onClick={onSend}
+          disabled={sendDisabled}
+          className={cn("flex-1 font-bold", isMobile ? "h-[46px] rounded-[13px]" : "h-11 rounded-xl")}
+        >
+          {sendLabel}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onPreview}
+          disabled={previewDisabled}
+          className={cn("flex-1", isMobile ? "h-[46px] rounded-[13px]" : "h-11 rounded-xl")}
+        >
+          {previewLabel}
+        </Button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "flex items-center justify-center gap-1.5 border-t border-hairline text-xs font-bold text-muted-foreground transition-colors hover:bg-muted/40",
+          isMobile ? "-mx-[18px] -mb-[18px] rounded-b-3xl px-[18px] pb-4 pt-3" : "-mx-5 -mb-5 rounded-b-card px-5 pb-4 pt-3",
+        )}
+      >
+        {open ? "Hide breakdown ⌃" : "Show breakdown ⌄"}
+      </button>
+    </div>
+  );
+}
+
+function SummaryTile({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl px-3 py-2.5",
+        highlight ? "border border-primary/40 bg-primary/10" : "bg-muted",
+      )}
+    >
+      <div className={cn("text-[11px] font-semibold", highlight ? "text-success" : "text-muted-foreground")}>
+        {label}
+      </div>
+      <div
+        className={cn(
+          "mt-1 text-[15px] font-extrabold tabular-nums",
+          highlight ? "text-success" : "text-foreground",
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-xl px-3.5 py-3",
+        highlight ? "border border-primary/40 bg-primary/10" : "bg-muted",
+      )}
+    >
+      <span className={cn("text-xs font-semibold", highlight ? "text-success" : "text-muted-foreground")}>
+        {label}
+      </span>
+      <span
+        className={cn("text-base font-extrabold tabular-nums", highlight ? "text-success" : "text-foreground")}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
 
 function QuoteTermsCard({ terms }: { terms: DemoQuoteTerms }) {
   const row = (label: string, value: string) => (
