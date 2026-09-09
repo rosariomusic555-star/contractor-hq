@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2, Share2 } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, Share2, Briefcase, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -371,6 +371,29 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     onError,
   });
 
+  // Client Share Card's Share/Copy buttons: same "mint a token without
+  // touching status" as Preview, just a different thing to do with it once
+  // it exists.
+  const ensureLinkMut = useMutation({
+    mutationFn: async (intent: "share" | "copy") => ({
+      token: quote.share_token ?? (await generateShareLink("quotes", quote.id)),
+      intent,
+    }),
+    onSuccess: ({ token, intent }) => {
+      invalidate();
+      const url = `${window.location.origin}/quote/${token}`;
+      if (intent === "share") {
+        setShareUrl(url);
+      } else {
+        navigator.clipboard.writeText(url).then(
+          () => toast({ title: "Link copied" }),
+          () => toast({ title: "Couldn't copy link", variant: "destructive" }),
+        );
+      }
+    },
+    onError,
+  });
+
   // --- derived amounts (from the draft) ---------------------------------
   const sectionSubtotal = (s: DraftSection) =>
     s.items.reduce((sum, i) => (itemIncluded(s, i) ? sum + lineTotal(i) : sum), 0);
@@ -499,59 +522,19 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         </div>
       </div>
 
-      <div className="stat-card grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Client</Label>
-          <Select
-            value={quote.client_id ?? NONE}
-            onValueChange={(v) => updateClientMut.mutate(v === NONE ? null : v)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="No client" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>No client</SelectItem>
-              {clients.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label>Link to project</Label>
-          <Select
-            value={quote.project_id ?? NONE}
-            onValueChange={(v) => updateProjectLinkMut.mutate(v === NONE ? null : v)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="No project" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>No project</SelectItem>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {persistedLink && (
-        <div className="stat-card flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm text-muted-foreground">Client link</p>
-            <p className="truncate font-mono text-sm">{persistedLink}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setShareUrl(persistedLink)}>
-            <Share2 className="mr-2 h-4 w-4" />
-            Share
-          </Button>
-        </div>
-      )}
+      <ClientShareCard
+        clientId={quote.client_id}
+        clients={clients}
+        onClientChange={(v) => updateClientMut.mutate(v)}
+        projectId={quote.project_id}
+        projects={projects}
+        onProjectChange={(v) => updateProjectLinkMut.mutate(v)}
+        hasToken={!!quote.share_token}
+        shareUrl={quote.share_token ? `${window.location.origin}/quote/${quote.share_token}` : null}
+        onShare={() => ensureLinkMut.mutate("share")}
+        onCopy={() => ensureLinkMut.mutate("copy")}
+        actionsDisabled={isDirty || ensureLinkMut.isPending}
+      />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         {/* Left column — sections + notes */}
@@ -916,6 +899,132 @@ function SummaryRow({ label, value, highlight }: { label: string; value: string;
       >
         {value}
       </span>
+    </div>
+  );
+}
+
+interface ClientShareCardProps {
+  clientId: string | null;
+  clients: { id: string; name: string }[];
+  onClientChange: (id: string | null) => void;
+  projectId: string | null;
+  projects: { id: string; name: string }[];
+  onProjectChange: (id: string | null) => void;
+  /** Whether a share token already exists — drives the status dot/label. */
+  hasToken: boolean;
+  shareUrl: string | null;
+  onShare: () => void;
+  onCopy: () => void;
+  actionsDisabled?: boolean;
+}
+
+/**
+ * Client + Project pickers and the client-facing share link, unified into
+ * one card (the "Client Share Card" design). Replaces the old separate
+ * Client/Project select grid and the "Client link" card.
+ */
+function ClientShareCard({
+  clientId,
+  clients,
+  onClientChange,
+  projectId,
+  projects,
+  onProjectChange,
+  hasToken,
+  shareUrl,
+  onShare,
+  onCopy,
+  actionsDisabled,
+}: ClientShareCardProps) {
+  const clientName = clients.find((c) => c.id === clientId)?.name;
+  const clientInitial = clientName ? clientName.trim().charAt(0).toUpperCase() || "?" : "?";
+
+  const pillTriggerClass =
+    "h-auto items-center gap-2.5 rounded-xl border-none bg-white/[0.08] px-3.5 py-3 text-left transition-colors hover:bg-white/[0.14] focus:ring-2 focus:ring-primary focus:ring-offset-0 [&>span]:line-clamp-1";
+  const pillLabelClass = "shrink-0 text-[11px] font-bold uppercase tracking-wide text-background/55";
+  const pillValueClass = "min-w-0 flex-1 truncate text-right text-[15px] font-bold text-background";
+
+  return (
+    <div className="overflow-hidden rounded-card shadow-card">
+      {/* Dark header — Client / Project pickers, styled as pills */}
+      <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
+        <Select value={clientId ?? NONE} onValueChange={(v) => onClientChange(v === NONE ? null : v)}>
+          <SelectTrigger className={pillTriggerClass}>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
+              {clientInitial}
+            </span>
+            <span className={pillLabelClass}>Client</span>
+            <span className={pillValueClass}>
+              <SelectValue placeholder="No client" />
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>No client</SelectItem>
+            {clients.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
+          <SelectTrigger className={pillTriggerClass}>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
+              <Briefcase className="h-3.5 w-3.5" />
+            </span>
+            <span className={pillLabelClass}>Project</span>
+            <span className={pillValueClass}>
+              <SelectValue placeholder="No project" />
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>No project</SelectItem>
+            {projects.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* White footer — link status + url + Share/Copy */}
+      <div className="flex flex-wrap items-center gap-3.5 bg-card p-4">
+        <div className="min-w-[240px] flex-1 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn("h-[7px] w-[7px] shrink-0 rounded-full", hasToken ? "bg-primary" : "bg-border")}
+            />
+            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+              {hasToken ? "Client link is live" : "Client link not sent yet"}
+            </span>
+          </div>
+          <div className="truncate rounded-lg bg-muted px-3.5 py-2.5 font-mono text-[13px] text-muted-foreground">
+            {shareUrl ?? "Generated the first time you share or preview this quote"}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2.5">
+          <button
+            type="button"
+            onClick={onShare}
+            disabled={actionsDisabled}
+            className="flex h-11 items-center gap-2 rounded-xl bg-primary px-5 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Share2 className="h-4 w-4" />
+            Share
+          </button>
+          <button
+            type="button"
+            onClick={onCopy}
+            disabled={actionsDisabled}
+            aria-label="Copy link"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
