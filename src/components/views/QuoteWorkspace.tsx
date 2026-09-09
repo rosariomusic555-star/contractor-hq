@@ -928,7 +928,7 @@ function ClientShareCard({
       <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
         <Select value={clientId ?? NONE} onValueChange={(v) => onClientChange(v === NONE ? null : v)}>
           <SelectTrigger className={pillTriggerClass}>
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
+            <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
               {clientInitial}
             </span>
             <span className={pillLabelClass}>Client</span>
@@ -948,7 +948,7 @@ function ClientShareCard({
 
         <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
           <SelectTrigger className={pillTriggerClass}>
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
+            <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
               <Briefcase className="h-3.5 w-3.5" />
             </span>
             <span className={pillLabelClass}>Project</span>
