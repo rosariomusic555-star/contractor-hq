@@ -35,7 +35,7 @@ import {
   projectStatusMeta,
   quoteStatusMeta,
 } from "@/lib/statusMeta";
-import { demoJobMeta, demoJobWeek } from "@/lib/demoData";
+import { demoJobMeta } from "@/lib/demoData";
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -89,7 +89,6 @@ export function ProjectDetailView() {
 
   const meta = projectStatusMeta(project.status);
   const demo = demoJobMeta(project);
-  const week = demoJobWeek(project);
   const recentExpenses = [...expenses]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 5);
@@ -156,39 +155,13 @@ export function ProjectDetailView() {
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
-          {/* Schedule strip (demo) */}
-          <section className="card-surface p-5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-foreground">Schedule</h3>
-              <span className="text-xs font-semibold text-muted-foreground">
-                {demo.dayOfTotal ? `Day ${demo.dayOfTotal.day} of ${demo.dayOfTotal.total} · ${demo.crew}` : demo.crew}
-              </span>
-            </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary" style={{ width: `${demo.progressPct}%` }} />
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {week.map((d) => (
-                <div
-                  key={d.day}
-                  className={cn(
-                    "rounded-xl border p-2.5",
-                    d.state === "today" ? "border-primary bg-primary/10" : "border-border bg-card",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "text-[11px] font-bold uppercase tracking-wide",
-                      d.state === "done" ? "text-success" : d.state === "today" ? "text-foreground" : "text-muted-subtle",
-                    )}
-                  >
-                    {d.day} {d.state === "done" ? "✓" : ""}
-                  </div>
-                  <div className="mt-1 text-xs font-semibold text-foreground/80">{d.task}</div>
-                </div>
-              ))}
-            </div>
-          </section>
+          {/* Section nav */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <HubCard title="Materials sheet" summary={materialsSummary} onOpen={() => navigate(`/projects/${id}/materials`)} />
+            <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
+            <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
+            <HubCard title="Expenses" summary={expensesSummary} onOpen={() => navigate(`/projects/${id}/expenses`)} />
+          </div>
 
           {/* Profit summary (real) */}
           <ProfitSummaryCard
@@ -237,14 +210,6 @@ export function ProjectDetailView() {
               </div>
             )}
           </section>
-
-          {/* Section nav */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <HubCard title="Materials sheet" summary={materialsSummary} onOpen={() => navigate(`/projects/${id}/materials`)} />
-            <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
-            <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
-            <HubCard title="Expenses" summary={expensesSummary} onOpen={() => navigate(`/projects/${id}/expenses`)} />
-          </div>
         </div>
 
         {/* Right rail */}
@@ -270,8 +235,22 @@ export function ProjectDetailView() {
           </section>
 
           {project.client && (
-            <section className="card-surface p-5">
-              <h3 className="text-base font-bold text-foreground">Client</h3>
+            <section
+              role="button"
+              tabIndex={0}
+              onClick={() => project.client_id && navigate(`/clients/${project.client_id}/edit`)}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" || e.key === " ") && project.client_id) {
+                  e.preventDefault();
+                  navigate(`/clients/${project.client_id}/edit`);
+                }
+              }}
+              className="card-surface group w-full cursor-pointer p-5 text-left transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-foreground">Client</h3>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
+              </div>
               <p className="mt-2 text-sm font-bold text-foreground">{project.client.name}</p>
               <div className="mt-2 space-y-1.5 text-[13px] text-muted-foreground">
                 {project.client.address && (
@@ -283,7 +262,11 @@ export function ProjectDetailView() {
                 {project.client.phone && (
                   <p className="flex items-center gap-2">
                     <Phone className="h-3.5 w-3.5 shrink-0" />
-                    <a href={`tel:${project.client.phone}`} className="hover:text-foreground">
+                    <a
+                      href={`tel:${project.client.phone}`}
+                      className="hover:text-foreground"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {project.client.phone}
                     </a>
                   </p>
@@ -291,7 +274,11 @@ export function ProjectDetailView() {
                 {project.client.email && (
                   <p className="flex items-center gap-2">
                     <Mail className="h-3.5 w-3.5 shrink-0" />
-                    <a href={`mailto:${project.client.email}`} className="hover:text-foreground">
+                    <a
+                      href={`mailto:${project.client.email}`}
+                      className="hover:text-foreground"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {project.client.email}
                     </a>
                   </p>
