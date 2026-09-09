@@ -87,16 +87,10 @@ export const DEMO_WORK_TYPE_SPLIT = [
   { label: "Repairs & maintenance", amount: 21_200, pct: 4, color: "hsl(var(--border))" },
 ] as const;
 
-export const DEMO_QUOTE_DEFAULTS = {
-  depositPct: 30,
-  materialMarkupPct: 22,
-  laborRate: 68,
-  quoteValidityDays: 14,
-  salesTaxPct: 6.25,
-  wasteFactorPct: 8,
-  terms:
-    "Prices hold for 14 days. Excavation assumes no ledge or buried utilities; unforeseen conditions billed at $68/hr plus materials. 5-year workmanship warranty on base and installation; manufacturer warranty on all paver and wall product.",
-} as const;
+// Quote validity days / sales tax % / deposit % / terms used to live here as
+// fixed demo constants. They're now real, persisted Quote defaults (Settings
+// > Quote defaults, src/lib/api.ts QuoteDefaults) — demoQuoteFinancials() and
+// demoQuoteTerms() below take them as real parameters instead.
 
 export const DEMO_AUTOMATIONS = [
   { id: "quote-followup", label: "Quote follow-up", description: "Nudge the client 5 days after sending if no reply", enabled: true },
@@ -196,8 +190,6 @@ export function demoJobWeek(project: ProjectLike): DemoWeekDay[] {
 // ---------------------------------------------------------------------------
 
 export interface DemoQuoteFinancials {
-  markupPct: number;
-  markupAmount: number;
   taxPct: number;
   taxAmount: number;
   estCost: number;
@@ -205,19 +197,21 @@ export interface DemoQuoteFinancials {
   validUntilLabel: string;
 }
 
-export function demoQuoteFinancials(realQuoteTotal: number): DemoQuoteFinancials {
-  const markupPct = DEMO_QUOTE_DEFAULTS.materialMarkupPct;
-  const taxPct = DEMO_QUOTE_DEFAULTS.salesTaxPct;
+/** taxPct and validityDays are the user's real, saved Quote defaults
+ * (src/lib/api.ts getQuoteDefaults) — only estCost/marginPct are demo. */
+export function demoQuoteFinancials(
+  realQuoteTotal: number,
+  taxPct: number,
+  validityDays: number,
+): DemoQuoteFinancials {
   const estCost = Math.round(realQuoteTotal * 0.6);
   const materialsPortion = Math.round(realQuoteTotal * 0.35);
   return {
-    markupPct,
-    markupAmount: Math.round((materialsPortion * markupPct) / 100),
     taxPct,
     taxAmount: Math.round((materialsPortion * taxPct) / 100),
     estCost,
     marginPct: realQuoteTotal > 0 ? Math.round(((realQuoteTotal - estCost) / realQuoteTotal) * 100) : 0,
-    validUntilLabel: `${DEMO_QUOTE_DEFAULTS.quoteValidityDays} days`,
+    validUntilLabel: `${validityDays} days`,
   };
 }
 
@@ -237,6 +231,7 @@ export interface DemoQuoteTerms {
 export function demoQuoteTerms(
   quote: { id: string; created_at: string },
   depositPct: number,
+  validityDays: number,
 ): DemoQuoteTerms {
   const DAY = 86_400_000;
   const created = new Date(quote.created_at || "2026-01-01");
@@ -246,7 +241,7 @@ export function demoQuoteTerms(
 
   const start = new Date(created.getTime() + (18 + seededInt(quote.id + "crew", 0, 10)) * DAY);
   return {
-    validUntil: long(new Date(created.getTime() + DEMO_QUOTE_DEFAULTS.quoteValidityDays * DAY)),
+    validUntil: long(new Date(created.getTime() + validityDays * DAY)),
     depositLabel: `${depositPct}% at signing`,
     balance: "Net 14 from completion",
     warranty: "5-year workmanship",

@@ -40,8 +40,8 @@ describe("demoData helpers are deterministic and consistent", () => {
   });
 
   it("quote financials degrade gracefully at zero", () => {
-    expect(demoQuoteFinancials(0).marginPct).toBe(0);
-    expect(demoQuoteFinancials(10000).marginPct).toBeGreaterThan(0);
+    expect(demoQuoteFinancials(0, 6.25, 14).marginPct).toBe(0);
+    expect(demoQuoteFinancials(10000, 6.25, 14).marginPct).toBeGreaterThan(0);
   });
 });
 
