@@ -334,18 +334,18 @@ export function InvoiceWorkspace({
                               className="flex items-start justify-between gap-3 border-b border-hairline py-2 last:border-0"
                             >
                               <div className="min-w-0 flex-1">
-                                <p className="text-[13px] font-semibold text-foreground [overflow-wrap:anywhere]">
+                                <p className="text-[15px] font-semibold text-foreground [overflow-wrap:anywhere]">
                                   {item.name || "Item"}
                                 </p>
                                 {(qty !== 1 || item.description) && (
-                                  <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                                  <p className="text-[13px] text-muted-foreground [overflow-wrap:anywhere]">
                                     {qty !== 1 && `${qty} × ${formatCurrency(Number(item.price))}`}
                                     {qty !== 1 && item.description && " · "}
                                     {item.description}
                                   </p>
                                 )}
                               </div>
-                              <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
+                              <span className="shrink-0 text-sm font-bold tabular-nums text-foreground">
                                 {formatCurrency(quoteLineTotal(item))}
                               </span>
                             </div>
