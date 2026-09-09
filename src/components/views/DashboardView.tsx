@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
-import { TodaySchedule } from "@/components/dashboard/TodaySchedule";
+import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -188,14 +188,14 @@ export function DashboardView() {
         />
       </div>
 
-      {/* ---- Desktop chart + schedule ---- */}
+      {/* ---- Desktop chart + ongoing jobs ---- */}
       <div className="hidden grid-cols-1 gap-5 md:grid lg:grid-cols-3">
         <RevenueChart className="lg:col-span-2" />
-        <TodaySchedule />
+        <OngoingJobsCard />
       </div>
 
-      {/* ---- Mobile: schedule ---- */}
-      <TodaySchedule className="md:hidden" />
+      {/* ---- Mobile: ongoing jobs ---- */}
+      <OngoingJobsCard className="md:hidden" />
 
       {/* ---- Needs you + recent activity ---- */}
       <div className="grid gap-5 lg:grid-cols-2">
