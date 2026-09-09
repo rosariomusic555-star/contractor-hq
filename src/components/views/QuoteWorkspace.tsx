@@ -966,8 +966,9 @@ function QuoteSectionCard({
 
   return (
     <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
-      {/* Dark section header — editable name + running subtotal */}
-      <div className="flex items-center justify-between gap-5 bg-foreground px-5 py-4">
+      {/* Slate section header — editable name + running subtotal. Same
+          blue-gray the mobile top banner used before it switched to ink. */}
+      <div className="flex items-center justify-between gap-5 bg-sidebar px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-bold uppercase tracking-wider text-background/50">
             Section name
