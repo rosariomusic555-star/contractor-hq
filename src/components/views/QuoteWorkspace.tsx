@@ -864,7 +864,7 @@ function QuoteSectionCard({
 
       {items.length > 0 && (
         <>
-          <div className="hidden grid-cols-[minmax(8rem,1fr)_4.5rem_6.5rem_5.5rem_4rem_1.5rem] gap-3 bg-muted/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted-subtle lg:grid">
+          <div className="hidden grid-cols-[minmax(8rem,1fr)_4.5rem_7rem_5.5rem_3.5rem_1.5rem] gap-3 bg-muted/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted-subtle lg:grid">
             <span>Item</span>
             <span className="text-right">Qty</span>
             <span className="text-right">Unit price</span>
@@ -914,24 +914,25 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
   const total = item.quantity * item.price;
 
   return (
-    <div className="border-b border-hairline p-3 last:border-b-0 lg:grid lg:grid-cols-[minmax(8rem,1fr)_4.5rem_6.5rem_5.5rem_4rem_1.5rem] lg:items-start lg:gap-3 lg:px-4">
-      {/* Name + description (the mockup's grey "meta" line). Textareas so long
-          text wraps instead of scrolling off. */}
+    <div className="border-b border-hairline p-3 last:border-b-0 lg:grid lg:grid-cols-[minmax(8rem,1fr)_4.5rem_7rem_5.5rem_3.5rem_1.5rem] lg:items-start lg:gap-3 lg:px-4">
+      {/* Name + description. Textareas so long text wraps instead of scrolling
+          off; they auto-grow so the bigger type stays fully visible. */}
       <div className="min-w-0">
         <AutoGrowTextarea
           value={item.name}
           onChange={(e) => onEdit({ name: e.target.value })}
           placeholder="Item name"
-          className="border-transparent px-1 -mx-1 font-semibold hover:border-input focus-visible:border-input"
+          className="-mx-1 border-transparent px-1 text-base font-semibold hover:border-input focus-visible:border-input"
         />
         <AutoGrowTextarea
           value={item.description}
           onChange={(e) => onEdit({ description: e.target.value })}
           placeholder="Short description"
-          className="mt-1 border-transparent px-1 -mx-1 text-xs text-muted-foreground hover:border-input focus-visible:border-input"
+          className="-mx-1 mt-0.5 border-transparent px-1 text-sm text-muted-foreground hover:border-input focus-visible:border-input"
         />
       </div>
 
+      {/* Qty × Unit price — full, editable, always visible on mobile too. */}
       <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
         <Input
           type="number"
@@ -942,10 +943,10 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
             setQtyStr(e.target.value);
             onEdit({ quantity: parseFloat(e.target.value) || 0 });
           }}
-          className="h-9 min-w-0 flex-1 text-right lg:flex-none"
+          className="h-10 w-[4.5rem] shrink-0 text-right lg:h-9 lg:w-full"
           aria-label="Quantity"
         />
-        <span className="text-muted-subtle lg:hidden">×</span>
+        <span className="shrink-0 text-muted-subtle lg:hidden">×</span>
         <div className="relative min-w-0 flex-1 lg:flex-none">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
             $
@@ -959,29 +960,36 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
               setPriceStr(e.target.value);
               onEdit({ price: parseFloat(e.target.value) || 0 });
             }}
-            className="h-9 pl-5 text-right"
+            className="h-10 pl-5 text-right lg:h-9"
             aria-label="Unit price"
           />
         </div>
-        <span className="text-muted-subtle lg:hidden">=</span>
-        <span className="shrink-0 text-right text-sm font-bold tabular-nums text-foreground lg:pt-1.5">
+      </div>
+
+      {/* Line total + optional + delete. Its own row on mobile so Qty / Unit
+          price above get real width. */}
+      <div className="mt-2 flex items-center justify-between gap-3 lg:mt-0 lg:contents">
+        <span className="text-sm font-bold tabular-nums text-foreground lg:pt-1.5 lg:text-right">
+          <span className="font-normal text-muted-subtle lg:hidden">= </span>
           {formatCurrency(total)}
         </span>
-        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground lg:justify-self-center lg:pt-1.5">
-          <Checkbox
-            checked={item.is_optional}
-            onCheckedChange={(c) => onEdit({ is_optional: c === true })}
-          />
-          <span className="lg:hidden">Optional</span>
-        </label>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="shrink-0 text-muted-foreground hover:text-destructive lg:pt-1.5"
-          aria-label="Remove item"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-3 lg:contents">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground lg:justify-self-center lg:pt-1.5">
+            <Checkbox
+              checked={item.is_optional}
+              onCheckedChange={(c) => onEdit({ is_optional: c === true })}
+            />
+            <span className="lg:hidden">Optional</span>
+          </label>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="shrink-0 text-muted-foreground hover:text-destructive lg:pt-1.5"
+            aria-label="Remove item"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
