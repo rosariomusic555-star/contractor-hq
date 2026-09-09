@@ -24,6 +24,13 @@ import { RevenueView } from "@/components/views/RevenueView";
 import { ClientsView } from "@/components/views/ClientsView";
 import { ClientFormView } from "@/components/views/ClientFormView";
 import { SettingsView } from "@/components/views/SettingsView";
+import { SettingsBusinessProfileView } from "@/components/views/SettingsBusinessProfileView";
+import { SettingsQuoteDefaultsView } from "@/components/views/SettingsQuoteDefaultsView";
+import { SettingsInvoicingView } from "@/components/views/SettingsInvoicingView";
+import { SettingsPricebookView } from "@/components/views/SettingsPricebookView";
+import { SettingsTeamView } from "@/components/views/SettingsTeamView";
+import { SettingsNotificationsView } from "@/components/views/SettingsNotificationsView";
+import { SettingsBillingView } from "@/components/views/SettingsBillingView";
 import SharedQuotePage from "./pages/SharedQuote";
 import SharedInvoicePage from "./pages/SharedInvoice";
 import NotFound from "./pages/NotFound";
@@ -67,6 +74,13 @@ const App = () => (
               <Route path="/clients/new" element={<ClientFormView />} />
               <Route path="/clients/:clientId/edit" element={<ClientFormView />} />
               <Route path="/settings" element={<SettingsView />} />
+              <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
+              <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
+              <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
+              <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
+              <Route path="/settings/team" element={<SettingsTeamView />} />
+              <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
+              <Route path="/settings/billing" element={<SettingsBillingView />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
