@@ -51,6 +51,8 @@ import {
   generateShareLink,
   logProjectEvent,
   materialsCogs,
+  getQuoteDefaults,
+  QUOTE_DEFAULTS_FALLBACK,
   type Quote,
 } from "@/lib/api";
 
@@ -149,6 +151,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  const { data: quoteDefaults = QUOTE_DEFAULTS_FALLBACK } = useQuery({
+    queryKey: ["quote-defaults"],
+    queryFn: getQuoteDefaults,
+  });
 
   const { data: materials = [] } = useQuery({
     queryKey: ["materials", { project: projectId }],
@@ -413,7 +419,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     0,
   );
   const materialsCost = materialsCogs(materials);
-  const fin = demoQuoteFinancials(quoteTotalLive);
+  const fin = demoQuoteFinancials(
+    quoteTotalLive,
+    quoteDefaults.sales_tax_pct,
+    quoteDefaults.quote_validity_days,
+  );
   // Material markup was a synthetic demo percentage — it never counted toward
   // the real quote total (api.ts quoteTotal(), the shared client-facing page,
   // and the Project detail "Contract" figure all only ever summed real line
@@ -429,7 +439,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const sectionRows = draft.sections
     .filter((s) => !s.is_optional && s.items.some((i) => !i.is_optional))
     .map((s) => ({ id: s.id, name: s.name || "Untitled section", subtotal: baseSubtotal(s) }));
-  const terms = demoQuoteTerms(quote, draft.depositPct);
+  const terms = demoQuoteTerms(quote, draft.depositPct, quoteDefaults.quote_validity_days);
 
   const meta = quoteStatusMeta(quote.status);
   const clientName = quote.client?.name ?? quote.project?.client?.name ?? "No client";

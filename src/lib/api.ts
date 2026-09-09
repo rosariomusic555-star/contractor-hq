@@ -409,11 +409,72 @@ export async function getQuote(id: string): Promise<Quote> {
   return sortQuote(data);
 }
 
+// ---------------------------------------------------------------------------
+// Quote defaults (Settings > Quote defaults) — one row per user. Falls back
+// to QUOTE_DEFAULTS_FALLBACK before the user has ever saved a row.
+// ---------------------------------------------------------------------------
+
+export interface QuoteDefaults {
+  deposit_pct: number;
+  quote_validity_days: number;
+  sales_tax_pct: number;
+  terms: string | null;
+}
+
+export const QUOTE_DEFAULTS_FALLBACK: QuoteDefaults = {
+  deposit_pct: 30,
+  quote_validity_days: 14,
+  sales_tax_pct: 6.25,
+  terms:
+    "Prices hold for 14 days. Excavation assumes no ledge or buried utilities; unforeseen conditions billed hourly plus materials. 5-year workmanship warranty on base and installation; manufacturer warranty on all paver and wall product.",
+};
+
+export async function getQuoteDefaults(): Promise<QuoteDefaults> {
+  const { data, error } = await supabase.from("quote_defaults").select("*").maybeSingle();
+  if (error) {
+    // PGRST205 = "table not found in schema cache" — migration 0016 hasn't
+    // been run yet. Degrade to the fallback instead of breaking every screen
+    // that reads quote defaults (Quote Builder, createQuote()).
+    if (error.code === "PGRST205") return QUOTE_DEFAULTS_FALLBACK;
+    throw error;
+  }
+  if (!data) return QUOTE_DEFAULTS_FALLBACK;
+  return {
+    deposit_pct: Number(data.deposit_pct),
+    quote_validity_days: Number(data.quote_validity_days),
+    sales_tax_pct: Number(data.sales_tax_pct),
+    terms: data.terms ?? null,
+  };
+}
+
+export async function saveQuoteDefaults(patch: Partial<QuoteDefaults>): Promise<QuoteDefaults> {
+  const merged = { ...(await getQuoteDefaults()), ...patch };
+  const { data, error } = await supabase
+    .from("quote_defaults")
+    .upsert({
+      deposit_pct: merged.deposit_pct,
+      quote_validity_days: merged.quote_validity_days,
+      sales_tax_pct: merged.sales_tax_pct,
+      terms: merged.terms,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return {
+    deposit_pct: Number(data.deposit_pct),
+    quote_validity_days: Number(data.quote_validity_days),
+    sales_tax_pct: Number(data.sales_tax_pct),
+    terms: data.terms ?? null,
+  };
+}
+
 /**
  * Create a quote — status 'draft', no sections yet. project_id and client_id
  * are both optional: a quote can stand alone with neither, be linked to a
  * project only (client resolved via the project at share time), or carry
- * its own client_id independent of any project.
+ * its own client_id independent of any project. deposit_percentage/terms
+ * fall back to the user's saved Quote defaults (Settings), not a hardcoded
+ * number, so a new quote is actually pre-filled from what's configured there.
  */
 export async function createQuote(
   input: {
@@ -424,14 +485,15 @@ export async function createQuote(
     terms?: string | null;
   } = {},
 ): Promise<Quote> {
+  const defaults = await getQuoteDefaults();
   const { data: quote, error } = await supabase
     .from("quotes")
     .insert({
       project_id: input.project_id ?? null,
       client_id: input.client_id ?? null,
-      deposit_percentage: input.deposit_percentage ?? 25,
+      deposit_percentage: input.deposit_percentage ?? defaults.deposit_pct,
       notes: input.notes ?? null,
-      terms: input.terms ?? null,
+      terms: input.terms ?? defaults.terms,
     })
     .select("id")
     .single();

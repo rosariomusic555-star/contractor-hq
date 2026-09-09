@@ -88,7 +88,11 @@ Real live data via react-query in every view (`src/components/views/*`, dashboar
 `MobilePageHeader` (the slate `#687B85` block) + stacked cards / `ListCard` rows. List screens
 (Projects, Quotes, Invoices, Clients) share the pattern: `PageHeader` / `MobilePageHeader` +
 `FilterSegment` (desktop) / `FilterPills` (mobile) + a `KpiCard` row + a `data-table` (desktop) or
-`ListCard` list (mobile). `SettingsView` is intentionally non-persisting config UI.
+`ListCard` list (mobile). `SettingsView` is mostly non-persisting config UI — the
+exception is **Quote defaults** (deposit %, quote validity days, sales tax %, terms), which is
+real: backed by the `quote_defaults` table (one row per user, `src/lib/api.ts`
+`getQuoteDefaults`/`saveQuoteDefaults`), read by `createQuote()` to pre-fill new quotes'
+deposit %/terms, and by `QuoteWorkspace` for the sales-tax line and "valid until" date.
 
 ### Design system
 
