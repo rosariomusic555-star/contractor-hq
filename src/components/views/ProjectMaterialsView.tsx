@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
@@ -18,7 +17,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import {
   getProject,
   listMaterials,
@@ -219,20 +218,20 @@ export function ProjectMaterialsView() {
         Back to project
       </Link>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
-          <p className="mt-1 text-muted-foreground">{project?.name ?? " "}</p>
-        </div>
-        <Button onClick={addSection} className="w-full font-bold sm:w-auto">
-          <Plus className="mr-2 h-4 w-4" />
-          Add section
-        </Button>
+      <div>
+        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
+        <p className="mt-1 text-muted-foreground">{project?.name ?? " "}</p>
       </div>
 
-      <div className="card-surface flex items-center justify-between p-5">
-        <span className="text-muted-foreground">Total cost</span>
-        <span className="text-2xl font-bold tabular-nums text-foreground">{formatCurrency(grandTotal)}</span>
+      <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
+        <div className="flex items-center justify-between bg-sidebar px-5 py-4">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-background/55">
+            Total cost
+          </span>
+          <span className="text-[26px] font-extrabold tracking-tight tabular-nums text-background">
+            {formatCurrency(grandTotal)}
+          </span>
+        </div>
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading materials sheet…</p>}
@@ -255,6 +254,15 @@ export function ProjectMaterialsView() {
           onDeleteItem={(iid) => deleteItem(section.id, iid)}
         />
       ))}
+
+      <button
+        type="button"
+        onClick={addSection}
+        className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+      >
+        <Plus className="h-4 w-4" />
+        Add section
+      </button>
 
       <DraftSaveBar
         visible={isDirty}
@@ -281,18 +289,30 @@ function SectionCard({ section, onRename, onDelete, onAddItem, onEditItem, onDel
   const subtotal = section.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0);
 
   return (
-    <div className="card-surface space-y-3 p-5">
-      <div className="flex items-center justify-between gap-3">
-        <Input
+    <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
+      {/* Slate section header — editable name + running subtotal */}
+      <div className="flex items-center justify-between gap-5 bg-sidebar px-5 py-4">
+        <input
           value={section.name}
           onChange={(e) => onRename(e.target.value)}
           placeholder="New section"
-          className="h-9 max-w-xs font-semibold"
+          className="-ml-2.5 min-w-0 flex-1 rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
         />
+        <div className="shrink-0 text-right">
+          <div className="text-[11px] text-background/55">{pluralize(section.items.length, "item")}</div>
+          <div className="mt-0.5 text-[19px] font-extrabold tracking-tight tabular-nums text-background">
+            {formatCurrency(subtotal)}
+          </div>
+        </div>
+      </div>
+
+      {/* Delete */}
+      <div className="flex items-center justify-end border-b border-hairline px-5 py-2.5">
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <button className="shrink-0 text-muted-foreground hover:text-destructive">
+            <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
               <Trash2 className="h-4 w-4" />
+              Delete section
             </button>
           </AlertDialogTrigger>
           <AlertDialogContent>
@@ -317,43 +337,30 @@ function SectionCard({ section, onRename, onDelete, onAddItem, onEditItem, onDel
         </AlertDialog>
       </div>
 
-      {section.items.length > 0 && (
-        <>
-          {/* column headers — wide screens only; below lg the rows stack so
-              the item name always gets a full-width line */}
-          <div className="hidden gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-muted-subtle lg:grid lg:grid-cols-[minmax(8rem,1fr)_5rem_7rem_6rem_1.5rem]">
-            <span>Item</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Unit cost</span>
-            <span className="text-right">Total</span>
-            <span />
-          </div>
-          <div className="space-y-2 lg:space-y-1">
-            {section.items.map((item) => (
-              <ItemRow
-                key={item.id}
-                item={item}
-                onEdit={(patch) => onEditItem(item.id, patch)}
-                onDelete={() => onDeleteItem(item.id)}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="flex items-center justify-between pt-1">
-        <Button variant="outline" size="sm" onClick={onAddItem}>
-          <Plus className="mr-1 h-4 w-4" />
-          Add item
-        </Button>
-        <div className="text-sm">
-          <span className="mr-2 text-muted-foreground">Subtotal</span>
-          <span className="font-bold tabular-nums">{formatCurrency(subtotal)}</span>
-        </div>
+      {/* Items */}
+      <div className="flex flex-col gap-3 p-[18px]">
+        {section.items.map((item) => (
+          <ItemRow
+            key={item.id}
+            item={item}
+            onEdit={(patch) => onEditItem(item.id, patch)}
+            onDelete={() => onDeleteItem(item.id)}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={onAddItem}
+          className="flex h-[52px] items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+        >
+          <Plus className="h-4 w-4" />
+          Add item to this section
+        </button>
       </div>
     </div>
   );
 }
+
+const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
 interface ItemRowProps {
   item: DraftItem;
@@ -370,34 +377,49 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
   useEffect(() => setCostStr(String(item.unit_cost)), [item.unit_cost]);
 
   const total = item.quantity * item.unit_cost;
-  const numClass = "h-9 text-right";
 
   return (
-    <div className="rounded-xl border border-hairline p-2.5 lg:grid lg:grid-cols-[minmax(8rem,1fr)_5rem_7rem_6rem_1.5rem] lg:items-center lg:gap-3 lg:border-0 lg:p-0">
-      {/* Name — full-width line below lg, first column at lg+. Textarea so a
-          long name wraps instead of scrolling off in one line. */}
-      <AutoGrowTextarea
-        value={item.name}
-        onChange={(e) => onEdit({ name: e.target.value })}
-        placeholder="Item name"
-      />
+    <div className="flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover">
+      {/* Item name + delete */}
+      <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] items-end gap-3">
+        <div className="min-w-0">
+          <div className={ITEM_FIELD_LABEL}>Item</div>
+          <AutoGrowTextarea
+            value={item.name}
+            onChange={(e) => onEdit({ name: e.target.value })}
+            placeholder="Item name"
+            className="mt-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="mb-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Remove item"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
 
-      <div className="mt-2 flex items-center gap-2 lg:mt-0 lg:contents">
-        <Input
-          type="number"
-          step="any"
-          inputMode="decimal"
-          value={qtyStr}
-          onChange={(e) => {
-            setQtyStr(e.target.value);
-            onEdit({ quantity: parseFloat(e.target.value) || 0 });
-          }}
-          className={cn(numClass, "min-w-0 flex-1 lg:flex-none")}
-          aria-label="Quantity"
-        />
-        <span className="text-muted-subtle lg:hidden">×</span>
-        <div className="relative min-w-0 flex-1 lg:flex-none">
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+      {/* Qty · Unit cost · Total */}
+      <div className="grid grid-cols-3 gap-3">
+        <label className="block">
+          <div className={ITEM_FIELD_LABEL}>Qty</div>
+          <Input
+            type="number"
+            step="any"
+            inputMode="decimal"
+            value={qtyStr}
+            onChange={(e) => {
+              setQtyStr(e.target.value);
+              onEdit({ quantity: parseFloat(e.target.value) || 0 });
+            }}
+            className="mt-1 h-[42px] tabular-nums"
+            aria-label="Quantity"
+          />
+        </label>
+        <label className="block">
+          <div className={ITEM_FIELD_LABEL}>Unit cost</div>
           <Input
             type="number"
             step="0.01"
@@ -407,22 +429,16 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
               setCostStr(e.target.value);
               onEdit({ unit_cost: parseFloat(e.target.value) || 0 });
             }}
-            className={cn(numClass, "pl-5")}
+            className="mt-1 h-[42px] tabular-nums"
             aria-label="Unit cost"
           />
+        </label>
+        <div>
+          <div className={ITEM_FIELD_LABEL}>Total</div>
+          <div className="mt-1 flex h-[42px] items-center justify-end rounded-md bg-primary/10 px-3 text-base font-extrabold tabular-nums text-success">
+            {formatCurrency(total)}
+          </div>
         </div>
-        <span className="text-muted-subtle lg:hidden">=</span>
-        <span className="shrink-0 text-right text-sm font-bold tabular-nums text-foreground lg:font-semibold lg:text-muted-foreground">
-          {formatCurrency(total)}
-        </span>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="shrink-0 text-muted-foreground hover:text-destructive"
-          aria-label="Remove item"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
       </div>
     </div>
   );
