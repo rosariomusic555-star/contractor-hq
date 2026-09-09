@@ -49,7 +49,7 @@ export function BottomTabBar() {
   return (
     <>
       <nav
-        className="fixed inset-x-0 bottom-0 z-50 flex items-stretch border-t border-border bg-card/95 px-2 backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-50 flex transform-gpu items-stretch border-t border-border bg-card/95 px-2 backdrop-blur will-change-transform md:hidden"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.5rem)" }}
       >
         <NavLink to="/dashboard" className={tabClass}>
