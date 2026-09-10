@@ -1,4 +1,9 @@
 import { supabase } from "./supabase";
+import { compressImageFile, randomImageFilename } from "./imageUpload";
+
+/** Private Storage bucket (0023) holding both quote-item and project
+ * photos, split by path prefix (`quote-items/…`, `projects/…`). */
+const IMAGES_BUCKET = "images";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +56,30 @@ export interface Project {
   client?: ClientRef | null;
 }
 
+/** A photo in a project's gallery (progress photos, before/after, site
+ * conditions…). Multiple per project, each with an optional caption.
+ * `storage_path` is a path into the `images` Storage bucket (0023) —
+ * resolve to a viewable URL with getSignedImageUrls(). */
+export interface ProjectImage {
+  id: string;
+  project_id: string;
+  storage_path: string;
+  caption: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+/** A photo attached to a quote line item (paver style, area being worked
+ * on…). Multiple per item. `storage_path` is a path into the `images`
+ * Storage bucket (0023) — resolve to a viewable URL with getSignedImageUrls(). */
+export interface QuoteItemImage {
+  id: string;
+  quote_item_id: string;
+  storage_path: string;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface QuoteItem {
   id: string;
   section_id: string;
@@ -66,6 +95,7 @@ export interface QuoteItem {
   sort_order: number;
   /** Optional work category (Settings > Categories). Null = uncategorized. */
   category_id: string | null;
+  quote_item_images: QuoteItemImage[];
 }
 
 export interface QuoteSection {
@@ -360,8 +390,97 @@ export async function updateProject(
   if (error) throw error;
 }
 
+/**
+ * Best-effort cleans up this project's own gallery images in Storage before
+ * the (cascading) delete — see deleteQuoteSection's doc comment. Note: a
+ * project's quotes/sections/items/quote_item_images cascade-delete too, and
+ * any quote-item photos on them are NOT cleaned up here (that would need
+ * walking the full quotes → sections → items chain) — an accepted, rare
+ * edge case rather than risking a fragile deep-join cleanup query.
+ */
 export async function deleteProject(id: string): Promise<void> {
+  try {
+    const { data: images } = await supabase
+      .from("project_images")
+      .select("storage_path")
+      .eq("project_id", id);
+    if (images?.length) {
+      await supabase.storage.from(IMAGES_BUCKET).remove(images.map((i) => i.storage_path));
+    }
+  } catch (err) {
+    console.warn("Failed to clean up project images before deleting project:", err);
+  }
   const { error } = await supabase.from("projects").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Project images — a project's photo gallery (0025): progress photos,
+// before/after, site conditions. Multiple per project, each with an
+// optional caption.
+// ---------------------------------------------------------------------------
+
+export async function listProjectImages(projectId: string): Promise<ProjectImage[]> {
+  const { data, error } = await supabase
+    .from("project_images")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("sort_order");
+  if (error) {
+    // PGRST205 = "table not found in schema cache" — migration 0025 hasn't
+    // been run yet. Degrade to empty instead of breaking the project page,
+    // same as listCategories()/listExpenseCategories().
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** Compresses, uploads, and records the row — same order/rollback as
+ * uploadQuoteItemImage. */
+export async function addProjectImage(
+  projectId: string,
+  file: File,
+  input: { caption?: string | null; sort_order?: number } = {},
+): Promise<ProjectImage> {
+  const compressed = await compressImageFile(file);
+  const path = `projects/${projectId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("project_images")
+    .insert({
+      project_id: projectId,
+      storage_path: path,
+      caption: input.caption ?? null,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function updateProjectImageCaption(id: string, caption: string | null): Promise<void> {
+  const { error } = await supabase.from("project_images").update({ caption }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteProjectImage(
+  image: Pick<ProjectImage, "id" | "storage_path">,
+): Promise<void> {
+  const { error: storageError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .remove([image.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("project_images").delete().eq("id", image.id);
   if (error) throw error;
 }
 
@@ -502,35 +621,57 @@ export async function deleteMaterialsItem(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const QUOTE_SELECT =
+  "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*, quote_item_images(*)))";
+// Fallback for when migration 0024 (quote_item_images) hasn't been run yet.
+// Unlike a merely-missing column (which PostgREST just omits), an embedded
+// resource it can't resolve in its schema cache fails the WHOLE query — so
+// unlike every other not-yet-migrated fallback in this file, this can't
+// just catch-and-return-empty at the call site; listQuotes/getQuote retry
+// once without the embed below.
+const QUOTE_SELECT_NO_IMAGES =
   "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*))";
 
 function sortQuote(quote: Quote): Quote {
   quote.quote_sections?.sort((a, b) => a.sort_order - b.sort_order);
   for (const s of quote.quote_sections ?? []) {
     s.quote_items?.sort((a, b) => a.sort_order - b.sort_order);
+    for (const i of s.quote_items ?? []) {
+      // Absent entirely when the QUOTE_SELECT_NO_IMAGES fallback fired.
+      i.quote_item_images = i.quote_item_images ?? [];
+      i.quote_item_images.sort((a, b) => a.sort_order - b.sort_order);
+    }
   }
   return quote;
 }
 
+/** PGRST200 = "could not find a relationship … in the schema cache". */
+const isMissingRelationshipError = (error: { code?: string } | null) => error?.code === "PGRST200";
+
 export async function listQuotes(projectId?: string): Promise<Quote[]> {
-  let query = supabase
-    .from("quotes")
-    .select(QUOTE_SELECT)
-    .order("updated_at", { ascending: false });
-  if (projectId) query = query.eq("project_id", projectId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []).map(sortQuote);
+  const build = (select: string) => {
+    let query = supabase.from("quotes").select(select).order("updated_at", { ascending: false });
+    if (projectId) query = query.eq("project_id", projectId);
+    return query;
+  };
+  const { data, error } = await build(QUOTE_SELECT);
+  if (!error) return (data ?? []).map(sortQuote);
+  if (!isMissingRelationshipError(error)) throw error;
+  const { data: fallback, error: fallbackError } = await build(QUOTE_SELECT_NO_IMAGES);
+  if (fallbackError) throw fallbackError;
+  return (fallback ?? []).map(sortQuote);
 }
 
 export async function getQuote(id: string): Promise<Quote> {
-  const { data, error } = await supabase
+  const { data, error } = await supabase.from("quotes").select(QUOTE_SELECT).eq("id", id).single();
+  if (!error) return sortQuote(data);
+  if (!isMissingRelationshipError(error)) throw error;
+  const { data: fallback, error: fallbackError } = await supabase
     .from("quotes")
-    .select(QUOTE_SELECT)
+    .select(QUOTE_SELECT_NO_IMAGES)
     .eq("id", id)
     .single();
-  if (error) throw error;
-  return sortQuote(data);
+  if (fallbackError) throw fallbackError;
+  return sortQuote(fallback);
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +797,11 @@ export async function addQuoteSection(
       is_optional: input.is_optional ?? false,
       sort_order: input.sort_order ?? 0,
     })
+    // No quote_item_images embed here (unlike the QUOTE_SELECT read path) —
+    // a brand-new section's quote_items is always [] anyway, so there's
+    // nothing to embed, and this keeps "Add section" safe to call even
+    // before migration 0024 has run (an embed PostgREST can't resolve fails
+    // the whole insert+select, not just that field).
     .select("*, quote_items(*)")
     .single();
   if (error) throw error;
@@ -670,7 +816,29 @@ export async function updateQuoteSection(
   if (error) throw error;
 }
 
+/**
+ * Deleting a section cascades its items and their images at the DB level,
+ * but that cascade never touches the actual files in Storage — best-effort
+ * clean those up first so they don't orphan. A failure here never blocks
+ * the section delete itself; it just leaves the files (a minor storage-cost
+ * issue, not a correctness one).
+ */
 export async function deleteQuoteSection(id: string): Promise<void> {
+  try {
+    const { data: items } = await supabase.from("quote_items").select("id").eq("section_id", id);
+    const itemIds = (items ?? []).map((i) => i.id);
+    if (itemIds.length) {
+      const { data: images } = await supabase
+        .from("quote_item_images")
+        .select("storage_path")
+        .in("quote_item_id", itemIds);
+      if (images?.length) {
+        await supabase.storage.from(IMAGES_BUCKET).remove(images.map((i) => i.storage_path));
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to clean up quote item images before deleting section:", err);
+  }
   const { error } = await supabase.from("quote_sections").delete().eq("id", id);
   if (error) throw error;
 }
@@ -701,10 +869,13 @@ export async function addQuoteItem(
       sort_order: input.sort_order ?? 0,
       category_id: input.category_id ?? null,
     })
+    // No embed here — see addQuoteSection's comment just above. A brand-new
+    // item has zero images by definition, so it's attached in JS instead of
+    // requested from PostgREST (keeps "Add item" safe pre-migration too).
     .select()
     .single();
   if (error) throw error;
-  return data;
+  return { ...data, quote_item_images: [] };
 }
 
 export async function updateQuoteItem(
@@ -728,9 +899,89 @@ export async function updateQuoteItem(
   if (error) throw error;
 }
 
+/** See deleteQuoteSection's doc comment — same best-effort Storage cleanup
+ * before the (cascading) DB delete. */
 export async function deleteQuoteItem(id: string): Promise<void> {
+  try {
+    const { data: images } = await supabase
+      .from("quote_item_images")
+      .select("storage_path")
+      .eq("quote_item_id", id);
+    if (images?.length) {
+      await supabase.storage.from(IMAGES_BUCKET).remove(images.map((i) => i.storage_path));
+    }
+  } catch (err) {
+    console.warn("Failed to clean up quote item images before deleting item:", err);
+  }
   const { error } = await supabase.from("quote_items").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Quote item images — photos attached to a quote line item (0024). Multiple
+// per item; each upload is a real, immediate write (unlike the rest of the
+// Quote Builder, which edits a local draft) since quote_item_images has a
+// hard FK to a real quote_item_id — there's nowhere to attach a photo to a
+// brand-new, not-yet-saved ("tmp-") line item. The Quote Builder disables
+// the image slot on unsaved items rather than trying to draft an upload.
+// ---------------------------------------------------------------------------
+
+/**
+ * Compresses, uploads to Storage, and records the row — in that order, so a
+ * failed DB insert rolls back the (already-uploaded) storage object rather
+ * than leaving an orphan.
+ */
+export async function uploadQuoteItemImage(
+  quoteItemId: string,
+  file: File,
+  sortOrder = 0,
+): Promise<QuoteItemImage> {
+  const compressed = await compressImageFile(file);
+  const path = `quote-items/${quoteItemId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("quote_item_images")
+    .insert({ quote_item_id: quoteItemId, storage_path: path, sort_order: sortOrder })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function deleteQuoteItemImage(
+  image: Pick<QuoteItemImage, "id" | "storage_path">,
+): Promise<void> {
+  const { error: storageError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .remove([image.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("quote_item_images").delete().eq("id", image.id);
+  if (error) throw error;
+}
+
+/**
+ * Resolves Storage paths (from the `images` bucket) to viewable, expiring
+ * URLs — used for both quote-item and project images, and by the anon
+ * client-facing shared-quote page (storage.objects RLS, not this function,
+ * decides whether that succeeds — see 0023).
+ */
+export async function getSignedImageUrls(paths: string[]): Promise<Record<string, string>> {
+  if (paths.length === 0) return {};
+  const { data, error } = await supabase.storage.from(IMAGES_BUCKET).createSignedUrls(paths, 3600);
+  if (error) throw error;
+  const urls: Record<string, string> = {};
+  for (const row of data ?? []) {
+    if (row.signedUrl && row.path) urls[row.path] = row.signedUrl;
+  }
+  return urls;
 }
 
 // ---------------------------------------------------------------------------
@@ -960,6 +1211,14 @@ export async function revokeShareLink(kind: "quotes" | "invoices", id: string): 
 // anon anything directly; the token is the only credential.
 // ---------------------------------------------------------------------------
 
+/** get_shared_quote returns raw storage_paths, not URLs — the share page
+ * resolves them itself via getSignedImageUrls(), gated by the anon
+ * storage.objects policy scoped to currently-shared quotes (0023). */
+export interface SharedQuoteItemImage {
+  id: string;
+  storage_path: string;
+}
+
 export interface SharedQuoteItem {
   id: string;
   name: string;
@@ -970,6 +1229,10 @@ export interface SharedQuoteItem {
   is_optional: boolean;
   client_selected: boolean;
   sort_order: number;
+  // Optional, not just possibly-empty: get_shared_quote only started
+  // returning this key as of migration 0026 — a quote fetched before that
+  // migration runs simply won't have it. Guard with `item.images ?? []`.
+  images?: SharedQuoteItemImage[];
 }
 
 export interface SharedQuoteSection {

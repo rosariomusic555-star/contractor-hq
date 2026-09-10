@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2, Share2, Briefcase, Copy } from "lucide-react";
+import {
+  ChevronLeft,
+  Plus,
+  Trash2,
+  Share2,
+  Briefcase,
+  Copy,
+  ImagePlus,
+  Loader2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +25,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,12 +64,17 @@ import {
   addQuoteItem,
   updateQuoteItem,
   deleteQuoteItem,
+  uploadQuoteItemImage,
+  deleteQuoteItemImage,
+  getSignedImageUrls,
   generateShareLink,
   logProjectEvent,
   materialsCogs,
   getQuoteDefaults,
   QUOTE_DEFAULTS_FALLBACK,
   type Quote,
+  type QuoteItem,
+  type QuoteItemImage,
   type Category,
 } from "@/lib/api";
 
@@ -243,6 +263,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     qc.invalidateQueries({ queryKey: ["projects"] });
   };
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
+
+  // Photos are real, immediate server writes (not part of the draft — see
+  // QuoteItemRow) with a hard FK to a real quote_item_id, so they're always
+  // read from the server `quote` prop rather than the local draft. A draft
+  // row only has real photos once it's been saved (isTmp(id) === false).
+  const serverItemsById = useMemo(() => {
+    const map = new Map<string, QuoteItem>();
+    for (const s of quote.quote_sections) for (const i of s.quote_items) map.set(i.id, i);
+    return map;
+  }, [quote]);
 
   const updateClientMut = useMutation({
     mutationFn: (clientId: string | null) => updateQuote(quote.id, { client_id: clientId }),
@@ -571,6 +601,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               section={section}
               subtotal={sectionSubtotal(section)}
               categories={categories}
+              serverItemsById={serverItemsById}
+              onImagesChanged={invalidate}
               onRename={(name) => renameSection(section.id, name)}
               onToggleOptional={(checked) => toggleSectionOptional(section.id, checked)}
               onDeleteSection={() => removeSection(section.id)}
@@ -1053,6 +1085,8 @@ interface QuoteSectionCardProps {
   section: DraftSection;
   subtotal: number;
   categories: Category[];
+  serverItemsById: Map<string, QuoteItem>;
+  onImagesChanged: () => void;
   onRename: (name: string) => void;
   onToggleOptional: (checked: boolean) => void;
   onDeleteSection: () => void;
@@ -1065,6 +1099,8 @@ function QuoteSectionCard({
   section,
   subtotal,
   categories,
+  serverItemsById,
+  onImagesChanged,
   onRename,
   onToggleOptional,
   onDeleteSection,
@@ -1144,6 +1180,8 @@ function QuoteSectionCard({
             key={item.id}
             item={item}
             categories={categories}
+            serverItem={serverItemsById.get(item.id)}
+            onImagesChanged={onImagesChanged}
             onEdit={(patch) => onEditItem(item.id, patch)}
             onDelete={() => onDeleteItem(item.id)}
           />
@@ -1164,13 +1202,25 @@ function QuoteSectionCard({
 interface QuoteItemRowProps {
   item: DraftItem;
   categories: Category[];
+  /** The real, saved server item this draft row corresponds to — undefined
+   * for a brand-new ("tmp-") row that hasn't been saved yet. Photos read
+   * from here, not the draft (see the serverItemsById comment above). */
+  serverItem: QuoteItem | undefined;
+  onImagesChanged: () => void;
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
 
 const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
-function QuoteItemRow({ item, categories, onEdit, onDelete }: QuoteItemRowProps) {
+function QuoteItemRow({
+  item,
+  categories,
+  serverItem,
+  onImagesChanged,
+  onEdit,
+  onDelete,
+}: QuoteItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
@@ -1236,6 +1286,10 @@ function QuoteItemRow({ item, categories, onEdit, onDelete }: QuoteItemRowProps)
         </Select>
       </div>
 
+      {/* Photos — optional, multiple. Real server writes the moment a file
+          is picked (not part of the draft — see QuoteItemRowProps). */}
+      <QuoteItemPhotos serverItem={serverItem} onImagesChanged={onImagesChanged} />
+
       {/* Qty · Unit · Rate · Line total — two-up on mobile, four-up from sm. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <label className="block">
@@ -1294,6 +1348,143 @@ function QuoteItemRow({ item, categories, onEdit, onDelete }: QuoteItemRowProps)
         />
         Optional add-on — client chooses whether to include this line
       </label>
+    </div>
+  );
+}
+
+const THUMB_CLASS = "h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted";
+
+interface QuoteItemPhotosProps {
+  serverItem: QuoteItem | undefined;
+  onImagesChanged: () => void;
+}
+
+function QuoteItemPhotos({ serverItem, onImagesChanged }: QuoteItemPhotosProps) {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [lightboxImage, setLightboxImage] = useState<QuoteItemImage | null>(null);
+
+  const images = serverItem?.quote_item_images ?? [];
+  const paths = images.map((i) => i.storage_path);
+
+  const { data: signedUrls = {} } = useQuery({
+    queryKey: ["quote-item-image-urls", serverItem?.id, images.map((i) => i.id).join(",")],
+    queryFn: () => getSignedImageUrls(paths),
+    enabled: paths.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
+
+  const uploadMut = useMutation({
+    mutationFn: async (files: File[]) => {
+      if (!serverItem) return;
+      for (let i = 0; i < files.length; i++) {
+        await uploadQuoteItemImage(serverItem.id, files[i], images.length + i);
+      }
+    },
+    onSuccess: onImagesChanged,
+    onError,
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (image: QuoteItemImage) => deleteQuoteItemImage(image),
+    onSuccess: () => {
+      setLightboxImage(null);
+      onImagesChanged();
+    },
+    onError,
+  });
+
+  return (
+    <div>
+      <div className={ITEM_FIELD_LABEL}>Photos</div>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {images.map((img) => (
+          <button
+            key={img.id}
+            type="button"
+            onClick={() => setLightboxImage(img)}
+            className={cn(THUMB_CLASS, "relative")}
+            aria-label="View photo"
+          >
+            {signedUrls[img.storage_path] ? (
+              <img
+                src={signedUrls[img.storage_path]}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
+              </div>
+            )}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!serverItem || uploadMut.isPending}
+          className={cn(
+            THUMB_CLASS,
+            "flex items-center justify-center border-[1.5px] border-dashed border-border text-muted-subtle transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:text-muted-subtle",
+          )}
+          aria-label="Add photo"
+        >
+          {uploadMut.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ImagePlus className="h-4 w-4" />
+          )}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length) uploadMut.mutate(files);
+          }}
+        />
+      </div>
+      {!serverItem && (
+        <p className="mt-1 text-[11px] text-muted-subtle">Save this item to add photos</p>
+      )}
+
+      <Dialog open={!!lightboxImage} onOpenChange={(open) => !open && setLightboxImage(null)}>
+        <DialogContent className="max-w-lg gap-3 p-4">
+          <DialogTitle className="text-sm font-bold text-foreground">Photo</DialogTitle>
+          {lightboxImage && (
+            <>
+              {signedUrls[lightboxImage.storage_path] ? (
+                <img
+                  src={signedUrls[lightboxImage.storage_path]}
+                  alt=""
+                  className="max-h-[70vh] w-full rounded-xl object-contain"
+                />
+              ) : (
+                <div className="flex h-64 items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-subtle" />
+                </div>
+              )}
+              <Button
+                variant="outline"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => deleteMut.mutate(lightboxImage)}
+                disabled={deleteMut.isPending}
+              >
+                <X className="h-4 w-4" />
+                {deleteMut.isPending ? "Removing…" : "Remove photo"}
+              </Button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
