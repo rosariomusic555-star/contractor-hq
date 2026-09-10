@@ -95,11 +95,6 @@ export interface Invoice {
   id: string;
   // Nullable — an invoice can stand alone, with no project.
   project_id: string | null;
-  // Direct client, independent of any project. Standalone invoices rely on
-  // this entirely; project-linked invoices can leave it null and fall back
-  // to the project's client (see get_shared_invoice's coalesce), or set it
-  // directly to override.
-  client_id: string | null;
   quote_id: string | null;
   user_id: string;
   amount: number;
@@ -115,7 +110,6 @@ export interface Invoice {
   created_at: string;
   updated_at: string;
   project?: ProjectRef | null;
-  client?: ClientRef | null;
 }
 
 export interface MaterialsItem {
@@ -616,7 +610,7 @@ export async function deleteQuoteItem(id: string): Promise<void> {
 // Invoices
 // ---------------------------------------------------------------------------
 
-const INVOICE_SELECT = "*, client:clients(name), project:projects(name, client:clients(name))";
+const INVOICE_SELECT = "*, project:projects(name, client:clients(name))";
 
 export async function listInvoices(projectId?: string): Promise<Invoice[]> {
   let query = supabase
@@ -651,7 +645,6 @@ export async function getInvoice(id: string): Promise<Invoice> {
 export async function createInvoice(
   input: {
     project_id?: string | null;
-    client_id?: string | null;
     amount?: number;
     due_date?: string | null;
     quote_id?: string | null;
@@ -670,7 +663,6 @@ export async function createInvoice(
     .from("invoices")
     .insert({
       project_id: input.project_id ?? null,
-      client_id: input.client_id ?? null,
       amount: input.amount ?? 0,
       due_date: input.due_date ?? null,
       quote_id: input.quote_id ?? null,
@@ -686,10 +678,7 @@ export async function createInvoice(
 export async function updateInvoice(
   id: string,
   patch: Partial<
-    Pick<
-      Invoice,
-      "amount" | "status" | "due_date" | "notes" | "paid_at" | "project_id" | "quote_id" | "client_id"
-    >
+    Pick<Invoice, "amount" | "status" | "due_date" | "notes" | "paid_at" | "project_id" | "quote_id">
   >,
 ): Promise<void> {
   const { error } = await supabase.from("invoices").update(patch).eq("id", id);
