@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ScrollToTop } from "@/components/layout/ScrollToTop";
 import { DashboardView } from "@/components/views/DashboardView";
 import { ProjectsView } from "@/components/views/ProjectsView";
 import { NewProjectView } from "@/components/views/NewProjectView";
@@ -43,6 +44,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <ScrollToTop />
           <Routes>
             {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
             <Route path="/quote/:token" element={<SharedQuotePage />} />
