@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { cn, formatCurrency } from "@/lib/utils";
-import { listQuotes, listInvoices, createQuote } from "@/lib/api";
+import { listQuotes, listInvoices, createQuote, createInvoice } from "@/lib/api";
 import { monthlyRevenue } from "@/lib/metrics";
 import { overdueCount } from "@/lib/aging";
 import { DEMO_HOURS_PER_WEEK, DEMO_REVENUE_GOAL, DEMO_WEEKS_BOOKED } from "@/lib/demoData";
@@ -43,6 +43,13 @@ export function DashboardView() {
     onSuccess: (quote) => navigate(`/quotes/${quote.id}`),
     onError: (err: Error) =>
       toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
+  });
+
+  const newInvoiceMut = useMutation({
+    mutationFn: () => createInvoice(),
+    onSuccess: (invoice) => navigate(`/invoices/${invoice.id}`),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create invoice", description: err.message, variant: "destructive" }),
   });
 
   const now = new Date();
@@ -108,7 +115,8 @@ export function DashboardView() {
           <>
             <Button
               variant="outline"
-              onClick={() => navigate("/invoices/new")}
+              onClick={() => newInvoiceMut.mutate()}
+              disabled={newInvoiceMut.isPending}
               className="border-border font-semibold"
             >
               New invoice
