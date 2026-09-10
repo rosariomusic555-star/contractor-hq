@@ -1,0 +1,14 @@
+
+[functions.assistant-chat]
+enabled = true
+# Platform verifies the caller's Supabase JWT before invoking the function at
+# all; the function itself also re-derives the user from that same JWT to
+# build an RLS-scoped Supabase client (belt-and-suspenders — see index.ts).
+verify_jwt = true
+import_map = "./functions/assistant-chat/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/assistant-chat/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/assistant-chat/*.html" ]

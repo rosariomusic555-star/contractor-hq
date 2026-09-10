@@ -8,6 +8,7 @@ import {
   Plus,
   Receipt,
   Settings as SettingsIcon,
+  Sparkles,
   TrendingUp,
   Users,
   MoreHorizontal,
@@ -18,6 +19,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { createQuote, createInvoice } from "@/lib/api";
+import { useAssistant } from "@/components/assistant/assistant-context";
 
 const tab = "flex flex-1 flex-col items-center gap-1 py-1.5 text-[10px] font-semibold";
 
@@ -25,6 +27,7 @@ export function BottomTabBar() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { signOut } = useAuth();
+  const { setOpen: setAssistantOpen } = useAssistant();
   const [createOpen, setCreateOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -114,6 +117,15 @@ export function BottomTabBar() {
             <ActionRow icon={Receipt} label="Invoices" onClick={() => go("/invoices", () => setMoreOpen(false))} />
             <ActionRow icon={Users} label="Clients" onClick={() => go("/clients", () => setMoreOpen(false))} />
             <ActionRow icon={SettingsIcon} label="Settings" onClick={() => go("/settings", () => setMoreOpen(false))} />
+            <ActionRow
+              icon={Sparkles}
+              label="Ask AI"
+              hint="Ask a question about your business"
+              onClick={() => {
+                setMoreOpen(false);
+                setAssistantOpen(true);
+              }}
+            />
             <div className="my-1 h-px bg-hairline" />
             <ActionRow icon={LogOut} label="Sign out" onClick={() => { setMoreOpen(false); signOut(); }} />
           </div>
