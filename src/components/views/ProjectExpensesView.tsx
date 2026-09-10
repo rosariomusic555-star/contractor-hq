@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -21,11 +28,16 @@ import { formatCurrency } from "@/lib/utils";
 import {
   getProject,
   listExpenses,
+  listExpenseCategories,
   createExpense,
+  updateExpense,
   deleteExpense,
   logProjectEvent,
   type Expense,
+  type ExpenseCategory,
 } from "@/lib/api";
+
+const NONE = "__none__";
 
 // Reference only, per spec — appended with a local midnight so a date-only
 // string ("2026-09-15") isn't parsed as UTC midnight and shown a day early.
@@ -46,6 +58,7 @@ export function ProjectExpensesView() {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
 
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
   const {
@@ -56,6 +69,10 @@ export function ProjectExpensesView() {
   } = useQuery({
     queryKey: ["expenses", { project: id }],
     queryFn: () => listExpenses(id),
+  });
+  const { data: expenseCategories = [] } = useQuery({
+    queryKey: ["expense-categories"],
+    queryFn: listExpenseCategories,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["expenses", { project: id }] });
@@ -68,6 +85,7 @@ export function ProjectExpensesView() {
         name: name.trim(),
         amount: parseFloat(amount) || 0,
         date: date || null,
+        expense_category_id: categoryId,
       }),
     onSuccess: (expense) => {
       invalidate();
@@ -80,7 +98,15 @@ export function ProjectExpensesView() {
       setName("");
       setAmount("");
       setDate("");
+      setCategoryId(null);
     },
+    onError,
+  });
+
+  const recategorizeMut = useMutation({
+    mutationFn: ({ expenseId, expense_category_id }: { expenseId: string; expense_category_id: string | null }) =>
+      updateExpense(expenseId, { expense_category_id }),
+    onSuccess: invalidate,
     onError,
   });
 
@@ -110,7 +136,7 @@ export function ProjectExpensesView() {
 
       <div className="stat-card space-y-3">
         <h2 className="font-medium text-foreground">Add expense</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-3 sm:items-end">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_auto] lg:items-end">
           <div className="space-y-1.5">
             <Label htmlFor="expense-name">Name</Label>
             <Input
@@ -141,6 +167,25 @@ export function ProjectExpensesView() {
             <Label htmlFor="expense-date">Date</Label>
             <Input id="expense-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="expense-category">Category (optional)</Label>
+            <Select
+              value={categoryId ?? NONE}
+              onValueChange={(v) => setCategoryId(v === NONE ? null : v)}
+            >
+              <SelectTrigger id="expense-category" aria-label="Category">
+                <SelectValue placeholder="Uncategorized" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Uncategorized</SelectItem>
+                {expenseCategories.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             onClick={() => addMut.mutate()}
             disabled={!canSave || addMut.isPending}
@@ -169,6 +214,7 @@ export function ProjectExpensesView() {
               <thead>
                 <tr className="text-xs text-muted-foreground text-left">
                   <th className="py-2 px-4 font-medium">Name</th>
+                  <th className="py-2 px-4 font-medium">Category</th>
                   <th className="py-2 px-4 font-medium">Date</th>
                   <th className="py-2 px-4 font-medium text-right">Amount</th>
                   <th className="w-10"></th>
@@ -179,13 +225,17 @@ export function ProjectExpensesView() {
                   <ExpenseRow
                     key={expense.id}
                     expense={expense}
+                    expenseCategories={expenseCategories}
+                    onRecategorize={(expense_category_id) =>
+                      recategorizeMut.mutate({ expenseId: expense.id, expense_category_id })
+                    }
                     onDelete={() => deleteMut.mutate(expense.id)}
                   />
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t border-border font-semibold text-foreground">
-                  <td className="py-2 px-4" colSpan={2}>
+                  <td className="py-2 px-4" colSpan={3}>
                     Total
                   </td>
                   <td className="py-2 px-4 text-right">{formatCurrency(total)}</td>
@@ -200,10 +250,43 @@ export function ProjectExpensesView() {
   );
 }
 
-function ExpenseRow({ expense, onDelete }: { expense: Expense; onDelete: () => void }) {
+function ExpenseRow({
+  expense,
+  expenseCategories,
+  onRecategorize,
+  onDelete,
+}: {
+  expense: Expense;
+  expenseCategories: ExpenseCategory[];
+  onRecategorize: (expense_category_id: string | null) => void;
+  onDelete: () => void;
+}) {
   return (
     <tr className="border-b border-border last:border-0">
       <td className="py-2 px-4 text-foreground">{expense.name}</td>
+      <td className="py-2 px-2">
+        {/* Select styled as a compact pill so it reads as a tag, but is a
+            real dropdown — click to recategorize without deleting/re-adding. */}
+        <Select
+          value={expense.expense_category_id ?? NONE}
+          onValueChange={(v) => onRecategorize(v === NONE ? null : v)}
+        >
+          <SelectTrigger
+            aria-label="Category"
+            className="h-7 w-auto min-w-0 gap-1.5 rounded-full border-none bg-muted px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 focus:ring-0 focus:ring-offset-0"
+          >
+            <SelectValue placeholder="Uncategorized" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>Uncategorized</SelectItem>
+            {expenseCategories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </td>
       <td className="py-2 px-4 text-muted-foreground">{formatDate(expense.date)}</td>
       <td className="py-2 px-4 text-right text-foreground whitespace-nowrap">
         {formatCurrency(Number(expense.amount))}

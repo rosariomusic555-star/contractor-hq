@@ -3,6 +3,13 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import {
@@ -21,6 +28,7 @@ import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import {
   getProject,
   listMaterials,
+  listExpenseCategories,
   createMaterialsSection,
   updateMaterialsSection,
   deleteMaterialsSection,
@@ -28,7 +36,10 @@ import {
   updateMaterialsItem,
   deleteMaterialsItem,
   type MaterialsSection,
+  type ExpenseCategory,
 } from "@/lib/api";
+
+const NONE = "__none__";
 
 // ---------------------------------------------------------------------------
 // Draft model — the whole sheet is edited locally and only written to
@@ -40,6 +51,8 @@ interface DraftItem {
   name: string;
   quantity: number;
   unit_cost: number;
+  /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
+  expense_category_id: string | null;
 }
 interface DraftSection {
   id: string;
@@ -59,11 +72,18 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       name: i.name,
       quantity: Number(i.quantity),
       unit_cost: Number(i.unit_cost),
+      expense_category_id: i.expense_category_id ?? null,
     })),
   }));
 
-const itemChanged = (a: DraftItem, b: { name: string; quantity: number; unit_cost: number }) =>
-  a.name !== b.name || a.quantity !== b.quantity || a.unit_cost !== b.unit_cost;
+const itemChanged = (
+  a: DraftItem,
+  b: { name: string; quantity: number; unit_cost: number; expense_category_id: string | null },
+) =>
+  a.name !== b.name ||
+  a.quantity !== b.quantity ||
+  a.unit_cost !== b.unit_cost ||
+  a.expense_category_id !== b.expense_category_id;
 
 export function ProjectMaterialsView() {
   const { id = "" } = useParams();
@@ -75,6 +95,10 @@ export function ProjectMaterialsView() {
     queryKey: ["materials", { project: id }],
     queryFn: () => listMaterials(id),
     refetchOnWindowFocus: false,
+  });
+  const { data: expenseCategories = [] } = useQuery({
+    queryKey: ["expense-categories"],
+    queryFn: listExpenseCategories,
   });
 
   const [draft, setDraft] = useState<DraftSection[]>([]);
@@ -109,7 +133,13 @@ export function ProjectMaterialsView() {
     edit((d) =>
       d.map((s) =>
         s.id === sid
-          ? { ...s, items: [...s.items, { id: tmpId(), name: "", quantity: 0, unit_cost: 0 }] }
+          ? {
+              ...s,
+              items: [
+                ...s.items,
+                { id: tmpId(), name: "", quantity: 0, unit_cost: 0, expense_category_id: null },
+              ],
+            }
           : s,
       ),
     );
@@ -171,18 +201,21 @@ export function ProjectMaterialsView() {
               quantity: di.quantity,
               unit_cost: di.unit_cost,
               sort_order: ii,
+              expense_category_id: di.expense_category_id,
             });
           } else if (
             itemChanged(di, {
               name: srv.name,
               quantity: Number(srv.quantity),
               unit_cost: Number(srv.unit_cost),
+              expense_category_id: srv.expense_category_id ?? null,
             })
           ) {
             await updateMaterialsItem(srv.id, {
               name: di.name,
               quantity: di.quantity,
               unit_cost: di.unit_cost,
+              expense_category_id: di.expense_category_id,
             });
           }
         }
@@ -247,6 +280,7 @@ export function ProjectMaterialsView() {
         <SectionCard
           key={section.id}
           section={section}
+          expenseCategories={expenseCategories}
           onRename={(name) => renameSection(section.id, name)}
           onDelete={() => deleteSection(section.id)}
           onAddItem={() => addItem(section.id)}
@@ -278,6 +312,7 @@ export function ProjectMaterialsView() {
 
 interface SectionCardProps {
   section: DraftSection;
+  expenseCategories: ExpenseCategory[];
   onRename: (name: string) => void;
   onDelete: () => void;
   onAddItem: () => void;
@@ -285,7 +320,15 @@ interface SectionCardProps {
   onDeleteItem: (itemId: string) => void;
 }
 
-function SectionCard({ section, onRename, onDelete, onAddItem, onEditItem, onDeleteItem }: SectionCardProps) {
+function SectionCard({
+  section,
+  expenseCategories,
+  onRename,
+  onDelete,
+  onAddItem,
+  onEditItem,
+  onDeleteItem,
+}: SectionCardProps) {
   const subtotal = section.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0);
 
   return (
@@ -343,6 +386,7 @@ function SectionCard({ section, onRename, onDelete, onAddItem, onEditItem, onDel
           <ItemRow
             key={item.id}
             item={item}
+            expenseCategories={expenseCategories}
             onEdit={(patch) => onEditItem(item.id, patch)}
             onDelete={() => onDeleteItem(item.id)}
           />
@@ -364,11 +408,12 @@ const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-mu
 
 interface ItemRowProps {
   item: DraftItem;
+  expenseCategories: ExpenseCategory[];
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
 
-function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
+function ItemRow({ item, expenseCategories, onEdit, onDelete }: ItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
@@ -399,6 +444,28 @@ function ItemRow({ item, onEdit, onDelete }: ItemRowProps) {
         >
           <Trash2 className="h-4 w-4" />
         </button>
+      </div>
+
+      {/* Category — optional, its own full-width row so the picked name is
+          never truncated/clipped on mobile. */}
+      <div>
+        <div className={ITEM_FIELD_LABEL}>Category</div>
+        <Select
+          value={item.expense_category_id ?? NONE}
+          onValueChange={(v) => onEdit({ expense_category_id: v === NONE ? null : v })}
+        >
+          <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
+            <SelectValue placeholder="Uncategorized" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>Uncategorized</SelectItem>
+            {expenseCategories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Qty · Unit cost · Total */}

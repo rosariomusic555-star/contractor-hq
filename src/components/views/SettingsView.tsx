@@ -8,6 +8,7 @@ const SECTIONS = [
   { label: "Business profile", to: "/settings/business-profile" },
   { label: "Quote defaults", to: "/settings/quote-defaults" },
   { label: "Categories", to: "/settings/categories" },
+  { label: "Expense categories", to: "/settings/expense-categories" },
   { label: "Invoicing & payments", to: "/settings/invoicing" },
   { label: "Pricebook & materials", to: "/settings/pricebook" },
   { label: "Team & crews", to: "/settings/team" },
