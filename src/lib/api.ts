@@ -123,6 +123,17 @@ export interface Invoice {
   project?: ProjectRef | null;
 }
 
+/** A user's own editable list of cost categories (Settings > Expense
+ * categories) — distinct from `Category` (work-type tags on quote line
+ * items, driving revenue-by-category). No relation between the two. */
+export interface ExpenseCategory {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface MaterialsItem {
   id: string;
   section_id: string;
@@ -130,6 +141,8 @@ export interface MaterialsItem {
   quantity: number;
   unit_cost: number;
   sort_order: number;
+  /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
+  expense_category_id: string | null;
 }
 
 export interface MaterialsSection {
@@ -149,6 +162,8 @@ export interface Expense {
   // For the contractor's reference only — never used in any calculation.
   date: string | null;
   created_at: string;
+  /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
+  expense_category_id: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +366,53 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Expense categories (Settings > Expense categories) — cost/material tags
+// for expenses and Materials Sheet line items. Seeded per-user by a DB
+// trigger on signup (0021), completely separate from `categories` (work-type
+// tags on quote line items — see that type's doc comment). Deleting one sets
+// expense_category_id to null on any expenses/materials_items that
+// referenced it (0022's on delete set null) — no reassignment step needed.
+// ---------------------------------------------------------------------------
+
+export async function listExpenseCategories(): Promise<ExpenseCategory[]> {
+  const { data, error } = await supabase.from("expense_categories").select("*").order("sort_order");
+  if (error) {
+    // PGRST205 = "table not found in schema cache" — migration 0020 hasn't
+    // been run yet. Degrade to empty instead of breaking every expense/
+    // materials screen, same as listCategories()/getQuoteDefaults().
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createExpenseCategory(input: {
+  name: string;
+  sort_order?: number;
+}): Promise<ExpenseCategory> {
+  const { data, error } = await supabase
+    .from("expense_categories")
+    .insert({ name: input.name, sort_order: input.sort_order ?? 0 })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateExpenseCategory(
+  id: string,
+  patch: Partial<Pick<ExpenseCategory, "name" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("expense_categories").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteExpenseCategory(id: string): Promise<void> {
+  const { error } = await supabase.from("expense_categories").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Materials sheet
 // ---------------------------------------------------------------------------
 
@@ -396,7 +458,13 @@ export async function deleteMaterialsSection(id: string): Promise<void> {
 
 export async function addMaterialsItem(
   sectionId: string,
-  input: { name?: string; quantity?: number; unit_cost?: number; sort_order?: number },
+  input: {
+    name?: string;
+    quantity?: number;
+    unit_cost?: number;
+    sort_order?: number;
+    expense_category_id?: string | null;
+  },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
     .from("materials_items")
@@ -406,6 +474,7 @@ export async function addMaterialsItem(
       quantity: input.quantity ?? 0,
       unit_cost: input.unit_cost ?? 0,
       sort_order: input.sort_order ?? 0,
+      expense_category_id: input.expense_category_id ?? null,
     })
     .select()
     .single();
@@ -415,7 +484,9 @@ export async function addMaterialsItem(
 
 export async function updateMaterialsItem(
   id: string,
-  patch: Partial<Pick<MaterialsItem, "name" | "quantity" | "unit_cost" | "sort_order">>,
+  patch: Partial<
+    Pick<MaterialsItem, "name" | "quantity" | "unit_cost" | "sort_order" | "expense_category_id">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("materials_items").update(patch).eq("id", id);
   if (error) throw error;
@@ -770,6 +841,7 @@ export async function createExpense(input: {
   name: string;
   amount: number;
   date?: string | null;
+  expense_category_id?: string | null;
 }): Promise<Expense> {
   const {
     data: { user },
@@ -786,11 +858,23 @@ export async function createExpense(input: {
       name: input.name,
       amount: input.amount,
       date: input.date ?? null,
+      expense_category_id: input.expense_category_id ?? null,
     })
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Expenses are otherwise create/delete-only — this exists just so a
+ * mis-tagged or untagged expense can be recategorized without deleting and
+ * re-adding it. */
+export async function updateExpense(
+  id: string,
+  patch: Partial<Pick<Expense, "expense_category_id">>,
+): Promise<void> {
+  const { error } = await supabase.from("expenses").update(patch).eq("id", id);
+  if (error) throw error;
 }
 
 export async function deleteExpense(id: string): Promise<void> {
