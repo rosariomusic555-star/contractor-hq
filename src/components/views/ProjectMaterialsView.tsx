@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, BookOpen, Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import {
@@ -29,6 +30,7 @@ import {
   getProject,
   listMaterials,
   listExpenseCategories,
+  listPriceBookItems,
   createMaterialsSection,
   updateMaterialsSection,
   deleteMaterialsSection,
@@ -37,6 +39,7 @@ import {
   deleteMaterialsItem,
   type MaterialsSection,
   type ExpenseCategory,
+  type PriceBookItem,
 } from "@/lib/api";
 
 const NONE = "__none__";
@@ -53,6 +56,12 @@ interface DraftItem {
   unit_cost: number;
   /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
   expense_category_id: string | null;
+  /** Free-text unit of measure (sf, cy, bag, lf, ea…). Not part of the math. */
+  unit: string;
+  /** Set when this line was picked from the Price Book — locks
+   * expense_category_id in the UI. Null = a normal custom line (or a pick
+   * that's since been unlinked). */
+  price_book_item_id: string | null;
 }
 interface DraftSection {
   id: string;
@@ -73,17 +82,28 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       quantity: Number(i.quantity),
       unit_cost: Number(i.unit_cost),
       expense_category_id: i.expense_category_id ?? null,
+      unit: i.unit ?? "",
+      price_book_item_id: i.price_book_item_id ?? null,
     })),
   }));
 
 const itemChanged = (
   a: DraftItem,
-  b: { name: string; quantity: number; unit_cost: number; expense_category_id: string | null },
+  b: {
+    name: string;
+    quantity: number;
+    unit_cost: number;
+    expense_category_id: string | null;
+    unit: string;
+    price_book_item_id: string | null;
+  },
 ) =>
   a.name !== b.name ||
   a.quantity !== b.quantity ||
   a.unit_cost !== b.unit_cost ||
-  a.expense_category_id !== b.expense_category_id;
+  a.expense_category_id !== b.expense_category_id ||
+  a.unit !== b.unit ||
+  a.price_book_item_id !== b.price_book_item_id;
 
 export function ProjectMaterialsView() {
   const { id = "" } = useParams();
@@ -99,6 +119,10 @@ export function ProjectMaterialsView() {
   const { data: expenseCategories = [] } = useQuery({
     queryKey: ["expense-categories"],
     queryFn: listExpenseCategories,
+  });
+  const { data: priceBookItems = [] } = useQuery({
+    queryKey: ["price-book"],
+    queryFn: listPriceBookItems,
   });
 
   const [draft, setDraft] = useState<DraftSection[]>([]);
@@ -137,7 +161,15 @@ export function ProjectMaterialsView() {
               ...s,
               items: [
                 ...s.items,
-                { id: tmpId(), name: "", quantity: 0, unit_cost: 0, expense_category_id: null },
+                {
+                  id: tmpId(),
+                  name: "",
+                  quantity: 0,
+                  unit_cost: 0,
+                  expense_category_id: null,
+                  unit: "",
+                  price_book_item_id: null,
+                },
               ],
             }
           : s,
@@ -195,6 +227,7 @@ export function ProjectMaterialsView() {
         for (let ii = 0; ii < ds.items.length; ii++) {
           const di = ds.items[ii];
           const srv = serverItems.get(di.id);
+          const unit = di.unit.trim() || null;
           if (!srv) {
             await addMaterialsItem(sectionId, {
               name: di.name,
@@ -202,6 +235,8 @@ export function ProjectMaterialsView() {
               unit_cost: di.unit_cost,
               sort_order: ii,
               expense_category_id: di.expense_category_id,
+              unit,
+              price_book_item_id: di.price_book_item_id,
             });
           } else if (
             itemChanged(di, {
@@ -209,6 +244,8 @@ export function ProjectMaterialsView() {
               quantity: Number(srv.quantity),
               unit_cost: Number(srv.unit_cost),
               expense_category_id: srv.expense_category_id ?? null,
+              unit: srv.unit ?? "",
+              price_book_item_id: srv.price_book_item_id ?? null,
             })
           ) {
             await updateMaterialsItem(srv.id, {
@@ -216,6 +253,8 @@ export function ProjectMaterialsView() {
               quantity: di.quantity,
               unit_cost: di.unit_cost,
               expense_category_id: di.expense_category_id,
+              unit,
+              price_book_item_id: di.price_book_item_id,
             });
           }
         }
@@ -281,6 +320,7 @@ export function ProjectMaterialsView() {
           key={section.id}
           section={section}
           expenseCategories={expenseCategories}
+          priceBookItems={priceBookItems}
           onRename={(name) => renameSection(section.id, name)}
           onDelete={() => deleteSection(section.id)}
           onAddItem={() => addItem(section.id)}
@@ -313,6 +353,7 @@ export function ProjectMaterialsView() {
 interface SectionCardProps {
   section: DraftSection;
   expenseCategories: ExpenseCategory[];
+  priceBookItems: PriceBookItem[];
   onRename: (name: string) => void;
   onDelete: () => void;
   onAddItem: () => void;
@@ -323,6 +364,7 @@ interface SectionCardProps {
 function SectionCard({
   section,
   expenseCategories,
+  priceBookItems,
   onRename,
   onDelete,
   onAddItem,
@@ -387,6 +429,7 @@ function SectionCard({
             key={item.id}
             item={item}
             expenseCategories={expenseCategories}
+            priceBookItems={priceBookItems}
             onEdit={(patch) => onEditItem(item.id, patch)}
             onDelete={() => onDeleteItem(item.id)}
           />
@@ -409,24 +452,40 @@ const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-mu
 interface ItemRowProps {
   item: DraftItem;
   expenseCategories: ExpenseCategory[];
+  priceBookItems: PriceBookItem[];
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
 
-function ItemRow({ item, expenseCategories, onEdit, onDelete }: ItemRowProps) {
+function ItemRow({ item, expenseCategories, priceBookItems, onEdit, onDelete }: ItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
   const [costStr, setCostStr] = useState(String(item.unit_cost));
+  const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => setQtyStr(String(item.quantity)), [item.quantity]);
   useEffect(() => setCostStr(String(item.unit_cost)), [item.unit_cost]);
 
   const total = item.quantity * item.unit_cost;
+  const linked = item.price_book_item_id != null;
+  const linkedCategoryName =
+    expenseCategories.find((c) => c.id === item.expense_category_id)?.name ?? "Uncategorized";
+
+  const applyPick = (pbi: PriceBookItem) => {
+    onEdit({
+      name: pbi.name,
+      unit: pbi.unit ?? "",
+      unit_cost: Number(pbi.unit_price),
+      expense_category_id: pbi.expense_category_id,
+      price_book_item_id: pbi.id,
+    });
+    setPickerOpen(false);
+  };
 
   return (
     <div className="flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover">
-      {/* Item name + delete */}
-      <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] items-end gap-3">
+      {/* Item name + price book picker + delete */}
+      <div className="grid grid-cols-[minmax(0,1fr)_1.75rem_1.75rem] items-end gap-3">
         <div className="min-w-0">
           <div className={ITEM_FIELD_LABEL}>Item</div>
           <AutoGrowTextarea
@@ -438,6 +497,19 @@ function ItemRow({ item, expenseCategories, onEdit, onDelete }: ItemRowProps) {
         </div>
         <button
           type="button"
+          onClick={() => setPickerOpen(true)}
+          className={cn(
+            "mb-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-lg transition-colors",
+            linked
+              ? "bg-primary/15 text-primary hover:bg-primary/25"
+              : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
+          )}
+          aria-label="Pick from Price Book"
+        >
+          <BookOpen className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
           onClick={onDelete}
           className="mb-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
           aria-label="Remove item"
@@ -446,30 +518,50 @@ function ItemRow({ item, expenseCategories, onEdit, onDelete }: ItemRowProps) {
         </button>
       </div>
 
-      {/* Category — optional, its own full-width row so the picked name is
-          never truncated/clipped on mobile. */}
+      {/* Category — its own full-width row so the picked name is never
+          truncated/clipped on mobile. Locked (read-only) once this line is
+          linked to a Price Book item — that's what's meant to keep cost
+          categorization consistent; unlink to edit it directly again. */}
       <div>
-        <div className={ITEM_FIELD_LABEL}>Category</div>
-        <Select
-          value={item.expense_category_id ?? NONE}
-          onValueChange={(v) => onEdit({ expense_category_id: v === NONE ? null : v })}
-        >
-          <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
-            <SelectValue placeholder="Uncategorized" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Uncategorized</SelectItem>
-            {expenseCategories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center justify-between">
+          <div className={ITEM_FIELD_LABEL}>Category</div>
+          {linked && (
+            <button
+              type="button"
+              onClick={() => onEdit({ price_book_item_id: null })}
+              className="text-[11px] font-bold text-primary hover:underline"
+            >
+              Unlink
+            </button>
+          )}
+        </div>
+        {linked ? (
+          <div className="mt-1 flex h-[42px] items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm font-medium text-foreground">
+            <Lock className="h-3.5 w-3.5 shrink-0 text-muted-subtle" />
+            <span className="truncate">{linkedCategoryName}</span>
+          </div>
+        ) : (
+          <Select
+            value={item.expense_category_id ?? NONE}
+            onValueChange={(v) => onEdit({ expense_category_id: v === NONE ? null : v })}
+          >
+            <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
+              <SelectValue placeholder="Uncategorized" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Uncategorized</SelectItem>
+              {expenseCategories.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
-      {/* Qty · Unit cost · Total */}
-      <div className="grid grid-cols-3 gap-3">
+      {/* Qty · Unit · Unit cost · Total — two-up on mobile, four-up from sm. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <label className="block">
           <div className={ITEM_FIELD_LABEL}>Qty</div>
           <Input
@@ -483,6 +575,16 @@ function ItemRow({ item, expenseCategories, onEdit, onDelete }: ItemRowProps) {
             }}
             className="mt-1 h-[42px] tabular-nums"
             aria-label="Quantity"
+          />
+        </label>
+        <label className="block">
+          <div className={ITEM_FIELD_LABEL}>Unit</div>
+          <Input
+            value={item.unit}
+            onChange={(e) => onEdit({ unit: e.target.value })}
+            placeholder="sf, cy, bag…"
+            className="mt-1 h-[42px]"
+            aria-label="Unit"
           />
         </label>
         <label className="block">
@@ -507,6 +609,88 @@ function ItemRow({ item, expenseCategories, onEdit, onDelete }: ItemRowProps) {
           </div>
         </div>
       </div>
+
+      <PriceBookPicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        priceBookItems={priceBookItems}
+        expenseCategories={expenseCategories}
+        onSelect={applyPick}
+      />
     </div>
+  );
+}
+
+function PriceBookPicker({
+  open,
+  onOpenChange,
+  priceBookItems,
+  expenseCategories,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  priceBookItems: PriceBookItem[];
+  expenseCategories: ExpenseCategory[];
+  onSelect: (item: PriceBookItem) => void;
+}) {
+  const [filter, setFilter] = useState("");
+  useEffect(() => {
+    if (open) setFilter("");
+  }, [open]);
+
+  const categoryName = (categoryId: string | null) =>
+    expenseCategories.find((c) => c.id === categoryId)?.name ?? "Uncategorized";
+  const filtered = priceBookItems.filter((i) =>
+    i.name.toLowerCase().includes(filter.trim().toLowerCase()),
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[80vh] max-w-md flex-col gap-3">
+        <DialogHeader>
+          <DialogTitle>Pick from Price Book</DialogTitle>
+        </DialogHeader>
+
+        {priceBookItems.length > 0 && (
+          <Input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Search your saved materials…"
+            autoFocus
+          />
+        )}
+
+        <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+          {priceBookItems.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Your Price Book is empty. Add items in Settings → Price Book, then pick them here
+              instead of retyping them every job.
+            </p>
+          ) : filtered.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">No matches.</p>
+          ) : (
+            <div className="divide-y divide-hairline">
+              {filtered.map((pbi) => (
+                <button
+                  key={pbi.id}
+                  type="button"
+                  onClick={() => onSelect(pbi)}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-3 text-left transition-colors hover:bg-muted/50"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-foreground">{pbi.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {pbi.unit ? `${pbi.unit} · ` : ""}
+                      {formatCurrency(pbi.unit_price)} · {categoryName(pbi.expense_category_id)}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
