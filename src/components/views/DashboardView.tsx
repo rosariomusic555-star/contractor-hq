@@ -16,7 +16,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { listQuotes, listInvoices, createQuote, createInvoice } from "@/lib/api";
 import { monthlyRevenue } from "@/lib/metrics";
 import { overdueCount } from "@/lib/aging";
-import { DEMO_HOURS_PER_WEEK, DEMO_REVENUE_GOAL, DEMO_WEEKS_BOOKED } from "@/lib/demoData";
+import { DEMO_REVENUE_GOAL } from "@/lib/demoData";
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
@@ -133,7 +133,7 @@ export function DashboardView() {
       />
 
       {/* ---- Desktop KPI row ---- */}
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
+      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
         <Link to="/revenue" className={KPI_LINK_CLASS}>
           <KpiCard
             label="This month"
@@ -160,11 +160,6 @@ export function DashboardView() {
             clickable
           />
         </Link>
-        <KpiCard
-          label="Booked out"
-          value={`${DEMO_WEEKS_BOOKED} wks`}
-          sub={`${DEMO_HOURS_PER_WEEK} hrs/wk logged`}
-        />
       </div>
 
       {/* ---- Mobile revenue card ---- */}
