@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   getSharedQuote,
+  getSignedImageUrls,
   quoteLineTotal,
   signSharedQuote,
   type SharedQuoteSection,
@@ -76,6 +79,26 @@ export default function SharedQuotePage() {
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
+  // Every item image's storage_path, signed in one batch — get_shared_quote
+  // returns raw paths (not URLs); the anon storage.objects policy scoped to
+  // shared quotes (0023) decides whether this call actually succeeds.
+  // `i.images ?? []` guards a quote fetched before migration 0026 ran —
+  // the RPC simply won't have an `images` key on each item yet.
+  const allImagePaths = useMemo(
+    () =>
+      (data?.sections ?? []).flatMap((s) =>
+        s.items.flatMap((i) => (i.images ?? []).map((img) => img.storage_path)),
+      ),
+    [data],
+  );
+  const { data: signedUrls = {} } = useQuery({
+    queryKey: ["shared-quote-image-urls", token, allImagePaths.join(",")],
+    queryFn: () => getSignedImageUrls(allImagePaths),
+    enabled: allImagePaths.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
   if (!token || isError) {
     return <CenteredNotice>Quote not found.</CenteredNotice>;
   }
@@ -129,6 +152,8 @@ export default function SharedQuotePage() {
                 section={section}
                 sectionChecked={isSectionSelected(section.id)}
                 itemChecked={isItemSelected}
+                signedUrls={signedUrls}
+                onImageClick={setLightboxUrl}
                 onToggleSection={(checked) =>
                   setSectionSelected((prev) => ({ ...prev, [section.id]: checked }))
                 }
@@ -209,6 +234,15 @@ export default function SharedQuotePage() {
           </div>
         )}
       </div>
+
+      <Dialog open={!!lightboxUrl} onOpenChange={(open) => !open && setLightboxUrl(null)}>
+        <DialogContent className="max-w-lg gap-3 p-4">
+          <DialogTitle className="text-sm font-bold text-foreground">Photo</DialogTitle>
+          {lightboxUrl && (
+            <img src={lightboxUrl} alt="" className="max-h-[70vh] w-full rounded-xl object-contain" />
+          )}
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
@@ -217,12 +251,16 @@ function SectionBlock({
   section,
   sectionChecked,
   itemChecked,
+  signedUrls,
+  onImageClick,
   onToggleSection,
   onToggleItem,
 }: {
   section: SharedQuoteSection;
   sectionChecked: boolean;
   itemChecked: (itemId: string) => boolean;
+  signedUrls: Record<string, string>;
+  onImageClick: (url: string) => void;
   onToggleSection: (checked: boolean) => void;
   onToggleItem: (itemId: string, checked: boolean) => void;
 }) {
@@ -243,7 +281,14 @@ function SectionBlock({
           </span>
         </label>
         <div className={cn("space-y-2", !sectionChecked && "opacity-40 pointer-events-none")}>
-          <ItemsTable items={section.items} showItemCheckbox={false} itemChecked={itemChecked} onToggleItem={onToggleItem} />
+          <ItemsTable
+            items={section.items}
+            showItemCheckbox={false}
+            itemChecked={itemChecked}
+            signedUrls={signedUrls}
+            onImageClick={onImageClick}
+            onToggleItem={onToggleItem}
+          />
           {sectionChecked && (
             <p className="text-right text-sm font-medium text-foreground">
               Subtotal: {formatCurrency(subtotal)}
@@ -266,6 +311,8 @@ function SectionBlock({
         items={section.items}
         showItemCheckbox
         itemChecked={itemChecked}
+        signedUrls={signedUrls}
+        onImageClick={onImageClick}
         onToggleItem={onToggleItem}
       />
       <p className="text-right text-sm font-medium text-foreground">
@@ -279,11 +326,15 @@ function ItemsTable({
   items,
   showItemCheckbox,
   itemChecked,
+  signedUrls,
+  onImageClick,
   onToggleItem,
 }: {
   items: SharedQuoteSection["items"];
   showItemCheckbox: boolean;
   itemChecked: (itemId: string) => boolean;
+  signedUrls: Record<string, string>;
+  onImageClick: (url: string) => void;
   onToggleItem: (itemId: string, checked: boolean) => void;
 }) {
   return (
@@ -293,6 +344,8 @@ function ItemsTable({
         const qty = item.quantity == null ? 1 : Number(item.quantity);
         const unit = item.unit?.trim();
         const showMeta = qty !== 1 || !!unit || !!item.description;
+        // Guards a quote fetched before migration 0026 ran (see above).
+        const images = item.images ?? [];
         return (
           <div
             key={item.id}
@@ -315,6 +368,34 @@ function ItemsTable({
                     {(qty !== 1 || unit) && item.description && " · "}
                     {item.description}
                   </p>
+                )}
+                {images.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {images.map((img) =>
+                      signedUrls[img.storage_path] ? (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onClick={() => onImageClick(signedUrls[img.storage_path])}
+                          className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-muted"
+                          aria-label="View photo"
+                        >
+                          <img
+                            src={signedUrls[img.storage_path]}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <div
+                          key={img.id}
+                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted"
+                        >
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-subtle" />
+                        </div>
+                      ),
+                    )}
+                  </div>
                 )}
               </div>
             </div>
