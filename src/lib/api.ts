@@ -919,29 +919,33 @@ export async function deleteQuoteItem(id: string): Promise<void> {
 
 // ---------------------------------------------------------------------------
 // Quote item images — photos attached to a quote line item (0024). Multiple
-// per item; each upload is a real, immediate write (unlike the rest of the
-// Quote Builder, which edits a local draft) since quote_item_images has a
-// hard FK to a real quote_item_id — there's nowhere to attach a photo to a
-// brand-new, not-yet-saved ("tmp-") line item. The Quote Builder disables
-// the image slot on unsaved items rather than trying to draft an upload.
+// per item. Like the rest of the Quote Builder, these are part of the local
+// draft: a picked file is compressed and held as a blob (+ a local preview
+// URL) in QuoteWorkspace's draft state, and only actually uploaded here when
+// "Save changes" runs and a real quote_item_id exists — including for a
+// brand-new, not-yet-saved line item, which gets one the moment it's
+// created during that same save. Discarding the draft never touches
+// Storage at all, so there's nothing to orphan.
 // ---------------------------------------------------------------------------
 
 /**
- * Compresses, uploads to Storage, and records the row — in that order, so a
- * failed DB insert rolls back the (already-uploaded) storage object rather
- * than leaving an orphan.
+ * Uploads an already-compressed blob to Storage and records the row — in
+ * that order, so a failed DB insert rolls back the (already-uploaded)
+ * storage object rather than leaving an orphan. Takes a pre-compressed blob
+ * (not a raw File) — the caller compresses once, at pick-time, so the local
+ * preview shown while the quote is still a draft matches exactly what
+ * eventually gets uploaded, and Save never redoes that work.
  */
 export async function uploadQuoteItemImage(
   quoteItemId: string,
-  file: File,
+  blob: Blob,
   sortOrder = 0,
 ): Promise<QuoteItemImage> {
-  const compressed = await compressImageFile(file);
-  const path = `quote-items/${quoteItemId}/${randomImageFilename(file.name)}`;
+  const path = `quote-items/${quoteItemId}/${crypto.randomUUID()}.jpg`;
 
   const { error: uploadError } = await supabase.storage
     .from(IMAGES_BUCKET)
-    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+    .upload(path, blob, { contentType: "image/jpeg", upsert: false });
   if (uploadError) throw uploadError;
 
   const { data, error } = await supabase
