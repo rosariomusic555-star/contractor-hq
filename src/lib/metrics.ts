@@ -1,4 +1,5 @@
-import type { Invoice } from "./api";
+import type { Category, Invoice, Quote } from "./api";
+import { quoteItemIncluded, quoteLineTotal, quoteTotal } from "./api";
 
 export interface MonthPoint {
   key: string; // "2024-01"
@@ -29,4 +30,68 @@ export function momChange(points: MonthPoint[]): number | null {
   const curr = points[points.length - 1].revenue;
   if (prev === 0) return null;
   return ((curr - prev) / prev) * 100;
+}
+
+export interface CategoryRevenue {
+  /** Category id, or "uncategorized" for the null bucket. */
+  id: string;
+  name: string;
+  amount: number;
+}
+
+/**
+ * Revenue recognized per category, for the Money page's "Revenue by
+ * category" card.
+ *
+ * A quote counts only once it's "fully paid": the sum of its paid invoices'
+ * amounts covers quoteTotal(). At that point quoteTotal() (not the raw
+ * invoice sum, which needn't match it) is attributed across categories in
+ * proportion to each category's share of the quote's included line items —
+ * which is just each item's quoteLineTotal() bucketed by category_id.
+ * Partially-paid quotes contribute nothing yet, anywhere.
+ *
+ * An invoice with no quote_id (standalone, or a project invoice never linked
+ * to a quote) has no line items to categorize — a paid one counts its full
+ * amount toward Uncategorized instead of being dropped.
+ */
+export function revenueByCategory(
+  quotes: Quote[],
+  invoices: Invoice[],
+  categories: Category[],
+): CategoryRevenue[] {
+  const totals = new Map<string, number>();
+  const add = (categoryId: string | null, amount: number) => {
+    const key = categoryId ?? "uncategorized";
+    totals.set(key, (totals.get(key) ?? 0) + amount);
+  };
+
+  const paidByQuote = new Map<string, number>();
+  for (const inv of invoices) {
+    if (inv.status !== "paid") continue;
+    if (inv.quote_id) {
+      paidByQuote.set(inv.quote_id, (paidByQuote.get(inv.quote_id) ?? 0) + Number(inv.amount));
+    } else {
+      add(null, Number(inv.amount));
+    }
+  }
+
+  for (const quote of quotes) {
+    const total = quoteTotal(quote.quote_sections);
+    if (total <= 0) continue;
+    if ((paidByQuote.get(quote.id) ?? 0) < total) continue;
+    for (const section of quote.quote_sections) {
+      for (const item of section.quote_items ?? []) {
+        if (quoteItemIncluded(section, item)) add(item.category_id, quoteLineTotal(item));
+      }
+    }
+  }
+
+  const nameById = new Map(categories.map((c) => [c.id, c.name]));
+  return [...totals.entries()]
+    .map(([id, amount]) => ({
+      id,
+      name: id === "uncategorized" ? "Uncategorized" : (nameById.get(id) ?? "Uncategorized"),
+      amount,
+    }))
+    .sort((a, b) => b.amount - a.amount);
 }

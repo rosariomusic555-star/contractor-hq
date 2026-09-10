@@ -55,14 +55,6 @@ export const DEMO_WEEKS_BOOKED = 5.5;
 export const DEMO_HOURS_PER_WEEK = 38;
 export const DEMO_AVG_DAYS_TO_PAY = 19;
 
-export const DEMO_WORK_TYPE_SPLIT = [
-  { label: "Paver patios & walks", amount: 248_600, pct: 43, color: "hsl(var(--primary))" },
-  { label: "Retaining walls", amount: 132_300, pct: 23, color: "hsl(var(--sidebar-background))" },
-  { label: "Driveways", amount: 109_800, pct: 19, color: "hsl(var(--info))" },
-  { label: "Steps, seat walls, fire pits", amount: 63_300, pct: 11, color: "hsl(var(--warning-strong))" },
-  { label: "Repairs & maintenance", amount: 21_200, pct: 4, color: "hsl(var(--border))" },
-] as const;
-
 // Quote validity days / sales tax % / deposit % / terms used to live here as
 // fixed demo constants. They're now real, persisted Quote defaults (Settings
 // > Quote defaults, src/lib/api.ts QuoteDefaults) — demoQuoteFinancials() and

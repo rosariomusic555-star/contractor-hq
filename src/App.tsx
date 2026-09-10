@@ -26,6 +26,7 @@ import { ClientFormView } from "@/components/views/ClientFormView";
 import { SettingsView } from "@/components/views/SettingsView";
 import { SettingsBusinessProfileView } from "@/components/views/SettingsBusinessProfileView";
 import { SettingsQuoteDefaultsView } from "@/components/views/SettingsQuoteDefaultsView";
+import { SettingsCategoriesView } from "@/components/views/SettingsCategoriesView";
 import { SettingsInvoicingView } from "@/components/views/SettingsInvoicingView";
 import { SettingsPricebookView } from "@/components/views/SettingsPricebookView";
 import { SettingsTeamView } from "@/components/views/SettingsTeamView";
@@ -76,6 +77,7 @@ const App = () => (
               <Route path="/settings" element={<SettingsView />} />
               <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
               <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
+              <Route path="/settings/categories" element={<SettingsCategoriesView />} />
               <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
               <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
               <Route path="/settings/team" element={<SettingsTeamView />} />
