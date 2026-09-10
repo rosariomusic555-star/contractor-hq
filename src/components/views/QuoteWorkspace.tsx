@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -51,6 +51,7 @@ import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteFinancials, demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
+import { compressImageFile } from "@/lib/imageUpload";
 import {
   listClients,
   listProjects,
@@ -73,8 +74,6 @@ import {
   getQuoteDefaults,
   QUOTE_DEFAULTS_FALLBACK,
   type Quote,
-  type QuoteItem,
-  type QuoteItemImage,
   type Category,
 } from "@/lib/api";
 
@@ -87,6 +86,22 @@ const NONE = "__none__";
 // and Link-to-project selects are NOT part of the draft — they save on change.
 // ---------------------------------------------------------------------------
 
+/**
+ * A photo on a draft line item — either not yet uploaded (`file` set, a
+ * pre-compressed blob held only in memory + `previewUrl`, a local
+ * `URL.createObjectURL`) or already persisted (`storage_path` set, `file`
+ * null, resolved to a signed URL for display same as everywhere else).
+ * Nothing in Storage exists for a `file`-backed image until Save uploads
+ * it — that's what makes Discard/navigating-away-without-saving safe: there
+ * is never anything to orphan, because nothing was ever written.
+ */
+interface DraftImage {
+  id: string;
+  storage_path: string | null;
+  file: Blob | null;
+  previewUrl: string | null;
+  sort_order: number;
+}
 interface DraftItem {
   id: string;
   name: string;
@@ -101,6 +116,7 @@ interface DraftItem {
   client_selected: boolean;
   /** Optional work category (Settings > Categories). Null = uncategorized. */
   category_id: string | null;
+  images: DraftImage[];
 }
 interface DraftSection {
   id: string;
@@ -118,6 +134,14 @@ interface QuoteDraft {
 const tmpId = () => `tmp-${crypto.randomUUID()}`;
 const isTmp = (id: string) => id.startsWith("tmp-");
 
+/** Revokes preview URLs for any not-yet-uploaded images on an item — call
+ * whenever a draft item is discarded or removed so it doesn't leak. */
+const revokeLocalImageUrls = (item: DraftItem) => {
+  for (const img of item.images) {
+    if (img.file && img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+  }
+};
+
 const seed = (quote: Quote): QuoteDraft => ({
   sections: quote.quote_sections.map((s) => ({
     id: s.id,
@@ -133,6 +157,13 @@ const seed = (quote: Quote): QuoteDraft => ({
       is_optional: i.is_optional,
       client_selected: i.client_selected,
       category_id: i.category_id ?? null,
+      images: (i.quote_item_images ?? []).map((img) => ({
+        id: img.id,
+        storage_path: img.storage_path,
+        file: null,
+        previewUrl: null,
+        sort_order: img.sort_order,
+      })),
     })),
   })),
   notes: quote.notes ?? "",
@@ -210,7 +241,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const setSections = (fn: (s: DraftSection[]) => DraftSection[]) =>
     edit((d) => ({ ...d, sections: fn(d.sections) }));
 
+  // Not-yet-uploaded image previews are local blob URLs — revoke them
+  // before throwing the draft away so they don't leak. Nothing was ever
+  // uploaded to Storage for them, so there's no server-side cleanup to do.
   const discard = () => {
+    for (const s of draft.sections) for (const i of s.items) revokeLocalImageUrls(i);
     dirty.current = false;
     setDraft(seed(quote));
   };
@@ -222,7 +257,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, name } : x)));
   const toggleSectionOptional = (sid: string, v: boolean) =>
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, is_optional: v } : x)));
-  const removeSection = (sid: string) => setSections((s) => s.filter((x) => x.id !== sid));
+  const removeSection = (sid: string) =>
+    setSections((s) => {
+      const target = s.find((x) => x.id === sid);
+      if (target) for (const i of target.items) revokeLocalImageUrls(i);
+      return s.filter((x) => x.id !== sid);
+    });
   const addItem = (sid: string) =>
     setSections((s) =>
       s.map((x) =>
@@ -241,6 +281,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   is_optional: false,
                   client_selected: false,
                   category_id: null,
+                  images: [],
                 },
               ],
             }
@@ -254,7 +295,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       ),
     );
   const removeItem = (sid: string, iid: string) =>
-    setSections((s) => s.map((x) => (x.id === sid ? { ...x, items: x.items.filter((i) => i.id !== iid) } : x)));
+    setSections((s) =>
+      s.map((x) => {
+        if (x.id !== sid) return x;
+        const removed = x.items.find((i) => i.id === iid);
+        if (removed) revokeLocalImageUrls(removed);
+        return { ...x, items: x.items.filter((i) => i.id !== iid) };
+      }),
+    );
 
   // --- server sync -------------------------------------------------------
   const invalidate = () => {
@@ -263,16 +311,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     qc.invalidateQueries({ queryKey: ["projects"] });
   };
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
-
-  // Photos are real, immediate server writes (not part of the draft — see
-  // QuoteItemRow) with a hard FK to a real quote_item_id, so they're always
-  // read from the server `quote` prop rather than the local draft. A draft
-  // row only has real photos once it's been saved (isTmp(id) === false).
-  const serverItemsById = useMemo(() => {
-    const map = new Map<string, QuoteItem>();
-    for (const s of quote.quote_sections) for (const i of s.quote_items) map.set(i.id, i);
-    return map;
-  }, [quote]);
 
   const updateClientMut = useMutation({
     mutationFn: (clientId: string | null) => updateQuote(quote.id, { client_id: clientId }),
@@ -336,8 +374,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           const desc = di.description.trim() || null;
           const unit = di.unit.trim() || null;
           const srv = serverItems.get(di.id);
+          let itemId: string;
+
           if (!srv) {
-            await addQuoteItem(sectionId, {
+            const created = await addQuoteItem(sectionId, {
               name: di.name,
               description: desc,
               price: di.price,
@@ -347,26 +387,48 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               sort_order: ii,
               category_id: di.category_id,
             });
-          } else if (
-            srv.name !== di.name ||
-            (srv.description ?? null) !== desc ||
-            Number(srv.price) !== di.price ||
-            (srv.quantity == null ? 1 : Number(srv.quantity)) !== di.quantity ||
-            (srv.unit ?? null) !== unit ||
-            srv.is_optional !== di.is_optional ||
-            srv.sort_order !== ii ||
-            (srv.category_id ?? null) !== di.category_id
-          ) {
-            await updateQuoteItem(srv.id, {
-              name: di.name,
-              description: desc,
-              price: di.price,
-              quantity: di.quantity,
-              unit,
-              is_optional: di.is_optional,
-              sort_order: ii,
-              category_id: di.category_id,
-            });
+            itemId = created.id;
+          } else {
+            itemId = srv.id;
+            if (
+              srv.name !== di.name ||
+              (srv.description ?? null) !== desc ||
+              Number(srv.price) !== di.price ||
+              (srv.quantity == null ? 1 : Number(srv.quantity)) !== di.quantity ||
+              (srv.unit ?? null) !== unit ||
+              srv.is_optional !== di.is_optional ||
+              srv.sort_order !== ii ||
+              (srv.category_id ?? null) !== di.category_id
+            ) {
+              await updateQuoteItem(srv.id, {
+                name: di.name,
+                description: desc,
+                price: di.price,
+                quantity: di.quantity,
+                unit,
+                is_optional: di.is_optional,
+                sort_order: ii,
+                category_id: di.category_id,
+              });
+            }
+          }
+
+          // Images — diff the draft against what's actually persisted for
+          // this item. A brand-new item has no server images at all, so
+          // every draft image on it is by definition a fresh upload.
+          const serverImages = srv?.quote_item_images ?? [];
+          const draftImageIds = new Set(
+            di.images.filter((img) => img.storage_path).map((img) => img.id),
+          );
+          for (const img of serverImages) {
+            if (!draftImageIds.has(img.id)) await deleteQuoteItemImage(img);
+          }
+          for (let ki = 0; ki < di.images.length; ki++) {
+            const dimg = di.images[ki];
+            if (dimg.file) {
+              await uploadQuoteItemImage(itemId, dimg.file, ki);
+              if (dimg.previewUrl) URL.revokeObjectURL(dimg.previewUrl);
+            }
           }
         }
       }
@@ -601,8 +663,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               section={section}
               subtotal={sectionSubtotal(section)}
               categories={categories}
-              serverItemsById={serverItemsById}
-              onImagesChanged={invalidate}
               onRename={(name) => renameSection(section.id, name)}
               onToggleOptional={(checked) => toggleSectionOptional(section.id, checked)}
               onDeleteSection={() => removeSection(section.id)}
@@ -1085,8 +1145,6 @@ interface QuoteSectionCardProps {
   section: DraftSection;
   subtotal: number;
   categories: Category[];
-  serverItemsById: Map<string, QuoteItem>;
-  onImagesChanged: () => void;
   onRename: (name: string) => void;
   onToggleOptional: (checked: boolean) => void;
   onDeleteSection: () => void;
@@ -1099,8 +1157,6 @@ function QuoteSectionCard({
   section,
   subtotal,
   categories,
-  serverItemsById,
-  onImagesChanged,
   onRename,
   onToggleOptional,
   onDeleteSection,
@@ -1180,8 +1236,6 @@ function QuoteSectionCard({
             key={item.id}
             item={item}
             categories={categories}
-            serverItem={serverItemsById.get(item.id)}
-            onImagesChanged={onImagesChanged}
             onEdit={(patch) => onEditItem(item.id, patch)}
             onDelete={() => onDeleteItem(item.id)}
           />
@@ -1202,25 +1256,13 @@ function QuoteSectionCard({
 interface QuoteItemRowProps {
   item: DraftItem;
   categories: Category[];
-  /** The real, saved server item this draft row corresponds to — undefined
-   * for a brand-new ("tmp-") row that hasn't been saved yet. Photos read
-   * from here, not the draft (see the serverItemsById comment above). */
-  serverItem: QuoteItem | undefined;
-  onImagesChanged: () => void;
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
 
 const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
-function QuoteItemRow({
-  item,
-  categories,
-  serverItem,
-  onImagesChanged,
-  onEdit,
-  onDelete,
-}: QuoteItemRowProps) {
+function QuoteItemRow({ item, categories, onEdit, onDelete }: QuoteItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
@@ -1286,9 +1328,10 @@ function QuoteItemRow({
         </Select>
       </div>
 
-      {/* Photos — optional, multiple. Real server writes the moment a file
-          is picked (not part of the draft — see QuoteItemRowProps). */}
-      <QuoteItemPhotos serverItem={serverItem} onImagesChanged={onImagesChanged} />
+      {/* Photos — optional, multiple. Part of the draft like every other
+          field here: picking a file compresses + previews it locally, and
+          it's only uploaded when the whole quote is saved. */}
+      <QuoteItemPhotos item={item} onEdit={onEdit} />
 
       {/* Qty · Unit · Rate · Line total — two-up on mobile, four-up from sm. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -1355,46 +1398,68 @@ function QuoteItemRow({
 const THUMB_CLASS = "h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted";
 
 interface QuoteItemPhotosProps {
-  serverItem: QuoteItem | undefined;
-  onImagesChanged: () => void;
+  item: DraftItem;
+  onEdit: (patch: Partial<DraftItem>) => void;
 }
 
-function QuoteItemPhotos({ serverItem, onImagesChanged }: QuoteItemPhotosProps) {
+/**
+ * Fully draft-driven, like every other field on this row — picking a file
+ * compresses it immediately (so the preview matches exactly what will be
+ * uploaded) and adds it to `item.images` via `onEdit`, same as typing into
+ * any other field. Nothing touches Storage until "Save changes" runs (see
+ * QuoteWorkspace's saveMut), so this works identically on a brand-new,
+ * never-saved line item — there's no server item to attach to yet, and none
+ * is needed until save time.
+ */
+function QuoteItemPhotos({ item, onEdit }: QuoteItemPhotosProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [lightboxImage, setLightboxImage] = useState<QuoteItemImage | null>(null);
+  const [lightboxImageId, setLightboxImageId] = useState<string | null>(null);
+  const [compressing, setCompressing] = useState(false);
 
-  const images = serverItem?.quote_item_images ?? [];
-  const paths = images.map((i) => i.storage_path);
+  const images = item.images;
+  const lightboxImage = images.find((img) => img.id === lightboxImageId) ?? null;
 
+  // Only persisted images need a signed URL — local ones already have their
+  // own preview URL (see DraftImage).
+  const persistedImages = images.filter((img) => img.storage_path && !img.file);
+  const paths = persistedImages.map((img) => img.storage_path!);
   const { data: signedUrls = {} } = useQuery({
-    queryKey: ["quote-item-image-urls", serverItem?.id, images.map((i) => i.id).join(",")],
+    queryKey: ["quote-item-image-urls", item.id, persistedImages.map((i) => i.id).join(",")],
     queryFn: () => getSignedImageUrls(paths),
     enabled: paths.length > 0,
     staleTime: 30 * 60 * 1000,
   });
+  const srcFor = (img: DraftImage) => img.previewUrl ?? (img.storage_path ? signedUrls[img.storage_path] : undefined);
 
-  const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
-
-  const uploadMut = useMutation({
-    mutationFn: async (files: File[]) => {
-      if (!serverItem) return;
-      for (let i = 0; i < files.length; i++) {
-        await uploadQuoteItemImage(serverItem.id, files[i], images.length + i);
+  const addFiles = async (files: File[]) => {
+    setCompressing(true);
+    try {
+      const added: DraftImage[] = [];
+      for (const file of files) {
+        const compressed = await compressImageFile(file);
+        added.push({
+          id: tmpId(),
+          storage_path: null,
+          file: compressed,
+          previewUrl: URL.createObjectURL(compressed),
+          sort_order: images.length + added.length,
+        });
       }
-    },
-    onSuccess: onImagesChanged,
-    onError,
-  });
+      onEdit({ images: [...images, ...added] });
+    } catch (err) {
+      toast({ title: (err as Error).message, variant: "destructive" });
+    } finally {
+      setCompressing(false);
+    }
+  };
 
-  const deleteMut = useMutation({
-    mutationFn: (image: QuoteItemImage) => deleteQuoteItemImage(image),
-    onSuccess: () => {
-      setLightboxImage(null);
-      onImagesChanged();
-    },
-    onError,
-  });
+  const removeImage = (imageId: string) => {
+    const img = images.find((i) => i.id === imageId);
+    if (img?.file && img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+    onEdit({ images: images.filter((i) => i.id !== imageId) });
+    setLightboxImageId(null);
+  };
 
   return (
     <div>
@@ -1404,16 +1469,12 @@ function QuoteItemPhotos({ serverItem, onImagesChanged }: QuoteItemPhotosProps) 
           <button
             key={img.id}
             type="button"
-            onClick={() => setLightboxImage(img)}
+            onClick={() => setLightboxImageId(img.id)}
             className={cn(THUMB_CLASS, "relative")}
             aria-label="View photo"
           >
-            {signedUrls[img.storage_path] ? (
-              <img
-                src={signedUrls[img.storage_path]}
-                alt=""
-                className="h-full w-full object-cover"
-              />
+            {srcFor(img) ? (
+              <img src={srcFor(img)} alt="" className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
@@ -1425,14 +1486,14 @@ function QuoteItemPhotos({ serverItem, onImagesChanged }: QuoteItemPhotosProps) 
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={!serverItem || uploadMut.isPending}
+          disabled={compressing}
           className={cn(
             THUMB_CLASS,
             "flex items-center justify-center border-[1.5px] border-dashed border-border text-muted-subtle transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:text-muted-subtle",
           )}
           aria-label="Add photo"
         >
-          {uploadMut.isPending ? (
+          {compressing ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <ImagePlus className="h-4 w-4" />
@@ -1448,22 +1509,19 @@ function QuoteItemPhotos({ serverItem, onImagesChanged }: QuoteItemPhotosProps) 
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
             e.target.value = "";
-            if (files.length) uploadMut.mutate(files);
+            if (files.length) void addFiles(files);
           }}
         />
       </div>
-      {!serverItem && (
-        <p className="mt-1 text-[11px] text-muted-subtle">Save this item to add photos</p>
-      )}
 
-      <Dialog open={!!lightboxImage} onOpenChange={(open) => !open && setLightboxImage(null)}>
+      <Dialog open={!!lightboxImage} onOpenChange={(open) => !open && setLightboxImageId(null)}>
         <DialogContent className="max-w-lg gap-3 p-4">
           <DialogTitle className="text-sm font-bold text-foreground">Photo</DialogTitle>
           {lightboxImage && (
             <>
-              {signedUrls[lightboxImage.storage_path] ? (
+              {srcFor(lightboxImage) ? (
                 <img
-                  src={signedUrls[lightboxImage.storage_path]}
+                  src={srcFor(lightboxImage)}
                   alt=""
                   className="max-h-[70vh] w-full rounded-xl object-contain"
                 />
@@ -1475,11 +1533,10 @@ function QuoteItemPhotos({ serverItem, onImagesChanged }: QuoteItemPhotosProps) 
               <Button
                 variant="outline"
                 className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => deleteMut.mutate(lightboxImage)}
-                disabled={deleteMut.isPending}
+                onClick={() => removeImage(lightboxImage.id)}
               >
                 <X className="h-4 w-4" />
-                {deleteMut.isPending ? "Removing…" : "Remove photo"}
+                Remove photo
               </Button>
             </>
           )}
