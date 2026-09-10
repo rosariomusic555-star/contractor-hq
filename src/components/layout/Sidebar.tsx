@@ -1,9 +1,13 @@
 import { NavLink } from "react-router-dom";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SidebarUser } from "./SidebarUser";
 import { navItems } from "./navItems";
+import { useAssistant } from "@/components/assistant/assistant-context";
 
 export function Sidebar() {
+  const { setOpen: setAssistantOpen } = useAssistant();
+
   return (
     <aside className="hidden md:flex fixed left-0 top-0 h-screen w-64 flex-col bg-sidebar border-r border-sidebar-border">
       {/* Logo */}
@@ -29,6 +33,10 @@ export function Sidebar() {
             <span>{item.label}</span>
           </NavLink>
         ))}
+        <button type="button" onClick={() => setAssistantOpen(true)} className="nav-item w-full">
+          <Sparkles className="h-[18px] w-[18px]" />
+          <span>Ask AI</span>
+        </button>
       </nav>
 
       {/* User section */}
