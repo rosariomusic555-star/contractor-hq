@@ -48,10 +48,7 @@ export function SettingsCategoriesView() {
 
   const createMut = useMutation({
     mutationFn: (name: string) => createCategory({ name, sort_order: categories.length }),
-    onSuccess: () => {
-      setNewName("");
-      invalidate();
-    },
+    onSuccess: invalidate,
     onError,
   });
 
@@ -89,8 +86,13 @@ export function SettingsCategoriesView() {
   };
 
   const addCategory = () => {
+    if (createMut.isPending) return;
     const name = newName.trim();
     if (!name) return;
+    // Cleared immediately (not in onSuccess) — the create is async, and
+    // leaving stale text in the field let a fast second Enter/click append
+    // to it instead of starting a fresh name, producing concatenated junk.
+    setNewName("");
     createMut.mutate(name);
   };
 
