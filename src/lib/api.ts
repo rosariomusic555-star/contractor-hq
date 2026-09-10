@@ -634,19 +634,23 @@ export async function getInvoice(id: string): Promise<Invoice> {
 }
 
 /**
- * Create an invoice, optionally linked to a project. invoice_number
- * ("INV-001", "INV-002", …) is set once here and stored on the row — the
- * public share page can't otherwise derive it (RLS keeps it from seeing an
- * invoice's sibling invoices) — counted among invoices on the same project,
- * or among other standalone (project-less) invoices when there's no project.
+ * Create an invoice — status 'draft', amount 0, no project unless given.
+ * invoice_number ("INV-001", "INV-002", …) is set once here and stored on
+ * the row — the public share page can't otherwise derive it (RLS keeps it
+ * from seeing an invoice's sibling invoices) — counted among invoices on the
+ * same project, or among other standalone (project-less) invoices when
+ * there's no project. Amount/due date/notes/project link are all editable
+ * afterward in the Invoice Workspace, same as a blank quote.
  */
-export async function createInvoice(input: {
-  project_id?: string | null;
-  amount: number;
-  due_date?: string | null;
-  quote_id?: string | null;
-  notes?: string | null;
-}): Promise<Invoice> {
+export async function createInvoice(
+  input: {
+    project_id?: string | null;
+    amount?: number;
+    due_date?: string | null;
+    quote_id?: string | null;
+    notes?: string | null;
+  } = {},
+): Promise<Invoice> {
   let countQuery = supabase.from("invoices").select("id", { count: "exact", head: true });
   countQuery = input.project_id
     ? countQuery.eq("project_id", input.project_id)
@@ -659,7 +663,7 @@ export async function createInvoice(input: {
     .from("invoices")
     .insert({
       project_id: input.project_id ?? null,
-      amount: input.amount,
+      amount: input.amount ?? 0,
       due_date: input.due_date ?? null,
       quote_id: input.quote_id ?? null,
       notes: input.notes ?? null,
@@ -673,7 +677,9 @@ export async function createInvoice(input: {
 
 export async function updateInvoice(
   id: string,
-  patch: Partial<Pick<Invoice, "amount" | "status" | "due_date" | "notes" | "paid_at">>,
+  patch: Partial<
+    Pick<Invoice, "amount" | "status" | "due_date" | "notes" | "paid_at" | "project_id" | "quote_id">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("invoices").update(patch).eq("id", id);
   if (error) throw error;

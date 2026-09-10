@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { createQuote } from "@/lib/api";
+import { createQuote, createInvoice } from "@/lib/api";
 
 const tab = "flex flex-1 flex-col items-center gap-1 py-1.5 text-[10px] font-semibold";
 
@@ -36,6 +36,16 @@ export function BottomTabBar() {
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
+  });
+
+  const newInvoiceMut = useMutation({
+    mutationFn: () => createInvoice(),
+    onSuccess: (invoice) => {
+      setCreateOpen(false);
+      navigate(`/invoices/${invoice.id}`);
+    },
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create invoice", description: err.message, variant: "destructive" }),
   });
 
   const go = (to: string, close: () => void) => {
@@ -88,7 +98,7 @@ export function BottomTabBar() {
           <div className="mx-auto w-full max-w-sm space-y-2 pt-2">
             <h2 className="px-1 pb-2 text-base font-bold text-foreground">Create</h2>
             <ActionRow icon={FileText} label="New quote" hint="Blank draft in the builder" disabled={newQuoteMut.isPending} onClick={() => newQuoteMut.mutate()} />
-            <ActionRow icon={Receipt} label="New invoice" hint="Bill a project" onClick={() => go("/invoices/new", () => setCreateOpen(false))} />
+            <ActionRow icon={Receipt} label="New invoice" hint="Blank draft in the builder" disabled={newInvoiceMut.isPending} onClick={() => newInvoiceMut.mutate()} />
             <ActionRow icon={Briefcase} label="New project" hint="Start a job" onClick={() => go("/projects/new", () => setCreateOpen(false))} />
             <ActionRow icon={Users} label="Add client" hint="Create a contact" onClick={() => go("/clients/new", () => setCreateOpen(false))} />
           </div>

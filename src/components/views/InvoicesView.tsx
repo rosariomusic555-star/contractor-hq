@@ -18,7 +18,7 @@ import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { listInvoices, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
+import { listInvoices, createInvoice, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/aging";
 
@@ -53,6 +53,13 @@ export function InvoicesView() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoices"] }),
     onError: (err: Error) =>
       toast({ title: "Couldn't delete invoice", description: err.message, variant: "destructive" }),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => createInvoice(),
+    onSuccess: (invoice) => navigate(`/invoices/${invoice.id}`),
+    onError: (err: Error) =>
+      toast({ title: "Couldn't create invoice", description: err.message, variant: "destructive" }),
   });
 
   const buckets = agingBuckets(invoices, now);
@@ -106,8 +113,9 @@ export function InvoicesView() {
         subtitle={`Outstanding ${formatCurrency(outstandingTotal)}${over30 ? ` · ${over30} over 30 days` : ""}`}
         actions={
           <button
-            onClick={() => navigate("/invoices/new")}
-            className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground"
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+            className="h-8 rounded-[0.625rem] bg-sidebar-primary px-3 text-[13px] font-bold text-sidebar-primary-foreground disabled:opacity-60"
           >
             + New
           </button>
@@ -130,7 +138,7 @@ export function InvoicesView() {
           </>
         }
         actions={
-          <Button onClick={() => navigate("/invoices/new")} className="font-bold">
+          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} className="font-bold">
             + New invoice
           </Button>
         }
