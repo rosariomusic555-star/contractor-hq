@@ -10,7 +10,7 @@ const SECTIONS = [
   { label: "Categories", to: "/settings/categories" },
   { label: "Expense categories", to: "/settings/expense-categories" },
   { label: "Invoicing & payments", to: "/settings/invoicing" },
-  { label: "Pricebook & materials", to: "/settings/pricebook" },
+  { label: "Price Book", to: "/settings/pricebook" },
   { label: "Team & crews", to: "/settings/team" },
   { label: "Notifications", to: "/settings/notifications" },
   { label: "Plan & billing", to: "/settings/billing" },

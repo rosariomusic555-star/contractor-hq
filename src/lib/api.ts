@@ -164,6 +164,20 @@ export interface ExpenseCategory {
   created_at: string;
 }
 
+/** A user's own saved material (Settings > Price Book), picked from the
+ * Materials Sheet to auto-fill a line item instead of retyping it. Never
+ * seeded — starts empty for every user. */
+export interface PriceBookItem {
+  id: string;
+  user_id: string;
+  name: string;
+  unit: string | null;
+  unit_price: number;
+  /** "Required" is enforced in the Settings form, not the DB — see 0027. */
+  expense_category_id: string | null;
+  created_at: string;
+}
+
 export interface MaterialsItem {
   id: string;
   section_id: string;
@@ -173,6 +187,12 @@ export interface MaterialsItem {
   sort_order: number;
   /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
   expense_category_id: string | null;
+  /** Free-text unit of measure (sf, cy, bag, lf, ea…). Label only — not in the math. */
+  unit: string | null;
+  /** Set when this line was picked from the Price Book — the Materials
+   * Sheet locks expense_category_id while this is set. Null = a normal,
+   * fully custom line (or a price-book pick that's since been unlinked). */
+  price_book_item_id: string | null;
 }
 
 export interface MaterialsSection {
@@ -532,6 +552,59 @@ export async function deleteExpenseCategory(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Price Book (Settings > Price Book, 0027) — a user's own saved materials,
+// picked from the Materials Sheet to auto-fill a line instead of retyping
+// it every job. Never seeded. expense_category_id is "required" only in the
+// Settings form — the column itself is nullable (see 0027's header comment)
+// so deleting a category never blocks or errors, same as everywhere else.
+// ---------------------------------------------------------------------------
+
+export async function listPriceBookItems(): Promise<PriceBookItem[]> {
+  const { data, error } = await supabase.from("price_book").select("*").order("name");
+  if (error) {
+    // PGRST205 = "table not found in schema cache" — migration 0027 hasn't
+    // been run yet. Degrade to empty instead of breaking the Materials
+    // Sheet and Settings > Price Book, same as listExpenseCategories().
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createPriceBookItem(input: {
+  name: string;
+  unit?: string | null;
+  unit_price: number;
+  expense_category_id: string | null;
+}): Promise<PriceBookItem> {
+  const { data, error } = await supabase
+    .from("price_book")
+    .insert({
+      name: input.name,
+      unit: input.unit ?? null,
+      unit_price: input.unit_price,
+      expense_category_id: input.expense_category_id,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updatePriceBookItem(
+  id: string,
+  patch: Partial<Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id">>,
+): Promise<void> {
+  const { error } = await supabase.from("price_book").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deletePriceBookItem(id: string): Promise<void> {
+  const { error } = await supabase.from("price_book").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Materials sheet
 // ---------------------------------------------------------------------------
 
@@ -583,6 +656,8 @@ export async function addMaterialsItem(
     unit_cost?: number;
     sort_order?: number;
     expense_category_id?: string | null;
+    unit?: string | null;
+    price_book_item_id?: string | null;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -594,6 +669,8 @@ export async function addMaterialsItem(
       unit_cost: input.unit_cost ?? 0,
       sort_order: input.sort_order ?? 0,
       expense_category_id: input.expense_category_id ?? null,
+      unit: input.unit ?? null,
+      price_book_item_id: input.price_book_item_id ?? null,
     })
     .select()
     .single();
@@ -604,7 +681,16 @@ export async function addMaterialsItem(
 export async function updateMaterialsItem(
   id: string,
   patch: Partial<
-    Pick<MaterialsItem, "name" | "quantity" | "unit_cost" | "sort_order" | "expense_category_id">
+    Pick<
+      MaterialsItem,
+      | "name"
+      | "quantity"
+      | "unit_cost"
+      | "sort_order"
+      | "expense_category_id"
+      | "unit"
+      | "price_book_item_id"
+    >
   >,
 ): Promise<void> {
   const { error } = await supabase.from("materials_items").update(patch).eq("id", id);
