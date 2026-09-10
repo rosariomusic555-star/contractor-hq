@@ -15,6 +15,13 @@
 --   projects/{project_id}/{uuid}.{ext}
 --
 -- Project images get NO anon policy at all — never public, full stop.
+--
+-- `storage.objects.name` is written out in full everywhere below, not as a
+-- bare `name` — quote_items/quote_sections/projects all have their own
+-- `name` column, and inside the EXISTS subqueries a bare `name` resolves
+-- against THOSE first (ambiguous when two match, silently wrong table when
+-- only one does), not against storage.objects like the top-level clause
+-- would suggest.
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
@@ -31,12 +38,12 @@ create policy "own quote-item images select" on storage.objects
   for select to authenticated
   using (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'quote-items'
+    and (storage.foldername(storage.objects.name))[1] = 'quote-items'
     and exists (
       select 1 from public.quote_items qi
       join public.quote_sections qs on qs.id = qi.section_id
       join public.quotes q on q.id = qs.quote_id
-      where qi.id::text = (storage.foldername(name))[2]
+      where qi.id::text = (storage.foldername(storage.objects.name))[2]
         and q.user_id = auth.uid()
     )
   );
@@ -45,12 +52,12 @@ create policy "own quote-item images insert" on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'quote-items'
+    and (storage.foldername(storage.objects.name))[1] = 'quote-items'
     and exists (
       select 1 from public.quote_items qi
       join public.quote_sections qs on qs.id = qi.section_id
       join public.quotes q on q.id = qs.quote_id
-      where qi.id::text = (storage.foldername(name))[2]
+      where qi.id::text = (storage.foldername(storage.objects.name))[2]
         and q.user_id = auth.uid()
     )
   );
@@ -59,12 +66,12 @@ create policy "own quote-item images update" on storage.objects
   for update to authenticated
   using (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'quote-items'
+    and (storage.foldername(storage.objects.name))[1] = 'quote-items'
     and exists (
       select 1 from public.quote_items qi
       join public.quote_sections qs on qs.id = qi.section_id
       join public.quotes q on q.id = qs.quote_id
-      where qi.id::text = (storage.foldername(name))[2]
+      where qi.id::text = (storage.foldername(storage.objects.name))[2]
         and q.user_id = auth.uid()
     )
   );
@@ -73,12 +80,12 @@ create policy "own quote-item images delete" on storage.objects
   for delete to authenticated
   using (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'quote-items'
+    and (storage.foldername(storage.objects.name))[1] = 'quote-items'
     and exists (
       select 1 from public.quote_items qi
       join public.quote_sections qs on qs.id = qi.section_id
       join public.quotes q on q.id = qs.quote_id
-      where qi.id::text = (storage.foldername(name))[2]
+      where qi.id::text = (storage.foldername(storage.objects.name))[2]
         and q.user_id = auth.uid()
     )
   );
@@ -92,12 +99,12 @@ create policy "shared quote-item images select" on storage.objects
   for select to anon, authenticated
   using (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'quote-items'
+    and (storage.foldername(storage.objects.name))[1] = 'quote-items'
     and exists (
       select 1 from public.quote_items qi
       join public.quote_sections qs on qs.id = qi.section_id
       join public.quotes q on q.id = qs.quote_id
-      where qi.id::text = (storage.foldername(name))[2]
+      where qi.id::text = (storage.foldername(storage.objects.name))[2]
         and q.share_token is not null
     )
   );
@@ -110,10 +117,10 @@ create policy "own project images select" on storage.objects
   for select to authenticated
   using (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'projects'
+    and (storage.foldername(storage.objects.name))[1] = 'projects'
     and exists (
       select 1 from public.projects p
-      where p.id::text = (storage.foldername(name))[2]
+      where p.id::text = (storage.foldername(storage.objects.name))[2]
         and p.user_id = auth.uid()
     )
   );
@@ -122,10 +129,10 @@ create policy "own project images insert" on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'projects'
+    and (storage.foldername(storage.objects.name))[1] = 'projects'
     and exists (
       select 1 from public.projects p
-      where p.id::text = (storage.foldername(name))[2]
+      where p.id::text = (storage.foldername(storage.objects.name))[2]
         and p.user_id = auth.uid()
     )
   );
@@ -134,10 +141,10 @@ create policy "own project images update" on storage.objects
   for update to authenticated
   using (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'projects'
+    and (storage.foldername(storage.objects.name))[1] = 'projects'
     and exists (
       select 1 from public.projects p
-      where p.id::text = (storage.foldername(name))[2]
+      where p.id::text = (storage.foldername(storage.objects.name))[2]
         and p.user_id = auth.uid()
     )
   );
@@ -146,10 +153,10 @@ create policy "own project images delete" on storage.objects
   for delete to authenticated
   using (
     bucket_id = 'images'
-    and (storage.foldername(name))[1] = 'projects'
+    and (storage.foldername(storage.objects.name))[1] = 'projects'
     and exists (
       select 1 from public.projects p
-      where p.id::text = (storage.foldername(name))[2]
+      where p.id::text = (storage.foldername(storage.objects.name))[2]
         and p.user_id = auth.uid()
     )
   );
