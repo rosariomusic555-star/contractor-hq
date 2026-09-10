@@ -22,6 +22,7 @@ import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import {
   getQuote,
+  listClients,
   listInvoices,
   listProjects,
   listQuotes,
@@ -83,6 +84,7 @@ export function InvoiceWorkspace({
   });
 
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["invoice", invoice.id] });
@@ -129,6 +131,12 @@ export function InvoiceWorkspace({
       invalidate();
       toast({ title: "Invoice saved" });
     },
+    onError,
+  });
+
+  const updateClientMut = useMutation({
+    mutationFn: (newClientId: string | null) => updateInvoice(invoice.id, { client_id: newClientId }),
+    onSuccess: invalidate,
     onError,
   });
 
@@ -196,7 +204,7 @@ export function InvoiceWorkspace({
 
   const quoteContract = quote ? quoteTotal(quote.quote_sections) : 0;
   const invoiceHistory = events.filter((e) => e.meta?.invoice_id === invoice.id);
-  const clientName = invoice.project?.client?.name ?? null;
+  const clientName = invoice.client?.name ?? invoice.project?.client?.name ?? null;
 
   const actionButton =
     invoice.status === "draft" ? (
@@ -324,6 +332,26 @@ export function InvoiceWorkspace({
                 onChange={(e) => editDraft({ dueDate: e.target.value })}
                 className={FIELD_INPUT}
               />
+            </div>
+            <div className="space-y-1.5 sm:max-w-xs">
+              <div className={FIELD_LABEL}>Link to client</div>
+              <Select
+                value={invoice.client_id ?? NONE}
+                onValueChange={(v) => updateClientMut.mutate(v === NONE ? null : v)}
+                disabled={updateClientMut.isPending}
+              >
+                <SelectTrigger className={FIELD_INPUT}>
+                  <SelectValue placeholder="No client" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>No client</SelectItem>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5 sm:max-w-xs">
               <div className={FIELD_LABEL}>Link to project</div>
