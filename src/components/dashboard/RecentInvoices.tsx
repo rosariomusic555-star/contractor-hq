@@ -26,7 +26,12 @@ export function RecentInvoices({ className }: { className?: string }) {
 
   return (
     <section className={cn("card-surface p-5", className)}>
-      <h3 className="mb-3 text-base font-bold text-foreground">Recent invoices</h3>
+      <header className="mb-3 flex items-center justify-between">
+        <h3 className="text-base font-bold text-foreground">Recent invoices</h3>
+        <Link to="/invoices" className="text-[13px] font-semibold text-primary hover:text-primary/80">
+          View all
+        </Link>
+      </header>
       {recent.length === 0 ? (
         <p className="py-3 text-sm text-muted-foreground">No invoices yet.</p>
       ) : (
