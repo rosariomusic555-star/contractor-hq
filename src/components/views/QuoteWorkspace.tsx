@@ -40,6 +40,7 @@ import {
   listClients,
   listProjects,
   listMaterials,
+  listCategories,
   updateProject,
   updateQuote,
   addQuoteSection,
@@ -54,6 +55,7 @@ import {
   getQuoteDefaults,
   QUOTE_DEFAULTS_FALLBACK,
   type Quote,
+  type Category,
 } from "@/lib/api";
 
 const NONE = "__none__";
@@ -77,6 +79,8 @@ interface DraftItem {
   is_optional: boolean;
   /** Set by the client on the share page; carried through, never edited here. */
   client_selected: boolean;
+  /** Optional work category (Settings > Categories). Null = uncategorized. */
+  category_id: string | null;
 }
 interface DraftSection {
   id: string;
@@ -108,6 +112,7 @@ const seed = (quote: Quote): QuoteDraft => ({
       unit: i.unit ?? "",
       is_optional: i.is_optional,
       client_selected: i.client_selected,
+      category_id: i.category_id ?? null,
     })),
   })),
   notes: quote.notes ?? "",
@@ -151,6 +156,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: quoteDefaults = QUOTE_DEFAULTS_FALLBACK } = useQuery({
     queryKey: ["quote-defaults"],
     queryFn: getQuoteDefaults,
@@ -214,6 +220,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   unit: "ea",
                   is_optional: false,
                   client_selected: false,
+                  category_id: null,
                 },
               ],
             }
@@ -308,6 +315,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               unit,
               is_optional: di.is_optional,
               sort_order: ii,
+              category_id: di.category_id,
             });
           } else if (
             srv.name !== di.name ||
@@ -316,7 +324,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             (srv.quantity == null ? 1 : Number(srv.quantity)) !== di.quantity ||
             (srv.unit ?? null) !== unit ||
             srv.is_optional !== di.is_optional ||
-            srv.sort_order !== ii
+            srv.sort_order !== ii ||
+            (srv.category_id ?? null) !== di.category_id
           ) {
             await updateQuoteItem(srv.id, {
               name: di.name,
@@ -326,6 +335,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               unit,
               is_optional: di.is_optional,
               sort_order: ii,
+              category_id: di.category_id,
             });
           }
         }
@@ -560,6 +570,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               key={section.id}
               section={section}
               subtotal={sectionSubtotal(section)}
+              categories={categories}
               onRename={(name) => renameSection(section.id, name)}
               onToggleOptional={(checked) => toggleSectionOptional(section.id, checked)}
               onDeleteSection={() => removeSection(section.id)}
@@ -1041,6 +1052,7 @@ function QuoteTermsCard({ terms }: { terms: DemoQuoteTerms }) {
 interface QuoteSectionCardProps {
   section: DraftSection;
   subtotal: number;
+  categories: Category[];
   onRename: (name: string) => void;
   onToggleOptional: (checked: boolean) => void;
   onDeleteSection: () => void;
@@ -1052,6 +1064,7 @@ interface QuoteSectionCardProps {
 function QuoteSectionCard({
   section,
   subtotal,
+  categories,
   onRename,
   onToggleOptional,
   onDeleteSection,
@@ -1130,6 +1143,7 @@ function QuoteSectionCard({
           <QuoteItemRow
             key={item.id}
             item={item}
+            categories={categories}
             onEdit={(patch) => onEditItem(item.id, patch)}
             onDelete={() => onDeleteItem(item.id)}
           />
@@ -1149,13 +1163,14 @@ function QuoteSectionCard({
 
 interface QuoteItemRowProps {
   item: DraftItem;
+  categories: Category[];
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
 }
 
 const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
-function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
+function QuoteItemRow({ item, categories, onEdit, onDelete }: QuoteItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
@@ -1197,6 +1212,28 @@ function QuoteItemRow({ item, onEdit, onDelete }: QuoteItemRowProps) {
           placeholder="Short description"
           className="mt-1 min-h-[44px] rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground hover:border-input focus-visible:border-primary"
         />
+      </div>
+
+      {/* Category — optional, its own full-width row so the picked name is
+          never truncated/clipped on mobile. */}
+      <div>
+        <div className={ITEM_FIELD_LABEL}>Category</div>
+        <Select
+          value={item.category_id ?? NONE}
+          onValueChange={(v) => onEdit({ category_id: v === NONE ? null : v })}
+        >
+          <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
+            <SelectValue placeholder="Uncategorized" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>Uncategorized</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Qty · Unit · Rate · Line total — two-up on mobile, four-up from sm. */}

@@ -18,6 +18,15 @@ export interface Client {
   created_at: string;
 }
 
+/** A user's own editable list of work categories (Settings > Categories). */
+export interface Category {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
 interface ClientRef {
   name: string;
   // Only populated where the select asks for them (e.g. PROJECT_SELECT).
@@ -55,6 +64,8 @@ export interface QuoteItem {
   is_optional: boolean;
   client_selected: boolean;
   sort_order: number;
+  /** Optional work category (Settings > Categories). Null = uncategorized. */
+  category_id: string | null;
 }
 
 export interface QuoteSection {
@@ -238,6 +249,48 @@ export async function updateClient(
 
 export async function deleteClient(id: string): Promise<void> {
   const { error } = await supabase.from("clients").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Categories (Settings > Categories) — seeded per-user by a DB trigger on
+// signup (0018). Deleting one sets quote_items.category_id to null on any
+// line items that referenced it (0019's on delete set null) — those items
+// just become uncategorized, no reassignment step needed here.
+// ---------------------------------------------------------------------------
+
+export async function listCategories(): Promise<Category[]> {
+  const { data, error } = await supabase.from("categories").select("*").order("sort_order");
+  if (error) {
+    // PGRST205 = "table not found in schema cache" — migration 0017 hasn't
+    // been run yet. Degrade to empty instead of breaking every quote screen
+    // and the Money page, same as getQuoteDefaults().
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createCategory(input: { name: string; sort_order?: number }): Promise<Category> {
+  const { data, error } = await supabase
+    .from("categories")
+    .insert({ name: input.name, sort_order: input.sort_order ?? 0 })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateCategory(
+  id: string,
+  patch: Partial<Pick<Category, "name" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("categories").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const { error } = await supabase.from("categories").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -561,6 +614,7 @@ export async function addQuoteItem(
     unit?: string | null;
     is_optional?: boolean;
     sort_order?: number;
+    category_id?: string | null;
   },
 ): Promise<QuoteItem> {
   const { data, error } = await supabase
@@ -574,6 +628,7 @@ export async function addQuoteItem(
       unit: input.unit ?? null,
       is_optional: input.is_optional ?? false,
       sort_order: input.sort_order ?? 0,
+      category_id: input.category_id ?? null,
     })
     .select()
     .single();
@@ -594,6 +649,7 @@ export async function updateQuoteItem(
       | "is_optional"
       | "client_selected"
       | "sort_order"
+      | "category_id"
     >
   >,
 ): Promise<void> {

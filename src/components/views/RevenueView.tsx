@@ -13,8 +13,8 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { formatCurrency } from "@/lib/utils";
-import { listInvoices } from "@/lib/api";
-import { DEMO_WORK_TYPE_SPLIT } from "@/lib/demoData";
+import { listInvoices, listQuotes, listCategories } from "@/lib/api";
+import { revenueByCategory } from "@/lib/metrics";
 
 const monthKey = (iso: string) => iso.slice(0, 7);
 const monthLabel = (iso: string) =>
@@ -22,12 +22,31 @@ const monthLabel = (iso: string) =>
 
 const GREY = "hsl(201 12% 46%)";
 const GREEN = "hsl(131 36% 64%)";
+const CATEGORY_COLORS = [
+  "hsl(var(--primary))",
+  "hsl(var(--sidebar-background))",
+  "hsl(var(--info))",
+  "hsl(var(--warning-strong))",
+  "hsl(var(--border))",
+];
 
 export function RevenueView() {
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ["invoices"],
     queryFn: () => listInvoices(),
   });
+  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+
+  const byCategory = useMemo(() => {
+    const rows = revenueByCategory(quotes, invoices, categories).filter((r) => r.amount > 0);
+    const sum = rows.reduce((s, r) => s + r.amount, 0) || 1;
+    return rows.map((r, i) => ({
+      ...r,
+      pct: Math.round((r.amount / sum) * 100),
+      color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+    }));
+  }, [quotes, invoices, categories]);
 
   const monthlyData = useMemo(() => {
     const buckets = new Map<string, { month: string; billed: number; paid: number }>();
@@ -114,28 +133,31 @@ export function RevenueView() {
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {/* Work type — demo */}
+        {/* By category — real, only counts fully-paid quotes */}
         <section className="card-surface p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-foreground">Revenue by work type</h3>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-subtle">Sample</span>
-          </div>
-          <div className="mt-2">
-            {DEMO_WORK_TYPE_SPLIT.map((w) => (
-              <div key={w.label} className="border-b border-hairline py-3 last:border-0">
-                <div className="flex justify-between text-[13px]">
-                  <span className="font-semibold text-foreground">{w.label}</span>
-                  <span className="font-bold tabular-nums text-foreground">{formatCurrency(w.amount)}</span>
-                </div>
-                <div className="mt-1.5 flex items-center gap-2.5">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full" style={{ width: `${w.pct}%`, background: w.color }} />
+          <h3 className="text-base font-bold text-foreground">Revenue by category</h3>
+          {byCategory.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No fully paid quotes yet.
+            </p>
+          ) : (
+            <div className="mt-2">
+              {byCategory.map((c) => (
+                <div key={c.id} className="border-b border-hairline py-3 last:border-0">
+                  <div className="flex justify-between text-[13px]">
+                    <span className="font-semibold text-foreground">{c.name}</span>
+                    <span className="font-bold tabular-nums text-foreground">{formatCurrency(c.amount)}</span>
                   </div>
-                  <span className="w-8 text-right text-[11px] font-bold text-muted-subtle">{w.pct}%</span>
+                  <div className="mt-1.5 flex items-center gap-2.5">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full" style={{ width: `${c.pct}%`, background: c.color }} />
+                    </div>
+                    <span className="w-8 text-right text-[11px] font-bold text-muted-subtle">{c.pct}%</span>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* By client — real */}
