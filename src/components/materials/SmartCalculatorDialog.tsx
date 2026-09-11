@@ -65,6 +65,14 @@ export function SmartCalculatorDialog({
   const canGenerate =
     !!buildType && buildType.materialSlots.every((s) => !s.required || slotSelections[s.key] !== NONE);
 
+  const summary = buildType?.summarizeDimensions
+    ? buildType.summarizeDimensions(
+        Object.fromEntries(
+          buildType.dimensionFields.map((f) => [f.key, parseFloat(dimensionValues[f.key]) || 0]),
+        ),
+      )
+    : null;
+
   const handleGenerate = () => {
     if (!buildType) return;
     const dimensions: Record<string, number> = {};
@@ -153,6 +161,7 @@ export function SmartCalculatorDialog({
                     </div>
                   ))}
                 </div>
+                {summary && <p className="text-xs font-medium text-primary">{summary}</p>}
               </div>
 
               <div className="space-y-3">

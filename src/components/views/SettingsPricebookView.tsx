@@ -273,6 +273,7 @@ function PriceBookItemDialog({
     width_in: "",
     thickness_in: "",
     joint_width_in: "",
+    coverage_per_bag_sqft: "",
   });
 
   // Re-seed the form whenever a different item is opened (or the dialog
@@ -291,6 +292,7 @@ function PriceBookItemDialog({
       width_in: item?.specs?.width_in?.toString() ?? "",
       thickness_in: item?.specs?.thickness_in?.toString() ?? "",
       joint_width_in: item?.specs?.joint_width_in?.toString() ?? "",
+      coverage_per_bag_sqft: item?.specs?.coverage_per_bag_sqft?.toString() ?? "",
     });
   }, [open, item]);
 
@@ -448,6 +450,12 @@ function PriceBookItemDialog({
                   suffix="in"
                   value={specStr.joint_width_in}
                   onChange={(v) => setSpecStr((s) => ({ ...s, joint_width_in: v }))}
+                />
+                <SpecField
+                  label="Coverage / bag"
+                  suffix="sq ft"
+                  value={specStr.coverage_per_bag_sqft}
+                  onChange={(v) => setSpecStr((s) => ({ ...s, coverage_per_bag_sqft: v }))}
                 />
               </div>
             </div>
