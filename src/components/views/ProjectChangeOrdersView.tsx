@@ -1,7 +1,7 @@
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronLeft, ImagePlus, Loader2, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,8 +36,13 @@ import {
   deleteChangeOrder,
   approvedChangeOrderTotal,
   logProjectEvent,
+  listChangeOrderImages,
+  addChangeOrderImage,
+  deleteChangeOrderImage,
+  getSignedImageUrls,
   CHANGE_ORDER_REASONS,
   type ChangeOrder,
+  type ChangeOrderImage,
   type ChangeOrderReason,
   type ChangeOrderStatus,
 } from "@/lib/api";
@@ -308,6 +314,7 @@ function ChangeOrderRow({
 }) {
   const meta = changeOrderStatusMeta(co.status);
   const amount = Number(co.amount);
+  const [photosOpen, setPhotosOpen] = useState(false);
 
   return (
     <tr className={`border-b border-border last:border-0 ${isEditing ? "bg-muted/40" : ""}`}>
@@ -353,6 +360,14 @@ function ChangeOrderRow({
       </td>
       <td className="py-2 px-2">
         <div className="flex items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={() => setPhotosOpen(true)}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Photos"
+          >
+            <ImagePlus className="w-4 h-4" />
+          </button>
           {co.status === "pending" && (
             <button type="button" onClick={onEdit} className="text-muted-foreground hover:text-foreground" aria-label="Edit">
               <Pencil className="w-4 h-4" />
@@ -381,8 +396,109 @@ function ChangeOrderRow({
             </AlertDialogContent>
           </AlertDialog>
         </div>
+        <ChangeOrderPhotosDialog changeOrderId={co.id} open={photosOpen} onOpenChange={setPhotosOpen} />
       </td>
     </tr>
+  );
+}
+
+function ChangeOrderPhotosDialog({
+  changeOrderId,
+  open,
+  onOpenChange,
+}: {
+  changeOrderId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: images = [] } = useQuery({
+    queryKey: ["change-order-images", changeOrderId],
+    queryFn: () => listChangeOrderImages(changeOrderId),
+    enabled: open,
+  });
+
+  const paths = images.map((i) => i.storage_path);
+  const { data: signedUrls = {} } = useQuery({
+    queryKey: ["change-order-image-urls", changeOrderId, images.map((i) => i.id).join(",")],
+    queryFn: () => getSignedImageUrls(paths),
+    enabled: open && paths.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["change-order-images", changeOrderId] });
+  const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
+
+  const uploadMut = useMutation({
+    mutationFn: async (files: File[]) => {
+      for (let i = 0; i < files.length; i++) {
+        await addChangeOrderImage(changeOrderId, files[i], { sort_order: images.length + i });
+      }
+    },
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (image: ChangeOrderImage) => deleteChangeOrderImage(image),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md gap-3 p-4">
+        <DialogTitle className="text-sm font-bold text-foreground">Photos</DialogTitle>
+        {images.length === 0 && <p className="text-sm text-muted-foreground">No photos yet.</p>}
+        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+          {images.map((img) => (
+            <div key={img.id} className="group relative aspect-square overflow-hidden rounded-xl bg-muted">
+              {signedUrls[img.storage_path] ? (
+                <img src={signedUrls[img.storage_path]} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => deleteMut.mutate(img)}
+                disabled={deleteMut.isPending}
+                aria-label="Delete photo"
+                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadMut.isPending}
+            className="flex aspect-square items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-muted-subtle transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Add photos"
+          >
+            {uploadMut.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (files.length) uploadMut.mutate(files);
+            }}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
