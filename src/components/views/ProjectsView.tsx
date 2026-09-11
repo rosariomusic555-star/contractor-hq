@@ -12,8 +12,8 @@ import { formatCurrency, pluralize } from "@/lib/utils";
 import {
   listProjects,
   listQuotes,
-  quoteTotal,
-  pickHeadlineQuote,
+  listChangeOrders,
+  projectContractValue,
   type ProjectStatus,
 } from "@/lib/api";
 import { PROJECT_STATUSES, projectStatusMeta, VISUAL_STATUS_META } from "@/lib/statusMeta";
@@ -31,17 +31,18 @@ export function ProjectsView() {
     queryFn: listProjects,
   });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
+  const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
 
-  /** Real contract value per project = total of its headline quote. */
+  /** Real contract value per project = its headline quote's total, plus its approved change orders. */
   const contractOf = useMemo(() => {
     const byProject = new Map<string, number>();
     for (const p of projects) {
       const mine = quotes.filter((q) => q.project_id === p.id);
-      const headline = pickHeadlineQuote(mine);
-      byProject.set(p.id, headline ? quoteTotal(headline.quote_sections) : 0);
+      const myChangeOrders = changeOrders.filter((co) => co.project_id === p.id);
+      byProject.set(p.id, projectContractValue(mine, myChangeOrders));
     }
     return byProject;
-  }, [projects, quotes]);
+  }, [projects, quotes, changeOrders]);
 
   const underContract = [...contractOf.values()].reduce((a, b) => a + b, 0);
   const countByStatus = (s: ProjectStatus) => projects.filter((p) => p.status === s).length;

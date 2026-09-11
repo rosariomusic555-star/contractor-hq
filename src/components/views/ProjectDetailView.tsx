@@ -34,7 +34,9 @@ import {
   listInvoices,
   listMaterials,
   listExpenses,
+  listChangeOrders,
   listProjectEvents,
+  quoteTotal,
   listProjectImages,
   addProjectImage,
   updateProjectImageCaption,
@@ -42,8 +44,9 @@ import {
   getSignedImageUrls,
   logProjectEvent,
   updateProject,
-  quoteTotal,
   pickHeadlineQuote,
+  projectContractValue,
+  approvedChangeOrderTotal,
   materialsCogs,
   type ProjectStatus,
   type ProjectImage,
@@ -75,6 +78,10 @@ export function ProjectDetailView() {
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: id }], queryFn: () => listInvoices(id) });
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: id }], queryFn: () => listMaterials(id) });
   const { data: expenses = [] } = useQuery({ queryKey: ["expenses", { project: id }], queryFn: () => listExpenses(id) });
+  const { data: changeOrders = [] } = useQuery({
+    queryKey: ["change-orders", { project: id }],
+    queryFn: () => listChangeOrders(id),
+  });
   const { data: events = [] } = useQuery({ queryKey: ["project-events", id], queryFn: () => listProjectEvents(id) });
 
   const statusMutation = useMutation({
@@ -93,7 +100,7 @@ export function ProjectDetailView() {
     return <p className="text-destructive">Failed to load project: {(error as Error)?.message}</p>;
 
   const headlineQuote = pickHeadlineQuote(quotes);
-  const contract = headlineQuote ? quoteTotal(headlineQuote.quote_sections) : 0;
+  const contract = projectContractValue(quotes, changeOrders);
   const invoicedTotal = invoices.reduce((s, i) => s + Number(i.amount), 0);
   const paidTotal = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + Number(i.amount), 0);
   const leftToBill = Math.max(0, contract - invoicedTotal);
@@ -119,7 +126,7 @@ export function ProjectDetailView() {
   const quotesSummary =
     quotes.length === 0
       ? "Not started"
-      : `${pluralize(quotes.length, "quote")}${headlineQuote ? ` · ${quoteStatusMeta(headlineQuote.status).label} · ${formatCurrency(contract)}` : ""}`;
+      : `${pluralize(quotes.length, "quote")}${headlineQuote ? ` · ${quoteStatusMeta(headlineQuote.status).label} · ${formatCurrency(quoteTotal(headlineQuote.quote_sections))}` : ""}`;
   const invoicesSummary =
     invoices.length === 0
       ? "None yet"
@@ -128,6 +135,12 @@ export function ProjectDetailView() {
     expenses.length === 0
       ? "None yet"
       : `${pluralize(expenses.length, "expense")} · ${formatCurrency(expensesTotal)}`;
+  const approvedCOTotal = approvedChangeOrderTotal(changeOrders);
+  const pendingCOCount = changeOrders.filter((co) => co.status === "pending").length;
+  const changeOrdersSummary =
+    changeOrders.length === 0
+      ? "None yet"
+      : `${approvedCOTotal > 0 ? "+" : ""}${formatCurrency(approvedCOTotal)} approved${pendingCOCount ? ` · ${pendingCOCount} pending` : ""}`;
 
   const statusSelect = (
     <Select value={project.status} onValueChange={(v) => statusMutation.mutate(v as ProjectStatus)}>
@@ -180,6 +193,11 @@ export function ProjectDetailView() {
             <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
             <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
             <HubCard title="Expenses" summary={expensesSummary} onOpen={() => navigate(`/projects/${id}/expenses`)} />
+            <HubCard
+              title="Change orders"
+              summary={changeOrdersSummary}
+              onOpen={() => navigate(`/projects/${id}/change-orders`)}
+            />
           </div>
 
           {/* Profit summary (real) */}

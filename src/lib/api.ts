@@ -216,6 +216,41 @@ export interface Expense {
   expense_category_id: string | null;
 }
 
+export type ChangeOrderStatus = "pending" | "approved" | "rejected";
+export type ChangeOrderReason =
+  | "client_request"
+  | "site_condition"
+  | "code_requirement"
+  | "design_change"
+  | "other";
+
+export const CHANGE_ORDER_REASONS: { value: ChangeOrderReason; label: string }[] = [
+  { value: "client_request", label: "Client request" },
+  { value: "site_condition", label: "Site condition" },
+  { value: "code_requirement", label: "Code requirement" },
+  { value: "design_change", label: "Design change" },
+  { value: "other", label: "Other" },
+];
+
+/** A documented, approved-or-not adjustment to a project's contract value,
+ * made after the original quote was accepted. project_id is required —
+ * unlike quotes/invoices, a change order can never stand alone. `amount` is
+ * signed: change orders can increase OR decrease the contract. Only
+ * `status: "approved"` change orders count toward projectContractValue() —
+ * pending/rejected ones never move any number (see below). */
+export interface ChangeOrder {
+  id: string;
+  project_id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  reason: ChangeOrderReason | null;
+  amount: number;
+  status: ChangeOrderStatus;
+  approved_at: string | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Derived amounts
 // ---------------------------------------------------------------------------
@@ -255,6 +290,29 @@ export function pickHeadlineQuote(quotes: Quote[]): Quote | undefined {
   return (
     mostRecentWithStatus("approved") ?? mostRecentWithStatus("sent") ?? mostRecentWithStatus("draft")
   );
+}
+
+/** Sum of a project's APPROVED change orders only — pending/rejected never
+ * count. This is the only place that filters by status; every caller of
+ * projectContractValue() below gets that rule for free. */
+export function approvedChangeOrderTotal(changeOrders: ChangeOrder[]): number {
+  return changeOrders
+    .filter((co) => co.status === "approved")
+    .reduce((sum, co) => sum + Number(co.amount), 0);
+}
+
+/**
+ * A project's contract value = its headline quote's total, plus its
+ * approved change orders. This is the single source of truth for
+ * "contract value" — nothing stores it; every screen that shows a
+ * project's contract (ProjectDetailView, ProjectsView, invoicing) derives
+ * it live from this same function so there's never a second number to
+ * drift out of sync.
+ */
+export function projectContractValue(quotes: Quote[], changeOrders: ChangeOrder[]): number {
+  const headline = pickHeadlineQuote(quotes);
+  const base = headline ? quoteTotal(headline.quote_sections) : 0;
+  return base + approvedChangeOrderTotal(changeOrders);
 }
 
 /** Materials cost of goods = sum of quantity * unit_cost across all items. */
@@ -1224,6 +1282,59 @@ export async function deleteExpense(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Change orders (0031) — see projectContractValue() above for how these
+// feed into a project's contract value.
+// ---------------------------------------------------------------------------
+
+/** Omitting projectId returns every change order the user owns, across all
+ * projects — used by ProjectsView to fold approved totals into its bulk
+ * per-project contract Map. */
+export async function listChangeOrders(projectId?: string): Promise<ChangeOrder[]> {
+  let query = supabase.from("change_orders").select("*").order("created_at", { ascending: false });
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Always created as "pending" — status only ever changes via updateChangeOrder(). */
+export async function createChangeOrder(input: {
+  project_id: string;
+  title: string;
+  description?: string | null;
+  reason?: ChangeOrderReason | null;
+  amount: number;
+}): Promise<ChangeOrder> {
+  const { data, error } = await supabase
+    .from("change_orders")
+    .insert({
+      project_id: input.project_id,
+      title: input.title,
+      description: input.description ?? null,
+      reason: input.reason ?? null,
+      amount: input.amount,
+      status: "pending",
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateChangeOrder(
+  id: string,
+  patch: Partial<Pick<ChangeOrder, "title" | "description" | "reason" | "amount" | "status" | "approved_at">>,
+): Promise<void> {
+  const { error } = await supabase.from("change_orders").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteChangeOrder(id: string): Promise<void> {
+  const { error } = await supabase.from("change_orders").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Project activity log (0013). Written by the app when things happen; the
 // project page and the invoice page both read from it.
 // ---------------------------------------------------------------------------
@@ -1236,7 +1347,10 @@ export type ProjectEventKind =
   | "invoice_created"
   | "invoice_sent"
   | "invoice_paid"
-  | "expense_logged";
+  | "expense_logged"
+  | "change_order_created"
+  | "change_order_approved"
+  | "change_order_rejected";
 
 export interface ProjectEvent {
   id: string;

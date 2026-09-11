@@ -1,4 +1,4 @@
-import type { InvoiceStatus, ProjectStatus, QuoteStatus } from "./api";
+import type { ChangeOrderStatus, InvoiceStatus, ProjectStatus, QuoteStatus } from "./api";
 
 /**
  * Single source of truth for status presentation across the app — badge class,
@@ -82,6 +82,20 @@ export const PROJECT_STATUSES = Object.keys(PROJECT_STATUS_META) as ProjectStatu
 /** Tolerates legacy / unexpected status strings without throwing. */
 export function projectStatusMeta(status: string): StatusMeta {
   return PROJECT_STATUS_META[status as ProjectStatus] ?? meta(titleCase(status), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Change orders
+// ---------------------------------------------------------------------------
+
+const CHANGE_ORDER_META: Record<ChangeOrderStatus, StatusMeta> = {
+  pending: meta("Pending", "amber"),
+  approved: meta("Approved", "green"),
+  rejected: meta("Rejected", "red"),
+};
+
+export function changeOrderStatusMeta(status: string): StatusMeta {
+  return CHANGE_ORDER_META[status as ChangeOrderStatus] ?? meta(titleCase(status), "grey");
 }
 
 // ---------------------------------------------------------------------------

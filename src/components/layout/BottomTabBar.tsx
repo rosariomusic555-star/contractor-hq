@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  ChevronLeft,
+  ClipboardList,
   FileText,
   LayoutDashboard,
   Briefcase,
@@ -16,9 +18,16 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { createQuote, createInvoice } from "@/lib/api";
+import { createQuote, createInvoice, listProjects } from "@/lib/api";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
 const tab = "flex flex-1 flex-col items-center gap-1 py-1.5 text-[10px] font-semibold";
@@ -29,7 +38,10 @@ export function BottomTabBar() {
   const { signOut } = useAuth();
   const { setOpen: setAssistantOpen } = useAssistant();
   const [createOpen, setCreateOpen] = useState(false);
+  const [pickingProjectForCO, setPickingProjectForCO] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+
+  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
 
   const newQuoteMut = useMutation({
     mutationFn: () => createQuote(),
@@ -96,14 +108,62 @@ export function BottomTabBar() {
       </nav>
 
       {/* Create action sheet */}
-      <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+      <Sheet
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) setPickingProjectForCO(false);
+        }}
+      >
         <SheetContent side="bottom" className="rounded-t-card border-border pb-[max(env(safe-area-inset-bottom),1rem)]">
           <div className="mx-auto w-full max-w-sm space-y-2 pt-2">
-            <h2 className="px-1 pb-2 text-base font-bold text-foreground">Create</h2>
-            <ActionRow icon={FileText} label="New quote" hint="Blank draft in the builder" disabled={newQuoteMut.isPending} onClick={() => newQuoteMut.mutate()} />
-            <ActionRow icon={Receipt} label="New invoice" hint="Blank draft in the builder" disabled={newInvoiceMut.isPending} onClick={() => newInvoiceMut.mutate()} />
-            <ActionRow icon={Briefcase} label="New project" hint="Start a job" onClick={() => go("/projects/new", () => setCreateOpen(false))} />
-            <ActionRow icon={Users} label="Add client" hint="Create a contact" onClick={() => go("/clients/new", () => setCreateOpen(false))} />
+            {pickingProjectForCO ? (
+              <>
+                <div className="flex items-center gap-2 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => setPickingProjectForCO(false)}
+                    aria-label="Back"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <h2 className="text-base font-bold text-foreground">Change order for…</h2>
+                </div>
+                <Select
+                  onValueChange={(projectId) => {
+                    setCreateOpen(false);
+                    setPickingProjectForCO(false);
+                    navigate(`/projects/${projectId}/change-orders`);
+                  }}
+                >
+                  <SelectTrigger className="h-11" aria-label="Choose a project">
+                    <SelectValue placeholder="Choose a project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            ) : (
+              <>
+                <h2 className="px-1 pb-2 text-base font-bold text-foreground">Create</h2>
+                <ActionRow icon={FileText} label="New quote" hint="Blank draft in the builder" disabled={newQuoteMut.isPending} onClick={() => newQuoteMut.mutate()} />
+                <ActionRow icon={Receipt} label="New invoice" hint="Blank draft in the builder" disabled={newInvoiceMut.isPending} onClick={() => newInvoiceMut.mutate()} />
+                <ActionRow icon={Briefcase} label="New project" hint="Start a job" onClick={() => go("/projects/new", () => setCreateOpen(false))} />
+                <ActionRow icon={Users} label="Add client" hint="Create a contact" onClick={() => go("/clients/new", () => setCreateOpen(false))} />
+                <ActionRow
+                  icon={ClipboardList}
+                  label="New change order"
+                  hint="Pick a project to attach it to"
+                  onClick={() => setPickingProjectForCO(true)}
+                />
+              </>
+            )}
           </div>
         </SheetContent>
       </Sheet>
