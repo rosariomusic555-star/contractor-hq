@@ -9,10 +9,11 @@ import {
   getProject,
   listInvoices,
   listQuotes,
+  listChangeOrders,
   createInvoice,
   logProjectEvent,
   pickHeadlineQuote,
-  quoteTotal,
+  projectContractValue,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 
@@ -51,13 +52,13 @@ export function ProjectInvoicesView() {
   // override it on the detail page.
   const createMut = useMutation({
     mutationFn: async () => {
-      const quotes = await listQuotes(id);
+      const [quotes, changeOrders] = await Promise.all([listQuotes(id), listChangeOrders(id)]);
       const headline = pickHeadlineQuote(quotes);
-      const qTotal = headline ? quoteTotal(headline.quote_sections) : 0;
+      const contract = projectContractValue(quotes, changeOrders);
       const paidSum = invoices
         .filter((i) => i.status === "paid")
         .reduce((sum, i) => sum + Number(i.amount), 0);
-      const amount = Math.round(Math.max(0, qTotal - paidSum) * 100) / 100;
+      const amount = Math.round(Math.max(0, contract - paidSum) * 100) / 100;
       return createInvoice({ project_id: id, amount, quote_id: headline?.id ?? null });
     },
     onSuccess: (invoice) => {

@@ -25,9 +25,11 @@ import {
   listInvoices,
   listProjects,
   listQuotes,
+  listChangeOrders,
   listProjectEvents,
   logProjectEvent,
   pickHeadlineQuote,
+  projectContractValue,
   quoteItemIncluded,
   quoteLineTotal,
   quoteTotal,
@@ -83,6 +85,20 @@ export function InvoiceWorkspace({
   });
 
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+
+  // Project-level contract (quote total + approved change orders) — distinct
+  // from `quote` above, which is specifically the invoice's own linked/
+  // headline quote used to render the line-item breakdown.
+  const { data: projectQuotes = [] } = useQuery({
+    queryKey: ["quotes", { project: projectId }],
+    queryFn: () => listQuotes(projectId!),
+    enabled: !!projectId,
+  });
+  const { data: changeOrders = [] } = useQuery({
+    queryKey: ["change-orders", { project: projectId }],
+    queryFn: () => listChangeOrders(projectId!),
+    enabled: !!projectId,
+  });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["invoice", invoice.id] });
@@ -194,7 +210,15 @@ export function InvoiceWorkspace({
       ? `${window.location.origin}/invoice/${invoice.share_token}`
       : null;
 
-  const quoteContract = quote ? quoteTotal(quote.quote_sections) : 0;
+  // Project-level, change-order-inclusive — not just the linked quote's own
+  // total, so an approved change order is immediately billable. Standalone
+  // invoices (no project, so no change orders possible) fall back to their
+  // linked quote's own total, same as before.
+  const projectContract = projectId
+    ? projectContractValue(projectQuotes, changeOrders)
+    : quote
+      ? quoteTotal(quote.quote_sections)
+      : 0;
   const invoiceHistory = events.filter((e) => e.meta?.invoice_id === invoice.id);
   const clientName = invoice.project?.client?.name ?? null;
 
@@ -423,10 +447,10 @@ export function InvoiceWorkspace({
               })}
 
               <div className="overflow-hidden rounded-card border-2 border-primary bg-card p-4 shadow-card">
-                <MoneyRow label="Quote total" value={formatCurrency(quoteContract)} strong />
-                {Math.abs(amount - quoteContract) > 0.01 && (
+                <MoneyRow label="Contract" value={formatCurrency(projectContract)} strong />
+                {Math.abs(amount - projectContract) > 0.01 && (
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    This invoice bills {formatCurrency(amount)} of the {formatCurrency(quoteContract)} contract.
+                    This invoice bills {formatCurrency(amount)} of the {formatCurrency(projectContract)} contract.
                   </p>
                 )}
               </div>

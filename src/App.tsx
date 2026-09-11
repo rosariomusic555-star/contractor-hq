@@ -16,6 +16,7 @@ import { ProjectQuoteDetailView } from "@/components/views/ProjectQuoteDetailVie
 import { ProjectInvoicesView } from "@/components/views/ProjectInvoicesView";
 import { ProjectInvoiceDetailView } from "@/components/views/ProjectInvoiceDetailView";
 import { ProjectExpensesView } from "@/components/views/ProjectExpensesView";
+import { ProjectChangeOrdersView } from "@/components/views/ProjectChangeOrdersView";
 import { QuotesView } from "@/components/views/QuotesView";
 import { QuoteDetailView } from "@/components/views/QuoteDetailView";
 import { InvoicesView } from "@/components/views/InvoicesView";
@@ -67,6 +68,7 @@ const App = () => (
                 element={<ProjectInvoiceDetailView />}
               />
               <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
+              <Route path="/projects/:id/change-orders" element={<ProjectChangeOrdersView />} />
               <Route path="/quotes" element={<QuotesView />} />
               <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
               <Route path="/invoices" element={<InvoicesView />} />
