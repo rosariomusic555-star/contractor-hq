@@ -124,6 +124,11 @@ export function momChange(points: MonthPoint[]): number | null {
   return ((curr - prev) / prev) * 100;
 }
 
+/** Mirrors formatCurrency() in src/lib/utils.ts. */
+export function formatCurrency(n: number): string {
+  return (Number.isFinite(n) ? n : 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
 export interface CategoryRevenue {
   id: string;
   name: string;

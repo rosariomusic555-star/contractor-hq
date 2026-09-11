@@ -6,9 +6,13 @@
 // Function verified before any of this runs, so there is no way for a
 // question, however phrased, to reach another user's row.
 //
-// v1 is read-only by design (no insert/update/delete anywhere below). Write
-// tools are a planned v2 — they'd slot in here the same way, gated behind a
-// client-side confirmation step before being called.
+// v1 was read-only by design. v2 adds exactly one write-shaped tool,
+// create_expense — but note it does NOT write anything itself. It only
+// validates/resolves inputs against the DB and returns a proposal; the
+// actual INSERT happens in a separate code path (index.ts's
+// "execute_action" request mode) that only ever runs in response to the
+// user tapping Confirm in the UI, never as a side effect of anything the
+// model does. See index.ts's top comment for the full propose/execute split.
 
 import {
   invoiceDaysLate,
@@ -134,7 +138,39 @@ export const TOOLS = [
       "The exact same 'needs your attention' list shown on the dashboard: invoices overdue 3+ days, quotes shared 3+ days ago with no response yet, and approved quotes that haven't been billed a deposit. This is the tool for 'which quotes haven't I followed up on' and similar questions.",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "create_expense",
+    description:
+      "Resolve a request to log a new expense into a concrete, confirmable proposal. This does NOT create the expense — it only validates project/category references and returns a proposal for the user to confirm in the UI; the record is created only after they tap Confirm. Only call this for a clear, imperative request to add/log/record an expense — for any question about existing spending, use list_expenses or get_project_financials instead. Always resolve project_id via list_projects first if the user named the project — never guess an id, and if list_projects returns more than one plausible match, ask the user to pick one in plain text rather than calling this tool. If the amount isn't clearly stated, ask for it instead of guessing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Exact project id, resolved via list_projects." },
+        name: { type: "string", description: "Short label for the expense, e.g. 'Base material'." },
+        amount: { type: "number", description: "Dollar amount, must be greater than 0." },
+        category: {
+          type: "string",
+          description:
+            "Expense category name as the user said it, if they mentioned one. Omit entirely if they didn't — it will default to Uncategorized, same as the manual Add Expense form. Only provide this if the user actually named a category; it will be validated against their real category list and rejected (not guessed) if it doesn't match.",
+        },
+        date: { type: "string", description: "ISO date (YYYY-MM-DD). Omit to default to today." },
+      },
+      required: ["project_id", "name", "amount"],
+    },
+  },
 ] as const;
+
+export interface ResolvedCreateExpenseAction {
+  type: "create_expense";
+  project_id: string;
+  project_name: string;
+  name: string;
+  amount: number;
+  expense_category_id: string | null;
+  category_name: string | null;
+  date: string;
+  date_was_defaulted: boolean;
+}
 
 async function listProjects(input: { status?: string; search?: string }, sb: SupabaseClient) {
   let q = sb
@@ -580,6 +616,77 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
   return { overdue_invoices: overdueInvoices, quote_followups: quoteFollowups, deposits_due: depositsDue };
 }
 
+/**
+ * Resolve-only — never writes. Validates project_id and (if given) category
+ * against the real, RLS-scoped data and returns either a ready-to-confirm
+ * proposal or a specific, honest reason it couldn't resolve one. The actual
+ * insert happens later, in index.ts's executeCreateExpense(), only after
+ * the user confirms — never from here.
+ */
+async function createExpenseTool(
+  input: { project_id?: string; name?: string; amount?: number; category?: string; date?: string },
+  sb: SupabaseClient,
+) {
+  const projectId = typeof input.project_id === "string" ? input.project_id : "";
+  if (!projectId) return { status: "error", reason: "invalid_input", message: "project_id is required." };
+
+  const { data: project, error: pErr } = await sb.from("projects").select("id,name").eq("id", projectId).single();
+  if (pErr || !project) {
+    return { status: "error", reason: "project_not_found", message: "That project wasn't found." };
+  }
+
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name) return { status: "error", reason: "invalid_input", message: "An expense name/label is required." };
+
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { status: "error", reason: "invalid_amount", message: "The amount must be a number greater than 0." };
+  }
+
+  let expenseCategoryId: string | null = null;
+  let categoryName: string | null = null;
+  if (typeof input.category === "string" && input.category.trim()) {
+    const needle = input.category.trim().toLowerCase();
+    const { data: categories, error: cErr } = await sb.from("expense_categories").select("id,name");
+    if (cErr) throw cErr;
+    // deno-lint-ignore no-explicit-any
+    const match = (categories ?? []).find((c: any) => c.name.toLowerCase() === needle);
+    if (!match) {
+      return {
+        status: "error",
+        reason: "category_not_found",
+        message: `No expense category named "${input.category}" — ask the user to pick from the real list.`,
+        // deno-lint-ignore no-explicit-any
+        available_categories: (categories ?? []).map((c: any) => c.name),
+      };
+    }
+    expenseCategoryId = match.id;
+    categoryName = match.name;
+  }
+
+  let date = typeof input.date === "string" && input.date.trim() ? input.date.trim() : "";
+  let dateWasDefaulted = false;
+  if (!date) {
+    date = new Date().toISOString().slice(0, 10);
+    dateWasDefaulted = true;
+  }
+
+  return {
+    status: "ready",
+    action: {
+      type: "create_expense",
+      project_id: project.id,
+      project_name: project.name,
+      name,
+      amount,
+      expense_category_id: expenseCategoryId,
+      category_name: categoryName,
+      date,
+      date_was_defaulted: dateWasDefaulted,
+    },
+  };
+}
+
 export async function callTool(name: string, input: Record<string, unknown>, sb: SupabaseClient): Promise<unknown> {
   switch (name) {
     // deno-lint-ignore no-explicit-any
@@ -609,6 +716,9 @@ export async function callTool(name: string, input: Record<string, unknown>, sb:
     case "get_needs_attention":
       // deno-lint-ignore no-explicit-any
       return getNeedsAttention(input as any, sb);
+    case "create_expense":
+      // deno-lint-ignore no-explicit-any
+      return createExpenseTool(input as any, sb);
     default:
       return { error: `Unknown tool: ${name}` };
   }

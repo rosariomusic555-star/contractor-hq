@@ -5,9 +5,31 @@ export interface AssistantApiMessage {
   content: string;
 }
 
+/** Mirrors ResolvedCreateExpenseAction in supabase/functions/assistant-chat/tools.ts. */
+export interface ResolvedCreateExpenseAction {
+  type: "create_expense";
+  project_id: string;
+  project_name: string;
+  name: string;
+  amount: number;
+  expense_category_id: string | null;
+  category_name: string | null;
+  date: string;
+  date_was_defaulted: boolean;
+}
+
 interface AssistantChatResponse {
   ok: boolean;
   reply?: string;
+  pendingAction?: ResolvedCreateExpenseAction;
+  error?: string;
+  message?: string;
+}
+
+interface AssistantExecuteResponse {
+  ok: boolean;
+  executed?: boolean;
+  expense_id?: string;
   error?: string;
   message?: string;
 }
@@ -21,14 +43,36 @@ export class AssistantError extends Error {
   }
 }
 
-/** Calls the read-only assistant-chat Edge Function. Throws AssistantError on any failure. */
-export async function sendAssistantMessage(messages: AssistantApiMessage[]): Promise<string> {
+export interface AssistantReply {
+  reply: string;
+  pendingAction?: ResolvedCreateExpenseAction;
+}
+
+/** Calls the assistant-chat Edge Function in chat mode. Throws AssistantError on any failure. */
+export async function sendAssistantMessage(messages: AssistantApiMessage[]): Promise<AssistantReply> {
   const { data, error } = await supabase.functions.invoke<AssistantChatResponse>("assistant-chat", {
-    body: { messages },
+    body: { mode: "chat", messages },
   });
   if (error) throw new AssistantError(error.message);
   if (!data?.ok || !data.reply) {
     throw new AssistantError(data?.message ?? "The assistant didn't return an answer.", data?.error);
   }
-  return data.reply;
+  return { reply: data.reply, pendingAction: data.pendingAction };
+}
+
+/**
+ * Executes a previously-proposed write action — only ever called from a
+ * user tapping Confirm on an AssistantActionCard. Never invoked as a side
+ * effect of anything the model says; see index.ts's top comment for why
+ * this is architecturally separate from the chat path.
+ */
+export async function executeAssistantAction(action: ResolvedCreateExpenseAction): Promise<string> {
+  const { data, error } = await supabase.functions.invoke<AssistantExecuteResponse>("assistant-chat", {
+    body: { mode: "execute_action", action },
+  });
+  if (error) throw new AssistantError(error.message);
+  if (!data?.ok || !data.executed) {
+    throw new AssistantError(data?.message ?? "That couldn't be saved.", data?.error);
+  }
+  return data.expense_id!;
 }
