@@ -251,6 +251,19 @@ export interface ChangeOrder {
   created_at: string;
 }
 
+/** A photo attached to a change order (0031) — e.g. documenting the site
+ * condition or added scope that justified it. `storage_path` is a path
+ * into the `images` Storage bucket (0023) — resolve to a viewable URL with
+ * getSignedImageUrls(). No caption field (unlike project images) — kept
+ * intentionally simple. */
+export interface ChangeOrderImage {
+  id: string;
+  change_order_id: string;
+  storage_path: string;
+  sort_order: number;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Derived amounts
 // ---------------------------------------------------------------------------
@@ -1331,6 +1344,51 @@ export async function updateChangeOrder(
 
 export async function deleteChangeOrder(id: string): Promise<void> {
   const { error } = await supabase.from("change_orders").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function listChangeOrderImages(changeOrderId: string): Promise<ChangeOrderImage[]> {
+  const { data, error } = await supabase
+    .from("change_order_images")
+    .select("*")
+    .eq("change_order_id", changeOrderId)
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Compresses, uploads, and records the row — same order/rollback as addProjectImage. */
+export async function addChangeOrderImage(
+  changeOrderId: string,
+  file: File,
+  input: { sort_order?: number } = {},
+): Promise<ChangeOrderImage> {
+  const compressed = await compressImageFile(file);
+  const path = `change-orders/${changeOrderId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("change_order_images")
+    .insert({ change_order_id: changeOrderId, storage_path: path, sort_order: input.sort_order ?? 0 })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function deleteChangeOrderImage(
+  image: Pick<ChangeOrderImage, "id" | "storage_path">,
+): Promise<void> {
+  const { error: storageError } = await supabase.storage.from(IMAGES_BUCKET).remove([image.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("change_order_images").delete().eq("id", image.id);
   if (error) throw error;
 }
 
