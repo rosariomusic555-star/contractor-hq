@@ -202,6 +202,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [confirmApprovedSaveOpen, setConfirmApprovedSaveOpen] = useState(false);
 
   const projectId = quote.project_id;
 
@@ -326,6 +327,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // Diff the draft against the server quote and write only what changed.
   const saveMut = useMutation({
     mutationFn: async () => {
+      // An approved quote's sections/items/photos are locked at the DB
+      // level (0033) — editing must revert it to draft FIRST (a separate,
+      // awaited call — these are independent REST requests, not one
+      // transaction) or the writes below would be rejected by that lock.
+      // This is what actually invalidates the client's signature; the
+      // confirm dialog just makes sure that's not a surprise.
+      const wasApproved = quote.status === "approved";
+      if (wasApproved) {
+        await updateQuote(quote.id, { status: "draft", signed_at: null, signed_by: null });
+      }
+
       const serverSections = new Map(quote.quote_sections.map((s) => [s.id, s]));
       const draftSectionIds = new Set(draft.sections.map((s) => s.id));
 
@@ -440,12 +452,24 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       if (Number(quote.deposit_percentage) !== draft.depositPct)
         patch.deposit_percentage = draft.depositPct;
       if (Object.keys(patch).length) await updateQuote(quote.id, patch);
+
+      return { wasApproved };
     },
-    onSuccess: () => {
+    onSuccess: ({ wasApproved }) => {
       dirty.current = false;
       invalidate();
       qc.invalidateQueries({ queryKey: ["projects", projectId] });
-      toast({ title: "Quote saved" });
+      if (wasApproved) {
+        void logProjectEvent(
+          projectId,
+          "quote_reverted",
+          "Quote edited after approval — signature invalidated, reverted to draft",
+        );
+        qc.invalidateQueries({ queryKey: ["project-events", projectId] });
+        toast({ title: "Quote saved", description: "Signature invalidated — back to draft." });
+      } else {
+        toast({ title: "Quote saved" });
+      }
     },
     onError,
   });
@@ -551,6 +575,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       : null;
 
   const isDirty = dirty.current;
+
+  const handleSaveClick = () => {
+    if (quote.status === "approved") {
+      setConfirmApprovedSaveOpen(true);
+    } else {
+      saveMut.mutate();
+    }
+  };
 
   const primaryAction = (fullWidth?: boolean) =>
     quote.status === "draft" ? (
@@ -801,9 +833,33 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       <DraftSaveBar
         visible={isDirty}
         onDiscard={discard}
-        onSave={() => saveMut.mutate()}
+        onSave={handleSaveClick}
         saving={saveMut.isPending}
       />
+
+      <AlertDialog open={confirmApprovedSaveOpen} onOpenChange={setConfirmApprovedSaveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Editing an approved quote</AlertDialogTitle>
+            <AlertDialogDescription>
+              {quote.signed_by ? `${quote.signed_by}'s` : "The client's"} signature will be invalidated
+              and this quote will revert to draft. They'll need to review and approve it again at the
+              same link.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmApprovedSaveOpen(false);
+                saveMut.mutate();
+              }}
+            >
+              Save and revert to draft
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ShareLinkDialog
         open={!!shareUrl}

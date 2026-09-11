@@ -152,6 +152,7 @@ export default function SharedQuotePage() {
                 section={section}
                 sectionChecked={isSectionSelected(section.id)}
                 itemChecked={isItemSelected}
+                locked={isApproved}
                 signedUrls={signedUrls}
                 onImageClick={setLightboxUrl}
                 onToggleSection={(checked) =>
@@ -251,6 +252,7 @@ function SectionBlock({
   section,
   sectionChecked,
   itemChecked,
+  locked,
   signedUrls,
   onImageClick,
   onToggleSection,
@@ -259,6 +261,7 @@ function SectionBlock({
   section: SharedQuoteSection;
   sectionChecked: boolean;
   itemChecked: (itemId: string) => boolean;
+  locked: boolean;
   signedUrls: Record<string, string>;
   onImageClick: (url: string) => void;
   onToggleSection: (checked: boolean) => void;
@@ -269,10 +272,11 @@ function SectionBlock({
 
     return (
       <div className="space-y-3">
-        <label className="flex items-start gap-3 cursor-pointer select-none">
+        <label className={cn("flex items-start gap-3 select-none", locked ? "cursor-default" : "cursor-pointer")}>
           <Checkbox
             className="mt-0.5 shrink-0"
             checked={sectionChecked}
+            disabled={locked}
             onCheckedChange={(c) => onToggleSection(c === true)}
           />
           <span className="min-w-0">
@@ -285,6 +289,7 @@ function SectionBlock({
             items={section.items}
             showItemCheckbox={false}
             itemChecked={itemChecked}
+            locked={locked}
             signedUrls={signedUrls}
             onImageClick={onImageClick}
             onToggleItem={onToggleItem}
@@ -311,6 +316,7 @@ function SectionBlock({
         items={section.items}
         showItemCheckbox
         itemChecked={itemChecked}
+        locked={locked}
         signedUrls={signedUrls}
         onImageClick={onImageClick}
         onToggleItem={onToggleItem}
@@ -326,6 +332,7 @@ function ItemsTable({
   items,
   showItemCheckbox,
   itemChecked,
+  locked,
   signedUrls,
   onImageClick,
   onToggleItem,
@@ -333,6 +340,7 @@ function ItemsTable({
   items: SharedQuoteSection["items"];
   showItemCheckbox: boolean;
   itemChecked: (itemId: string) => boolean;
+  locked: boolean;
   signedUrls: Record<string, string>;
   onImageClick: (url: string) => void;
   onToggleItem: (itemId: string, checked: boolean) => void;
@@ -356,6 +364,7 @@ function ItemsTable({
                 <Checkbox
                   className="mt-0.5 shrink-0"
                   checked={itemChecked(item.id)}
+                  disabled={locked}
                   onCheckedChange={(c) => onToggleItem(item.id, c === true)}
                 />
               )}

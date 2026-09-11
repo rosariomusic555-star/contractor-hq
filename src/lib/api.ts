@@ -125,6 +125,7 @@ export interface Quote {
   terms: string | null;
   share_token: string | null;
   signed_at: string | null;
+  signed_by: string | null;
   created_at: string;
   updated_at: string;
   quote_sections: QuoteSection[];
@@ -926,7 +927,17 @@ export async function createQuote(
 export async function updateQuote(
   id: string,
   patch: Partial<
-    Pick<Quote, "status" | "deposit_percentage" | "notes" | "terms" | "client_id" | "project_id">
+    Pick<
+      Quote,
+      | "status"
+      | "deposit_percentage"
+      | "notes"
+      | "terms"
+      | "client_id"
+      | "project_id"
+      | "signed_at"
+      | "signed_by"
+    >
   >,
 ): Promise<void> {
   const { error } = await supabase.from("quotes").update(patch).eq("id", id);
@@ -1408,7 +1419,8 @@ export type ProjectEventKind =
   | "expense_logged"
   | "change_order_created"
   | "change_order_approved"
-  | "change_order_rejected";
+  | "change_order_rejected"
+  | "quote_reverted";
 
 export interface ProjectEvent {
   id: string;
