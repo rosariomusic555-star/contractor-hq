@@ -40,8 +40,12 @@ import {
   deletePriceBookItem,
   listExpenseCategories,
   type PriceBookItem,
+  type PriceBookItemSpecs,
   type ExpenseCategory,
 } from "@/lib/api";
+import { MATERIAL_TYPES, materialTypeLabel } from "@/lib/materialsCalculators";
+
+const NONE = "__none__";
 
 /**
  * Real, persisted CRUD list (price_book table, 0027) — a user's own saved
@@ -74,6 +78,8 @@ export function SettingsPricebookView() {
       unit: string | null;
       unit_price: number;
       expense_category_id: string | null;
+      material_type: string | null;
+      specs: PriceBookItemSpecs;
     }) => createPriceBookItem(input),
     onSuccess: () => {
       invalidate();
@@ -89,7 +95,12 @@ export function SettingsPricebookView() {
       patch,
     }: {
       id: string;
-      patch: Partial<Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id">>;
+      patch: Partial<
+        Pick<
+          PriceBookItem,
+          "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "specs"
+        >
+      >;
     }) => updatePriceBookItem(id, patch),
     onSuccess: () => {
       invalidate();
@@ -183,6 +194,7 @@ export function SettingsPricebookView() {
                       <div className="truncate text-xs text-muted-foreground">
                         {item.unit ? `${item.unit} · ` : ""}
                         {formatCurrency(item.unit_price)} · {categoryName(item.expense_category_id)}
+                        {item.material_type && ` · ${materialTypeLabel(item.material_type)}`}
                       </div>
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
@@ -239,9 +251,13 @@ function PriceBookItemDialog({
     unit: string | null;
     unit_price: number;
     expense_category_id: string | null;
+    material_type: string | null;
+    specs: PriceBookItemSpecs;
   }) => void;
   onUpdate: (
-    patch: Partial<Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id">>,
+    patch: Partial<
+      Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "specs">
+    >,
   ) => void;
   onDelete: () => void;
 }) {
@@ -249,6 +265,15 @@ function PriceBookItemDialog({
   const [unit, setUnit] = useState("");
   const [priceStr, setPriceStr] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [materialType, setMaterialType] = useState<string | null>(null);
+  const [specStr, setSpecStr] = useState<Record<keyof PriceBookItemSpecs, string>>({
+    coverage_per_pallet_sqft: "",
+    units_per_pallet: "",
+    length_in: "",
+    width_in: "",
+    thickness_in: "",
+    joint_width_in: "",
+  });
 
   // Re-seed the form whenever a different item is opened (or the dialog
   // opens fresh for a new one).
@@ -258,17 +283,33 @@ function PriceBookItemDialog({
     setUnit(item?.unit ?? "");
     setPriceStr(item ? String(item.unit_price) : "");
     setCategoryId(item?.expense_category_id ?? null);
+    setMaterialType(item?.material_type ?? null);
+    setSpecStr({
+      coverage_per_pallet_sqft: item?.specs?.coverage_per_pallet_sqft?.toString() ?? "",
+      units_per_pallet: item?.specs?.units_per_pallet?.toString() ?? "",
+      length_in: item?.specs?.length_in?.toString() ?? "",
+      width_in: item?.specs?.width_in?.toString() ?? "",
+      thickness_in: item?.specs?.thickness_in?.toString() ?? "",
+      joint_width_in: item?.specs?.joint_width_in?.toString() ?? "",
+    });
   }, [open, item]);
 
   const canSave = name.trim().length > 0 && categoryId != null;
 
   const handleSave = () => {
     if (!canSave) return;
+    const specs: PriceBookItemSpecs = {};
+    for (const [key, value] of Object.entries(specStr) as [keyof PriceBookItemSpecs, string][]) {
+      const parsed = parseFloat(value);
+      if (value.trim() && !Number.isNaN(parsed)) specs[key] = parsed;
+    }
     const payload = {
       name: name.trim(),
       unit: unit.trim() || null,
       unit_price: parseFloat(priceStr) || 0,
       expense_category_id: categoryId,
+      material_type: materialType,
+      specs,
     };
     if (item) onUpdate(payload);
     else onCreate(payload);
@@ -342,6 +383,75 @@ function PriceBookItemDialog({
               job.
             </p>
           </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="pb-material-type">Material type (optional)</Label>
+            <Select
+              value={materialType ?? NONE}
+              onValueChange={(v) => setMaterialType(v === NONE ? null : v)}
+            >
+              <SelectTrigger id="pb-material-type" aria-label="Material type">
+                <SelectValue placeholder="Not calculator-relevant" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Not calculator-relevant</SelectItem>
+                {MATERIAL_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-subtle">
+              Lets the Materials Sheet's Smart Calculator find and use this specific product.
+            </p>
+          </div>
+
+          {materialType && (
+            <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-3.5">
+              <p className="text-xs font-semibold text-foreground">
+                Product specs — used for calculator order-quantity math, all optional
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <SpecField
+                  label="Coverage / pallet"
+                  suffix="sq ft"
+                  value={specStr.coverage_per_pallet_sqft}
+                  onChange={(v) => setSpecStr((s) => ({ ...s, coverage_per_pallet_sqft: v }))}
+                />
+                <SpecField
+                  label="Units / pallet"
+                  suffix="ea"
+                  value={specStr.units_per_pallet}
+                  onChange={(v) => setSpecStr((s) => ({ ...s, units_per_pallet: v }))}
+                />
+                <SpecField
+                  label="Length"
+                  suffix="in"
+                  value={specStr.length_in}
+                  onChange={(v) => setSpecStr((s) => ({ ...s, length_in: v }))}
+                />
+                <SpecField
+                  label="Width"
+                  suffix="in"
+                  value={specStr.width_in}
+                  onChange={(v) => setSpecStr((s) => ({ ...s, width_in: v }))}
+                />
+                <SpecField
+                  label="Thickness"
+                  suffix="in"
+                  value={specStr.thickness_in}
+                  onChange={(v) => setSpecStr((s) => ({ ...s, thickness_in: v }))}
+                />
+                <SpecField
+                  label="Joint width"
+                  suffix="in"
+                  value={specStr.joint_width_in}
+                  onChange={(v) => setSpecStr((s) => ({ ...s, joint_width_in: v }))}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
@@ -385,5 +495,36 @@ function PriceBookItemDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SpecField({
+  label,
+  suffix,
+  value,
+  onChange,
+}: {
+  label: string;
+  suffix: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="relative">
+        <Input
+          type="number"
+          step="any"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-9 pr-10 text-sm"
+        />
+        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
+          {suffix}
+        </span>
+      </div>
+    </div>
   );
 }

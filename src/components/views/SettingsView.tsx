@@ -11,6 +11,7 @@ const SECTIONS = [
   { label: "Expense categories", to: "/settings/expense-categories" },
   { label: "Invoicing & payments", to: "/settings/invoicing" },
   { label: "Price Book", to: "/settings/pricebook" },
+  { label: "Material defaults", to: "/settings/material-defaults" },
   { label: "Team & crews", to: "/settings/team" },
   { label: "Notifications", to: "/settings/notifications" },
   { label: "Plan & billing", to: "/settings/billing" },

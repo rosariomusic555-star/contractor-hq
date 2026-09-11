@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2, BookOpen, Lock } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, BookOpen, Lock, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -41,6 +41,8 @@ import {
   type ExpenseCategory,
   type PriceBookItem,
 } from "@/lib/api";
+import { SmartCalculatorDialog } from "@/components/materials/SmartCalculatorDialog";
+import type { GeneratedMaterialItem } from "@/lib/materialsCalculators";
 
 const NONE = "__none__";
 
@@ -126,6 +128,7 @@ export function ProjectMaterialsView() {
   });
 
   const [draft, setDraft] = useState<DraftSection[]>([]);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   const dirty = useRef(false);
 
   // Seed the draft from the server — but never clobber unsaved edits.
@@ -153,6 +156,19 @@ export function ProjectMaterialsView() {
   const deleteSection = (sid: string) => edit((d) => d.filter((s) => s.id !== sid));
   const addSection = () =>
     edit((d) => [...d, { id: tmpId(), name: "", items: [] }]);
+  // Smart Calculator output lands as an ordinary new draft section — its
+  // items are indistinguishable from manually-added ones from this point
+  // on (no "generated" marker anywhere), so everything below (edit,
+  // delete, add more rows, Save) treats it exactly the same.
+  const addGeneratedSection = (name: string, items: GeneratedMaterialItem[]) =>
+    edit((d) => [
+      ...d,
+      {
+        id: tmpId(),
+        name,
+        items: items.map((i) => ({ id: tmpId(), ...i })),
+      },
+    ]);
   const addItem = (sid: string) =>
     edit((d) =>
       d.map((s) =>
@@ -329,20 +345,37 @@ export function ProjectMaterialsView() {
         />
       ))}
 
-      <button
-        type="button"
-        onClick={addSection}
-        className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
-      >
-        <Plus className="h-4 w-4" />
-        Add section
-      </button>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={addSection}
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+        >
+          <Plus className="h-4 w-4" />
+          Add section
+        </button>
+        <button
+          type="button"
+          onClick={() => setCalculatorOpen(true)}
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-primary/30 bg-primary/5 text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/10"
+        >
+          <Sparkles className="h-4 w-4" />
+          Use Smart Calculator
+        </button>
+      </div>
 
       <DraftSaveBar
         visible={isDirty}
         onDiscard={discard}
         onSave={() => saveMut.mutate()}
         saving={saveMut.isPending}
+      />
+
+      <SmartCalculatorDialog
+        open={calculatorOpen}
+        onOpenChange={setCalculatorOpen}
+        priceBookItems={priceBookItems}
+        onGenerate={addGeneratedSection}
       />
     </div>
   );

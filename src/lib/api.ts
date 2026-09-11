@@ -168,6 +168,22 @@ export interface ExpenseCategory {
 /** A user's own saved material (Settings > Price Book), picked from the
  * Materials Sheet to auto-fill a line item instead of retyping it. Never
  * seeded — starts empty for every user. */
+/** Product specs used by the Materials Sheet's Smart Calculator (0034) to
+ * turn a job's dimensions into a real order quantity for a specific
+ * Price Book product, instead of a generic estimate. All optional — every
+ * field here is meaningful for some material_types and not others (e.g.
+ * joint_width_in matters for pavers, not for a bag of sand). Which keys a
+ * given build-type calculator reads is defined in
+ * src/lib/materialsCalculators/, not here. */
+export interface PriceBookItemSpecs {
+  coverage_per_pallet_sqft?: number;
+  units_per_pallet?: number;
+  length_in?: number;
+  width_in?: number;
+  thickness_in?: number;
+  joint_width_in?: number;
+}
+
 export interface PriceBookItem {
   id: string;
   user_id: string;
@@ -176,6 +192,12 @@ export interface PriceBookItem {
   unit_price: number;
   /** "Required" is enforced in the Settings form, not the DB — see 0027. */
   expense_category_id: string | null;
+  /** Which role this product plays for the Smart Calculator (e.g. "paver",
+   * "base_aggregate") — see src/lib/materialsCalculators/materialTypes.ts
+   * for the canonical list. Null = not calculator-relevant; the item still
+   * works normally as a plain Materials Sheet / Price Book entry. */
+  material_type: string | null;
+  specs: PriceBookItemSpecs;
   created_at: string;
 }
 
@@ -648,6 +670,8 @@ export async function createPriceBookItem(input: {
   unit?: string | null;
   unit_price: number;
   expense_category_id: string | null;
+  material_type?: string | null;
+  specs?: PriceBookItemSpecs;
 }): Promise<PriceBookItem> {
   const { data, error } = await supabase
     .from("price_book")
@@ -656,6 +680,8 @@ export async function createPriceBookItem(input: {
       unit: input.unit ?? null,
       unit_price: input.unit_price,
       expense_category_id: input.expense_category_id,
+      material_type: input.material_type ?? null,
+      specs: input.specs ?? {},
     })
     .select()
     .single();
@@ -665,7 +691,9 @@ export async function createPriceBookItem(input: {
 
 export async function updatePriceBookItem(
   id: string,
-  patch: Partial<Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id">>,
+  patch: Partial<
+    Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "specs">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("price_book").update(patch).eq("id", id);
   if (error) throw error;
@@ -674,6 +702,59 @@ export async function updatePriceBookItem(
 export async function deletePriceBookItem(id: string): Promise<void> {
   const { error } = await supabase.from("price_book").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Material defaults (0034) — construction/calculation assumptions (waste
+// factor, base depth) used by the Materials Sheet's Smart Calculator.
+// Deliberately separate from QuoteDefaults above: same one-row-per-user
+// pattern, but a different category of setting (material math, not quote
+// terms/money) — see SettingsMaterialDefaultsView.tsx.
+// ---------------------------------------------------------------------------
+
+export interface MaterialDefaults {
+  waste_factor_pct: number;
+  /** No universal default across build types (a patio base and a wall
+   * footing don't share one) — null until the user sets it. */
+  base_depth_default_in: number | null;
+}
+
+export const MATERIAL_DEFAULTS_FALLBACK: MaterialDefaults = {
+  waste_factor_pct: 10,
+  base_depth_default_in: null,
+};
+
+export async function getMaterialDefaults(): Promise<MaterialDefaults> {
+  const { data, error } = await supabase.from("material_defaults").select("*").maybeSingle();
+  if (error) {
+    // PGRST205 = migration 0034 hasn't been run yet — degrade to the
+    // fallback instead of breaking the Materials Sheet, same convention
+    // as getQuoteDefaults().
+    if (error.code === "PGRST205") return MATERIAL_DEFAULTS_FALLBACK;
+    throw error;
+  }
+  if (!data) return MATERIAL_DEFAULTS_FALLBACK;
+  return {
+    waste_factor_pct: Number(data.waste_factor_pct),
+    base_depth_default_in: data.base_depth_default_in == null ? null : Number(data.base_depth_default_in),
+  };
+}
+
+export async function saveMaterialDefaults(patch: Partial<MaterialDefaults>): Promise<MaterialDefaults> {
+  const merged = { ...(await getMaterialDefaults()), ...patch };
+  const { data, error } = await supabase
+    .from("material_defaults")
+    .upsert({
+      waste_factor_pct: merged.waste_factor_pct,
+      base_depth_default_in: merged.base_depth_default_in,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return {
+    waste_factor_pct: Number(data.waste_factor_pct),
+    base_depth_default_in: data.base_depth_default_in == null ? null : Number(data.base_depth_default_in),
+  };
 }
 
 // ---------------------------------------------------------------------------
