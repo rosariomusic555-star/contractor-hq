@@ -15,11 +15,13 @@ import {
 
 /**
  * Construction/calculation assumptions used by the Materials Sheet's Smart
- * Calculator (waste factor, base depth) — a real, persisted table
- * (material_defaults, 0034), one row per user. Deliberately its own page
- * rather than folded into Settings > Quote defaults: this is about
- * material math, not quote terms/money — a different category of setting
- * even though both are "defaults you can override per job."
+ * Calculator — a real, persisted table (material_defaults, 0034/0035),
+ * one row per user. Deliberately its own page rather than folded into
+ * Settings > Quote defaults: this is about material math, not quote
+ * terms/money — a different category of setting even though both are
+ * "defaults you can override per job." Every value here just pre-fills a
+ * dimension-form field on the calculator — still editable per job, never
+ * silently applied.
  */
 export function SettingsMaterialDefaultsView() {
   const { toast } = useToast();
@@ -84,7 +86,8 @@ export function SettingsMaterialDefaultsView() {
 
         <div className="space-y-5 bg-card p-5">
           <p className="text-sm text-muted-foreground">
-            Pre-fills the Materials Sheet's Smart Calculator — you can override either one per job.
+            Pre-fills the Materials Sheet's Smart Calculator's dimension form — you can override any of
+            these per job.
           </p>
 
           <div className="grid grid-cols-2 gap-4">
@@ -93,14 +96,30 @@ export function SettingsMaterialDefaultsView() {
               suffix="%"
               value={draft.waste_factor_pct}
               onChange={(v) => edit({ waste_factor_pct: v })}
-              note="Added to calculated order quantities"
+              note="Pavers and edge restraint"
             />
-            <NullableNumberField
-              label="Base depth"
+            <NumberField
+              label="Bedding sand depth"
               suffix="in"
-              value={draft.base_depth_default_in}
-              onChange={(v) => edit({ base_depth_default_in: v })}
-              note="Default compacted-base depth"
+              step="0.25"
+              value={draft.bedding_sand_depth_in}
+              onChange={(v) => edit({ bedding_sand_depth_in: v })}
+              note="Reference depth for the coverage rate below"
+            />
+            <NumberField
+              label="Bedding sand coverage"
+              suffix="sq ft/ton"
+              step="5"
+              value={draft.bedding_sand_coverage_sqft_per_ton}
+              onChange={(v) => edit({ bedding_sand_coverage_sqft_per_ton: v })}
+              note="At the depth above — varies by supplier"
+            />
+            <NumberField
+              label="Polymeric sand coverage"
+              suffix="sq ft/bag"
+              value={draft.polymeric_sand_coverage_sqft_per_bag}
+              onChange={(v) => edit({ polymeric_sand_coverage_sqft_per_bag: v })}
+              note="A picked product's own spec overrides this"
             />
           </div>
         </div>
@@ -148,55 +167,9 @@ function NumberField({
           inputMode="decimal"
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="h-10 pr-12"
+          className="h-10 pr-16"
         />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-          {suffix}
-        </span>
-      </div>
-      <div className="mt-1 text-[11px] text-muted-subtle">{note}</div>
-    </div>
-  );
-}
-
-/** Same as NumberField, but an empty field means "not set" (null) rather
- * than coercing to 0 — there's no universal base-depth default across
- * build types, so leaving it blank is a real, valid choice. */
-function NullableNumberField({
-  label,
-  value,
-  onChange,
-  note,
-  suffix,
-}: {
-  label: string;
-  value: number | null;
-  onChange: (v: number | null) => void;
-  note: string;
-  suffix: string;
-}) {
-  const [str, setStr] = useState(value == null ? "" : String(value));
-  useEffect(() => setStr(value == null ? "" : String(value)), [value]);
-
-  return (
-    <div>
-      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
-      <div className="relative mt-1.5">
-        <Input
-          type="number"
-          step="0.5"
-          min="0"
-          inputMode="decimal"
-          placeholder="Not set"
-          value={str}
-          onChange={(e) => {
-            setStr(e.target.value);
-            const parsed = parseFloat(e.target.value);
-            onChange(e.target.value.trim() === "" || Number.isNaN(parsed) ? null : parsed);
-          }}
-          className="h-10 pr-12"
-        />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
           {suffix}
         </span>
       </div>

@@ -8,8 +8,13 @@ export interface DimensionField {
   unit: string;
   step?: string;
   placeholder?: string;
-  /** Pre-fills this field from the user's saved Material Defaults, when set. */
-  defaultFrom?: "waste_factor_pct" | "base_depth_default_in";
+  /** Pre-fills this field from the user's saved Material Defaults — still a
+   * plain, per-job-editable dimension field, just seeded from there. */
+  defaultFrom?:
+    | "waste_factor_pct"
+    | "bedding_sand_depth_in"
+    | "bedding_sand_coverage_sqft_per_ton"
+    | "polymeric_sand_coverage_sqft_per_bag";
 }
 
 /** One material a build type needs a Price Book product for (or not —
@@ -47,5 +52,11 @@ export interface BuildTypeDefinition {
   description: string;
   materialSlots: MaterialSlot[];
   dimensionFields: DimensionField[];
+  /** Optional live readout of derived values (e.g. computed area/perimeter
+   * from length x width) shown under the dimension form as the contractor
+   * types, so they can sanity-check numbers before generating. Called with
+   * whatever's currently parseable in the form, including partial/zeroed
+   * values. */
+  summarizeDimensions?: (dimensions: Record<string, number>) => string | null;
   calculate: (inputs: CalculatorInputs) => GeneratedMaterialItem[];
 }

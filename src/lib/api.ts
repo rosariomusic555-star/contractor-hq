@@ -182,6 +182,9 @@ export interface PriceBookItemSpecs {
   width_in?: number;
   thickness_in?: number;
   joint_width_in?: number;
+  /** Bag-goods coverage (e.g. polymeric sand) — overrides the generic
+   * material_defaults coverage rate for this specific product when set. */
+  coverage_per_bag_sqft?: number;
 }
 
 export interface PriceBookItem {
@@ -705,29 +708,39 @@ export async function deletePriceBookItem(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Material defaults (0034) — construction/calculation assumptions (waste
-// factor, base depth) used by the Materials Sheet's Smart Calculator.
-// Deliberately separate from QuoteDefaults above: same one-row-per-user
-// pattern, but a different category of setting (material math, not quote
-// terms/money) — see SettingsMaterialDefaultsView.tsx.
+// Material defaults (0034, revised 0035) — construction/calculation
+// assumptions used by the Materials Sheet's Smart Calculator. Deliberately
+// separate from QuoteDefaults above: same one-row-per-user pattern, but a
+// different category of setting (material math, not quote terms/money) —
+// see SettingsMaterialDefaultsView.tsx.
+//
+// Note: an earlier version of this also had a base_depth_default_in field
+// for the paver_patio build type's compacted-aggregate base depth — 0035
+// dropped it. That depth varies job to job with no sane universal default,
+// so it's a plain required dimension-form input instead (see
+// src/lib/materialsCalculators/paverPatio.ts), never pre-filled from here.
 // ---------------------------------------------------------------------------
 
 export interface MaterialDefaults {
   waste_factor_pct: number;
-  /** No universal default across build types (a patio base and a wall
-   * footing don't share one) — null until the user sets it. */
-  base_depth_default_in: number | null;
+  bedding_sand_depth_in: number;
+  /** Sq ft one ton of bedding sand covers at bedding_sand_depth_in's
+   * reference depth (1"). Varies by supplier, hence editable. */
+  bedding_sand_coverage_sqft_per_ton: number;
+  polymeric_sand_coverage_sqft_per_bag: number;
 }
 
 export const MATERIAL_DEFAULTS_FALLBACK: MaterialDefaults = {
   waste_factor_pct: 10,
-  base_depth_default_in: null,
+  bedding_sand_depth_in: 1,
+  bedding_sand_coverage_sqft_per_ton: 200,
+  polymeric_sand_coverage_sqft_per_bag: 80,
 };
 
 export async function getMaterialDefaults(): Promise<MaterialDefaults> {
   const { data, error } = await supabase.from("material_defaults").select("*").maybeSingle();
   if (error) {
-    // PGRST205 = migration 0034 hasn't been run yet — degrade to the
+    // PGRST205 = migration 0034/0035 hasn't been run yet — degrade to the
     // fallback instead of breaking the Materials Sheet, same convention
     // as getQuoteDefaults().
     if (error.code === "PGRST205") return MATERIAL_DEFAULTS_FALLBACK;
@@ -736,7 +749,9 @@ export async function getMaterialDefaults(): Promise<MaterialDefaults> {
   if (!data) return MATERIAL_DEFAULTS_FALLBACK;
   return {
     waste_factor_pct: Number(data.waste_factor_pct),
-    base_depth_default_in: data.base_depth_default_in == null ? null : Number(data.base_depth_default_in),
+    bedding_sand_depth_in: Number(data.bedding_sand_depth_in),
+    bedding_sand_coverage_sqft_per_ton: Number(data.bedding_sand_coverage_sqft_per_ton),
+    polymeric_sand_coverage_sqft_per_bag: Number(data.polymeric_sand_coverage_sqft_per_bag),
   };
 }
 
@@ -746,14 +761,18 @@ export async function saveMaterialDefaults(patch: Partial<MaterialDefaults>): Pr
     .from("material_defaults")
     .upsert({
       waste_factor_pct: merged.waste_factor_pct,
-      base_depth_default_in: merged.base_depth_default_in,
+      bedding_sand_depth_in: merged.bedding_sand_depth_in,
+      bedding_sand_coverage_sqft_per_ton: merged.bedding_sand_coverage_sqft_per_ton,
+      polymeric_sand_coverage_sqft_per_bag: merged.polymeric_sand_coverage_sqft_per_bag,
     })
     .select()
     .single();
   if (error) throw error;
   return {
     waste_factor_pct: Number(data.waste_factor_pct),
-    base_depth_default_in: data.base_depth_default_in == null ? null : Number(data.base_depth_default_in),
+    bedding_sand_depth_in: Number(data.bedding_sand_depth_in),
+    bedding_sand_coverage_sqft_per_ton: Number(data.bedding_sand_coverage_sqft_per_ton),
+    polymeric_sand_coverage_sqft_per_bag: Number(data.polymeric_sand_coverage_sqft_per_bag),
   };
 }
 
