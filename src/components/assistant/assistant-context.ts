@@ -1,9 +1,17 @@
 import { createContext, useContext } from "react";
+import type { ResolvedCreateExpenseAction } from "@/lib/assistant";
+
+export interface AssistantPendingAction {
+  action: ResolvedCreateExpenseAction;
+  status: "pending" | "confirming" | "confirmed" | "cancelled" | "failed";
+  error?: string;
+}
 
 export interface AssistantMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  pendingAction?: AssistantPendingAction;
 }
 
 export interface AssistantContextValue {
@@ -12,6 +20,8 @@ export interface AssistantContextValue {
   messages: AssistantMessage[];
   pending: boolean;
   ask: (text: string) => Promise<void>;
+  confirmAction: (messageId: string) => Promise<void>;
+  cancelAction: (messageId: string) => void;
   reset: () => void;
 }
 
