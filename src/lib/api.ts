@@ -219,6 +219,15 @@ export interface MaterialsItem {
    * Sheet locks expense_category_id while this is set. Null = a normal,
    * fully custom line (or a price-book pick that's since been unlinked). */
   price_book_item_id: string | null;
+  /** Set when this line was picked from the Product Catalog instead — a
+   * line is ever linked to at most one of price_book_item_id /
+   * catalog_product_id, never both. Unlike a Price Book pick, this does
+   * NOT lock expense_category_id (the catalog carries no cost-category
+   * concept of its own). */
+  catalog_product_id: string | null;
+  /** Reference-only, every line regardless of source — not part of the
+   * quantity*unit_cost math. */
+  waste_percent: number;
 }
 
 export interface MaterialsSection {
@@ -708,6 +717,78 @@ export async function deletePriceBookItem(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Product Catalog (0036) — a global, curated library of real manufacturer
+// products, maintained by hand (migrations/SQL editor) rather than through
+// the app. Read-only from here: there are deliberately no create/update/
+// delete functions for it. Completely separate from Price Book — a
+// Materials Sheet line links to at most one of price_book_item_id /
+// catalog_product_id, never both.
+// ---------------------------------------------------------------------------
+
+export interface ProductCatalogSpecs {
+  /** Coverage (e.g. sq ft) one single piece/unit provides. */
+  coverage_per_unit?: number;
+  /** How many pieces/units come in one orderable package (pallet, bag, box…). */
+  units_per_package?: number;
+  [key: string]: unknown;
+}
+
+export interface ProductCatalogItem {
+  id: string;
+  manufacturer: string;
+  category: string;
+  name: string;
+  sku: string | null;
+  unit: string | null;
+  specs: ProductCatalogSpecs;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Small, global, read-mostly dataset — fetched in full, same convention
+ * as listPriceBookItems()/listExpenseCategories(). */
+export async function listProductCatalog(): Promise<ProductCatalogItem[]> {
+  const { data, error } = await supabase
+    .from("product_catalog")
+    .select("*")
+    .order("manufacturer")
+    .order("category")
+    .order("name");
+  if (error) {
+    // PGRST205 = migration 0036 hasn't been run yet — degrade to empty
+    // instead of breaking the Materials Sheet picker.
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export interface CatalogPriceOverride {
+  user_id: string;
+  catalog_product_id: string;
+  price: number;
+  updated_at: string;
+}
+
+export async function listCatalogPriceOverrides(): Promise<CatalogPriceOverride[]> {
+  const { data, error } = await supabase.from("catalog_price_overrides").select("*");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({ ...r, price: Number(r.price) }));
+}
+
+/** "Remember this price for next time" — one row per (user, catalog
+ * product), upserted on the composite primary key. */
+export async function upsertCatalogPriceOverride(catalogProductId: string, price: number): Promise<void> {
+  const { error } = await supabase
+    .from("catalog_price_overrides")
+    .upsert({ catalog_product_id: catalogProductId, price }, { onConflict: "user_id,catalog_product_id" });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Material defaults (0034, revised 0035) — construction/calculation
 // assumptions used by the Materials Sheet's Smart Calculator. Deliberately
 // separate from QuoteDefaults above: same one-row-per-user pattern, but a
@@ -830,6 +911,8 @@ export async function addMaterialsItem(
     expense_category_id?: string | null;
     unit?: string | null;
     price_book_item_id?: string | null;
+    catalog_product_id?: string | null;
+    waste_percent?: number;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -843,6 +926,8 @@ export async function addMaterialsItem(
       expense_category_id: input.expense_category_id ?? null,
       unit: input.unit ?? null,
       price_book_item_id: input.price_book_item_id ?? null,
+      catalog_product_id: input.catalog_product_id ?? null,
+      waste_percent: input.waste_percent ?? 0,
     })
     .select()
     .single();
@@ -862,6 +947,8 @@ export async function updateMaterialsItem(
       | "expense_category_id"
       | "unit"
       | "price_book_item_id"
+      | "catalog_product_id"
+      | "waste_percent"
     >
   >,
 ): Promise<void> {
