@@ -168,13 +168,11 @@ export interface ExpenseCategory {
 /** A user's own saved material (Settings > Price Book), picked from the
  * Materials Sheet to auto-fill a line item instead of retyping it. Never
  * seeded — starts empty for every user. */
-/** Product specs used by the Materials Sheet's Smart Calculator (0034) to
- * turn a job's dimensions into a real order quantity for a specific
- * Price Book product, instead of a generic estimate. All optional — every
- * field here is meaningful for some material_types and not others (e.g.
- * joint_width_in matters for pavers, not for a bag of sand). Which keys a
- * given build-type calculator reads is defined in
- * src/lib/materialsCalculators/, not here. */
+/** Optional per-product specs (0034) — coverage/pallet, dimensions, joint
+ * width, bag coverage. All optional, all generic across material_types
+ * (not type-conditional fields). Not read by anything else in the app; a
+ * plain, freeform spec sheet a contractor can fill in per Price Book
+ * item. */
 export interface PriceBookItemSpecs {
   coverage_per_pallet_sqft?: number;
   units_per_pallet?: number;
@@ -182,8 +180,6 @@ export interface PriceBookItemSpecs {
   width_in?: number;
   thickness_in?: number;
   joint_width_in?: number;
-  /** Bag-goods coverage (e.g. polymeric sand) — overrides the generic
-   * material_defaults coverage rate for this specific product when set. */
   coverage_per_bag_sqft?: number;
 }
 
@@ -195,14 +191,34 @@ export interface PriceBookItem {
   unit_price: number;
   /** "Required" is enforced in the Settings form, not the DB — see 0027. */
   expense_category_id: string | null;
-  /** Which role this product plays for the Smart Calculator (e.g. "paver",
-   * "base_aggregate") — see src/lib/materialsCalculators/materialTypes.ts
-   * for the canonical list. Null = not calculator-relevant; the item still
-   * works normally as a plain Materials Sheet / Price Book entry. */
+  /** Which role this product plays (e.g. "paver", "base_aggregate") — see
+   * MATERIAL_TYPES below for the canonical list. Null = not tagged; the
+   * item still works normally as a plain Materials Sheet / Price Book
+   * entry. */
   material_type: string | null;
   specs: PriceBookItemSpecs;
   created_at: string;
 }
+
+export interface MaterialTypeOption {
+  value: string;
+  label: string;
+}
+
+/** Canonical list of material_type values a Price Book item can be tagged
+ * with — free text in the DB (0034), not a CHECK-constrained enum, so this
+ * list can grow without a migration. Single source of truth for the
+ * Settings > Price Book dropdown. */
+export const MATERIAL_TYPES: MaterialTypeOption[] = [
+  { value: "paver", label: "Paver" },
+  { value: "base_aggregate", label: "Base aggregate" },
+  { value: "bedding_sand", label: "Bedding sand" },
+  { value: "polymeric_sand", label: "Polymeric sand" },
+  { value: "edge_restraint", label: "Edge restraint" },
+];
+
+export const materialTypeLabel = (value: string | null): string =>
+  MATERIAL_TYPES.find((t) => t.value === value)?.label ?? value ?? "—";
 
 export interface MaterialsItem {
   id: string;
@@ -786,75 +802,6 @@ export async function upsertCatalogPriceOverride(catalogProductId: string, price
     .from("catalog_price_overrides")
     .upsert({ catalog_product_id: catalogProductId, price }, { onConflict: "user_id,catalog_product_id" });
   if (error) throw error;
-}
-
-// ---------------------------------------------------------------------------
-// Material defaults (0034, revised 0035) — construction/calculation
-// assumptions used by the Materials Sheet's Smart Calculator. Deliberately
-// separate from QuoteDefaults above: same one-row-per-user pattern, but a
-// different category of setting (material math, not quote terms/money) —
-// see SettingsMaterialDefaultsView.tsx.
-//
-// Note: an earlier version of this also had a base_depth_default_in field
-// for the paver_patio build type's compacted-aggregate base depth — 0035
-// dropped it. That depth varies job to job with no sane universal default,
-// so it's a plain required dimension-form input instead (see
-// src/lib/materialsCalculators/paverPatio.ts), never pre-filled from here.
-// ---------------------------------------------------------------------------
-
-export interface MaterialDefaults {
-  waste_factor_pct: number;
-  bedding_sand_depth_in: number;
-  /** Sq ft one ton of bedding sand covers at bedding_sand_depth_in's
-   * reference depth (1"). Varies by supplier, hence editable. */
-  bedding_sand_coverage_sqft_per_ton: number;
-  polymeric_sand_coverage_sqft_per_bag: number;
-}
-
-export const MATERIAL_DEFAULTS_FALLBACK: MaterialDefaults = {
-  waste_factor_pct: 10,
-  bedding_sand_depth_in: 1,
-  bedding_sand_coverage_sqft_per_ton: 200,
-  polymeric_sand_coverage_sqft_per_bag: 80,
-};
-
-export async function getMaterialDefaults(): Promise<MaterialDefaults> {
-  const { data, error } = await supabase.from("material_defaults").select("*").maybeSingle();
-  if (error) {
-    // PGRST205 = migration 0034/0035 hasn't been run yet — degrade to the
-    // fallback instead of breaking the Materials Sheet, same convention
-    // as getQuoteDefaults().
-    if (error.code === "PGRST205") return MATERIAL_DEFAULTS_FALLBACK;
-    throw error;
-  }
-  if (!data) return MATERIAL_DEFAULTS_FALLBACK;
-  return {
-    waste_factor_pct: Number(data.waste_factor_pct),
-    bedding_sand_depth_in: Number(data.bedding_sand_depth_in),
-    bedding_sand_coverage_sqft_per_ton: Number(data.bedding_sand_coverage_sqft_per_ton),
-    polymeric_sand_coverage_sqft_per_bag: Number(data.polymeric_sand_coverage_sqft_per_bag),
-  };
-}
-
-export async function saveMaterialDefaults(patch: Partial<MaterialDefaults>): Promise<MaterialDefaults> {
-  const merged = { ...(await getMaterialDefaults()), ...patch };
-  const { data, error } = await supabase
-    .from("material_defaults")
-    .upsert({
-      waste_factor_pct: merged.waste_factor_pct,
-      bedding_sand_depth_in: merged.bedding_sand_depth_in,
-      bedding_sand_coverage_sqft_per_ton: merged.bedding_sand_coverage_sqft_per_ton,
-      polymeric_sand_coverage_sqft_per_bag: merged.polymeric_sand_coverage_sqft_per_bag,
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return {
-    waste_factor_pct: Number(data.waste_factor_pct),
-    bedding_sand_depth_in: Number(data.bedding_sand_depth_in),
-    bedding_sand_coverage_sqft_per_ton: Number(data.bedding_sand_coverage_sqft_per_ton),
-    polymeric_sand_coverage_sqft_per_bag: Number(data.polymeric_sand_coverage_sqft_per_bag),
-  };
 }
 
 // ---------------------------------------------------------------------------
