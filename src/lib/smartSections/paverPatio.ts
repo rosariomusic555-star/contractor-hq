@@ -1,20 +1,20 @@
 import type { ProductCatalogItem } from "@/lib/api";
 import { roundUpToOrderable } from "@/lib/catalogOrdering";
-import type { AreaAndPerimeter, CalculatedLine, SmartSectionTemplate } from "./types";
+import type { AreaAndPerimeter, RawCalculatedLine, SmartSectionTemplate } from "./types";
 
 const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
 
 export const paverPatioTemplate: SmartSectionTemplate = {
   id: "paver_patio",
   label: "Paver Patio",
-  lineItems: [
-    "Pavers",
-    "Border/Edge Pavers",
-    "Base Material",
-    "Bedding Sand",
-    "Geotextile Fabric",
-    "Edge Restraint",
-    "Polymeric Sand",
+  lineItemSlots: [
+    { key: "pavers", defaultName: "Pavers" },
+    { key: "border_pavers", defaultName: "Border/Edge Pavers" },
+    { key: "base_material", defaultName: "Base Material" },
+    { key: "bedding_sand", defaultName: "Bedding Sand" },
+    { key: "geotextile_fabric", defaultName: "Geotextile Fabric" },
+    { key: "edge_restraint", defaultName: "Edge Restraint" },
+    { key: "polymeric_sand", defaultName: "Polymeric Sand" },
   ],
   questions: [
     { key: "area", label: "Patio size", type: "area_or_dimensions" },
@@ -27,13 +27,53 @@ export const paverPatioTemplate: SmartSectionTemplate = {
       category: "Pavers",
       showWhen: { key: "include_border", equals: true },
     },
+    { key: "base_depth_in", label: "Base depth", type: "number", unit: "in", defaultValue: 5, step: "0.5" },
+  ],
+  // Every number here is also editable per contractor (Settings > Manage
+  // Smart Section Templates) — these are just the app's shipped defaults.
+  tunables: [
+    { key: "base_depth_in", label: "Default depth", unit: "in", defaultValue: 5, relatedSlotKey: "base_material" },
     {
-      key: "base_depth_in",
-      label: "Base depth",
-      type: "number",
+      key: "base_coverage_sqft_per_ton",
+      label: "Coverage",
+      unit: "sq ft/ton",
+      defaultValue: 165, // ASSUMPTION: 1 ton covers 33 sq ft at 5" depth (33 x 5 = 165)
+      relatedSlotKey: "base_material",
+    },
+    {
+      key: "bedding_depth_in",
+      label: "Bedding depth",
       unit: "in",
-      defaultValue: 5, // ASSUMPTION: midpoint of the suggested 4"-6" range
-      step: "0.5",
+      defaultValue: 1,
+      relatedSlotKey: "bedding_sand",
+    },
+    {
+      key: "bedding_coverage_sqft_per_ton",
+      label: "Coverage",
+      unit: "sq ft/ton",
+      defaultValue: 200, // ASSUMPTION — varies by supplier
+      relatedSlotKey: "bedding_sand",
+    },
+    {
+      key: "polymeric_coverage_sqft_per_bag",
+      label: "Coverage",
+      unit: "sq ft/bag",
+      defaultValue: 80, // ASSUMPTION — varies by joint width/depth
+      relatedSlotKey: "polymeric_sand",
+    },
+    {
+      key: "geotextile_coverage_sqft_per_roll",
+      label: "Roll coverage",
+      unit: "sq ft/roll",
+      defaultValue: 900, // ASSUMPTION — roll sizes vary enormously by supplier
+      relatedSlotKey: "geotextile_fabric",
+    },
+    {
+      key: "border_band_width_ft",
+      label: "Border band width",
+      unit: "ft",
+      defaultValue: 1, // ASSUMPTION — real coverage depends on the specific border paver's width
+      relatedSlotKey: "border_pavers",
     },
   ],
   calculate: (answers) => {
@@ -45,17 +85,20 @@ export const paverPatioTemplate: SmartSectionTemplate = {
     const includeBorder = answers.include_border === true;
     const borderPaver = includeBorder ? ((answers.border_paver as ProductCatalogItem | null) ?? null) : null;
     const baseDepthIn = Number(answers.base_depth_in) || 5;
+    const baseCoverageSqftPerTon = Number(answers.base_coverage_sqft_per_ton) || 165;
+    const beddingDepthIn = Number(answers.bedding_depth_in) || 1;
+    const beddingCoverageSqftPerTon = Number(answers.bedding_coverage_sqft_per_ton) || 200;
+    const polymericCoverageSqftPerBag = Number(answers.polymeric_coverage_sqft_per_bag) || 80;
+    const geotextileCoverageSqftPerRoll = Number(answers.geotextile_coverage_sqft_per_roll) || 900;
+    const borderBandWidthFt = Number(answers.border_band_width_ft) || 1;
 
-    const lines: CalculatedLine[] = [];
+    const lines: RawCalculatedLine[] = [];
 
-    // Border band width: ASSUMPTION — 1 ft wide strip along the perimeter.
-    // Real coverage depends on the specific border paver's width, which
-    // this app doesn't track as a spec; flagged for verification.
-    const borderAreaSqft = includeBorder ? perimeterFt * 1 : 0;
+    const borderAreaSqft = includeBorder ? perimeterFt * borderBandWidthFt : 0;
     const fieldAreaSqft = Math.max(areaSqft - borderAreaSqft, 0);
 
     lines.push({
-      name: "Pavers",
+      slotKey: "pavers",
       quantity: paver ? roundUpToOrderable(fieldAreaSqft, paver.specs) : Math.ceil(fieldAreaSqft),
       unit: paver?.unit || "sq ft",
       catalogProduct: paver,
@@ -63,7 +106,7 @@ export const paverPatioTemplate: SmartSectionTemplate = {
 
     if (includeBorder) {
       lines.push({
-        name: "Border/Edge Pavers",
+        slotKey: "border_pavers",
         quantity: borderPaver
           ? roundUpToOrderable(borderAreaSqft, borderPaver.specs)
           : Math.ceil(borderAreaSqft),
@@ -72,43 +115,29 @@ export const paverPatioTemplate: SmartSectionTemplate = {
       });
     }
 
-    // Base material: tons = area x depth / 165 (1 ton covers 33 sq ft at
-    // 5" depth: 33 x 5 = 165) — verified live against a real 900 sq ft
-    // example in an earlier pass of this feature. No separate waste
-    // factor; the constant already bakes it in.
     lines.push({
-      name: "Base Material",
-      quantity: roundUpToHalfTon((areaSqft * baseDepthIn) / 165),
+      slotKey: "base_material",
+      quantity: roundUpToHalfTon((areaSqft * baseDepthIn) / baseCoverageSqftPerTon),
       unit: "ton",
     });
 
-    // Bedding sand: fixed ~1" reference depth (not a question), coverage
-    // ASSUMPTION — 200 sq ft/ton, varies by supplier.
     lines.push({
-      name: "Bedding Sand",
-      quantity: roundUpToHalfTon((areaSqft * 1) / 200),
+      slotKey: "bedding_sand",
+      quantity: roundUpToHalfTon((areaSqft * beddingDepthIn) / beddingCoverageSqftPerTon),
       unit: "ton",
     });
 
-    // Geotextile fabric: ASSUMPTION — 900 sq ft/roll (e.g. a 3'x300' roll).
-    // Roll sizes vary enormously by supplier (some run 5,000+ sq ft) —
-    // needs real verification before ordering.
     lines.push({
-      name: "Geotextile Fabric",
-      quantity: Math.ceil(areaSqft / 900),
+      slotKey: "geotextile_fabric",
+      quantity: Math.ceil(areaSqft / geotextileCoverageSqftPerRoll),
       unit: "roll",
     });
 
-    lines.push({
-      name: "Edge Restraint",
-      quantity: Math.ceil(perimeterFt),
-      unit: "ft",
-    });
+    lines.push({ slotKey: "edge_restraint", quantity: Math.ceil(perimeterFt), unit: "ft" });
 
-    // Polymeric sand: ASSUMPTION — 80 sq ft/bag, varies by joint width/depth.
     lines.push({
-      name: "Polymeric Sand",
-      quantity: Math.ceil(areaSqft / 80),
+      slotKey: "polymeric_sand",
+      quantity: Math.ceil(areaSqft / polymericCoverageSqftPerBag),
       unit: "bag",
     });
 

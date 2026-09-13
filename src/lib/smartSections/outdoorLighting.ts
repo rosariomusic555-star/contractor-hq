@@ -1,8 +1,4 @@
-import type { CalculatedLine, SmartSectionTemplate } from "./types";
-
-// ASSUMPTION constants — flagged for verification.
-const WIRE_FT_PER_ROLL = 250; // common low-voltage landscape wire roll length
-const CONNECTORS_PER_FIXTURE = 1.5; // "roughly 1-2 per fixture" per spec
+import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
 
 /**
  * Simplification: the spec mentions an optional "transformer size (or
@@ -14,21 +10,45 @@ const CONNECTORS_PER_FIXTURE = 1.5; // "roughly 1-2 per fixture" per spec
 export const outdoorLightingTemplate: SmartSectionTemplate = {
   id: "outdoor_lighting",
   label: "Outdoor Lighting",
-  lineItems: ["Light Fixtures", "Low-Voltage Wire", "Transformer", "Wire Connectors", "Mounting Stakes/Hardware"],
+  lineItemSlots: [
+    { key: "light_fixtures", defaultName: "Light Fixtures" },
+    { key: "low_voltage_wire", defaultName: "Low-Voltage Wire" },
+    { key: "transformer", defaultName: "Transformer" },
+    { key: "wire_connectors", defaultName: "Wire Connectors" },
+    { key: "mounting_stakes_hardware", defaultName: "Mounting Stakes/Hardware" },
+  ],
   questions: [
     { key: "fixture_count", label: "Number of fixtures", type: "number", unit: "ea" },
     { key: "wire_run_ft", label: "Approximate total wire run", type: "number", unit: "ft" },
   ],
+  tunables: [
+    {
+      key: "wire_ft_per_roll",
+      label: "Roll length",
+      unit: "ft/roll",
+      defaultValue: 250, // ASSUMPTION — common low-voltage landscape wire roll length
+      relatedSlotKey: "low_voltage_wire",
+    },
+    {
+      key: "connectors_per_fixture",
+      label: "Connectors per fixture",
+      unit: "ea",
+      defaultValue: 1.5, // "roughly 1-2 per fixture" per spec
+      relatedSlotKey: "wire_connectors",
+    },
+  ],
   calculate: (answers) => {
     const fixtureCount = Number(answers.fixture_count) || 0;
     const wireRunFt = Number(answers.wire_run_ft) || 0;
+    const wireFtPerRoll = Number(answers.wire_ft_per_roll) || 250;
+    const connectorsPerFixture = Number(answers.connectors_per_fixture) || 1.5;
 
-    const lines: CalculatedLine[] = [
-      { name: "Light Fixtures", quantity: fixtureCount, unit: "ea" },
-      { name: "Low-Voltage Wire", quantity: Math.ceil(wireRunFt / WIRE_FT_PER_ROLL), unit: "roll" },
-      { name: "Transformer", quantity: 1, unit: "ea" },
-      { name: "Wire Connectors", quantity: Math.ceil(fixtureCount * CONNECTORS_PER_FIXTURE), unit: "ea" },
-      { name: "Mounting Stakes/Hardware", quantity: fixtureCount, unit: "ea" },
+    const lines: RawCalculatedLine[] = [
+      { slotKey: "light_fixtures", quantity: fixtureCount, unit: "ea" },
+      { slotKey: "low_voltage_wire", quantity: Math.ceil(wireRunFt / wireFtPerRoll), unit: "roll" },
+      { slotKey: "transformer", quantity: 1, unit: "ea" },
+      { slotKey: "wire_connectors", quantity: Math.ceil(fixtureCount * connectorsPerFixture), unit: "ea" },
+      { slotKey: "mounting_stakes_hardware", quantity: fixtureCount, unit: "ea" },
     ];
 
     return lines;

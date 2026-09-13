@@ -1,5 +1,7 @@
 import type { ProductCatalogItem } from "@/lib/api";
-import type { CalculatedLine, SmartSectionTemplate } from "./types";
+import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
+
+const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
 
 // Kept deliberately simple per spec — no circumference/diameter geometry,
 // no shape assumptions. Footprint and interior fill area are asked
@@ -7,24 +9,16 @@ import type { CalculatedLine, SmartSectionTemplate } from "./types";
 // square and this app has no per-product block dimensions to do real
 // circular layout math. Treated the same structurally as Seating Wall
 // (linear-foot based), just with a couple of directly-asked areas.
-const BLOCK_FACE_LENGTH_FT = 8 / 12; // 8" nominal face per wall block — ASSUMPTION
-const CAP_LENGTH_FT = 1; // 12" nominal cap length — ASSUMPTION
-const BASE_DEPTH_IN = 6; // compacted base under footprint — ASSUMPTION
-const FILL_DEPTH_IN = 6; // interior fill depth — ASSUMPTION
-const ADHESIVE_PIECES_PER_TUBE = 30; // rough — ASSUMPTION
-
-const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
-
 export const firePitTemplate: SmartSectionTemplate = {
   id: "fire_pit",
   label: "Fire Pit",
-  lineItems: [
-    "Wall Block",
-    "Caps",
-    "Base Material",
-    "Crushed Stone / Interior Fill",
-    "Fire Brick / Fire Ring Liner",
-    "Construction Adhesive",
+  lineItemSlots: [
+    { key: "wall_block", defaultName: "Wall Block" },
+    { key: "caps", defaultName: "Caps" },
+    { key: "base_material", defaultName: "Base Material" },
+    { key: "crushed_stone_interior_fill", defaultName: "Crushed Stone / Interior Fill" },
+    { key: "fire_brick_fire_ring_liner", defaultName: "Fire Brick / Fire Ring Liner" },
+    { key: "construction_adhesive", defaultName: "Construction Adhesive" },
   ],
   questions: [
     { key: "wall_length_ft", label: "Total linear feet of wall", type: "number", unit: "ft" },
@@ -35,6 +29,49 @@ export const firePitTemplate: SmartSectionTemplate = {
     { key: "interior_sqft", label: "Interior fill area", type: "number", unit: "sq ft" },
     { key: "include_fire_ring", label: "Include fire ring/insert?", type: "toggle", defaultValue: false },
   ],
+  tunables: [
+    { key: "courses", label: "Default courses", unit: "courses", defaultValue: 3, relatedSlotKey: "wall_block" },
+    { key: "block_face_length_in", label: "Face length", unit: "in", defaultValue: 8, relatedSlotKey: "wall_block" }, // ASSUMPTION
+    { key: "cap_length_in", label: "Cap length", unit: "in", defaultValue: 12, relatedSlotKey: "caps" }, // ASSUMPTION
+    {
+      key: "base_depth_in",
+      label: "Base depth",
+      unit: "in",
+      defaultValue: 6,
+      relatedSlotKey: "base_material",
+    },
+    {
+      key: "base_coverage_sqft_per_ton",
+      label: "Coverage",
+      unit: "sq ft/ton",
+      defaultValue: 165, // ASSUMPTION
+      relatedSlotKey: "base_material",
+    },
+    {
+      key: "fill_depth_in",
+      label: "Fill depth",
+      unit: "in",
+      defaultValue: 6,
+      relatedSlotKey: "crushed_stone_interior_fill",
+    },
+    {
+      key: "fill_coverage_sqft_per_ton",
+      label: "Coverage",
+      unit: "sq ft/ton",
+      // ASSUMPTION — decorative crushed stone is typically lighter/looser
+      // than compacted base, kept independently editable from Base
+      // Material's coverage for exactly that reason.
+      defaultValue: 165,
+      relatedSlotKey: "crushed_stone_interior_fill",
+    },
+    {
+      key: "adhesive_pieces_per_tube",
+      label: "Coverage",
+      unit: "pieces/tube",
+      defaultValue: 30, // ASSUMPTION
+      relatedSlotKey: "construction_adhesive",
+    },
+  ],
   calculate: (answers) => {
     const wallLengthFt = Number(answers.wall_length_ft) || 0;
     const courses = Number(answers.courses) || 3;
@@ -44,40 +81,43 @@ export const firePitTemplate: SmartSectionTemplate = {
     const interiorSqft = Number(answers.interior_sqft) || 0;
     const includeFireRing = answers.include_fire_ring === true;
 
-    const lines: CalculatedLine[] = [];
+    const blockFaceLengthFt = (Number(answers.block_face_length_in) || 8) / 12;
+    const capLengthFt = (Number(answers.cap_length_in) || 12) / 12;
+    const baseDepthIn = Number(answers.base_depth_in) || 6;
+    const baseCoverageSqftPerTon = Number(answers.base_coverage_sqft_per_ton) || 165;
+    const fillDepthIn = Number(answers.fill_depth_in) || 6;
+    const fillCoverageSqftPerTon = Number(answers.fill_coverage_sqft_per_ton) || 165;
+    const adhesivePiecesPerTube = Number(answers.adhesive_pieces_per_tube) || 30;
 
-    const wallBlockPieces = Math.ceil(wallLengthFt / BLOCK_FACE_LENGTH_FT) * courses;
-    lines.push({ name: "Wall Block", quantity: wallBlockPieces, unit: "pieces", catalogProduct: wallBlock });
+    const lines: RawCalculatedLine[] = [];
 
-    const capPieces = Math.ceil(wallLengthFt / CAP_LENGTH_FT);
-    lines.push({ name: "Caps", quantity: capPieces, unit: "pieces", catalogProduct: cap });
+    const wallBlockPieces = Math.ceil(wallLengthFt / blockFaceLengthFt) * courses;
+    lines.push({ slotKey: "wall_block", quantity: wallBlockPieces, unit: "pieces", catalogProduct: wallBlock });
 
-    // Same area x depth / 165 constant as Paver Patio's base material
-    // (1 ton covers 33 sq ft at 5" depth), depth-adjusted for a 6" base.
+    const capPieces = Math.ceil(wallLengthFt / capLengthFt);
+    lines.push({ slotKey: "caps", quantity: capPieces, unit: "pieces", catalogProduct: cap });
+
     lines.push({
-      name: "Base Material",
-      quantity: roundUpToHalfTon((footprintSqft * BASE_DEPTH_IN) / 165),
+      slotKey: "base_material",
+      quantity: roundUpToHalfTon((footprintSqft * baseDepthIn) / baseCoverageSqftPerTon),
       unit: "ton",
     });
 
-    // Reuses the same constant as a stand-in — decorative crushed stone is
-    // typically lighter/looser than compacted base, so this may over- or
-    // under-state real tonnage. Flagged for verification.
     lines.push({
-      name: "Crushed Stone / Interior Fill",
-      quantity: roundUpToHalfTon((interiorSqft * FILL_DEPTH_IN) / 165),
+      slotKey: "crushed_stone_interior_fill",
+      quantity: roundUpToHalfTon((interiorSqft * fillDepthIn) / fillCoverageSqftPerTon),
       unit: "ton",
     });
 
     if (includeFireRing) {
       // No quantity math — just a flag to include the line, per spec.
-      lines.push({ name: "Fire Brick / Fire Ring Liner", quantity: 1, unit: "kit" });
+      lines.push({ slotKey: "fire_brick_fire_ring_liner", quantity: 1, unit: "kit" });
     }
     // else: not included this run — line left untouched.
 
     lines.push({
-      name: "Construction Adhesive",
-      quantity: Math.ceil((wallBlockPieces + capPieces) / ADHESIVE_PIECES_PER_TUBE),
+      slotKey: "construction_adhesive",
+      quantity: Math.ceil((wallBlockPieces + capPieces) / adhesivePiecesPerTube),
       unit: "tube",
     });
 

@@ -916,6 +916,63 @@ export async function deleteMaterialsItem(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Smart Section settings (0040) — a contractor's own customization of a
+// build type's step-1 line items and step-2 calculator numbers. Every
+// build type ships with app-standard defaults (src/lib/smartSections/) so
+// it works with zero setup; a row here overrides either or both for that
+// contractor only. Missing row, or a missing key within line_items/
+// tunables, falls back to the app default — see resolveEffectiveLineItems/
+// resolveTunableValue in src/lib/smartSections/index.ts.
+// ---------------------------------------------------------------------------
+
+/** One line item slot as stored in a contractor's customization —
+ * slot_key ties it back to a known calculator material (null = a pure
+ * custom addition the calculator will never compute a quantity for).
+ * Order in the array is display order. */
+export interface SmartSectionLineItemSetting {
+  slot_key: string | null;
+  name: string;
+}
+
+export interface SmartSectionSettings {
+  build_type: string;
+  line_items: SmartSectionLineItemSetting[] | null;
+  tunables: Record<string, number>;
+}
+
+export async function listSmartSectionSettings(): Promise<SmartSectionSettings[]> {
+  const { data, error } = await supabase
+    .from("smart_section_settings")
+    .select("build_type, line_items, tunables");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({
+    build_type: r.build_type,
+    line_items: r.line_items ?? null,
+    tunables: r.tunables ?? {},
+  }));
+}
+
+export async function saveSmartSectionSettings(
+  buildType: string,
+  patch: { line_items?: SmartSectionLineItemSetting[]; tunables?: Record<string, number> },
+): Promise<void> {
+  const { error } = await supabase
+    .from("smart_section_settings")
+    .upsert({ build_type: buildType, ...patch }, { onConflict: "user_id,build_type" });
+  if (error) throw error;
+}
+
+/** "Reset to default" — deletes the override row entirely so both line
+ * items and calculator numbers fall back to the app's shipped defaults. */
+export async function resetSmartSectionSettings(buildType: string): Promise<void> {
+  const { error } = await supabase.from("smart_section_settings").delete().eq("build_type", buildType);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Quotes
 // ---------------------------------------------------------------------------
 
