@@ -251,6 +251,12 @@ export interface MaterialsSection {
   project_id: string;
   name: string;
   sort_order: number;
+  /** Set when this section was created via "Create Smart Section" — which
+   * build type template (src/lib/smartSections/) it is, so its header can
+   * show a calculator icon that knows which question set to run. Null for
+   * an ordinary manually-created section. Set once at creation; renaming
+   * the section afterward doesn't clear it. */
+  smart_section_build_type: string | null;
   materials_items: MaterialsItem[];
 }
 
@@ -820,7 +826,7 @@ export async function listMaterials(projectId: string): Promise<MaterialsSection
 
 export async function createMaterialsSection(
   projectId: string,
-  input: { name: string; sort_order?: number },
+  input: { name: string; sort_order?: number; smart_section_build_type?: string | null },
 ): Promise<MaterialsSection> {
   const { data, error } = await supabase
     .from("materials_sections")
@@ -828,6 +834,7 @@ export async function createMaterialsSection(
       project_id: projectId,
       name: input.name,
       sort_order: input.sort_order ?? 0,
+      smart_section_build_type: input.smart_section_build_type ?? null,
     })
     .select("*, materials_items(*)")
     .single();
