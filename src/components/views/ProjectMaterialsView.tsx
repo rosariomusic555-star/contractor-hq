@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Plus, Trash2, BookOpen, Lock, Sparkles, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, BookOpen, Lock, Wand2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -48,8 +48,7 @@ import {
   type ProductCatalogItem,
   type CatalogPriceOverride,
 } from "@/lib/api";
-import { SmartCalculatorDialog } from "@/components/materials/SmartCalculatorDialog";
-import type { GeneratedMaterialItem } from "@/lib/materialsCalculators";
+import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
 
 /** Fixed, code-level list so every brand shows in the Catalog tab even
  * before it has any products — otherwise brands with zero rows would
@@ -166,7 +165,7 @@ export function ProjectMaterialsView() {
   });
 
   const [draft, setDraft] = useState<DraftSection[]>([]);
-  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [smartSectionOpen, setSmartSectionOpen] = useState(false);
   const dirty = useRef(false);
 
   // Seed the draft from the server — but never clobber unsaved edits.
@@ -194,17 +193,29 @@ export function ProjectMaterialsView() {
   const deleteSection = (sid: string) => edit((d) => d.filter((s) => s.id !== sid));
   const addSection = () =>
     edit((d) => [...d, { id: tmpId(), name: "", items: [] }]);
-  // Smart Calculator output lands as an ordinary new draft section — its
-  // items are indistinguishable from manually-added ones from this point
-  // on (no "generated" marker anywhere), so everything below (edit,
-  // delete, add more rows, Save) treats it exactly the same.
-  const addGeneratedSection = (name: string, items: GeneratedMaterialItem[]) =>
+  // Smart Section is a template, not a calculator: it lands as an ordinary
+  // new draft section with blank-quantity/price line items named per the
+  // build type. Indistinguishable from manually-added rows from this point
+  // on, so everything below (edit, delete, add more rows, Save) treats it
+  // exactly the same.
+  const addSmartSection = (name: string, lineItems: string[]) =>
     edit((d) => [
       ...d,
       {
         id: tmpId(),
         name,
-        items: items.map((i) => ({ id: tmpId(), ...i })),
+        items: lineItems.map((itemName) => ({
+          id: tmpId(),
+          name: itemName,
+          quantity: 0,
+          unit_cost: 0,
+          expense_category_id: null,
+          unit: "",
+          price_book_item_id: null,
+          catalog_product_id: null,
+          waste_percent: 0,
+          rememberPrice: false,
+        })),
       },
     ]);
   const addItem = (sid: string) =>
@@ -413,11 +424,11 @@ export function ProjectMaterialsView() {
         </button>
         <button
           type="button"
-          onClick={() => setCalculatorOpen(true)}
+          onClick={() => setSmartSectionOpen(true)}
           className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-primary/30 bg-primary/5 text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/10"
         >
-          <Sparkles className="h-4 w-4" />
-          Use Smart Calculator
+          <Wand2 className="h-4 w-4" />
+          Create Smart Section
         </button>
       </div>
 
@@ -428,11 +439,10 @@ export function ProjectMaterialsView() {
         saving={saveMut.isPending}
       />
 
-      <SmartCalculatorDialog
-        open={calculatorOpen}
-        onOpenChange={setCalculatorOpen}
-        priceBookItems={priceBookItems}
-        onGenerate={addGeneratedSection}
+      <SmartSectionDialog
+        open={smartSectionOpen}
+        onOpenChange={setSmartSectionOpen}
+        onCreate={addSmartSection}
       />
     </div>
   );

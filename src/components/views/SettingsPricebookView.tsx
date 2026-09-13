@@ -39,11 +39,12 @@ import {
   updatePriceBookItem,
   deletePriceBookItem,
   listExpenseCategories,
+  MATERIAL_TYPES,
+  materialTypeLabel,
   type PriceBookItem,
   type PriceBookItemSpecs,
   type ExpenseCategory,
 } from "@/lib/api";
-import { MATERIAL_TYPES, materialTypeLabel } from "@/lib/materialsCalculators";
 
 const NONE = "__none__";
 
