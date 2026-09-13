@@ -1,10 +1,11 @@
 import { ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { SMART_SECTION_TEMPLATES } from "@/lib/smartSectionTemplates";
+import { SMART_SECTION_TEMPLATES } from "@/lib/smartSections";
 
 /**
  * A single question — "what are you building?" — not a wizard. Picking an
  * option immediately creates the section; there's nothing else to confirm.
+ * No math happens here — that's step 2, the per-section calculator.
  */
 export function SmartSectionDialog({
   open,
@@ -13,7 +14,7 @@ export function SmartSectionDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (label: string, lineItems: string[]) => void;
+  onCreate: (buildTypeId: string, label: string, lineItems: string[]) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -28,7 +29,7 @@ export function SmartSectionDialog({
               key={template.id}
               type="button"
               onClick={() => {
-                onCreate(template.label, template.lineItems);
+                onCreate(template.id, template.label, template.lineItems);
                 onOpenChange(false);
               }}
               className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-3.5 text-left transition-colors hover:border-primary hover:bg-primary/5"

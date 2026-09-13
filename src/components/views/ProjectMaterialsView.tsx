@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Plus, Trash2, BookOpen, Lock, Wand2, X } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, BookOpen, Lock, Wand2, Calculator, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -49,11 +49,10 @@ import {
   type CatalogPriceOverride,
 } from "@/lib/api";
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
-
-/** Fixed, code-level list so every brand shows in the Catalog tab even
- * before it has any products — otherwise brands with zero rows would
- * silently vanish instead of showing "No products yet." */
-const CATALOG_BRANDS = ["Techo-Bloc", "Belgard", "Keystone", "Unilock", "Cambridge Pavers"];
+import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectionCalculatorDialog";
+import { CatalogPicker } from "@/components/materials/CatalogPicker";
+import { findSmartSectionTemplate, type CalculatedLine } from "@/lib/smartSections";
+import { nextOrderableQuantity } from "@/lib/catalogOrdering";
 
 const NONE = "__none__";
 
@@ -90,6 +89,10 @@ interface DraftItem {
 interface DraftSection {
   id: string;
   name: string;
+  /** Set when this section was created via "Create Smart Section" — which
+   * build type it is, so its header can show the calculator icon. Set
+   * once at creation, never changes afterward. */
+  smart_section_build_type: string | null;
   items: DraftItem[];
 }
 
@@ -100,6 +103,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
   sections.map((s) => ({
     id: s.id,
     name: s.name,
+    smart_section_build_type: s.smart_section_build_type ?? null,
     items: s.materials_items.map((i) => ({
       id: i.id,
       name: i.name,
@@ -192,18 +196,20 @@ export function ProjectMaterialsView() {
     edit((d) => d.map((s) => (s.id === sid ? { ...s, name } : s)));
   const deleteSection = (sid: string) => edit((d) => d.filter((s) => s.id !== sid));
   const addSection = () =>
-    edit((d) => [...d, { id: tmpId(), name: "", items: [] }]);
-  // Smart Section is a template, not a calculator: it lands as an ordinary
-  // new draft section with blank-quantity/price line items named per the
-  // build type. Indistinguishable from manually-added rows from this point
-  // on, so everything below (edit, delete, add more rows, Save) treats it
-  // exactly the same.
-  const addSmartSection = (name: string, lineItems: string[]) =>
+    edit((d) => [...d, { id: tmpId(), name: "", smart_section_build_type: null, items: [] }]);
+  // Step 1 of Smart Section is a template, not a calculator: it lands as
+  // an ordinary new draft section with blank-quantity/price line items
+  // named per the build type. Indistinguishable from manually-added rows
+  // from this point on, so everything below (edit, delete, add more rows,
+  // Save) treats it exactly the same. The build type is remembered on the
+  // section so its header can show the calculator icon (step 2).
+  const addSmartSection = (buildTypeId: string, name: string, lineItems: string[]) =>
     edit((d) => [
       ...d,
       {
         id: tmpId(),
         name,
+        smart_section_build_type: buildTypeId,
         items: lineItems.map((itemName) => ({
           id: tmpId(),
           name: itemName,
@@ -218,6 +224,39 @@ export function ProjectMaterialsView() {
         })),
       },
     ]);
+  // Step 2 — the calculator writes quantities into the section's existing
+  // line items, matched purely by name against the build type's fixed
+  // template (never by position). A line the calculator doesn't return
+  // (deleted by the user, or an optional line not applicable this run) is
+  // left untouched; a custom line the user added outside the template
+  // never matches any calculated line, so it's left alone too.
+  const applyCalculatedLines = (sid: string, lines: CalculatedLine[]) =>
+    edit((d) =>
+      d.map((s) => {
+        if (s.id !== sid) return s;
+        return {
+          ...s,
+          items: s.items.map((item) => {
+            const line = lines.find((l) => l.name === item.name);
+            if (!line) return item;
+            const patch: Partial<DraftItem> = { quantity: line.quantity, unit: line.unit };
+            if (line.catalogProduct !== undefined) {
+              const product = line.catalogProduct;
+              patch.catalog_product_id = product?.id ?? null;
+              patch.price_book_item_id = null;
+              // Seed unit_cost from a remembered price only when this line
+              // hasn't been priced yet — re-running never clobbers a price
+              // the contractor already typed in.
+              if (product && item.unit_cost === 0) {
+                const override = priceOverrides.find((o) => o.catalog_product_id === product.id);
+                if (override) patch.unit_cost = override.price;
+              }
+            }
+            return { ...item, ...patch };
+          }),
+        };
+      }),
+    );
   const addItem = (sid: string) =>
     edit((d) =>
       d.map((s) =>
@@ -275,7 +314,11 @@ export function ProjectMaterialsView() {
         const server = serverSections.get(ds.id);
 
         if (!server) {
-          const created = await createMaterialsSection(id, { name, sort_order: si });
+          const created = await createMaterialsSection(id, {
+            name,
+            sort_order: si,
+            smart_section_build_type: ds.smart_section_build_type,
+          });
           sectionId = created.id;
         } else if (server.name !== name) {
           await updateMaterialsSection(server.id, { name });
@@ -410,6 +453,7 @@ export function ProjectMaterialsView() {
           onAddItem={() => addItem(section.id)}
           onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
           onDeleteItem={(iid) => deleteItem(section.id, iid)}
+          onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
         />
       ))}
 
@@ -461,6 +505,7 @@ interface SectionCardProps {
   onAddItem: () => void;
   onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
+  onApplyCalculatedLines: (lines: CalculatedLine[]) => void;
 }
 
 function SectionCard({
@@ -474,8 +519,11 @@ function SectionCard({
   onAddItem,
   onEditItem,
   onDeleteItem,
+  onApplyCalculatedLines,
 }: SectionCardProps) {
   const subtotal = section.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0);
+  const buildType = findSmartSectionTemplate(section.smart_section_build_type);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
 
   return (
     <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
@@ -495,8 +543,20 @@ function SectionCard({
         </div>
       </div>
 
-      {/* Delete */}
-      <div className="flex items-center justify-end border-b border-hairline px-5 py-2.5">
+      {/* Calculator (Smart Sections only) + Delete */}
+      <div className="flex items-center justify-between border-b border-hairline px-5 py-2.5">
+        {buildType ? (
+          <button
+            type="button"
+            onClick={() => setCalculatorOpen(true)}
+            className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
+          >
+            <Calculator className="h-4 w-4" />
+            Calculate quantities
+          </button>
+        ) : (
+          <span />
+        )}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
@@ -549,6 +609,16 @@ function SectionCard({
           Add item to this section
         </button>
       </div>
+
+      {buildType && (
+        <SmartSectionCalculatorDialog
+          open={calculatorOpen}
+          onOpenChange={setCalculatorOpen}
+          template={buildType}
+          catalogItems={catalogItems}
+          onApply={onApplyCalculatedLines}
+        />
+      )}
     </div>
   );
 }
@@ -563,23 +633,6 @@ interface ItemRowProps {
   priceOverrides: CatalogPriceOverride[];
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
-}
-
-/** package_coverage = coverage_per_unit × units_per_package, then round the
- * entered quantity up to the nearest whole multiple of that. Returns null
- * when the catalog product doesn't carry both specs, or the quantity is
- * already a clean multiple (nothing to nudge). */
-function nextOrderableQuantity(
-  quantity: number,
-  specs: ProductCatalogItem["specs"] | undefined,
-): number | null {
-  const coverage = Number(specs?.coverage_per_unit);
-  const perPackage = Number(specs?.units_per_package);
-  if (!coverage || !perPackage || quantity <= 0) return null;
-  const packageCoverage = coverage * perPackage;
-  const packages = quantity / packageCoverage;
-  if (Math.abs(packages - Math.round(packages)) < 1e-9) return null;
-  return Math.ceil(packages) * packageCoverage;
 }
 
 function ItemRow({
@@ -870,7 +923,7 @@ function MaterialPickerDialog({
             />
           </TabsContent>
           <TabsContent value="catalog" className="mt-2 min-h-0 flex-1 overflow-hidden">
-            <CatalogTabContent catalogItems={catalogItems} onSelect={onSelectCatalog} />
+            <CatalogPicker catalogItems={catalogItems} onSelect={onSelectCatalog} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -939,145 +992,3 @@ function PriceBookTabContent({
   );
 }
 
-type CatalogDrillLevel =
-  | { level: "brands" }
-  | { level: "categories"; brand: string }
-  | { level: "products"; brand: string; category: string };
-
-function CatalogTabContent({
-  catalogItems,
-  onSelect,
-}: {
-  catalogItems: ProductCatalogItem[];
-  onSelect: (item: ProductCatalogItem) => void;
-}) {
-  const [filter, setFilter] = useState("");
-  const [drill, setDrill] = useState<CatalogDrillLevel>({ level: "brands" });
-
-  const search = filter.trim().toLowerCase();
-  const searchResults = search
-    ? catalogItems.filter(
-        (p) =>
-          p.name.toLowerCase().includes(search) || (p.sku ?? "").toLowerCase().includes(search),
-      )
-    : null;
-
-  const categoriesForBrand = (brand: string) =>
-    Array.from(
-      new Set(catalogItems.filter((p) => p.manufacturer === brand).map((p) => p.category)),
-    ).sort();
-
-  const productsFor = (brand: string, category: string) =>
-    catalogItems.filter((p) => p.manufacturer === brand && p.category === category);
-
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <Input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Search catalog by name or SKU…"
-        autoFocus
-      />
-
-      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
-        {searchResults ? (
-          searchResults.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No matches.</p>
-          ) : (
-            <div className="divide-y divide-hairline">
-              {searchResults.map((p) => (
-                <CatalogProductRow key={p.id} product={p} onSelect={onSelect} />
-              ))}
-            </div>
-          )
-        ) : drill.level === "brands" ? (
-          <div className="divide-y divide-hairline">
-            {CATALOG_BRANDS.map((brand) => (
-              <button
-                key={brand}
-                type="button"
-                onClick={() => setDrill({ level: "categories", brand })}
-                className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-3 text-left transition-colors hover:bg-muted/50"
-              >
-                <span className="text-sm font-semibold text-foreground">{brand}</span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
-              </button>
-            ))}
-          </div>
-        ) : drill.level === "categories" ? (
-          <div className="flex flex-col gap-2">
-            <BackRow label={drill.brand} onClick={() => setDrill({ level: "brands" })} />
-            {categoriesForBrand(drill.brand).length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No {drill.brand} products yet.
-              </p>
-            ) : (
-              <div className="divide-y divide-hairline">
-                {categoriesForBrand(drill.brand).map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    onClick={() => setDrill({ level: "products", brand: drill.brand, category })}
-                    className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-3 text-left transition-colors hover:bg-muted/50"
-                  >
-                    <span className="text-sm font-semibold text-foreground">{category}</span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <BackRow
-              label={drill.category}
-              onClick={() => setDrill({ level: "categories", brand: drill.brand })}
-            />
-            <div className="divide-y divide-hairline">
-              {productsFor(drill.brand, drill.category).map((p) => (
-                <CatalogProductRow key={p.id} product={p} onSelect={onSelect} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BackRow({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1.5 self-start text-xs font-bold text-primary hover:underline"
-    >
-      <ChevronLeft className="h-3.5 w-3.5" />
-      {label}
-    </button>
-  );
-}
-
-function CatalogProductRow({
-  product,
-  onSelect,
-}: {
-  product: ProductCatalogItem;
-  onSelect: (item: ProductCatalogItem) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(product)}
-      className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-3 text-left transition-colors hover:bg-muted/50"
-    >
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-foreground">{product.name}</div>
-        <div className="truncate text-xs text-muted-foreground">
-          {product.manufacturer} · {product.category}
-          {product.sku ? ` · SKU ${product.sku}` : ""}
-        </div>
-      </div>
-    </button>
-  );
-}
