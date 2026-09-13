@@ -1,30 +1,90 @@
 import type { ProductCatalogItem } from "@/lib/api";
-import type { CalculatedLine, SmartSectionTemplate } from "./types";
-
-// ASSUMPTION constants — none of this math has been verified against real
-// supplier specs.
-const BLOCK_FACE_LENGTH_FT = 8 / 12; // 8" nominal face per wall block
-const CAP_LENGTH_FT = 1; // 12" nominal cap length
-const COURSE_HEIGHT_FT = 9 / 12; // 9" per course (seating-wall block convention)
-const TRENCH_WIDTH_FT = 1.5;
-const TRENCH_DEPTH_FT = 0.5; // 6"
-const TONS_PER_CUYD = 1.35; // compacted aggregate density approximation
-const DRAINAGE_HEIGHT_THRESHOLD_FT = 1.5; // 18" — rough rule of thumb, not an engineering standard
-const DRAINAGE_TRENCH_WIDTH_FT = 1;
-const DRAINAGE_TRENCH_DEPTH_FT = 1;
-const CAP_ADHESIVE_COVERAGE_FT_PER_TUBE = 20;
+import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
 
 const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
 
 export const seatingWallTemplate: SmartSectionTemplate = {
   id: "seating_wall",
   label: "Seating Wall",
-  lineItems: ["Wall Block", "Caps", "Base Material", "Drainage Gravel", "Construction Adhesive"],
+  lineItemSlots: [
+    { key: "wall_block", defaultName: "Wall Block" },
+    { key: "caps", defaultName: "Caps" },
+    { key: "base_material", defaultName: "Base Material" },
+    { key: "drainage_gravel", defaultName: "Drainage Gravel" },
+    { key: "construction_adhesive", defaultName: "Construction Adhesive" },
+  ],
   questions: [
     { key: "length_ft", label: "Linear feet of wall", type: "number", unit: "ft" },
     { key: "wall_block", label: "Wall block product", type: "catalog_product", category: "Wall Block" },
     { key: "cap", label: "Cap product", type: "catalog_product", category: "Caps" },
     { key: "courses", label: "Wall height (courses)", type: "number", unit: "courses", defaultValue: 2 },
+  ],
+  tunables: [
+    { key: "courses", label: "Default courses", unit: "courses", defaultValue: 2, relatedSlotKey: "wall_block" },
+    {
+      key: "block_face_length_in",
+      label: "Face length",
+      unit: "in",
+      defaultValue: 8, // ASSUMPTION
+      relatedSlotKey: "wall_block",
+    },
+    {
+      key: "course_height_in",
+      label: "Course height",
+      unit: "in",
+      defaultValue: 9, // ASSUMPTION — seating-wall block convention
+      relatedSlotKey: "wall_block",
+    },
+    { key: "cap_length_in", label: "Cap length", unit: "in", defaultValue: 12, relatedSlotKey: "caps" }, // ASSUMPTION
+    {
+      key: "trench_width_ft",
+      label: "Trench width",
+      unit: "ft",
+      defaultValue: 1.5,
+      relatedSlotKey: "base_material",
+    },
+    {
+      key: "trench_depth_ft",
+      label: "Trench depth",
+      unit: "ft",
+      defaultValue: 0.5,
+      relatedSlotKey: "base_material",
+    },
+    {
+      key: "tons_per_cuyd",
+      label: "Density (shared with Drainage Gravel)",
+      unit: "ton/cy",
+      defaultValue: 1.35, // ASSUMPTION — compacted aggregate density approximation
+      relatedSlotKey: "base_material",
+    },
+    {
+      key: "drainage_height_threshold_ft",
+      label: "Height that triggers drainage",
+      unit: "ft",
+      defaultValue: 1.5, // rough rule of thumb, not an engineering standard
+      relatedSlotKey: "drainage_gravel",
+    },
+    {
+      key: "drainage_trench_width_ft",
+      label: "Drainage trench width",
+      unit: "ft",
+      defaultValue: 1,
+      relatedSlotKey: "drainage_gravel",
+    },
+    {
+      key: "drainage_trench_depth_ft",
+      label: "Drainage trench depth",
+      unit: "ft",
+      defaultValue: 1,
+      relatedSlotKey: "drainage_gravel",
+    },
+    {
+      key: "cap_adhesive_coverage_ft_per_tube",
+      label: "Coverage",
+      unit: "linear ft/tube",
+      defaultValue: 20, // ASSUMPTION
+      relatedSlotKey: "construction_adhesive",
+    },
   ],
   calculate: (answers) => {
     const lengthFt = Number(answers.length_ft) || 0;
@@ -32,37 +92,46 @@ export const seatingWallTemplate: SmartSectionTemplate = {
     const wallBlock = (answers.wall_block as ProductCatalogItem | null) ?? null;
     const cap = (answers.cap as ProductCatalogItem | null) ?? null;
 
-    const lines: CalculatedLine[] = [];
+    const blockFaceLengthFt = (Number(answers.block_face_length_in) || 8) / 12;
+    const courseHeightFt = (Number(answers.course_height_in) || 9) / 12;
+    const capLengthFt = (Number(answers.cap_length_in) || 12) / 12;
+    const trenchWidthFt = Number(answers.trench_width_ft) || 1.5;
+    const trenchDepthFt = Number(answers.trench_depth_ft) || 0.5;
+    const tonsPerCuyd = Number(answers.tons_per_cuyd) || 1.35;
+    const drainageHeightThresholdFt = Number(answers.drainage_height_threshold_ft) || 1.5;
+    const drainageTrenchWidthFt = Number(answers.drainage_trench_width_ft) || 1;
+    const drainageTrenchDepthFt = Number(answers.drainage_trench_depth_ft) || 1;
+    const capAdhesiveCoverageFtPerTube = Number(answers.cap_adhesive_coverage_ft_per_tube) || 20;
+
+    const lines: RawCalculatedLine[] = [];
 
     lines.push({
-      name: "Wall Block",
-      quantity: Math.ceil(lengthFt / BLOCK_FACE_LENGTH_FT) * courses,
+      slotKey: "wall_block",
+      quantity: Math.ceil(lengthFt / blockFaceLengthFt) * courses,
       unit: "pieces",
       catalogProduct: wallBlock,
     });
 
     lines.push({
-      name: "Caps",
-      quantity: Math.ceil(lengthFt / CAP_LENGTH_FT),
+      slotKey: "caps",
+      quantity: Math.ceil(lengthFt / capLengthFt),
       unit: "pieces",
       catalogProduct: cap,
     });
 
-    const baseTons =
-      ((lengthFt * TRENCH_WIDTH_FT * TRENCH_DEPTH_FT) / 27) * TONS_PER_CUYD;
-    lines.push({ name: "Base Material", quantity: roundUpToHalfTon(baseTons), unit: "ton" });
+    const baseTons = ((lengthFt * trenchWidthFt * trenchDepthFt) / 27) * tonsPerCuyd;
+    lines.push({ slotKey: "base_material", quantity: roundUpToHalfTon(baseTons), unit: "ton" });
 
-    const wallHeightFt = courses * COURSE_HEIGHT_FT;
-    if (wallHeightFt > DRAINAGE_HEIGHT_THRESHOLD_FT) {
-      const drainageTons =
-        ((lengthFt * DRAINAGE_TRENCH_WIDTH_FT * DRAINAGE_TRENCH_DEPTH_FT) / 27) * TONS_PER_CUYD;
-      lines.push({ name: "Drainage Gravel", quantity: roundUpToHalfTon(drainageTons), unit: "ton" });
+    const wallHeightFt = courses * courseHeightFt;
+    if (wallHeightFt > drainageHeightThresholdFt) {
+      const drainageTons = ((lengthFt * drainageTrenchWidthFt * drainageTrenchDepthFt) / 27) * tonsPerCuyd;
+      lines.push({ slotKey: "drainage_gravel", quantity: roundUpToHalfTon(drainageTons), unit: "ton" });
     }
     // else: below the rule-of-thumb height threshold — line left untouched.
 
     lines.push({
-      name: "Construction Adhesive",
-      quantity: Math.ceil(lengthFt / CAP_ADHESIVE_COVERAGE_FT_PER_TUBE),
+      slotKey: "construction_adhesive",
+      quantity: Math.ceil(lengthFt / capAdhesiveCoverageFtPerTube),
       unit: "tube",
     });
 

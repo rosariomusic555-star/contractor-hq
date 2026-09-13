@@ -1,29 +1,17 @@
 import type { ProductCatalogItem } from "@/lib/api";
-import type { CalculatedLine, SmartSectionTemplate } from "./types";
-
-// ASSUMPTION constants — none of this math has been verified against real
-// supplier specs. Flagged individually below; treat every generated line
-// here as a rough starting estimate, not a locked order quantity.
-const VENEER_FACE_LENGTH_FT = 8 / 12; // 8" nominal face per block/veneer piece
-const CMU_FACE_LENGTH_FT = 16 / 12; // 16" nominal CMU length
-const COURSE_HEIGHT_FT = 8 / 12; // 8" per course (CMU convention)
-const REBAR_CORE_SPACING_FT = 32 / 12; // vertical cores every 32" o.c.
-const MORTAR_CUFT_PER_LINEAR_FT_PER_COURSE = 0.15; // rough core-fill estimate
-const CUFT_PER_MORTAR_BAG = 0.6; // typical 80lb bag yield
-const ADHESIVE_COVERAGE_SQFT_PER_TUBE = 15;
-const CAP_LENGTH_FT = 1; // 12" nominal cap length
+import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
 
 export const outdoorKitchenTemplate: SmartSectionTemplate = {
   id: "outdoor_kitchen",
   label: "Outdoor Kitchen",
-  lineItems: [
-    "Wall Block / Veneer",
-    "Concrete Block (Core)",
-    "Rebar",
-    "Concrete Mix / Mortar",
-    "Countertop Material",
-    "Construction Adhesive",
-    "Caps",
+  lineItemSlots: [
+    { key: "wall_block_veneer", defaultName: "Wall Block / Veneer" },
+    { key: "concrete_block_core", defaultName: "Concrete Block (Core)" },
+    { key: "rebar", defaultName: "Rebar" },
+    { key: "concrete_mix_mortar", defaultName: "Concrete Mix / Mortar" },
+    { key: "countertop_material", defaultName: "Countertop Material" },
+    { key: "construction_adhesive", defaultName: "Construction Adhesive" },
+    { key: "caps", defaultName: "Caps" },
   ],
   questions: [
     // V1 scope: a single straight run only — L-shaped footprints (summing
@@ -48,6 +36,65 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
       showWhen: { key: "countertop_mode", equals: "catalog" },
     },
   ],
+  tunables: [
+    { key: "courses", label: "Default courses", unit: "courses", defaultValue: 3, relatedSlotKey: "concrete_block_core" },
+    {
+      key: "veneer_face_length_in",
+      label: "Face length",
+      unit: "in",
+      defaultValue: 8, // ASSUMPTION
+      relatedSlotKey: "wall_block_veneer",
+    },
+    {
+      key: "cmu_face_length_in",
+      label: "Face length",
+      unit: "in",
+      defaultValue: 16, // ASSUMPTION — standard CMU nominal length
+      relatedSlotKey: "concrete_block_core",
+    },
+    {
+      key: "course_height_in",
+      label: "Course height",
+      unit: "in",
+      defaultValue: 8, // ASSUMPTION — CMU convention
+      relatedSlotKey: "concrete_block_core",
+    },
+    {
+      key: "rebar_core_spacing_in",
+      label: "Vertical core spacing",
+      unit: "in",
+      defaultValue: 32, // ASSUMPTION
+      relatedSlotKey: "rebar",
+    },
+    {
+      key: "mortar_cuft_per_linear_ft_per_course",
+      label: "Fill rate",
+      unit: "cu ft / linear ft / course",
+      defaultValue: 0.15, // ASSUMPTION — rough core-fill estimate
+      relatedSlotKey: "concrete_mix_mortar",
+    },
+    {
+      key: "mortar_cuft_per_bag",
+      label: "Bag yield",
+      unit: "cu ft/bag",
+      defaultValue: 0.6, // ASSUMPTION — typical 80lb bag yield
+      relatedSlotKey: "concrete_mix_mortar",
+    },
+    {
+      key: "adhesive_coverage_sqft_per_tube",
+      label: "Coverage",
+      unit: "sq ft/tube",
+      defaultValue: 15, // ASSUMPTION
+      relatedSlotKey: "construction_adhesive",
+    },
+    {
+      key: "cap_length_in",
+      label: "Cap length",
+      unit: "in",
+      defaultValue: 12, // ASSUMPTION
+      relatedSlotKey: "caps",
+    },
+  ],
   calculate: (answers) => {
     const runFt = Number(answers.run_ft) || 0;
     const courses = Number(answers.courses) || 3;
@@ -56,35 +103,49 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
     const countertopProduct =
       countertopMode === "catalog" ? ((answers.countertop_product as ProductCatalogItem | null) ?? null) : null;
 
-    const wallHeightFt = courses * COURSE_HEIGHT_FT;
-    const lines: CalculatedLine[] = [];
+    const veneerFaceLengthFt = (Number(answers.veneer_face_length_in) || 8) / 12;
+    const cmuFaceLengthFt = (Number(answers.cmu_face_length_in) || 16) / 12;
+    const courseHeightFt = (Number(answers.course_height_in) || 8) / 12;
+    const rebarCoreSpacingFt = (Number(answers.rebar_core_spacing_in) || 32) / 12;
+    const mortarCuftPerLinearFtPerCourse = Number(answers.mortar_cuft_per_linear_ft_per_course) || 0.15;
+    const mortarCuftPerBag = Number(answers.mortar_cuft_per_bag) || 0.6;
+    const adhesiveCoverageSqftPerTube = Number(answers.adhesive_coverage_sqft_per_tube) || 15;
+    const capLengthFt = (Number(answers.cap_length_in) || 12) / 12;
 
-    const veneerPieces = Math.ceil(runFt / VENEER_FACE_LENGTH_FT) * courses;
-    lines.push({ name: "Wall Block / Veneer", quantity: veneerPieces, unit: "pieces", catalogProduct: wallBlock });
+    const wallHeightFt = courses * courseHeightFt;
+    const lines: RawCalculatedLine[] = [];
 
-    const corePieces = Math.ceil(runFt / CMU_FACE_LENGTH_FT) * courses;
-    lines.push({ name: "Concrete Block (Core)", quantity: corePieces, unit: "pieces" });
+    const veneerPieces = Math.ceil(runFt / veneerFaceLengthFt) * courses;
+    lines.push({ slotKey: "wall_block_veneer", quantity: veneerPieces, unit: "pieces", catalogProduct: wallBlock });
+
+    const corePieces = Math.ceil(runFt / cmuFaceLengthFt) * courses;
+    lines.push({ slotKey: "concrete_block_core", quantity: corePieces, unit: "pieces" });
 
     // Rebar: one vertical bar per core position, full wall height each.
-    const coreCount = Math.ceil(runFt / REBAR_CORE_SPACING_FT) + 1;
-    lines.push({ name: "Rebar", quantity: Math.ceil(coreCount * wallHeightFt), unit: "ft" });
+    const coreCount = Math.ceil(runFt / rebarCoreSpacingFt) + 1;
+    lines.push({ slotKey: "rebar", quantity: Math.ceil(coreCount * wallHeightFt), unit: "ft" });
 
-    const mortarCuFt = runFt * courses * MORTAR_CUFT_PER_LINEAR_FT_PER_COURSE;
-    lines.push({ name: "Concrete Mix / Mortar", quantity: Math.ceil(mortarCuFt / CUFT_PER_MORTAR_BAG), unit: "bag" });
+    const mortarCuFt = runFt * courses * mortarCuftPerLinearFtPerCourse;
+    lines.push({ slotKey: "concrete_mix_mortar", quantity: Math.ceil(mortarCuFt / mortarCuftPerBag), unit: "bag" });
 
     if (countertopMode === "catalog") {
-      lines.push({ name: "Countertop Material", quantity: Math.ceil(runFt), unit: "ft", catalogProduct: countertopProduct });
+      lines.push({
+        slotKey: "countertop_material",
+        quantity: Math.ceil(runFt),
+        unit: "ft",
+        catalogProduct: countertopProduct,
+      });
     }
     // else: sourcing separately — leave the existing line untouched.
 
     const veneerSqft = runFt * wallHeightFt;
     lines.push({
-      name: "Construction Adhesive",
-      quantity: Math.ceil(veneerSqft / ADHESIVE_COVERAGE_SQFT_PER_TUBE),
+      slotKey: "construction_adhesive",
+      quantity: Math.ceil(veneerSqft / adhesiveCoverageSqftPerTube),
       unit: "tube",
     });
 
-    lines.push({ name: "Caps", quantity: Math.ceil(runFt / CAP_LENGTH_FT), unit: "pieces" });
+    lines.push({ slotKey: "caps", quantity: Math.ceil(runFt / capLengthFt), unit: "pieces" });
 
     return lines;
   },

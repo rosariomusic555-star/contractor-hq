@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,14 +14,17 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ProductCatalogItem } from "@/lib/api";
-import type {
-  SmartSectionTemplate,
-  SmartSectionQuestion,
-  SmartSectionAnswers,
-  CalculatedLine,
-  AreaAndPerimeter,
-  CatalogProductQuestion,
+import { listSmartSectionSettings, type ProductCatalogItem } from "@/lib/api";
+import {
+  findSmartSectionSettings,
+  resolveEffectiveLineItems,
+  resolveTunableValue,
+  type SmartSectionTemplate,
+  type SmartSectionQuestion,
+  type SmartSectionAnswers,
+  type CalculatedLine,
+  type AreaAndPerimeter,
+  type CatalogProductQuestion,
 } from "@/lib/smartSections";
 import { CatalogPicker } from "./CatalogPicker";
 
@@ -47,18 +51,43 @@ export function SmartSectionCalculatorDialog({
   const [answers, setAnswers] = useState<SmartSectionAnswers>({});
   const [pickerFor, setPickerFor] = useState<string | null>(null);
 
+  const { data: allSettings = [] } = useQuery({
+    queryKey: ["smart-section-settings"],
+    queryFn: listSmartSectionSettings,
+    enabled: open,
+  });
+  const settings = findSmartSectionSettings(allSettings, template.id);
+
   useEffect(() => {
     if (!open) return;
     const seeded: SmartSectionAnswers = {};
+    const questionKeys = new Set(template.questions.map((q) => q.key));
     for (const q of template.questions) {
       if (q.type === "toggle") seeded[q.key] = q.defaultValue ?? false;
       else if (q.type === "select") seeded[q.key] = q.defaultValue ?? q.options[0]?.value;
-      else if (q.type === "number") seeded[q.key] = q.defaultValue;
-      else if (q.type === "catalog_product") seeded[q.key] = null;
+      else if (q.type === "number") {
+        // Only questions backed by a tunable (e.g. "base depth", "number
+        // of courses") get a contractor-customizable seed value — plain
+        // per-job dimension questions (linear feet, sq ft…) have no
+        // sensible default and stay blank, same as before.
+        const hasTunable = template.tunables.some((t) => t.key === q.key);
+        seeded[q.key] = hasTunable ? resolveTunableValue(template, settings, q.key) : q.defaultValue;
+      } else if (q.type === "catalog_product") seeded[q.key] = null;
+    }
+    // Tunables with no on-screen question (pure formula constants) are
+    // seeded invisibly so calculate() can read them uniformly.
+    for (const t of template.tunables) {
+      if (!questionKeys.has(t.key)) seeded[t.key] = resolveTunableValue(template, settings, t.key);
     }
     setAnswers(seeded);
     setPickerFor(null);
-  }, [open, template]);
+    // Re-seeds once the settings query resolves too — on a fresh page
+    // load this dialog can mount before listSmartSectionSettings
+    // returns, and without allSettings here the seeded values would stay
+    // stuck on app defaults even after the contractor's real
+    // customization arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, template, allSettings]);
 
   const setAnswer = (key: string, value: unknown) => setAnswers((a) => ({ ...a, [key]: value }));
 
@@ -67,7 +96,19 @@ export function SmartSectionCalculatorDialog({
   );
 
   const handleApply = () => {
-    onApply(template.calculate(answers));
+    const effectiveLineItems = resolveEffectiveLineItems(template, settings);
+    const lines: CalculatedLine[] = [];
+    for (const raw of template.calculate(answers)) {
+      const lineItem = effectiveLineItems.find((li) => li.slot_key === raw.slotKey);
+      if (!lineItem) continue; // slot removed from this contractor's template — nothing to fill in
+      lines.push({
+        name: lineItem.name,
+        quantity: raw.quantity,
+        unit: raw.unit,
+        catalogProduct: raw.catalogProduct,
+      });
+    }
+    onApply(lines);
     onOpenChange(false);
   };
 
