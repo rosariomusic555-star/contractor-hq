@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -205,12 +205,20 @@ interface QuoteWorkspaceProps {
 export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspaceProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [confirmApprovedSaveOpen, setConfirmApprovedSaveOpen] = useState(false);
   const [quickQuotePickerOpen, setQuickQuotePickerOpen] = useState(false);
   const [quickQuoteBuildType, setQuickQuoteBuildType] = useState<string | null>(null);
+  // Set right before triggering a save from the "Create project" nudge, so
+  // whatever's currently in the editor — saved or not — is what actually
+  // gets moved into the new project, instead of re-parenting whatever was
+  // last persisted to the DB. Consumed (and cleared) in saveMut's
+  // onSuccess; also cleared if the approved-quote confirm dialog is
+  // dismissed without saving, so a later unrelated save can't misfire it.
+  const createProjectAfterSave = useRef(false);
 
   const { data: catalogItems = [] } = useQuery({
     queryKey: ["product-catalog"],
@@ -511,8 +519,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         );
         qc.invalidateQueries({ queryKey: ["project-events", projectId] });
         toast({ title: "Quote saved", description: "Signature invalidated — back to draft." });
-      } else {
+      } else if (!createProjectAfterSave.current) {
         toast({ title: "Quote saved" });
+      }
+      if (createProjectAfterSave.current) {
+        createProjectAfterSave.current = false;
+        navigate("/projects/new", { state: { linkQuoteId: quote.id } });
       }
     },
     onError,
@@ -630,6 +642,25 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const isDirty = dirty.current;
 
   const handleSaveClick = () => {
+    createProjectAfterSave.current = false;
+    if (quote.status === "approved") {
+      setConfirmApprovedSaveOpen(true);
+    } else {
+      saveMut.mutate();
+    }
+  };
+
+  // The standalone-quote "Create project" nudge: whatever's currently in
+  // the editor must land in the new project, not just whatever the DB
+  // already has — so if there are unsaved changes, save first (reusing
+  // the exact same saveMut the Save button uses, including its
+  // approved-quote confirm gate) and only navigate once that succeeds.
+  const handleCreateProjectClick = () => {
+    if (!isDirty) {
+      navigate("/projects/new", { state: { linkQuoteId: quote.id } });
+      return;
+    }
+    createProjectAfterSave.current = true;
     if (quote.status === "approved") {
       setConfirmApprovedSaveOpen(true);
     } else {
@@ -846,7 +877,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
           <QuoteSummaryCard
             variant="desktop"
-            quoteId={quote.id}
+            onCreateProject={handleCreateProjectClick}
             total={grandTotal}
             cost={estCost}
             profit={margin}
@@ -874,7 +905,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       <div className="lg:hidden">
         <QuoteSummaryCard
           variant="mobile"
-          quoteId={quote.id}
+          onCreateProject={handleCreateProjectClick}
           total={grandTotal}
           cost={estCost}
           profit={margin}
@@ -902,7 +933,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         saving={saveMut.isPending}
       />
 
-      <AlertDialog open={confirmApprovedSaveOpen} onOpenChange={setConfirmApprovedSaveOpen}>
+      <AlertDialog
+        open={confirmApprovedSaveOpen}
+        onOpenChange={(open) => {
+          setConfirmApprovedSaveOpen(open);
+          // Dismissed (Escape/outside click/Cancel) without saving — don't
+          // let a stale "create project after save" flag misfire the next
+          // unrelated save.
+          if (!open) createProjectAfterSave.current = false;
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Editing an approved quote</AlertDialogTitle>
@@ -965,10 +1005,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 interface QuoteSummaryCardProps {
   /** "mobile" = full-width bottom card; "desktop" = 340px sidebar card. */
   variant: "mobile" | "desktop";
-  /** For the standalone "Create project" nudge — carried through so the
-   * new-project flow can re-parent this exact quote once the project
-   * exists, instead of leaving it behind as an orphaned standalone quote. */
-  quoteId: string;
+  /** The standalone "Create project" nudge — saves any unsaved changes
+   * first (same saveMut the Save button uses) so the new project gets
+   * whatever's currently in the editor, then navigates to create it. */
+  onCreateProject: () => void;
   total: number;
   /** Null for a standalone quote — there's no real cost source without a
    * project's Materials Sheet, so this and profit/marginPct show "Not
@@ -999,7 +1039,7 @@ interface QuoteSummaryCardProps {
  */
 function QuoteSummaryCard({
   variant,
-  quoteId,
+  onCreateProject,
   total,
   cost,
   profit,
@@ -1062,13 +1102,13 @@ function QuoteSummaryCard({
               cost == null ? (
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-[13px] font-extrabold text-foreground">Not available</span>
-                  <Link
-                    to="/projects/new"
-                    state={{ linkQuoteId: quoteId }}
+                  <button
+                    type="button"
+                    onClick={onCreateProject}
                     className="text-[10px] font-bold text-primary hover:underline"
                   >
                     Create project
-                  </Link>
+                  </button>
                 </div>
               ) : (
                 formatCurrency(cost)
@@ -1090,13 +1130,13 @@ function QuoteSummaryCard({
               cost == null ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="text-sm font-extrabold text-foreground">Not available</span>
-                  <Link
-                    to="/projects/new"
-                    state={{ linkQuoteId: quoteId }}
+                  <button
+                    type="button"
+                    onClick={onCreateProject}
                     className="text-xs font-bold text-primary hover:underline"
                   >
                     Create project
-                  </Link>
+                  </button>
                 </span>
               ) : (
                 formatCurrency(cost)
