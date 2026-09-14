@@ -33,6 +33,7 @@ import {
   listQuotes,
   listInvoices,
   listMaterials,
+  listMaterialsSheets,
   listExpenses,
   listChangeOrders,
   listProjectEvents,
@@ -77,6 +78,10 @@ export function ProjectDetailView() {
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes", { project: id }], queryFn: () => listQuotes(id) });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: id }], queryFn: () => listInvoices(id) });
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: id }], queryFn: () => listMaterials(id) });
+  const { data: materialsSheets = [] } = useQuery({
+    queryKey: ["materials-sheets", { project: id }],
+    queryFn: () => listMaterialsSheets(id),
+  });
   const { data: expenses = [] } = useQuery({ queryKey: ["expenses", { project: id }], queryFn: () => listExpenses(id) });
   const { data: changeOrders = [] } = useQuery({
     queryKey: ["change-orders", { project: id }],
@@ -122,7 +127,9 @@ export function ProjectDetailView() {
   const materialsSummary =
     materials.length === 0
       ? "Not started"
-      : `${pluralize(materials.length, "section")} · ${formatCurrency(materialsCogs(materials))} cost`;
+      : materialsSheets.length > 1
+        ? `${pluralize(materialsSheets.length, "sheet")} · ${formatCurrency(materialsCogs(materials))} cost`
+        : `${pluralize(materials.length, "section")} · ${formatCurrency(materialsCogs(materials))} cost`;
   const quotesSummary =
     quotes.length === 0
       ? "Not started"

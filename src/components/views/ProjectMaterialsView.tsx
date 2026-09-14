@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2, BookOpen, Lock, Wand2, Calculator, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+  BookOpen,
+  Lock,
+  Wand2,
+  Calculator,
+  X,
+  Link2,
+  Link2Off,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -13,8 +25,10 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
+import { StatusPill } from "@/components/common/StatusPill";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,9 +42,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
+import { quoteStatusMeta } from "@/lib/statusMeta";
 import {
   getProject,
   listMaterials,
+  listMaterialsBySheet,
+  listMaterialsSheets,
+  createMaterialsSheet,
+  updateMaterialsSheet,
+  deleteMaterialsSheet,
+  listQuotes,
+  linkQuoteToMaterialSheet,
+  quoteTotal,
   listExpenseCategories,
   listPriceBookItems,
   listProductCatalog,
@@ -42,7 +65,10 @@ import {
   addMaterialsItem,
   updateMaterialsItem,
   deleteMaterialsItem,
+  materialsCogs,
   type MaterialsSection,
+  type MaterialsSheet,
+  type Quote,
   type ExpenseCategory,
   type PriceBookItem,
   type ProductCatalogItem,
@@ -140,16 +166,168 @@ const itemChanged = (
   a.catalog_product_id !== b.catalog_product_id ||
   a.waste_percent !== b.waste_percent;
 
+/**
+ * Route entry for /projects/:id/materials. Most projects have exactly one
+ * materials sheet — go straight into its builder, indistinguishable from
+ * how this screen has always worked (no visible "sheet" chrome). Once a
+ * project's scope has grown enough to have more than one sheet, this
+ * becomes ambiguous — show the sheet list instead (mirrors ProjectQuotesView
+ * for quotes) and let the user pick one, or add another.
+ */
 export function ProjectMaterialsView() {
   const { id = "" } = useParams();
+  const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
+  const { data: sheets = [], isLoading } = useQuery({
+    queryKey: ["materials-sheets", { project: id }],
+    queryFn: () => listMaterialsSheets(id),
+  });
+
+  if (isLoading) return <p className="text-muted-foreground">Loading materials sheet…</p>;
+
+  if (sheets.length > 1) {
+    return <MaterialsSheetsListView projectId={id} projectName={project?.name} sheets={sheets} />;
+  }
+
+  return (
+    <MaterialsSheetBuilder
+      projectId={id}
+      projectName={project?.name}
+      sheetId={sheets[0]?.id}
+      backHref={`/projects/${id}`}
+      backLabel="Back to project"
+    />
+  );
+}
+
+/** Route entry for /projects/:id/materials/:sheetId — reached from the
+ * sheet list above when a project has more than one sheet. */
+export function ProjectMaterialsSheetDetailView() {
+  const { id = "", sheetId = "" } = useParams();
+  const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
+
+  return (
+    <MaterialsSheetBuilder
+      projectId={id}
+      projectName={project?.name}
+      sheetId={sheetId}
+      backHref={`/projects/${id}/materials`}
+      backLabel="Back to materials sheets"
+    />
+  );
+}
+
+function MaterialsSheetsListView({
+  projectId,
+  projectName,
+  sheets,
+}: {
+  projectId: string;
+  projectName: string | undefined;
+  sheets: MaterialsSheet[];
+}) {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
+  const { data: allSections = [] } = useQuery({
+    queryKey: ["materials", { project: projectId }],
+    queryFn: () => listMaterials(projectId),
+  });
+  const { data: quotes = [] } = useQuery({
+    queryKey: ["quotes", { project: projectId }],
+    queryFn: () => listQuotes(projectId),
+  });
+
+  const addMut = useMutation({
+    mutationFn: () => createMaterialsSheet(projectId, { name: "New materials sheet" }),
+    onSuccess: (sheet) => {
+      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
+      navigate(`/projects/${projectId}/materials/${sheet.id}`);
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="mx-auto max-w-4xl animate-fade-in space-y-6">
+      <Link
+        to={`/projects/${projectId}`}
+        className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" />
+        Back to project
+      </Link>
+
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+        <div>
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheets</h1>
+          <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
+        </div>
+        <Button onClick={() => addMut.mutate()} disabled={addMut.isPending} className="font-bold">
+          <Plus className="mr-2 h-4 w-4" />
+          Add materials sheet
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        {sheets.map((sheet) => {
+          const sections = allSections.filter((s) => s.sheet_id === sheet.id);
+          const cost = materialsCogs(sections);
+          const linkedQuote = quotes.find((q) => q.material_sheet_id === sheet.id);
+          return (
+            <Link
+              key={sheet.id}
+              to={`/projects/${projectId}/materials/${sheet.id}`}
+              className="card-surface flex items-center justify-between gap-3 p-5 transition-shadow hover:shadow-card-hover"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-bold text-foreground">{sheet.name}</div>
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {pluralize(sections.length, "section")}
+                  {linkedQuote ? ` · Linked to ${formatCurrency(quoteTotal(linkedQuote.quote_sections))} quote` : ""}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="font-bold text-foreground">{formatCurrency(cost)}</span>
+                <ChevronRight className="h-4 w-4 text-muted-subtle" />
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+interface MaterialsSheetBuilderProps {
+  projectId: string;
+  projectName: string | undefined;
+  /** Undefined = this project has no materials sheet yet — a brand-new
+   * sheet is created lazily the first time "Save changes" runs, exactly
+   * like a brand-new quote/section/item's tmp- id resolves on save. */
+  sheetId: string | undefined;
+  backHref: string;
+  backLabel: string;
+}
+
+function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, backLabel }: MaterialsSheetBuilderProps) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
   const { data: sections = [], isLoading, isError, error } = useQuery({
-    queryKey: ["materials", { project: id }],
-    queryFn: () => listMaterials(id),
+    queryKey: ["materials", { sheet: sheetId }],
+    queryFn: () => listMaterialsBySheet(sheetId!),
+    enabled: !!sheetId,
     refetchOnWindowFocus: false,
+  });
+  // Sibling documents in this project — drive the "more than one sheet or
+  // quote" ambiguity check and the Link-a-quote picker below.
+  const { data: sheets = [] } = useQuery({
+    queryKey: ["materials-sheets", { project: projectId }],
+    queryFn: () => listMaterialsSheets(projectId),
+  });
+  const { data: projectQuotes = [] } = useQuery({
+    queryKey: ["quotes", { project: projectId }],
+    queryFn: () => listQuotes(projectId),
   });
   const { data: expenseCategories = [] } = useQuery({
     queryKey: ["expense-categories"],
@@ -298,6 +476,10 @@ export function ProjectMaterialsView() {
   // --- save (diff draft against the server data) --------------------------
   const saveMut = useMutation({
     mutationFn: async () => {
+      // No sheet exists yet (brand-new project) — create it lazily, exactly
+      // like a brand-new section/item's tmp- id resolves to a real row here.
+      const currentSheetId = sheetId ?? (await createMaterialsSheet(projectId, { name: "Materials sheet" })).id;
+
       const serverSections = new Map(sections.map((s) => [s.id, s]));
       const draftSectionIds = new Set(draft.map((s) => s.id));
 
@@ -314,7 +496,7 @@ export function ProjectMaterialsView() {
         const server = serverSections.get(ds.id);
 
         if (!server) {
-          const created = await createMaterialsSection(id, {
+          const created = await createMaterialsSection(projectId, currentSheetId, {
             name,
             sort_order: si,
             smart_section_build_type: ds.smart_section_build_type,
@@ -386,13 +568,64 @@ export function ProjectMaterialsView() {
     },
     onSuccess: () => {
       dirty.current = false;
-      qc.invalidateQueries({ queryKey: ["materials", { project: id }] });
+      qc.invalidateQueries({ queryKey: ["materials", { sheet: sheetId }] });
+      qc.invalidateQueries({ queryKey: ["materials", { project: projectId }] });
+      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["catalog-price-overrides"] });
       toast({ title: "Materials sheet saved" });
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
+
+  // --- sibling-document linking (0042) ------------------------------------
+  // Only ambiguous — and only shown — once this project has more than one
+  // materials sheet or more than one quote. Below that, a single sheet's
+  // cost feeds a single quote's Estimated Cost automatically, no link needed.
+  const needsExplicitLink = sheets.length > 1 || projectQuotes.length > 1;
+  const linkedQuote = projectQuotes.find((q) => q.material_sheet_id === sheetId);
+  const [linkQuoteOpen, setLinkQuoteOpen] = useState(false);
+
+  const linkQuoteMut = useMutation({
+    mutationFn: (quoteId: string) => linkQuoteToMaterialSheet(quoteId, sheetId!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["quotes"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  const unlinkQuoteMut = useMutation({
+    mutationFn: (quoteId: string) => linkQuoteToMaterialSheet(quoteId, null),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["quotes"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const renameSheetMut = useMutation({
+    mutationFn: (name: string) => updateMaterialsSheet(sheetId!, { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const navigate = useNavigate();
+  const addSheetMut = useMutation({
+    mutationFn: () => createMaterialsSheet(projectId, { name: "New materials sheet" }),
+    onSuccess: (sheet) => {
+      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
+      navigate(`/projects/${projectId}/materials/${sheet.id}`);
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  const deleteSheetMut = useMutation({
+    mutationFn: () => deleteMaterialsSheet(sheetId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      toast({ title: "Materials sheet deleted" });
+      navigate(`/projects/${projectId}/materials`);
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const currentSheet = sheets.find((s) => s.id === sheetId);
+  const [nameDraft, setNameDraft] = useState(currentSheet?.name ?? "");
+  useEffect(() => setNameDraft(currentSheet?.name ?? ""), [currentSheet?.name]);
 
   const grandTotal = useMemo(
     () =>
@@ -408,16 +641,74 @@ export function ProjectMaterialsView() {
   return (
     <div className={cn("mx-auto max-w-4xl animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
       <Link
-        to={`/projects/${id}`}
+        to={backHref}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
       >
         <ChevronLeft className="h-3.5 w-3.5" />
-        Back to project
+        {backLabel}
       </Link>
 
-      <div>
-        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
-        <p className="mt-1 text-muted-foreground">{project?.name ?? " "}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {needsExplicitLink && sheetId ? (
+            <Input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={() => {
+                const trimmed = nameDraft.trim() || "Materials sheet";
+                setNameDraft(trimmed);
+                if (trimmed !== currentSheet?.name) renameSheetMut.mutate(trimmed);
+              }}
+              className="h-auto border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0"
+              aria-label="Sheet name"
+            />
+          ) : (
+            <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
+          )}
+          <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
+        </div>
+        {sheetId && (
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => addSheetMut.mutate()}
+              disabled={addSheetMut.isPending}
+              className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+            >
+              + Add materials sheet
+            </button>
+            {sheets.length > 1 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-muted-foreground hover:text-destructive"
+                  >
+                    Delete sheet
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete "{currentSheet?.name || "this sheet"}"?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Removes this sheet and all its sections/items.
+                      {linkedQuote ? " Its linked quote's Estimated Cost will show \"Not available\" again." : ""}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => deleteSheetMut.mutate()}
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
@@ -429,6 +720,34 @@ export function ProjectMaterialsView() {
             {formatCurrency(grandTotal)}
           </span>
         </div>
+        {needsExplicitLink && sheetId && (
+          <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-sidebar/95 px-5 py-2.5">
+            <span className="flex items-center gap-1.5 text-xs text-background/70">
+              {linkedQuote ? <Link2 className="h-3.5 w-3.5" /> : <Link2Off className="h-3.5 w-3.5" />}
+              {linkedQuote
+                ? `Linked to ${formatCurrency(quoteTotal(linkedQuote.quote_sections))} quote`
+                : "Not linked to a quote"}
+            </span>
+            <div className="flex items-center gap-3">
+              {linkedQuote && (
+                <button
+                  type="button"
+                  onClick={() => unlinkQuoteMut.mutate(linkedQuote.id)}
+                  className="text-xs font-bold text-background/80 hover:text-background hover:underline"
+                >
+                  Unlink
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setLinkQuoteOpen(true)}
+                className="text-xs font-bold text-primary hover:underline"
+              >
+                {linkedQuote ? "Change" : "Link a quote"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading materials sheet…</p>}
@@ -488,7 +807,65 @@ export function ProjectMaterialsView() {
         onOpenChange={setSmartSectionOpen}
         onCreate={addSmartSection}
       />
+
+      {needsExplicitLink && sheetId && (
+        <LinkQuoteDialog
+          open={linkQuoteOpen}
+          onOpenChange={setLinkQuoteOpen}
+          quotes={projectQuotes}
+          onSelect={(quoteId) => linkQuoteMut.mutate(quoteId)}
+        />
+      )}
     </div>
+  );
+}
+
+function LinkQuoteDialog({
+  open,
+  onOpenChange,
+  quotes,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  quotes: Quote[];
+  onSelect: (quoteId: string) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm gap-4">
+        <DialogHeader>
+          <DialogTitle>Link a quote</DialogTitle>
+        </DialogHeader>
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          {quotes.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No quotes on this project yet.
+            </p>
+          ) : (
+            quotes.map((q) => (
+              <button
+                key={q.id}
+                type="button"
+                onClick={() => {
+                  onSelect(q.id);
+                  onOpenChange(false);
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 pl-3.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <span className="text-sm font-semibold text-foreground">
+                  {formatCurrency(quoteTotal(q.quote_sections))}
+                </span>
+                <span className="flex items-center gap-2">
+                  <StatusPill meta={quoteStatusMeta(q.status)} />
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
