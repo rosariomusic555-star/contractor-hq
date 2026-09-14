@@ -67,6 +67,10 @@ export interface ProjectImage {
   caption: string | null;
   sort_order: number;
   created_at: string;
+  /** Set when an employee (0043) uploaded this photo from the field —
+   * null for an owner upload. Same table/query either way, so these show
+   * up in the owner's existing gallery automatically. */
+  uploaded_by_employee_id: string | null;
 }
 
 /** A photo attached to a quote line item (paver style, area being worked
@@ -616,11 +620,14 @@ export async function listProjectImages(projectId: string): Promise<ProjectImage
 }
 
 /** Compresses, uploads, and records the row — same order/rollback as
- * uploadQuoteItemImage. */
+ * uploadQuoteItemImage. `uploadedByEmployeeId` (0043) is set when an
+ * employee is the one uploading from the field — omit for an owner
+ * upload. Either way this is the same table the owner's Project Images
+ * gallery already reads, so an employee's photos show up there for free. */
 export async function addProjectImage(
   projectId: string,
   file: File,
-  input: { caption?: string | null; sort_order?: number } = {},
+  input: { caption?: string | null; sort_order?: number; uploadedByEmployeeId?: string | null } = {},
 ): Promise<ProjectImage> {
   const compressed = await compressImageFile(file);
   const path = `projects/${projectId}/${randomImageFilename(file.name)}`;
@@ -637,6 +644,7 @@ export async function addProjectImage(
       storage_path: path,
       caption: input.caption ?? null,
       sort_order: input.sort_order ?? 0,
+      uploaded_by_employee_id: input.uploadedByEmployeeId ?? null,
     })
     .select()
     .single();
@@ -1926,4 +1934,197 @@ export async function getSharedInvoice(token: string): Promise<SharedInvoice | n
   const { data, error } = await supabase.rpc("get_shared_invoice", { p_token: token });
   if (error) throw error;
   return (data as SharedInvoice | null) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Employees (0043) — Employee-Only Mode. An employee is a real, separate
+// Supabase Auth user (its own auth.uid()) the owner creates directly (see
+// createEmployeeAccount, which calls the create-employee Edge Function —
+// the one place a login can be created with an owner-chosen password).
+// Every other table's RLS is already scoped to the OWNER's user_id, so an
+// employee's auth.uid() never matches those policies — this section is
+// deliberately small: it only covers the narrow slice (assigned projects,
+// their photos, free-text notes) an employee is allowed to touch at all.
+// ---------------------------------------------------------------------------
+
+export type EmployeeStatus = "active" | "deactivated";
+
+export interface Employee {
+  id: string;
+  owner_user_id: string;
+  auth_user_id: string;
+  name: string;
+  email: string;
+  status: EmployeeStatus;
+  created_at: string;
+}
+
+export interface EmployeeProjectAssignment {
+  id: string;
+  employee_id: string;
+  project_id: string;
+  created_at: string;
+}
+
+/** A free-text update an employee posted on a project (0043). employee_id
+ * is null if that employee has since been removed — see ON DELETE SET
+ * NULL on the column; the note itself is never deleted with them. */
+export interface ProjectNote {
+  id: string;
+  project_id: string;
+  employee_id: string | null;
+  /** Snapshotted at write time (0044) — see that migration's comment for
+   * why this isn't resolved from `employees` at read time instead. */
+  employee_name: string | null;
+  body: string;
+  created_at: string;
+}
+
+export async function listEmployees(): Promise<Employee[]> {
+  const { data, error } = await supabase.from("employees").select("*").order("name");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/**
+ * The only way to create an employee login — goes through the
+ * create-employee Edge Function since setting another user's password
+ * directly requires the service-role key, which never lives in the
+ * browser. Throws with the function's own message on failure (e.g. email
+ * already in use).
+ */
+export async function createEmployeeAccount(input: {
+  name: string;
+  email: string;
+  password: string;
+}): Promise<Employee> {
+  const { data, error } = await supabase.functions.invoke<{
+    ok: boolean;
+    employee?: Employee;
+    error?: string;
+    message?: string;
+  }>("create-employee", { body: input });
+  if (error) throw error;
+  if (!data?.ok || !data.employee) throw new Error(data?.message ?? "Couldn't create employee.");
+  return data.employee;
+}
+
+/** Deactivating (not deleting) is the primary "remove" action — every
+ * employee-scoped RLS policy checks status = 'active', so this takes
+ * effect immediately with no need to touch the underlying Auth login. */
+export async function updateEmployee(id: string, patch: { status: EmployeeStatus }): Promise<void> {
+  const { error } = await supabase.from("employees").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function listEmployeeAssignments(employeeId: string): Promise<EmployeeProjectAssignment[]> {
+  const { data, error } = await supabase
+    .from("employee_project_assignments")
+    .select("*")
+    .eq("employee_id", employeeId);
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function assignProjectToEmployee(employeeId: string, projectId: string): Promise<void> {
+  const { error } = await supabase
+    .from("employee_project_assignments")
+    .insert({ employee_id: employeeId, project_id: projectId });
+  if (error) throw error;
+}
+
+export async function unassignProjectFromEmployee(employeeId: string, projectId: string): Promise<void> {
+  const { error } = await supabase
+    .from("employee_project_assignments")
+    .delete()
+    .eq("employee_id", employeeId)
+    .eq("project_id", projectId);
+  if (error) throw error;
+}
+
+/**
+ * The employee-side project list/detail reads — deliberately minimal and
+ * with no `client:` embed at all (unlike PROJECT_SELECT), so an
+ * employee's own queries are never even shaped to carry client data, on
+ * top of clients' RLS already blocking it outright.
+ */
+export interface AssignedProject {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+  created_at: string;
+}
+
+export async function listMyAssignedProjects(): Promise<AssignedProject[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, name, status, created_at")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getAssignedProject(id: string): Promise<AssignedProject> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, name, status, created_at")
+    .eq("id", id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function listProjectNotes(projectId: string): Promise<ProjectNote[]> {
+  const { data, error } = await supabase
+    .from("project_notes")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function addProjectNote(
+  projectId: string,
+  employeeId: string,
+  employeeName: string,
+  body: string,
+): Promise<ProjectNote> {
+  const { data, error } = await supabase
+    .from("project_notes")
+    .insert({ project_id: projectId, employee_id: employeeId, employee_name: employeeName, body })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteProjectNote(id: string): Promise<void> {
+  const { error } = await supabase.from("project_notes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Looks up the current session's employee row, if any — this is how the
+ * app tells "I'm an employee" apart from "I'm an owner" after sign-in. No
+ * row = owner. See src/lib/auth.tsx. */
+export async function getMyEmployeeRecord(authUserId: string): Promise<Employee | null> {
+  const { data, error } = await supabase
+    .from("employees")
+    .select("*")
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205") return null;
+    throw error;
+  }
+  return data;
 }
