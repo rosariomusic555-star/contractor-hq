@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { listClients, createClient, createProject, logProjectEvent } from "@/lib/api";
+import { listClients, createClient, createProject, updateQuote, logProjectEvent } from "@/lib/api";
 
 const NO_CLIENT = "__none__";
 const NEW_CLIENT = "__new__";
 
 /** Dedicated "New project" screen (/projects/new) — replaces the old modal.
- * Project name + client (pick existing, or create one inline). */
+ * Project name + client (pick existing, or create one inline).
+ *
+ * Reachable from a standalone quote's "Create project" nudge (Estimated
+ * Cost card), which navigates here with `state: { linkQuoteId }`. In that
+ * case, creating the project also re-parents that exact quote onto it
+ * (quotes.project_id) instead of leaving it behind as an orphaned
+ * standalone quote — landing the user back on the quote, now
+ * project-linked, rather than on the new project's own page. */
 export function NewProjectView() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  const linkQuoteId = (location.state as { linkQuoteId?: string } | null)?.linkQuoteId ?? null;
 
   const [name, setName] = useState("");
   const [clientChoice, setClientChoice] = useState<string>(NO_CLIENT);
@@ -50,13 +60,22 @@ export function NewProjectView() {
         });
         clientId = client.id;
       }
-      return createProject({ name: name.trim(), client_id: clientId, status: "draft" });
+      const project = await createProject({ name: name.trim(), client_id: clientId, status: "draft" });
+      if (linkQuoteId) await updateQuote(linkQuoteId, { project_id: project.id });
+      return project;
     },
     onSuccess: (project) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
       void logProjectEvent(project.id, "project_created", "Project created");
-      navigate(`/projects/${project.id}`);
+      if (linkQuoteId) {
+        qc.invalidateQueries({ queryKey: ["quote", linkQuoteId] });
+        qc.invalidateQueries({ queryKey: ["quotes"] });
+        toast({ title: "Quote moved into new project" });
+        navigate(`/quotes/${linkQuoteId}`);
+      } else {
+        navigate(`/projects/${project.id}`);
+      }
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't create project", description: err.message, variant: "destructive" }),
@@ -65,11 +84,11 @@ export function NewProjectView() {
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
       <Link
-        to="/projects"
+        to={linkQuoteId ? `/quotes/${linkQuoteId}` : "/projects"}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
       >
         <ChevronLeft className="h-3.5 w-3.5" />
-        Projects
+        {linkQuoteId ? "Back to quote" : "Projects"}
       </Link>
 
       <h1 className="text-[28px] font-bold tracking-tight text-foreground">New project</h1>
@@ -150,7 +169,10 @@ export function NewProjectView() {
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={() => navigate("/projects")}>
+        <Button
+          variant="outline"
+          onClick={() => navigate(linkQuoteId ? `/quotes/${linkQuoteId}` : "/projects")}
+        >
           Cancel
         </Button>
         <Button

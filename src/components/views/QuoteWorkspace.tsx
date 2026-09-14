@@ -846,6 +846,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
           <QuoteSummaryCard
             variant="desktop"
+            quoteId={quote.id}
             total={grandTotal}
             cost={estCost}
             profit={margin}
@@ -873,6 +874,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       <div className="lg:hidden">
         <QuoteSummaryCard
           variant="mobile"
+          quoteId={quote.id}
           total={grandTotal}
           cost={estCost}
           profit={margin}
@@ -963,6 +965,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 interface QuoteSummaryCardProps {
   /** "mobile" = full-width bottom card; "desktop" = 340px sidebar card. */
   variant: "mobile" | "desktop";
+  /** For the standalone "Create project" nudge — carried through so the
+   * new-project flow can re-parent this exact quote once the project
+   * exists, instead of leaving it behind as an orphaned standalone quote. */
+  quoteId: string;
   total: number;
   /** Null for a standalone quote — there's no real cost source without a
    * project's Materials Sheet, so this and profit/marginPct show "Not
@@ -993,6 +999,7 @@ interface QuoteSummaryCardProps {
  */
 function QuoteSummaryCard({
   variant,
+  quoteId,
   total,
   cost,
   profit,
@@ -1055,7 +1062,11 @@ function QuoteSummaryCard({
               cost == null ? (
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-[13px] font-extrabold text-foreground">Not available</span>
-                  <Link to="/projects/new" className="text-[10px] font-bold text-primary hover:underline">
+                  <Link
+                    to="/projects/new"
+                    state={{ linkQuoteId: quoteId }}
+                    className="text-[10px] font-bold text-primary hover:underline"
+                  >
                     Create project
                   </Link>
                 </div>
@@ -1079,7 +1090,11 @@ function QuoteSummaryCard({
               cost == null ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="text-sm font-extrabold text-foreground">Not available</span>
-                  <Link to="/projects/new" className="text-xs font-bold text-primary hover:underline">
+                  <Link
+                    to="/projects/new"
+                    state={{ linkQuoteId: quoteId }}
+                    className="text-xs font-bold text-primary hover:underline"
+                  >
                     Create project
                   </Link>
                 </span>
