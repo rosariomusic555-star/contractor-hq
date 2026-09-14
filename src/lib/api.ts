@@ -128,6 +128,13 @@ export interface Quote {
   signed_by: string | null;
   created_at: string;
   updated_at: string;
+  // Which materials sheet (0042) this quote's Estimated Cost pulls its real
+  // cost from. Only meaningful once a project has more than one quote or
+  // more than one materials sheet — see QuoteWorkspace's estCost logic,
+  // which otherwise falls back to the project's single (or only) sheet
+  // automatically. Null on a standalone quote, and on a project-linked one
+  // that hasn't been explicitly linked (or doesn't need to be).
+  material_sheet_id: string | null;
   quote_sections: QuoteSection[];
   project?: ProjectRef | null;
   client?: ClientRef | null;
@@ -248,7 +255,14 @@ export interface MaterialsItem {
 
 export interface MaterialsSection {
   id: string;
+  // Denormalized whole-project key (0003) — unchanged meaning, still what
+  // listMaterials(projectId) filters on for project-level aggregate totals.
   project_id: string;
+  // Which materials sheet (0042) this section actually belongs to — the
+  // per-sheet grouping key the sheet builder (listMaterialsBySheet) filters
+  // on. A project can have more than one sheet; every section belongs to
+  // exactly one.
+  sheet_id: string;
   name: string;
   sort_order: number;
   /** Set when this section was created via "Create Smart Section" — which
@@ -258,6 +272,23 @@ export interface MaterialsSection {
    * the section afterward doesn't clear it. */
   smart_section_build_type: string | null;
   materials_items: MaterialsItem[];
+}
+
+/**
+ * A named, separate materials document within a project (0042). Most
+ * projects have exactly one — created transparently the first time a
+ * section is saved, with no visible "sheet" chrome — but a project's scope
+ * can grow mid-way (a genuinely separate added feature, not a change order
+ * folded into existing scope) and need its own sheet, usually paired with
+ * its own quote. See linkQuoteToMaterialSheet() for how a quote picks up a
+ * specific sheet's cost once a project has more than one of either.
+ */
+export interface MaterialsSheet {
+  id: string;
+  project_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface Expense {
@@ -811,8 +842,64 @@ export async function upsertCatalogPriceOverride(catalogProductId: string, price
 }
 
 // ---------------------------------------------------------------------------
-// Materials sheet
+// Materials sheets (0042) — a project can have more than one, each a
+// separate named document (its own sections/items) for when scope grows
+// mid-project. listMaterials(projectId) is the whole-project aggregate
+// (every sheet's sections combined) — used for project-level totals
+// (ProjectDetailView) and, since it's equal to "that one sheet" whenever a
+// project has at most one, as the implicit-pairing shortcut in
+// QuoteWorkspace. listMaterialsBySheet(sheetId) scopes to a single sheet —
+// used by the sheet builder and by a quote once explicitly linked to one.
 // ---------------------------------------------------------------------------
+
+export async function listMaterialsSheets(projectId: string): Promise<MaterialsSheet[]> {
+  const { data, error } = await supabase
+    .from("materials_sheets")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at");
+  if (error) {
+    // PGRST205 = migration 0042 hasn't been run yet — degrade to empty,
+    // same convention as every other not-yet-migrated table in this file.
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createMaterialsSheet(
+  projectId: string,
+  input: { name?: string; sort_order?: number } = {},
+): Promise<MaterialsSheet> {
+  const { data, error } = await supabase
+    .from("materials_sheets")
+    .insert({
+      project_id: projectId,
+      name: input.name?.trim() || "Materials sheet",
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMaterialsSheet(
+  id: string,
+  patch: Partial<Pick<MaterialsSheet, "name" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("materials_sheets").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** Cascades its own sections/items at the DB level. Any quote linked to it
+ * has its material_sheet_id cleared automatically (ON DELETE SET NULL) —
+ * that quote's Estimated Cost reverts to "Not available" on its own next
+ * read, no app-level cleanup needed here. */
+export async function deleteMaterialsSheet(id: string): Promise<void> {
+  const { error } = await supabase.from("materials_sheets").delete().eq("id", id);
+  if (error) throw error;
+}
 
 export async function listMaterials(projectId: string): Promise<MaterialsSection[]> {
   const { data, error } = await supabase
@@ -824,14 +911,26 @@ export async function listMaterials(projectId: string): Promise<MaterialsSection
   return data ?? [];
 }
 
+export async function listMaterialsBySheet(sheetId: string): Promise<MaterialsSection[]> {
+  const { data, error } = await supabase
+    .from("materials_sections")
+    .select("*, materials_items(*)")
+    .eq("sheet_id", sheetId)
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function createMaterialsSection(
   projectId: string,
+  sheetId: string,
   input: { name: string; sort_order?: number; smart_section_build_type?: string | null },
 ): Promise<MaterialsSection> {
   const { data, error } = await supabase
     .from("materials_sections")
     .insert({
       project_id: projectId,
+      sheet_id: sheetId,
       name: input.name,
       sort_order: input.sort_order ?? 0,
       smart_section_build_type: input.smart_section_build_type ?? null,
@@ -1170,6 +1269,7 @@ export async function updateQuote(
       | "project_id"
       | "signed_at"
       | "signed_by"
+      | "material_sheet_id"
     >
   >,
 ): Promise<void> {
@@ -1179,6 +1279,28 @@ export async function updateQuote(
 
 export async function deleteQuote(id: string): Promise<void> {
   const { error } = await supabase.from("quotes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * Sets (or clears, with sheetId null) which materials sheet a quote's
+ * Estimated Cost pulls from. One-to-one, enforced by a partial unique index
+ * on quotes.material_sheet_id (0042): linking steals the sheet away from
+ * whichever other quote currently holds it, so the same function works
+ * from either direction — the quote builder's own "Link materials sheet"
+ * picker, and the materials sheet builder's "Link quote" picker — since
+ * both end up as the same single-column write on the quote being linked.
+ */
+export async function linkQuoteToMaterialSheet(quoteId: string, sheetId: string | null): Promise<void> {
+  if (sheetId) {
+    const { error: stealError } = await supabase
+      .from("quotes")
+      .update({ material_sheet_id: null })
+      .eq("material_sheet_id", sheetId)
+      .neq("id", quoteId);
+    if (stealError) throw stealError;
+  }
+  const { error } = await supabase.from("quotes").update({ material_sheet_id: sheetId }).eq("id", quoteId);
   if (error) throw error;
 }
 

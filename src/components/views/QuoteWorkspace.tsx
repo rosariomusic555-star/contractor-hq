@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
+  ChevronRight,
   Plus,
   Trash2,
   Share2,
@@ -29,6 +30,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -57,6 +59,10 @@ import {
   listClients,
   listProjects,
   listMaterials,
+  listMaterialsSheets,
+  listMaterialsBySheet,
+  listQuotes,
+  linkQuoteToMaterialSheet,
   listCategories,
   updateProject,
   updateQuote,
@@ -244,6 +250,24 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     queryFn: () => listMaterials(projectId!),
     enabled: !!projectId,
   });
+  // Sibling documents in this project (0042) — drive the "more than one
+  // sheet or quote" ambiguity check for Estimated Cost, below.
+  const { data: materialsSheets = [] } = useQuery({
+    queryKey: ["materials-sheets", { project: projectId }],
+    queryFn: () => listMaterialsSheets(projectId!),
+    enabled: !!projectId,
+  });
+  const { data: projectQuotes = [] } = useQuery({
+    queryKey: ["quotes", { project: projectId }],
+    queryFn: () => listQuotes(projectId!),
+    enabled: !!projectId,
+  });
+  const { data: linkedSheetSections = [] } = useQuery({
+    queryKey: ["materials", { sheet: quote.material_sheet_id }],
+    queryFn: () => listMaterialsBySheet(quote.material_sheet_id!),
+    enabled: !!quote.material_sheet_id,
+  });
+  const [linkSheetPickerOpen, setLinkSheetPickerOpen] = useState(false);
 
   // --- draft state --------------------------------------------------------
   const [draft, setDraft] = useState<QuoteDraft>(() => seed(quote));
@@ -373,6 +397,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const updateProjectLinkMut = useMutation({
     mutationFn: (newProjectId: string | null) => updateQuote(quote.id, { project_id: newProjectId }),
     onSuccess: invalidate,
+    onError,
+  });
+  // Which materials sheet this quote's Estimated Cost pulls from — only
+  // shown/used once the project has more than one sheet or more than one
+  // quote (see needsExplicitMaterialsLink below). Sets sheetId null to unlink.
+  const linkMaterialSheetMut = useMutation({
+    mutationFn: (sheetId: string | null) => linkQuoteToMaterialSheet(quote.id, sheetId),
+    onSuccess: () => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
+    },
     onError,
   });
 
@@ -600,7 +635,18 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       s.items.reduce((a, i) => a + (itemIsAddon(s, i) && !i.client_selected ? lineTotal(i) : 0), 0),
     0,
   );
-  const materialsCost = materialsCogs(materials);
+  // Ambiguous once this project has more than one materials sheet or more
+  // than one quote — below that, this quote's cost pairs automatically with
+  // the project's single (or only) sheet, exactly as before this feature
+  // (materialsCogs(materials) is the whole-project aggregate, which equals
+  // "that one sheet" whenever there's at most one).
+  const needsExplicitMaterialsLink = !!projectId && (materialsSheets.length > 1 || projectQuotes.length > 1);
+  const linkedSheet = materialsSheets.find((s) => s.id === quote.material_sheet_id);
+  const materialsCost = needsExplicitMaterialsLink
+    ? quote.material_sheet_id
+      ? materialsCogs(linkedSheetSections)
+      : null
+    : materialsCogs(materials);
   const fin = demoQuoteFinancials(
     quoteTotalLive,
     quoteDefaults.sales_tax_pct,
@@ -619,9 +665,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // was fabricated, not derived from anything real, so it's gone. Margin
   // and profit are equally undefined without a real cost, so both cascade
   // to null too rather than displaying a number built on the same guess.
-  // What a project-linked quote's cost SHOULD be (right now it's whatever
-  // materialsCogs() finds on that project's Materials Sheet, which may
-  // itself be empty/incomplete) is a separate feature to define later.
+  // A project-linked quote with an ambiguous, unlinked materials sheet is
+  // equally undefined until the user picks one — see needsExplicitMaterialsLink.
   const estCost = projectId ? materialsCost : null;
   const margin = estCost == null ? null : grandTotal - estCost;
   const marginPct = estCost == null ? null : grandTotal > 0 ? (margin! / grandTotal) * 100 : 0;
@@ -882,6 +927,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             cost={estCost}
             profit={margin}
             marginPct={marginPct}
+            needsMaterialsLink={needsExplicitMaterialsLink}
+            linkedSheetName={linkedSheet?.name ?? null}
+            onLinkMaterialsSheet={() => setLinkSheetPickerOpen(true)}
+            onUnlinkMaterialsSheet={() => linkMaterialSheetMut.mutate(null)}
             depositPct={draft.depositPct}
             deposit={depositAmount}
             lineItems={baseTotal}
@@ -996,7 +1045,63 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             />
           );
         })()}
+
+      {needsExplicitMaterialsLink && (
+        <LinkMaterialsSheetDialog
+          open={linkSheetPickerOpen}
+          onOpenChange={setLinkSheetPickerOpen}
+          sheets={materialsSheets}
+          onSelect={(sheetId) => linkMaterialSheetMut.mutate(sheetId)}
+        />
+      )}
     </div>
+  );
+}
+
+/** The quote builder's own "Link a materials sheet" picker — lists sheets
+ * within this quote's project only (project-scoped, not app-wide), mirroring
+ * the materials sheet builder's own "Link a quote" picker. */
+function LinkMaterialsSheetDialog({
+  open,
+  onOpenChange,
+  sheets,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sheets: { id: string; name: string }[];
+  onSelect: (sheetId: string) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm gap-4">
+        <DialogHeader>
+          <DialogTitle>Link a materials sheet</DialogTitle>
+        </DialogHeader>
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          {sheets.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No materials sheets on this project yet.
+            </p>
+          ) : (
+            sheets.map((sheet) => (
+              <button
+                key={sheet.id}
+                type="button"
+                onClick={() => {
+                  onSelect(sheet.id);
+                  onOpenChange(false);
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 pl-3.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <span className="text-sm font-semibold text-foreground">{sheet.name}</span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1010,12 +1115,23 @@ interface QuoteSummaryCardProps {
    * whatever's currently in the editor, then navigates to create it. */
   onCreateProject: () => void;
   total: number;
-  /** Null for a standalone quote — there's no real cost source without a
-   * project's Materials Sheet, so this and profit/marginPct show "Not
-   * available" rather than a guessed number. */
+  /** Null for a standalone quote, or a project-linked quote with an
+   * ambiguous, unlinked materials sheet (see needsMaterialsLink) — either
+   * way there's no real cost source yet, so this and profit/marginPct show
+   * "Not available" rather than a guessed number. */
   cost: number | null;
   profit: number | null;
   marginPct: number | null;
+  /** True once this quote's project has more than one materials sheet or
+   * more than one quote — the single-document implicit pairing no longer
+   * applies, so the Est. cost row shows a Link/Change/Unlink affordance
+   * instead of pairing automatically. */
+  needsMaterialsLink: boolean;
+  /** Name of the currently-linked sheet, if any (only meaningful when
+   * needsMaterialsLink is true). */
+  linkedSheetName: string | null;
+  onLinkMaterialsSheet: () => void;
+  onUnlinkMaterialsSheet: () => void;
   depositPct: number;
   deposit: number;
   lineItems: number;
@@ -1044,6 +1160,10 @@ function QuoteSummaryCard({
   cost,
   profit,
   marginPct,
+  needsMaterialsLink,
+  linkedSheetName,
+  onLinkMaterialsSheet,
+  onUnlinkMaterialsSheet,
   depositPct,
   deposit,
   lineItems,
@@ -1104,14 +1224,27 @@ function QuoteSummaryCard({
                   <span className="text-[13px] font-extrabold text-foreground">Not available</span>
                   <button
                     type="button"
-                    onClick={onCreateProject}
+                    onClick={needsMaterialsLink ? onLinkMaterialsSheet : onCreateProject}
                     className="text-[10px] font-bold text-primary hover:underline"
                   >
-                    Create project
+                    {needsMaterialsLink ? "Link materials sheet" : "Create project"}
                   </button>
                 </div>
               ) : (
-                formatCurrency(cost)
+                <div className="flex flex-col items-start gap-1">
+                  <span>{formatCurrency(cost)}</span>
+                  {needsMaterialsLink && (
+                    <span className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                      {linkedSheetName}
+                      <button type="button" onClick={onLinkMaterialsSheet} className="font-bold text-primary hover:underline">
+                        Change
+                      </button>
+                      <button type="button" onClick={onUnlinkMaterialsSheet} className="font-bold text-primary hover:underline">
+                        Unlink
+                      </button>
+                    </span>
+                  )}
+                </div>
               )
             }
           />
@@ -1132,14 +1265,27 @@ function QuoteSummaryCard({
                   <span className="text-sm font-extrabold text-foreground">Not available</span>
                   <button
                     type="button"
-                    onClick={onCreateProject}
+                    onClick={needsMaterialsLink ? onLinkMaterialsSheet : onCreateProject}
                     className="text-xs font-bold text-primary hover:underline"
                   >
-                    Create project
+                    {needsMaterialsLink ? "Link materials sheet" : "Create project"}
                   </button>
                 </span>
               ) : (
-                formatCurrency(cost)
+                <span className="inline-flex flex-col items-end gap-0.5">
+                  <span>{formatCurrency(cost)}</span>
+                  {needsMaterialsLink && (
+                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+                      {linkedSheetName}
+                      <button type="button" onClick={onLinkMaterialsSheet} className="font-bold text-primary hover:underline">
+                        Change
+                      </button>
+                      <button type="button" onClick={onUnlinkMaterialsSheet} className="font-bold text-primary hover:underline">
+                        Unlink
+                      </button>
+                    </span>
+                  )}
+                </span>
               )
             }
           />
