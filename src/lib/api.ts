@@ -973,6 +973,41 @@ export async function resetSmartSectionSettings(buildType: string): Promise<void
 }
 
 // ---------------------------------------------------------------------------
+// Quick Quote rates (0041) — a contractor's own default $ rate per build
+// type, used to price a Quick Quote's single lump-sum line item
+// (rate x quantity). Separate from smart_section_settings — same build-type
+// taxonomy, no shared data. Every build type ships a standard default rate
+// (src/lib/quickQuote/) so it works with zero setup; a missing row here
+// just means "use the app default."
+// ---------------------------------------------------------------------------
+
+export interface QuickQuoteRate {
+  build_type: string;
+  rate: number;
+}
+
+export async function listQuickQuoteRates(): Promise<QuickQuoteRate[]> {
+  const { data, error } = await supabase.from("quick_quote_rates").select("build_type, rate");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({ build_type: r.build_type, rate: Number(r.rate) }));
+}
+
+export async function saveQuickQuoteRate(buildType: string, rate: number): Promise<void> {
+  const { error } = await supabase
+    .from("quick_quote_rates")
+    .upsert({ build_type: buildType, rate }, { onConflict: "user_id,build_type" });
+  if (error) throw error;
+}
+
+export async function resetQuickQuoteRate(buildType: string): Promise<void> {
+  const { error } = await supabase.from("quick_quote_rates").delete().eq("build_type", buildType);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Quotes
 // ---------------------------------------------------------------------------
 

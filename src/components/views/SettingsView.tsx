@@ -12,6 +12,7 @@ const SECTIONS = [
   { label: "Invoicing & payments", to: "/settings/invoicing" },
   { label: "Price Book", to: "/settings/pricebook" },
   { label: "Manage Smart Section Templates", to: "/settings/smart-sections" },
+  { label: "Quick Quote Rates", to: "/settings/quick-quote-rates" },
   { label: "Team & crews", to: "/settings/team" },
   { label: "Notifications", to: "/settings/notifications" },
   { label: "Plan & billing", to: "/settings/billing" },

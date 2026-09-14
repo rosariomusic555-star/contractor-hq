@@ -10,6 +10,7 @@ import {
   Copy,
   ImagePlus,
   Loader2,
+  Sparkles,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -73,9 +74,14 @@ import {
   materialsCogs,
   getQuoteDefaults,
   QUOTE_DEFAULTS_FALLBACK,
+  listProductCatalog,
+  listQuickQuoteRates,
   type Quote,
   type Category,
 } from "@/lib/api";
+import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
+import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
+import { findQuickQuoteTemplate } from "@/lib/quickQuote";
 
 const NONE = "__none__";
 
@@ -203,6 +209,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [confirmApprovedSaveOpen, setConfirmApprovedSaveOpen] = useState(false);
+  const [quickQuotePickerOpen, setQuickQuotePickerOpen] = useState(false);
+  const [quickQuoteBuildType, setQuickQuoteBuildType] = useState<string | null>(null);
+
+  const { data: catalogItems = [] } = useQuery({
+    queryKey: ["product-catalog"],
+    queryFn: listProductCatalog,
+  });
+  const { data: quickQuoteRates = [] } = useQuery({
+    queryKey: ["quick-quote-rates"],
+    queryFn: listQuickQuoteRates,
+  });
 
   const projectId = quote.project_id;
 
@@ -254,6 +271,33 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // --- local mutators ----------------------------------------------------
   const addSection = () =>
     setSections((s) => [...s, { id: tmpId(), name: "", is_optional: false, items: [] }]);
+  // Quick Quote lands as an ordinary new draft section with exactly one
+  // line item — indistinguishable from a manually-added section/item from
+  // this point on, so everything below (edit, delete, add more rows, Save)
+  // treats it exactly the same.
+  const addQuickQuoteSection = (result: QuickQuoteResult) =>
+    setSections((s) => [
+      ...s,
+      {
+        id: tmpId(),
+        name: result.name,
+        is_optional: false,
+        items: [
+          {
+            id: tmpId(),
+            name: result.name,
+            description: result.description,
+            price: result.rate,
+            quantity: result.quantity,
+            unit: result.unit,
+            is_optional: false,
+            client_selected: false,
+            category_id: null,
+            images: [],
+          },
+        ],
+      },
+    ]);
   const renameSection = (sid: string, name: string) =>
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, name } : x)));
   const toggleSectionOptional = (sid: string, v: boolean) =>
@@ -704,14 +748,24 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             />
           ))}
 
-          <button
-            type="button"
-            onClick={addSection}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
-          >
-            <Plus className="h-4 w-4" />
-            Add section
-          </button>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={addSection}
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+            >
+              <Plus className="h-4 w-4" />
+              Add section
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuickQuotePickerOpen(true)}
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-primary/30 bg-primary/5 text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/10"
+            >
+              <Sparkles className="h-4 w-4" />
+              Add Quick Quote
+            </button>
+          </div>
 
           <div className="stat-card space-y-5">
             <div className="space-y-2">
@@ -867,6 +921,30 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         url={shareUrl ?? ""}
         kind="quote"
       />
+
+      <QuickQuoteDialog
+        open={quickQuotePickerOpen}
+        onOpenChange={setQuickQuotePickerOpen}
+        onPick={(buildTypeId) => {
+          setQuickQuoteBuildType(buildTypeId);
+          setQuickQuotePickerOpen(false);
+        }}
+      />
+      {quickQuoteBuildType &&
+        (() => {
+          const template = findQuickQuoteTemplate(quickQuoteBuildType);
+          if (!template) return null;
+          return (
+            <QuickQuoteFormDialog
+              open={!!quickQuoteBuildType}
+              onOpenChange={(open) => !open && setQuickQuoteBuildType(null)}
+              template={template}
+              rates={quickQuoteRates}
+              catalogItems={catalogItems}
+              onCreate={addQuickQuoteSection}
+            />
+          );
+        })()}
     </div>
   );
 }
