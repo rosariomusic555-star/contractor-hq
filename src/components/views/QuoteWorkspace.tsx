@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -601,9 +601,18 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // every other number in the app; sales tax stays, unrelated to this.
   const grandTotal = quoteTotalLive + fin.taxAmount;
   const depositAmount = Math.round((grandTotal * draft.depositPct) / 100);
-  const estCost = projectId ? materialsCost : fin.estCost;
-  const margin = grandTotal - estCost;
-  const marginPct = grandTotal > 0 ? (margin / grandTotal) * 100 : 0;
+  // Standalone quotes (no project) have no real cost source — the Materials
+  // Sheet lives on a project. There used to be a guessed fallback here
+  // (60% of the quote total, from demoQuoteFinancials().estCost) but that
+  // was fabricated, not derived from anything real, so it's gone. Margin
+  // and profit are equally undefined without a real cost, so both cascade
+  // to null too rather than displaying a number built on the same guess.
+  // What a project-linked quote's cost SHOULD be (right now it's whatever
+  // materialsCogs() finds on that project's Materials Sheet, which may
+  // itself be empty/incomplete) is a separate feature to define later.
+  const estCost = projectId ? materialsCost : null;
+  const margin = estCost == null ? null : grandTotal - estCost;
+  const marginPct = estCost == null ? null : grandTotal > 0 ? (margin! / grandTotal) * 100 : 0;
 
   const itemCount = draft.sections.reduce((n, s) => n + s.items.length, 0);
   const sectionRows = draft.sections
@@ -955,9 +964,12 @@ interface QuoteSummaryCardProps {
   /** "mobile" = full-width bottom card; "desktop" = 340px sidebar card. */
   variant: "mobile" | "desktop";
   total: number;
-  cost: number;
-  profit: number;
-  marginPct: number;
+  /** Null for a standalone quote — there's no real cost source without a
+   * project's Materials Sheet, so this and profit/marginPct show "Not
+   * available" rather than a guessed number. */
+  cost: number | null;
+  profit: number | null;
+  marginPct: number | null;
   depositPct: number;
   deposit: number;
   lineItems: number;
@@ -1022,27 +1034,61 @@ function QuoteSummaryCard({
             {formatCurrency(total)}
           </div>
         </div>
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 font-extrabold text-success",
-            isMobile ? "h-[30px] px-3.5 text-xs" : "h-7 px-3 text-xs",
-          )}
-        >
-          Margin {marginPct.toFixed(0)}%
-        </span>
+        {marginPct != null && (
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 font-extrabold text-success",
+              isMobile ? "h-[30px] px-3.5 text-xs" : "h-7 px-3 text-xs",
+            )}
+          >
+            Margin {marginPct.toFixed(0)}%
+          </span>
+        )}
       </div>
 
       {isMobile ? (
         <div className="grid grid-cols-3 gap-2">
           <SummaryTile label={`Deposit ${depositPct}%`} value={formatCurrency(deposit)} />
-          <SummaryTile label="Est. cost" value={formatCurrency(cost)} />
-          <SummaryTile label="Estimated profit" value={formatCurrency(profit)} highlight />
+          <SummaryTile
+            label="Est. cost"
+            value={
+              cost == null ? (
+                <div className="flex flex-col items-start gap-1">
+                  <span className="text-[13px] font-extrabold text-foreground">Not available</span>
+                  <Link to="/projects/new" className="text-[10px] font-bold text-primary hover:underline">
+                    Create project
+                  </Link>
+                </div>
+              ) : (
+                formatCurrency(cost)
+              )
+            }
+          />
+          <SummaryTile
+            label="Estimated profit"
+            value={profit == null ? "Not available" : formatCurrency(profit)}
+            highlight
+          />
         </div>
       ) : (
         <div className="flex flex-col gap-2">
           <SummaryRow label={`Deposit ${depositPct}%`} value={formatCurrency(deposit)} />
-          <SummaryRow label="Est. cost" value={formatCurrency(cost)} />
-          <SummaryRow label="Profit" value={formatCurrency(profit)} highlight />
+          <SummaryRow
+            label="Est. cost"
+            value={
+              cost == null ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="text-sm font-extrabold text-foreground">Not available</span>
+                  <Link to="/projects/new" className="text-xs font-bold text-primary hover:underline">
+                    Create project
+                  </Link>
+                </span>
+              ) : (
+                formatCurrency(cost)
+              )
+            }
+          />
+          <SummaryRow label="Profit" value={profit == null ? "Not available" : formatCurrency(profit)} highlight />
         </div>
       )}
 
@@ -1085,7 +1131,15 @@ function QuoteSummaryCard({
   );
 }
 
-function SummaryTile({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function SummaryTile({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: ReactNode;
+  highlight?: boolean;
+}) {
   return (
     <div
       className={cn(
@@ -1108,7 +1162,15 @@ function SummaryTile({ label, value, highlight }: { label: string; value: string
   );
 }
 
-function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function SummaryRow({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: ReactNode;
+  highlight?: boolean;
+}) {
   return (
     <div
       className={cn(
