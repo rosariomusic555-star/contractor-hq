@@ -959,6 +959,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           cost={estCost}
           profit={margin}
           marginPct={marginPct}
+          needsMaterialsLink={needsExplicitMaterialsLink}
+          linkedSheetName={linkedSheet?.name ?? null}
+          onLinkMaterialsSheet={() => setLinkSheetPickerOpen(true)}
+          onUnlinkMaterialsSheet={() => linkMaterialSheetMut.mutate(null)}
           depositPct={draft.depositPct}
           deposit={depositAmount}
           lineItems={baseTotal}
