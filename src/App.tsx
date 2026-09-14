@@ -32,6 +32,7 @@ import { SettingsExpenseCategoriesView } from "@/components/views/SettingsExpens
 import { SettingsInvoicingView } from "@/components/views/SettingsInvoicingView";
 import { SettingsPricebookView } from "@/components/views/SettingsPricebookView";
 import { SettingsSmartSectionsView } from "@/components/views/SettingsSmartSectionsView";
+import { SettingsQuickQuoteRatesView } from "@/components/views/SettingsQuickQuoteRatesView";
 import { SettingsTeamView } from "@/components/views/SettingsTeamView";
 import { SettingsNotificationsView } from "@/components/views/SettingsNotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
@@ -89,6 +90,7 @@ const App = () => (
               <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
               <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
               <Route path="/settings/smart-sections" element={<SettingsSmartSectionsView />} />
+              <Route path="/settings/quick-quote-rates" element={<SettingsQuickQuoteRatesView />} />
               <Route path="/settings/team" element={<SettingsTeamView />} />
               <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
               <Route path="/settings/billing" element={<SettingsBillingView />} />

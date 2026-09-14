@@ -112,6 +112,49 @@ const extractText = (content: AnthropicContentBlock[]): string =>
     .join("\n")
     .trim();
 
+// Quick Quote description generation — a single-shot, no-tools,
+// no-history call sharing this function's Anthropic client/key and
+// per-user rate limit rather than a separate integration. Kept entirely
+// separate from the chat system prompt/tool loop above: this never reads
+// or writes the user's business data, it only turns a build type + a
+// handful of answers into client-facing sentence(s).
+const MAX_DESCRIPTION_TOKENS = 200;
+
+const descriptionSystemPrompt = `You write a single short, professional description for one line item on a client-facing contractor quote. 1-3 sentences, plain prose, no markdown, no headings, no bullet points. Describe the scope of work using the build type and details given — mention the product/brand if one is given, and the size/quantity. Don't invent details not given to you. Don't mention price, rate, or cost. Return only the description text, nothing else.`;
+
+async function generateQuoteDescription(apiKey: string, buildType: string, answers: Record<string, string>): Promise<Response> {
+  const details = Object.entries(answers ?? {})
+    .filter(([, v]) => typeof v === "string" && v.trim() !== "")
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+  const userMessage = `Build type: ${buildType}\n${details}`;
+
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": ANTHROPIC_VERSION,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      max_tokens: MAX_DESCRIPTION_TOKENS,
+      system: descriptionSystemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    return json({ ok: false, error: "server_error", message: `Anthropic API error (${resp.status}): ${text.slice(0, 300)}` }, 500);
+  }
+  const data = await resp.json();
+  const description = extractText(data.content ?? []);
+  if (!description) {
+    return json({ ok: false, error: "server_error", message: "The assistant didn't return a description." });
+  }
+  return json({ ok: true, description });
+}
+
 /**
  * The ONLY code path in this function that writes to the database.
  * Re-validates everything from scratch against live data — nothing echoed
@@ -248,7 +291,12 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, error: "invalid_request", message: "Malformed request body." });
   }
 
-  const mode = body?.mode === "execute_action" ? "execute_action" : "chat";
+  const mode =
+    body?.mode === "execute_action"
+      ? "execute_action"
+      : body?.mode === "generate_quote_description"
+        ? "generate_quote_description"
+        : "chat";
 
   // Rate limit — shared across both modes (see DAILY_MESSAGE_LIMIT above).
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -276,6 +324,15 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "invalid_request", message: "Unsupported or missing action." });
     }
     return executeCreateExpense(body.action, sb, user.id);
+  }
+
+  if (mode === "generate_quote_description") {
+    const buildType = typeof body?.buildType === "string" ? body.buildType : "";
+    const answers = body?.answers && typeof body.answers === "object" ? body.answers : {};
+    if (!buildType) {
+      return json({ ok: false, error: "invalid_request", message: "Missing build type." });
+    }
+    return generateQuoteDescription(anthropicKey, buildType, answers);
   }
 
   const rawMessages: ChatMessage[] = Array.isArray(body.messages) ? body.messages : [];
