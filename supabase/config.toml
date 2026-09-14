@@ -12,3 +12,13 @@ entrypoint = "./functions/assistant-chat/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/assistant-chat/*.html" ]
+
+[functions.create-employee]
+enabled = true
+# Same belt-and-suspenders as assistant-chat: platform verifies the JWT
+# before invoking at all; the function re-derives the caller from it too,
+# and only steps up to the service-role key after confirming the caller is
+# an owner (see index.ts).
+verify_jwt = true
+import_map = "./functions/create-employee/deno.json"
+entrypoint = "./functions/create-employee/index.ts"

@@ -14,6 +14,7 @@ const SECTIONS = [
   { label: "Manage Smart Section Templates", to: "/settings/smart-sections" },
   { label: "Quick Quote Rates", to: "/settings/quick-quote-rates" },
   { label: "Team & crews", to: "/settings/team" },
+  { label: "Manage employees", to: "/settings/employees" },
   { label: "Notifications", to: "/settings/notifications" },
   { label: "Plan & billing", to: "/settings/billing" },
 ] as const;

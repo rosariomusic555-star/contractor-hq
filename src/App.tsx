@@ -34,8 +34,12 @@ import { SettingsPricebookView } from "@/components/views/SettingsPricebookView"
 import { SettingsSmartSectionsView } from "@/components/views/SettingsSmartSectionsView";
 import { SettingsQuickQuoteRatesView } from "@/components/views/SettingsQuickQuoteRatesView";
 import { SettingsTeamView } from "@/components/views/SettingsTeamView";
+import { SettingsEmployeesView } from "@/components/views/SettingsEmployeesView";
 import { SettingsNotificationsView } from "@/components/views/SettingsNotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
+import { EmployeeProjectsView } from "@/components/views/EmployeeProjectsView";
+import { EmployeeProjectDetailView } from "@/components/views/EmployeeProjectDetailView";
+import { EmployeeAccountView } from "@/components/views/EmployeeAccountView";
 import SharedQuotePage from "./pages/SharedQuote";
 import SharedInvoicePage from "./pages/SharedInvoice";
 import NotFound from "./pages/NotFound";
@@ -96,8 +100,16 @@ const App = () => (
               <Route path="/settings/smart-sections" element={<SettingsSmartSectionsView />} />
               <Route path="/settings/quick-quote-rates" element={<SettingsQuickQuoteRatesView />} />
               <Route path="/settings/team" element={<SettingsTeamView />} />
+              <Route path="/settings/employees" element={<SettingsEmployeesView />} />
               <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
               <Route path="/settings/billing" element={<SettingsBillingView />} />
+
+              {/* Employee-only mode (0043) — a completely separate, restricted
+                  shell; AppLayout renders EmployeeLayout instead of Sidebar/
+                  BottomTabBar for these when role === "employee". */}
+              <Route path="/employee" element={<EmployeeProjectsView />} />
+              <Route path="/employee/projects/:id" element={<EmployeeProjectDetailView />} />
+              <Route path="/employee/account" element={<EmployeeAccountView />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

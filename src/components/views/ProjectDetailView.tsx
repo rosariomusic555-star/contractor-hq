@@ -49,6 +49,8 @@ import {
   projectContractValue,
   approvedChangeOrderTotal,
   materialsCogs,
+  listProjectNotes,
+  deleteProjectNote,
   type ProjectStatus,
   type ProjectImage,
 } from "@/lib/api";
@@ -352,6 +354,7 @@ export function ProjectDetailView() {
       </div>
 
       <ProjectImagesCard projectId={id} />
+      <FieldUpdatesCard projectId={id} />
     </div>
   );
 }
@@ -622,6 +625,71 @@ function ProjectImagesCard({ projectId }: { projectId: string }) {
           )}
         </DialogContent>
       </Dialog>
+    </section>
+  );
+}
+
+/**
+ * Free-text updates employees (0043) posted from the field — read-only
+ * from the owner's side (an employee's own project screen is where they
+ * get written), with a delete affordance since the owner's "own"
+ * project_notes policy already permits it. Employee-uploaded photos need
+ * no equivalent card here — they land in the exact same project_images
+ * table/query ProjectImagesCard above already reads, regardless of who
+ * uploaded them.
+ */
+function FieldUpdatesCard({ projectId }: { projectId: string }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data: notes = [], isLoading } = useQuery({
+    queryKey: ["project-notes", projectId],
+    queryFn: () => listProjectNotes(projectId),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteProjectNote(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["project-notes", projectId] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  if (!isLoading && notes.length === 0) return null;
+
+  return (
+    <section className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-foreground">Field updates</h3>
+        {notes.length > 0 && (
+          <span className="text-[13px] font-semibold text-muted-foreground">
+            {pluralize(notes.length, "update")}
+          </span>
+        )}
+      </div>
+      {isLoading ? (
+        <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <ul className="mt-3 space-y-3">
+          {notes.map((n) => (
+            <li key={n.id} className="flex items-start justify-between gap-3 border-b border-hairline pb-3 last:border-0 last:pb-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-foreground">{n.employee_name ?? "Team update"}</span>
+                  <span className="text-[11px] text-muted-subtle">{timeAgo(n.created_at)}</span>
+                </div>
+                <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-foreground/80">{n.body}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => deleteMut.mutate(n.id)}
+                className="shrink-0 text-muted-subtle transition-colors hover:text-destructive"
+                aria-label="Delete update"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
