@@ -135,8 +135,56 @@ export const TOOLS = [
   {
     name: "get_needs_attention",
     description:
-      "The exact same 'needs your attention' list shown on the dashboard: invoices overdue 3+ days, quotes shared 3+ days ago with no response yet, and approved quotes that haven't been billed a deposit. This is the tool for 'which quotes haven't I followed up on' and similar questions.",
+      "The exact same 'needs your attention' list shown on the dashboard: invoices overdue 3+ days, quotes shared 3+ days ago with no response yet, approved quotes that haven't been billed a deposit, overdue tasks/follow-ups, and pipeline leads that have gone quiet (an early-stage opportunity with no next action date and no activity in 3+ days). This is the tool for 'which quotes haven't I followed up on', 'what's overdue', 'what leads have gone cold', and similar questions.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_opportunities",
+    description:
+      "List the contractor's sales pipeline opportunities, optionally filtered by stage or a text search on the opportunity title or client name. Use this to resolve an opportunity mentioned by name/client before calling create_task with an opportunity_id, or to answer 'what's in my pipeline' / 'what opportunities do I have with X' questions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        stage: {
+          type: "string",
+          enum: [
+            "new_lead", "attempting_contact", "contacted", "qualified", "site_visit_scheduled",
+            "site_visit_completed", "estimate_in_progress", "proposal_sent", "follow_up", "won", "lost",
+          ],
+        },
+        search: { type: "string", description: "Case-insensitive substring match on the opportunity title or client name." },
+      },
+    },
+  },
+  {
+    name: "get_pipeline_summary",
+    description:
+      "A rollup of the sales pipeline: opportunity counts per stage, and per lead_source (leads, won, lost, win rate, estimated open/won value). This is the tool for 'how's my pipeline doing', 'where are my leads coming from', 'what's my win rate' and similar questions — don't try to compute this yourself from list_opportunities.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_task",
+    description:
+      "Resolve a request to create a follow-up task/reminder into a concrete, confirmable proposal. This does NOT create the task — it only validates any client/opportunity reference and returns a proposal for the user to confirm in the UI; the record is created only after they tap Confirm. Only call this for a clear, imperative request to add/create/remind/follow up (e.g. 'remind me to call Jay Tuesday', 'follow up with the Smith opportunity next week') — for questions about existing tasks, there's no read tool for that yet, so answer from get_needs_attention's overdue_tasks or say you don't have that. If the user named a client, resolve client_id via get_client_detail first — never guess one. If they named an opportunity, resolve opportunity_id via list_opportunities first — never guess one. If the due date is relative ('Tuesday', 'next week'), convert it to an ISO date yourself using today's date from the system prompt; if no date was mentioned at all, omit due_date entirely rather than guessing one.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short task title, e.g. 'Call about patio estimate'." },
+        client_id: { type: "string", description: "Exact client id, resolved via get_client_detail. Omit if no client was named." },
+        opportunity_id: { type: "string", description: "Exact opportunity id, resolved via list_opportunities. Omit if no opportunity was named." },
+        due_date: { type: "string", description: "ISO date (YYYY-MM-DD). Omit entirely if the user gave no date." },
+        task_type: {
+          type: "string",
+          enum: [
+            "call", "text", "email", "site_visit", "prepare_estimate", "send_proposal",
+            "follow_up", "collect_deposit", "schedule_project", "general_task",
+          ],
+          description: "Only set this if it's clearly implied (e.g. 'call' -> call); default is general_task.",
+        },
+        priority: { type: "string", enum: ["low", "normal", "high"], description: "Only set if the user signals urgency; default is normal." },
+      },
+      required: ["title"],
+    },
   },
   {
     name: "create_expense",
@@ -170,6 +218,18 @@ export interface ResolvedCreateExpenseAction {
   category_name: string | null;
   date: string;
   date_was_defaulted: boolean;
+}
+
+export interface ResolvedCreateTaskAction {
+  type: "create_task";
+  title: string;
+  client_id: string | null;
+  client_name: string | null;
+  opportunity_id: string | null;
+  opportunity_title: string | null;
+  due_date: string | null;
+  task_type: string;
+  priority: string;
 }
 
 async function listProjects(input: { status?: string; search?: string }, sb: SupabaseClient) {
@@ -613,7 +673,171 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
       total: quoteTotal(q.quote_sections),
     }));
 
-  return { overdue_invoices: overdueInvoices, quote_followups: quoteFollowups, deposits_due: depositsDue };
+  // CRM Phase 7 — widened to include overdue follow-up tasks and pipeline
+  // leads that have gone quiet, same "needs attention" spirit as the
+  // quote/invoice checks above.
+  const { data: tasks, error: tErr } = await sb
+    .from("tasks")
+    .select("title,due_at,task_type,client:clients(name)")
+    .eq("completed", false)
+    .not("due_at", "is", null);
+  if (tErr) throw tErr;
+  const todayIso = now.toISOString().slice(0, 10);
+  const overdueTasks = (tasks ?? [])
+    // deno-lint-ignore no-explicit-any
+    .filter((t: any) => t.due_at.slice(0, 10) < todayIso)
+    // deno-lint-ignore no-explicit-any
+    .map((t: any) => ({ title: t.title, task_type: t.task_type, client_name: t.client?.name ?? null, due_date: t.due_at.slice(0, 10) }));
+
+  const STALE_LEAD_STAGES = ["new_lead", "attempting_contact", "contacted", "qualified"];
+  const { data: opportunities, error: oErr } = await sb
+    .from("opportunities")
+    .select("title,stage,next_action_date,updated_at,client:clients(name)")
+    .in("stage", STALE_LEAD_STAGES);
+  if (oErr) throw oErr;
+  const staleLeads = (opportunities ?? [])
+    // deno-lint-ignore no-explicit-any
+    .filter((o: any) => !o.next_action_date && daysSince(o.updated_at) >= FOLLOWUP_DAYS_THRESHOLD)
+    // deno-lint-ignore no-explicit-any
+    .map((o: any) => ({ title: o.title, stage: o.stage, client_name: o.client?.name ?? null, days_since_activity: daysSince(o.updated_at) }));
+
+  return {
+    overdue_invoices: overdueInvoices,
+    quote_followups: quoteFollowups,
+    deposits_due: depositsDue,
+    overdue_tasks: overdueTasks,
+    stale_leads: staleLeads,
+  };
+}
+
+async function listOpportunitiesTool(input: { stage?: string; search?: string }, sb: SupabaseClient) {
+  let q = sb
+    .from("opportunities")
+    .select("id,title,stage,estimated_value,lead_source,next_action,next_action_date,updated_at,client:clients(name)")
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  if (input.stage) q = q.eq("stage", input.stage);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  // deno-lint-ignore no-explicit-any
+  let rows = (data ?? []).map((o: any) => ({
+    id: o.id,
+    title: o.title,
+    client_name: o.client?.name ?? null,
+    stage: o.stage,
+    estimated_value: o.estimated_value,
+    lead_source: o.lead_source,
+    next_action: o.next_action,
+    next_action_date: o.next_action_date,
+    updated_at: o.updated_at,
+  }));
+  if (input.search) {
+    const needle = input.search.toLowerCase();
+    rows = rows.filter((r) => r.title.toLowerCase().includes(needle) || r.client_name?.toLowerCase().includes(needle));
+  }
+  return { opportunities: rows.slice(0, 30), total_matches: rows.length, truncated: rows.length > 30 };
+}
+
+async function getPipelineSummaryTool(_input: Record<string, never>, sb: SupabaseClient) {
+  const { data, error } = await sb.from("opportunities").select("stage,lead_source,estimated_value");
+  if (error) throw error;
+
+  const byStage: Record<string, number> = {};
+  interface SourceRow { leads: number; won: number; lost: number; open_value: number; won_value: number }
+  const bySource = new Map<string, SourceRow>();
+  // deno-lint-ignore no-explicit-any
+  for (const o of (data ?? []) as any[]) {
+    byStage[o.stage] = (byStage[o.stage] ?? 0) + 1;
+    const key = o.lead_source?.trim() || "Unknown";
+    const row = bySource.get(key) ?? { leads: 0, won: 0, lost: 0, open_value: 0, won_value: 0 };
+    row.leads += 1;
+    if (o.stage === "won") {
+      row.won += 1;
+      row.won_value += o.estimated_value ?? 0;
+    } else if (o.stage === "lost") row.lost += 1;
+    else row.open_value += o.estimated_value ?? 0;
+    bySource.set(key, row);
+  }
+
+  return {
+    by_stage: byStage,
+    by_source: Array.from(bySource.entries()).map(([source, r]) => ({ source, ...r })),
+  };
+}
+
+const TASK_TYPES = [
+  "call", "text", "email", "site_visit", "prepare_estimate", "send_proposal",
+  "follow_up", "collect_deposit", "schedule_project", "general_task",
+];
+
+/**
+ * Resolve-only — never writes. Validates client_id/opportunity_id (if
+ * given) against the real, RLS-scoped data and returns either a
+ * ready-to-confirm proposal or a specific, honest reason it couldn't
+ * resolve one. The actual insert happens later, in index.ts's
+ * executeCreateTask(), only after the user confirms — never from here.
+ * Same shape/rigor as createExpenseTool below.
+ */
+async function createTaskTool(
+  input: { title?: string; client_id?: string; opportunity_id?: string; due_date?: string; task_type?: string; priority?: string },
+  sb: SupabaseClient,
+) {
+  const title = typeof input.title === "string" ? input.title.trim() : "";
+  if (!title) return { status: "error", reason: "invalid_input", message: "A task title is required." };
+
+  let clientId: string | null = null;
+  let clientName: string | null = null;
+  if (typeof input.client_id === "string" && input.client_id) {
+    const { data: client, error: cErr } = await sb.from("clients").select("id,name").eq("id", input.client_id).single();
+    if (cErr || !client) return { status: "error", reason: "client_not_found", message: "That client wasn't found." };
+    clientId = client.id;
+    clientName = client.name;
+  }
+
+  let opportunityId: string | null = null;
+  let opportunityTitle: string | null = null;
+  if (typeof input.opportunity_id === "string" && input.opportunity_id) {
+    const { data: opp, error: oErr } = await sb
+      .from("opportunities")
+      .select("id,title,client_id")
+      .eq("id", input.opportunity_id)
+      .single();
+    if (oErr || !opp) return { status: "error", reason: "opportunity_not_found", message: "That opportunity wasn't found." };
+    opportunityId = opp.id;
+    opportunityTitle = opp.title;
+    // An opportunity always belongs to a client — carry that client along
+    // if the caller didn't separately resolve one, same as the app's own
+    // CreateTaskDialog does implicitly via defaultClientId.
+    if (!clientId) {
+      const { data: client } = await sb.from("clients").select("id,name").eq("id", opp.client_id).single();
+      if (client) {
+        clientId = client.id;
+        clientName = client.name;
+      }
+    }
+  }
+
+  const dueDate =
+    typeof input.due_date === "string" && !Number.isNaN(Date.parse(input.due_date)) ? input.due_date : null;
+
+  const taskType = typeof input.task_type === "string" && TASK_TYPES.includes(input.task_type) ? input.task_type : "general_task";
+  const priority = typeof input.priority === "string" && ["low", "normal", "high"].includes(input.priority) ? input.priority : "normal";
+
+  return {
+    status: "ready",
+    action: {
+      type: "create_task",
+      title,
+      client_id: clientId,
+      client_name: clientName,
+      opportunity_id: opportunityId,
+      opportunity_title: opportunityTitle,
+      due_date: dueDate,
+      task_type: taskType,
+      priority,
+    },
+  };
 }
 
 /**
@@ -719,6 +943,15 @@ export async function callTool(name: string, input: Record<string, unknown>, sb:
     case "create_expense":
       // deno-lint-ignore no-explicit-any
       return createExpenseTool(input as any, sb);
+    case "list_opportunities":
+      // deno-lint-ignore no-explicit-any
+      return listOpportunitiesTool(input as any, sb);
+    case "get_pipeline_summary":
+      // deno-lint-ignore no-explicit-any
+      return getPipelineSummaryTool(input as any, sb);
+    case "create_task":
+      // deno-lint-ignore no-explicit-any
+      return createTaskTool(input as any, sb);
     default:
       return { error: `Unknown tool: ${name}` };
   }

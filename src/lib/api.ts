@@ -2427,7 +2427,8 @@ export type ActivityKind =
   | "invoice_paid"
   | "appointment_scheduled"
   | "appointment_completed"
-  | "task_completed";
+  | "task_completed"
+  | "task_created";
 
 export interface Activity {
   id: string;
