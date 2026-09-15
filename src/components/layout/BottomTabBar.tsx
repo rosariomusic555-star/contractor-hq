@@ -34,7 +34,33 @@ import { useAuth } from "@/lib/auth";
 import { createQuote, createInvoice, listProjects } from "@/lib/api";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
-const tab = "flex flex-1 flex-col items-center gap-1 py-1.5 text-[10px] font-semibold";
+function TabLink({ to, icon: Icon, label }: { to: string; icon: typeof FileText; label: string }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        cn(
+          "flex flex-1 flex-col items-center gap-[3px] py-1.5 text-[10px] font-semibold transition-colors",
+          isActive ? "text-foreground" : "text-muted-foreground",
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span
+            className={cn(
+              "flex h-[30px] w-12 items-center justify-center rounded-full transition-colors",
+              isActive && "bg-primary/[0.18]",
+            )}
+          >
+            <Icon className="h-5 w-5" />
+          </span>
+          {label}
+        </>
+      )}
+    </NavLink>
+  );
+}
 
 export function BottomTabBar() {
   const navigate = useNavigate();
@@ -72,44 +98,38 @@ export function BottomTabBar() {
     navigate(to);
   };
 
-  const tabClass = ({ isActive }: { isActive: boolean }) =>
-    cn(tab, isActive ? "text-primary" : "text-muted-foreground");
-
   return (
     <>
       <nav
         className="fixed inset-x-0 bottom-0 z-50 flex transform-gpu items-stretch border-t border-border bg-card/95 px-2 backdrop-blur will-change-transform md:hidden"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.5rem)" }}
       >
-        <NavLink to="/dashboard" className={tabClass}>
-          <LayoutDashboard className="h-5 w-5" />
-          Home
-        </NavLink>
-        <NavLink to="/projects" className={tabClass}>
-          <Briefcase className="h-5 w-5" />
-          Projects
-        </NavLink>
-
-        <div className="flex flex-1 justify-center">
-          <button
-            type="button"
-            aria-label="Create"
-            onClick={() => setCreateOpen(true)}
-            className="-mt-5 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
-          >
-            <Plus className="h-6 w-6" />
-          </button>
-        </div>
-
-        <NavLink to="/revenue" className={tabClass}>
-          <TrendingUp className="h-5 w-5" />
-          Money
-        </NavLink>
-        <button type="button" onClick={() => setMoreOpen(true)} className={cn(tab, "text-muted-foreground")}>
-          <MoreHorizontal className="h-5 w-5" />
+        <TabLink to="/dashboard" icon={LayoutDashboard} label="Home" />
+        <TabLink to="/projects" icon={Briefcase} label="Projects" />
+        <TabLink to="/quotes" icon={FileText} label="Quotes" />
+        <TabLink to="/revenue" icon={TrendingUp} label="Money" />
+        <button
+          type="button"
+          onClick={() => setMoreOpen(true)}
+          className="flex flex-1 flex-col items-center gap-[3px] py-1.5 text-[10px] font-semibold text-muted-foreground transition-colors"
+        >
+          <span className="flex h-[30px] w-12 items-center justify-center rounded-full">
+            <MoreHorizontal className="h-5 w-5" />
+          </span>
           More
         </button>
       </nav>
+
+      {/* Floating create button, above the tab bar — stacked above AssistantButton
+          (also fixed bottom-right on mobile) rather than overlapping it. */}
+      <button
+        type="button"
+        aria-label="Create"
+        onClick={() => setCreateOpen(true)}
+        className="fixed right-4 z-50 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95 md:hidden bottom-[calc(8.75rem+env(safe-area-inset-bottom))]"
+      >
+        <Plus className="h-6 w-6" />
+      </button>
 
       {/* Create action sheet */}
       <Sheet
@@ -181,7 +201,6 @@ export function BottomTabBar() {
             <ActionRow icon={ListChecks} label="Tasks" onClick={() => go("/tasks", () => setMoreOpen(false))} />
             <ActionRow icon={CalendarClock} label="Appointments" onClick={() => go("/appointments", () => setMoreOpen(false))} />
             <ActionRow icon={MessagesSquare} label="Communications" onClick={() => go("/communications", () => setMoreOpen(false))} />
-            <ActionRow icon={FileText} label="Quotes" onClick={() => go("/quotes", () => setMoreOpen(false))} />
             <ActionRow icon={Receipt} label="Invoices" onClick={() => go("/invoices", () => setMoreOpen(false))} />
             <ActionRow icon={Users} label="Clients" onClick={() => go("/clients", () => setMoreOpen(false))} />
             <ActionRow icon={SettingsIcon} label="Settings" onClick={() => go("/settings", () => setMoreOpen(false))} />
