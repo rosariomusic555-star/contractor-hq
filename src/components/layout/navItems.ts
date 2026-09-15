@@ -6,6 +6,10 @@ import {
   TrendingUp,
   Users,
   Settings,
+  Kanban,
+  ListChecks,
+  CalendarClock,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 
@@ -17,10 +21,31 @@ export interface NavItem {
 
 export const navItems: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/pipeline", label: "Pipeline", icon: Kanban },
+  { to: "/tasks", label: "Tasks", icon: ListChecks },
+  { to: "/appointments", label: "Appointments", icon: CalendarClock },
+  { to: "/communications", label: "Communications", icon: MessagesSquare },
   { to: "/projects", label: "Projects", icon: Briefcase },
   { to: "/quotes", label: "Quotes", icon: FileText },
   { to: "/invoices", label: "Invoices", icon: Receipt },
   { to: "/revenue", label: "Revenue", icon: TrendingUp },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/settings", label: "Settings", icon: Settings },
+];
+
+export interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const byTo = (to: string) => navItems.find((item) => item.to === to)!;
+
+// Sidebar-only grouping of navItems into labeled sections (desktop Sidebar).
+// BottomTabBar and its "More" sheet intentionally keep their own flat list.
+export const navGroups: NavGroup[] = [
+  { label: "Overview", items: ["/dashboard"].map(byTo) },
+  { label: "Pipeline", items: ["/pipeline", "/tasks", "/appointments", "/communications"].map(byTo) },
+  { label: "Work", items: ["/projects", "/quotes"].map(byTo) },
+  { label: "Money", items: ["/invoices", "/revenue"].map(byTo) },
+  { label: "Business", items: ["/clients", "/settings"].map(byTo) },
 ];

@@ -13,6 +13,9 @@ export type ProjectStatus = "draft" | "quote_sent" | "approved" | "invoiced" | "
 export type QuoteStatus = "draft" | "sent" | "approved";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 
+export type ClientStatus = "lead" | "active" | "past" | "inactive";
+export type PreferredContactMethod = "phone" | "email" | "text";
+
 export interface Client {
   id: string;
   user_id: string;
@@ -21,6 +24,15 @@ export interface Client {
   phone: string | null;
   address: string | null;
   created_at: string;
+  /** CRM fields (0048) — additive, all nullable/defaulted. A persisted
+   * replacement for ClientsView's old client-side-only computed "kind". */
+  status: ClientStatus;
+  lead_source: string | null;
+  preferred_contact_method: PreferredContactMethod | null;
+  tags: string[];
+  internal_notes: string | null;
+  /** Freeform key/value store — no field-type system, just a flat object. */
+  custom_fields: Record<string, string>;
 }
 
 /** A user's own editable list of work categories (Settings > Categories). */
@@ -431,6 +443,23 @@ export function materialsCogs(sections: MaterialsSection[] = []): number {
   return total;
 }
 
+/** A customer's realized revenue — paid invoices only (0048), same
+ * revenue-recognition rule as everywhere else in the app that talks
+ * about real money received. */
+export function clientLifetimeRevenue(invoices: Invoice[]): number {
+  return invoices
+    .filter((i) => i.status === "paid")
+    .reduce((sum, i) => sum + Number(i.amount), 0);
+}
+
+/** What a customer still owes — sent/overdue invoices; a draft invoice
+ * hasn't been issued to them yet, so it isn't a real obligation. */
+export function clientOutstandingBalance(invoices: Invoice[]): number {
+  return invoices
+    .filter((i) => i.status === "sent" || i.status === "overdue")
+    .reduce((sum, i) => sum + Number(i.amount), 0);
+}
+
 // ---------------------------------------------------------------------------
 // Clients
 // ---------------------------------------------------------------------------
@@ -452,6 +481,7 @@ export async function createClient(input: {
   email: string;
   phone: string;
   address: string;
+  lead_source?: string | null;
 }): Promise<Client> {
   const { data, error } = await supabase
     .from("clients")
@@ -460,6 +490,7 @@ export async function createClient(input: {
       email: input.email || null,
       phone: input.phone || null,
       address: input.address || null,
+      lead_source: input.lead_source || null,
     })
     .select()
     .single();
@@ -469,7 +500,21 @@ export async function createClient(input: {
 
 export async function updateClient(
   id: string,
-  patch: Partial<Pick<Client, "name" | "email" | "phone" | "address">>,
+  patch: Partial<
+    Pick<
+      Client,
+      | "name"
+      | "email"
+      | "phone"
+      | "address"
+      | "status"
+      | "lead_source"
+      | "preferred_contact_method"
+      | "tags"
+      | "internal_notes"
+      | "custom_fields"
+    >
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("clients").update(patch).eq("id", id);
   if (error) throw error;
@@ -545,6 +590,18 @@ export async function getProject(id: string): Promise<Project> {
     .single();
   if (error) throw error;
   return data;
+}
+
+/** A customer's own projects (0048, Customer 360 page) — distinct from
+ * listProjects()'s full-list use everywhere else. */
+export async function listProjectsForClient(clientId: string): Promise<Project[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_SELECT)
+    .eq("client_id", clientId)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function createProject(input: {
@@ -1172,6 +1229,29 @@ export async function getQuote(id: string): Promise<Quote> {
   return sortQuote(fallback);
 }
 
+/**
+ * Every quote belonging to a customer (0048, Customer 360 page) — a
+ * quote can reach a client two ways: directly (`client_id` set, the
+ * standalone/override case) or through its project (`project_id` in one
+ * of this client's projects) — quotes on a project usually leave
+ * `client_id` null and rely on the project's own client, per Quote's own
+ * doc comment, so both paths have to be checked.
+ */
+export async function listQuotesForClient(clientId: string): Promise<Quote[]> {
+  const projects = await listProjectsForClient(clientId);
+  const orParts = [`client_id.eq.${clientId}`];
+  if (projects.length) orParts.push(`project_id.in.(${projects.map((p) => p.id).join(",")})`);
+
+  const build = (select: string) =>
+    supabase.from("quotes").select(select).or(orParts.join(",")).order("updated_at", { ascending: false });
+  const { data, error } = await build(QUOTE_SELECT);
+  if (!error) return (data ?? []).map(sortQuote);
+  if (!isMissingRelationshipError(error)) throw error;
+  const { data: fallback, error: fallbackError } = await build(QUOTE_SELECT_NO_IMAGES);
+  if (fallbackError) throw fallbackError;
+  return (fallback ?? []).map(sortQuote);
+}
+
 // ---------------------------------------------------------------------------
 // Quote defaults (Settings > Quote defaults) — one row per user. Falls back
 // to QUOTE_DEFAULTS_FALLBACK before the user has ever saved a row.
@@ -1544,6 +1624,25 @@ export async function getInvoice(id: string): Promise<Invoice> {
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Every invoice belonging to a customer (0048, Customer 360 page) — an
+ * invoice has no client_id column at all (see the Invoice type's own
+ * doc comment), so this is only ever reachable through the client's
+ * projects. A client with no projects yet simply has none. */
+export async function listInvoicesForClient(clientId: string): Promise<Invoice[]> {
+  const projects = await listProjectsForClient(clientId);
+  if (projects.length === 0) return [];
+  const { data, error } = await supabase
+    .from("invoices")
+    .select(INVOICE_SELECT)
+    .in(
+      "project_id",
+      projects.map((p) => p.id),
+    )
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
 }
 
 /**
@@ -2127,4 +2226,978 @@ export async function getMyEmployeeRecord(authUserId: string): Promise<Employee 
     throw error;
   }
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// CRM — customer records (0048, Phase 1). Contacts/addresses/files/
+// activities are all owned through a `clients` join (see that migration's
+// security note), not a direct user_id column.
+// ---------------------------------------------------------------------------
+
+export interface ClientContact {
+  id: string;
+  client_id: string;
+  name: string;
+  role: string | null;
+  phone: string | null;
+  email: string | null;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export async function listClientContacts(clientId: string): Promise<ClientContact[]> {
+  const { data, error } = await supabase
+    .from("client_contacts")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function addClientContact(
+  clientId: string,
+  input: {
+    name: string;
+    role?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    is_primary?: boolean;
+  },
+): Promise<ClientContact> {
+  const { data, error } = await supabase
+    .from("client_contacts")
+    .insert({
+      client_id: clientId,
+      name: input.name,
+      role: input.role ?? null,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      is_primary: input.is_primary ?? false,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteClientContact(id: string): Promise<void> {
+  const { error } = await supabase.from("client_contacts").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+
+export interface ClientAddress {
+  id: string;
+  client_id: string;
+  label: string | null;
+  address: string;
+  is_billing: boolean;
+  created_at: string;
+}
+
+export async function listClientAddresses(clientId: string): Promise<ClientAddress[]> {
+  const { data, error } = await supabase
+    .from("client_addresses")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function addClientAddress(
+  clientId: string,
+  input: { label?: string | null; address: string; is_billing?: boolean },
+): Promise<ClientAddress> {
+  const { data, error } = await supabase
+    .from("client_addresses")
+    .insert({
+      client_id: clientId,
+      label: input.label ?? null,
+      address: input.address,
+      is_billing: input.is_billing ?? false,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteClientAddress(id: string): Promise<void> {
+  const { error } = await supabase.from("client_addresses").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+
+export interface ClientFile {
+  id: string;
+  client_id: string;
+  storage_path: string;
+  name: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function listClientFiles(clientId: string): Promise<ClientFile[]> {
+  const { data, error } = await supabase
+    .from("client_files")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** Compresses, uploads, and records the row — same order/rollback as addProjectImage. */
+export async function addClientFile(
+  clientId: string,
+  file: File,
+  input: { sort_order?: number } = {},
+): Promise<ClientFile> {
+  const compressed = await compressImageFile(file);
+  const path = `clients/${clientId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("client_files")
+    .insert({
+      client_id: clientId,
+      storage_path: path,
+      name: file.name,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function deleteClientFile(file: Pick<ClientFile, "id" | "storage_path">): Promise<void> {
+  const { error: storageError } = await supabase.storage.from(IMAGES_BUCKET).remove([file.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("client_files").delete().eq("id", file.id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Activities — the client-wide timeline (0048). Phase 1 only writes
+// manual entries ("log a note/call"); later CRM phases add automatic
+// writes (quote sent, pipeline stage changed, etc.) with no schema change.
+// ---------------------------------------------------------------------------
+
+export type ActivityKind =
+  | "note"
+  | "call"
+  | "text"
+  | "email"
+  | "other"
+  // Auto-generated kinds (CRM Phases 2+) — the DB column is open text
+  // (see 0048's comment), so new kinds never need a migration; this union
+  // just keeps callers honest. Not every kind below is wired up to fire
+  // automatically yet — added now so later phases don't touch the type.
+  | "stage_changed"
+  | "quote_created"
+  | "quote_sent"
+  | "quote_viewed"
+  | "proposal_approved"
+  | "proposal_rejected"
+  | "opportunity_won"
+  | "opportunity_lost"
+  | "project_created"
+  | "invoice_sent"
+  | "invoice_paid"
+  | "appointment_scheduled"
+  | "appointment_completed"
+  | "task_completed"
+  | "task_created";
+
+export interface Activity {
+  id: string;
+  client_id: string;
+  project_id: string | null;
+  quote_id: string | null;
+  invoice_id: string | null;
+  opportunity_id: string | null;
+  created_by: string;
+  kind: string;
+  summary: string;
+  meta: Record<string, unknown>;
+  created_at: string;
+  client?: { name: string } | null;
+}
+
+export async function listActivities(clientId: string): Promise<Activity[]> {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** An opportunity's own feed — narrower than listActivities(), which
+ * returns everything for the whole customer. */
+export async function listActivitiesForOpportunity(opportunityId: string): Promise<Activity[]> {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*")
+    .eq("opportunity_id", opportunityId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+const MANUAL_COMMUNICATION_KINDS = ["note", "call", "text", "email"] as const;
+
+/** CRM Phase 6's "Communication Center" — every manually-logged note/
+ * call/text/email across every customer, newest first. Reuses the
+ * activities table (no new table): the same manual-log composer on
+ * Customer 360 already writes these rows, this just surfaces them
+ * cross-customer. Auto-generated kinds (stage_changed, quote_sent,
+ * etc.) are excluded — those belong in each record's own activity
+ * feed, not the communication log. */
+export async function listCommunications(): Promise<Activity[]> {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*, client:clients(name)")
+    .in("kind", MANUAL_COMMUNICATION_KINDS)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function logActivity(
+  clientId: string,
+  kind: ActivityKind,
+  summary: string,
+  input: {
+    project_id?: string | null;
+    quote_id?: string | null;
+    invoice_id?: string | null;
+    opportunity_id?: string | null;
+    meta?: Record<string, unknown>;
+  } = {},
+): Promise<Activity> {
+  const { data, error } = await supabase
+    .from("activities")
+    .insert({
+      client_id: clientId,
+      kind,
+      summary,
+      project_id: input.project_id ?? null,
+      quote_id: input.quote_id ?? null,
+      invoice_id: input.invoice_id ?? null,
+      opportunity_id: input.opportunity_id ?? null,
+      meta: input.meta ?? {},
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities — Sales Pipeline (CRM Phase 2, 0049). Every opportunity
+// belongs to exactly one customer; a customer can have many over time.
+// ---------------------------------------------------------------------------
+
+export type OpportunityStage =
+  | "new_lead"
+  | "attempting_contact"
+  | "contacted"
+  | "qualified"
+  | "site_visit_scheduled"
+  | "site_visit_completed"
+  | "estimate_in_progress"
+  | "proposal_sent"
+  | "follow_up"
+  | "won"
+  | "lost";
+
+export type OpportunityPriority = "low" | "normal" | "high";
+
+export interface Opportunity {
+  id: string;
+  client_id: string;
+  title: string;
+  address: string | null;
+  project_type: string | null;
+  description: string | null;
+  estimated_value: number | null;
+  probability: number | null;
+  expected_close_date: string | null;
+  lead_source: string | null;
+  assigned_to: string | null;
+  stage: OpportunityStage;
+  priority: OpportunityPriority;
+  tags: string[];
+  measurements: string | null;
+  lost_reason: string | null;
+  next_action: string | null;
+  next_action_date: string | null;
+  last_contact_date: string | null;
+  quote_id: string | null;
+  project_id: string | null;
+  created_at: string;
+  updated_at: string;
+  client?: { name: string } | null;
+}
+
+const OPPORTUNITY_SELECT = "*, client:clients(name)";
+
+export async function listOpportunities(): Promise<Opportunity[]> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(OPPORTUNITY_SELECT)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** An opportunity's own client (0048/0049, Customer 360 page). */
+export async function listOpportunitiesForClient(clientId: string): Promise<Opportunity[]> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(OPPORTUNITY_SELECT)
+    .eq("client_id", clientId)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function getOpportunity(id: string): Promise<Opportunity> {
+  const { data, error } = await supabase.from("opportunities").select(OPPORTUNITY_SELECT).eq("id", id).single();
+  if (error) throw error;
+  return data;
+}
+
+/** Reverse lookup for CRM Phase 5 (Quote/Proposal Integration) — lets a
+ * quote screen ask "is this quote tied to a pipeline opportunity?"
+ * without the quote itself needing to know about opportunities. Null for
+ * a quote created outside the pipeline (the common case). */
+export async function getOpportunityByQuoteId(quoteId: string): Promise<Opportunity | null> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(OPPORTUNITY_SELECT)
+    .eq("quote_id", quoteId)
+    .maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205") return null;
+    throw error;
+  }
+  return data;
+}
+
+export async function createOpportunity(input: {
+  client_id: string;
+  title: string;
+  address?: string | null;
+  project_type?: string | null;
+  description?: string | null;
+  estimated_value?: number | null;
+  probability?: number | null;
+  expected_close_date?: string | null;
+  lead_source?: string | null;
+  assigned_to?: string | null;
+  priority?: OpportunityPriority;
+}): Promise<Opportunity> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .insert({
+      client_id: input.client_id,
+      title: input.title,
+      address: input.address ?? null,
+      project_type: input.project_type ?? null,
+      description: input.description ?? null,
+      estimated_value: input.estimated_value ?? null,
+      probability: input.probability ?? null,
+      expected_close_date: input.expected_close_date ?? null,
+      lead_source: input.lead_source ?? null,
+      assigned_to: input.assigned_to ?? null,
+      priority: input.priority ?? "normal",
+    })
+    .select(OPPORTUNITY_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateOpportunity(
+  id: string,
+  patch: Partial<
+    Pick<
+      Opportunity,
+      | "title"
+      | "address"
+      | "project_type"
+      | "description"
+      | "estimated_value"
+      | "probability"
+      | "expected_close_date"
+      | "lead_source"
+      | "assigned_to"
+      | "stage"
+      | "priority"
+      | "tags"
+      | "measurements"
+      | "lost_reason"
+      | "next_action"
+      | "next_action_date"
+      | "last_contact_date"
+      | "quote_id"
+      | "project_id"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("opportunities").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteOpportunity(id: string): Promise<void> {
+  const { error } = await supabase.from("opportunities").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * The Kanban board's drag handler — moves the stage AND records it in the
+ * activity timeline in one call, so a stage change is never a silent
+ * overwrite (section 3 of the CRM ask).
+ */
+export async function moveOpportunityStage(
+  opportunity: Pick<Opportunity, "id" | "client_id" | "stage">,
+  toStage: OpportunityStage,
+): Promise<void> {
+  await updateOpportunity(opportunity.id, { stage: toStage });
+  await logActivity(
+    opportunity.client_id,
+    "stage_changed",
+    `Stage changed: ${opportunityStageLabel(opportunity.stage)} → ${opportunityStageLabel(toStage)}`,
+    { opportunity_id: opportunity.id },
+  );
+}
+
+// Tiny local label map — statusMeta.ts owns the canonical/full version
+// (OPPORTUNITY_STAGE_META); this avoids api.ts depending on that UI
+// module just to write a plain-text activity summary.
+function opportunityStageLabel(stage: OpportunityStage): string {
+  return stage
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Stages that come before real estimate work starts — createQuoteFromOpportunity
+// only auto-advances out of these, never regressing an opportunity that's
+// already further along (e.g. re-quoting a "proposal_sent" opportunity
+// shouldn't knock it back a stage).
+const PRE_ESTIMATE_STAGES: OpportunityStage[] = [
+  "new_lead",
+  "attempting_contact",
+  "contacted",
+  "qualified",
+  "site_visit_scheduled",
+  "site_visit_completed",
+];
+
+/**
+ * CRM Phase 5 (Quote/Proposal Integration) — creates a quote carrying the
+ * opportunity's customer, address, description and measurements forward
+ * (no retyping), links it back via opportunities.quote_id, advances the
+ * stage to "estimate_in_progress" (only if still earlier in the pipeline),
+ * and logs it — same combined update+log shape as moveOpportunityStage()
+ * and setAppointmentStatus(), so this is never a silent side effect.
+ * Never creates a second client or project record; an opportunity that
+ * already has a quote_id should route to that existing quote instead of
+ * calling this again.
+ */
+export async function createQuoteFromOpportunity(
+  opportunity: Pick<Opportunity, "id" | "client_id" | "stage" | "address" | "description" | "measurements">,
+): Promise<Quote> {
+  const notes =
+    [
+      opportunity.address ? `Address: ${opportunity.address}` : null,
+      opportunity.description,
+      opportunity.measurements ? `Measurements: ${opportunity.measurements}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n") || null;
+
+  const quote = await createQuote({ client_id: opportunity.client_id, notes });
+  await updateOpportunity(opportunity.id, { quote_id: quote.id });
+  await logActivity(opportunity.client_id, "quote_created", "Quote created from opportunity", {
+    opportunity_id: opportunity.id,
+    quote_id: quote.id,
+  });
+  if (PRE_ESTIMATE_STAGES.includes(opportunity.stage)) {
+    await moveOpportunityStage(opportunity, "estimate_in_progress");
+  }
+  return quote;
+}
+
+// ---------------------------------------------------------------------------
+
+export interface OpportunityPhoto {
+  id: string;
+  opportunity_id: string;
+  storage_path: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function listOpportunityPhotos(opportunityId: string): Promise<OpportunityPhoto[]> {
+  const { data, error } = await supabase
+    .from("opportunity_photos")
+    .select("*")
+    .eq("opportunity_id", opportunityId)
+    .order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function addOpportunityPhoto(
+  opportunityId: string,
+  file: File,
+  input: { sort_order?: number } = {},
+): Promise<OpportunityPhoto> {
+  const compressed = await compressImageFile(file);
+  const path = `opportunities/${opportunityId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("opportunity_photos")
+    .insert({ opportunity_id: opportunityId, storage_path: path, sort_order: input.sort_order ?? 0 })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function deleteOpportunityPhoto(
+  photo: Pick<OpportunityPhoto, "id" | "storage_path">,
+): Promise<void> {
+  const { error: storageError } = await supabase.storage.from(IMAGES_BUCKET).remove([photo.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("opportunity_photos").delete().eq("id", photo.id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Tasks & Follow-ups (CRM Phase 3, 0050). A task can stand fully alone
+// (no client/opportunity/project) — the "global task view" the ask
+// requires — so unlike every CRM table so far, it can't be owned via a
+// clients join; it uses a direct user_id column instead, backed by the
+// same "employees excluded" restrictive policy 0047 added for that exact
+// shape of table.
+// ---------------------------------------------------------------------------
+
+export type TaskType =
+  | "call"
+  | "text"
+  | "email"
+  | "site_visit"
+  | "prepare_estimate"
+  | "send_proposal"
+  | "follow_up"
+  | "collect_deposit"
+  | "schedule_project"
+  | "general_task";
+
+export type TaskPriority = "low" | "normal" | "high";
+export type TaskRecurrence = "none" | "daily" | "weekly" | "monthly";
+
+export interface Task {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  due_at: string | null;
+  client_id: string | null;
+  opportunity_id: string | null;
+  project_id: string | null;
+  assigned_to: string | null;
+  priority: TaskPriority;
+  task_type: TaskType;
+  completed: boolean;
+  completed_at: string | null;
+  reminder_at: string | null;
+  recurrence: TaskRecurrence | null;
+  created_at: string;
+  updated_at: string;
+  client?: { name: string } | null;
+}
+
+export const TASK_TYPE_LABEL: Record<TaskType, string> = {
+  call: "Call",
+  text: "Text",
+  email: "Email",
+  site_visit: "Site Visit",
+  prepare_estimate: "Prepare Estimate",
+  send_proposal: "Send Proposal",
+  follow_up: "Follow Up",
+  collect_deposit: "Collect Deposit",
+  schedule_project: "Schedule Project",
+  general_task: "General Task",
+};
+
+const TASK_SELECT = "*, client:clients(name)";
+
+export async function listTasks(): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .order("due_at", { ascending: true, nullsFirst: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listTasksForClient(clientId: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("client_id", clientId)
+    .order("due_at", { ascending: true, nullsFirst: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listTasksForOpportunity(opportunityId: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("opportunity_id", opportunityId)
+    .order("due_at", { ascending: true, nullsFirst: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createTask(input: {
+  title: string;
+  description?: string | null;
+  due_at?: string | null;
+  client_id?: string | null;
+  opportunity_id?: string | null;
+  project_id?: string | null;
+  assigned_to?: string | null;
+  priority?: TaskPriority;
+  task_type?: TaskType;
+  reminder_at?: string | null;
+  recurrence?: TaskRecurrence | null;
+}): Promise<Task> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({
+      title: input.title,
+      description: input.description ?? null,
+      due_at: input.due_at ?? null,
+      client_id: input.client_id ?? null,
+      opportunity_id: input.opportunity_id ?? null,
+      project_id: input.project_id ?? null,
+      assigned_to: input.assigned_to ?? null,
+      priority: input.priority ?? "normal",
+      task_type: input.task_type ?? "general_task",
+      reminder_at: input.reminder_at ?? null,
+      recurrence: input.recurrence ?? null,
+    })
+    .select(TASK_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTask(
+  id: string,
+  patch: Partial<
+    Pick<
+      Task,
+      | "title"
+      | "description"
+      | "due_at"
+      | "client_id"
+      | "opportunity_id"
+      | "project_id"
+      | "assigned_to"
+      | "priority"
+      | "task_type"
+      | "reminder_at"
+      | "recurrence"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("tasks").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setTaskCompleted(id: string, completed: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("tasks")
+    .update({ completed, completed_at: completed ? new Date().toISOString() : null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Appointments & Site Visits (CRM Phase 4, 0051). Ownership-through-clients,
+// same as every CRM table except tasks (see the comment above) — an
+// appointment always belongs to a customer.
+// ---------------------------------------------------------------------------
+
+export type AppointmentType =
+  | "phone_consultation"
+  | "site_visit"
+  | "estimate_appointment"
+  | "design_meeting"
+  | "proposal_review"
+  | "follow_up";
+
+export type AppointmentStatus = "scheduled" | "completed" | "cancelled" | "no_show";
+
+export interface Appointment {
+  id: string;
+  client_id: string;
+  opportunity_id: string | null;
+  type: AppointmentType;
+  date_time: string;
+  duration_minutes: number;
+  address: string | null;
+  status: AppointmentStatus;
+  notes: string | null;
+  assigned_to: string | null;
+  reminder_at: string | null;
+  outcome: string | null;
+  created_at: string;
+  updated_at: string;
+  client?: { name: string } | null;
+}
+
+export const APPOINTMENT_TYPE_LABEL: Record<AppointmentType, string> = {
+  phone_consultation: "Phone Consultation",
+  site_visit: "Site Visit",
+  estimate_appointment: "Estimate Appointment",
+  design_meeting: "Design Meeting",
+  proposal_review: "Proposal Review",
+  follow_up: "Follow-Up",
+};
+
+const APPOINTMENT_SELECT = "*, client:clients(name)";
+
+export async function listAppointments(): Promise<Appointment[]> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(APPOINTMENT_SELECT)
+    .order("date_time", { ascending: true });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listAppointmentsForClient(clientId: string): Promise<Appointment[]> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(APPOINTMENT_SELECT)
+    .eq("client_id", clientId)
+    .order("date_time", { ascending: true });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listAppointmentsForOpportunity(opportunityId: string): Promise<Appointment[]> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(APPOINTMENT_SELECT)
+    .eq("opportunity_id", opportunityId)
+    .order("date_time", { ascending: true });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createAppointment(input: {
+  client_id: string;
+  opportunity_id?: string | null;
+  type?: AppointmentType;
+  date_time: string;
+  duration_minutes?: number;
+  address?: string | null;
+  notes?: string | null;
+  assigned_to?: string | null;
+  reminder_at?: string | null;
+}): Promise<Appointment> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .insert({
+      client_id: input.client_id,
+      opportunity_id: input.opportunity_id ?? null,
+      type: input.type ?? "site_visit",
+      date_time: input.date_time,
+      duration_minutes: input.duration_minutes ?? 60,
+      address: input.address ?? null,
+      notes: input.notes ?? null,
+      assigned_to: input.assigned_to ?? null,
+      reminder_at: input.reminder_at ?? null,
+    })
+    .select(APPOINTMENT_SELECT)
+    .single();
+  if (error) throw error;
+  await logActivity(input.client_id, "appointment_scheduled", `Appointment scheduled: ${APPOINTMENT_TYPE_LABEL[input.type ?? "site_visit"]}`, {
+    opportunity_id: input.opportunity_id ?? null,
+    meta: { appointment_id: data.id, date_time: input.date_time },
+  });
+  return data;
+}
+
+export async function updateAppointment(
+  id: string,
+  patch: Partial<
+    Pick<
+      Appointment,
+      | "type"
+      | "date_time"
+      | "duration_minutes"
+      | "address"
+      | "notes"
+      | "assigned_to"
+      | "reminder_at"
+      | "status"
+      | "outcome"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("appointments").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteAppointment(id: string): Promise<void> {
+  const { error } = await supabase.from("appointments").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Marks an appointment as completed (or cancelled/no-show) and, for a
+ * completion, logs it to the activity timeline — same combined
+ * update+log pattern as moveOpportunityStage(), so a status change is
+ * never silent. */
+export async function setAppointmentStatus(
+  appointment: Pick<Appointment, "id" | "client_id" | "opportunity_id" | "type">,
+  status: AppointmentStatus,
+  outcome?: string | null,
+): Promise<void> {
+  await updateAppointment(appointment.id, { status, outcome: outcome ?? null });
+  if (status === "completed") {
+    await logActivity(
+      appointment.client_id,
+      "appointment_completed",
+      `Appointment completed: ${APPOINTMENT_TYPE_LABEL[appointment.type]}${outcome ? ` — ${outcome}` : ""}`,
+      { opportunity_id: appointment.opportunity_id, meta: { appointment_id: appointment.id } },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate detection (0048) — client-side only, checked against the
+// already-loaded client list before creating a new one (this app's scale
+// doesn't need a server-side fuzzy-search function). Never merges
+// automatically; only surfaces a warning so the user can pick the
+// existing record instead.
+// ---------------------------------------------------------------------------
+
+const normalizePhone = (v: string) => v.replace(/\D/g, "");
+const normalizeEmail = (v: string) => v.trim().toLowerCase();
+const normalizeName = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
+
+export interface PossibleDuplicate {
+  client: Client;
+  reason: "phone" | "email" | "name";
+}
+
+/** Phone/email matches are exact-after-normalizing (reliable signals);
+ * name matches are a looser substring check (a hint, not a hard match)
+ * since names collide far more easily. */
+export function findPossibleDuplicates(
+  input: { name?: string; email?: string; phone?: string },
+  clients: Client[],
+): PossibleDuplicate[] {
+  const name = input.name ? normalizeName(input.name) : "";
+  const email = input.email ? normalizeEmail(input.email) : "";
+  const phone = input.phone ? normalizePhone(input.phone) : "";
+
+  const results: PossibleDuplicate[] = [];
+  for (const c of clients) {
+    if (phone && c.phone && normalizePhone(c.phone) === phone) {
+      results.push({ client: c, reason: "phone" });
+      continue;
+    }
+    if (email && c.email && normalizeEmail(c.email) === email) {
+      results.push({ client: c, reason: "email" });
+      continue;
+    }
+    if (name.length >= 3 && normalizeName(c.name).includes(name)) {
+      results.push({ client: c, reason: "name" });
+    }
+  }
+  return results;
 }

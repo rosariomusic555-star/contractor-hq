@@ -1,4 +1,12 @@
-import type { ChangeOrderStatus, InvoiceStatus, ProjectStatus, QuoteStatus } from "./api";
+import type {
+  AppointmentStatus,
+  ChangeOrderStatus,
+  ClientStatus,
+  InvoiceStatus,
+  OpportunityStage,
+  ProjectStatus,
+  QuoteStatus,
+} from "./api";
 
 /**
  * Single source of truth for status presentation across the app — badge class,
@@ -96,6 +104,67 @@ const CHANGE_ORDER_META: Record<ChangeOrderStatus, StatusMeta> = {
 
 export function changeOrderStatusMeta(status: string): StatusMeta {
   return CHANGE_ORDER_META[status as ChangeOrderStatus] ?? meta(titleCase(status), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Clients (CRM, 0048) — a real, persisted status, distinct from
+// ClientsView.tsx's own computed "kind" (active/repeat/lead/client),
+// which derives from real project/invoice history rather than this
+// manually-set field.
+// ---------------------------------------------------------------------------
+
+export const CLIENT_STATUS_META: Record<ClientStatus, StatusMeta> = {
+  lead: meta("Lead", "grey"),
+  active: meta("Active", "green"),
+  past: meta("Past", "blue"),
+  inactive: meta("Inactive", "red"),
+};
+
+export const CLIENT_STATUSES = Object.keys(CLIENT_STATUS_META) as ClientStatus[];
+
+export function clientStatusMeta(status: string): StatusMeta {
+  return CLIENT_STATUS_META[status as ClientStatus] ?? meta(titleCase(status), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities / sales pipeline (CRM Phase 2, 0049). Order here is the
+// Kanban board's column order (Object.keys preserves insertion order),
+// same convention as PROJECT_STATUSES.
+// ---------------------------------------------------------------------------
+
+export const OPPORTUNITY_STAGE_META: Record<OpportunityStage, StatusMeta> = {
+  new_lead: meta("New Lead", "grey"),
+  attempting_contact: meta("Attempting Contact", "amber"),
+  contacted: meta("Contacted", "blue"),
+  qualified: meta("Qualified", "blue"),
+  site_visit_scheduled: meta("Site Visit Scheduled", "blue"),
+  site_visit_completed: meta("Site Visit Completed", "blue"),
+  estimate_in_progress: meta("Estimate in Progress", "amber"),
+  proposal_sent: meta("Proposal Sent", "amber"),
+  follow_up: meta("Follow-Up / Decision", "amber"),
+  won: meta("Won", "greenSolid"),
+  lost: meta("Lost", "red"),
+};
+
+export const OPPORTUNITY_STAGES = Object.keys(OPPORTUNITY_STAGE_META) as OpportunityStage[];
+
+export function opportunityStageMeta(stage: string): StatusMeta {
+  return OPPORTUNITY_STAGE_META[stage as OpportunityStage] ?? meta(titleCase(stage), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Appointments & site visits (CRM Phase 4, 0051)
+// ---------------------------------------------------------------------------
+
+export const APPOINTMENT_STATUS_META: Record<AppointmentStatus, StatusMeta> = {
+  scheduled: meta("Scheduled", "blue"),
+  completed: meta("Completed", "green"),
+  cancelled: meta("Cancelled", "grey"),
+  no_show: meta("No-Show", "red"),
+};
+
+export function appointmentStatusMeta(status: string): StatusMeta {
+  return APPOINTMENT_STATUS_META[status as AppointmentStatus] ?? meta(titleCase(status), "grey");
 }
 
 // ---------------------------------------------------------------------------

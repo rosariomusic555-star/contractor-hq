@@ -4,13 +4,47 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { getClient, createClient, updateClient } from "@/lib/api";
+import {
+  getClient,
+  createClient,
+  updateClient,
+  type ClientStatus,
+  type PreferredContactMethod,
+} from "@/lib/api";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 const FIELD_INPUT = "h-11 rounded-xl border-transparent bg-muted px-3.5 focus-visible:border-primary focus-visible:bg-card";
+const NONE = "__none__";
 
-const EMPTY = { name: "", email: "", phone: "", address: "" };
+const STATUS_OPTIONS: { value: ClientStatus; label: string }[] = [
+  { value: "lead", label: "Lead" },
+  { value: "active", label: "Active" },
+  { value: "past", label: "Past" },
+  { value: "inactive", label: "Inactive" },
+];
+const CONTACT_METHOD_OPTIONS: { value: PreferredContactMethod; label: string }[] = [
+  { value: "phone", label: "Phone" },
+  { value: "email", label: "Email" },
+  { value: "text", label: "Text" },
+];
+
+const EMPTY = {
+  name: "",
+  email: "",
+  phone: "",
+  address: "",
+  status: "lead" as ClientStatus,
+  lead_source: "",
+  preferred_contact_method: "" as PreferredContactMethod | "",
+};
 
 /** Full-page "New client" (/clients/new) and "Edit client"
  * (/clients/:clientId/edit) — replaces the old modal. */
@@ -37,6 +71,9 @@ export function ClientFormView() {
         email: client.email ?? "",
         phone: client.phone ?? "",
         address: client.address ?? "",
+        status: client.status,
+        lead_source: client.lead_source ?? "",
+        preferred_contact_method: client.preferred_contact_method ?? "",
       });
     }
   }, [client]);
@@ -48,6 +85,7 @@ export function ClientFormView() {
         email: form.email.trim(),
         phone: form.phone.trim(),
         address: form.address.trim(),
+        lead_source: form.lead_source.trim(),
       };
       if (isEdit) {
         await updateClient(clientId!, {
@@ -55,6 +93,9 @@ export function ClientFormView() {
           email: payload.email || null,
           phone: payload.phone || null,
           address: payload.address || null,
+          status: form.status,
+          lead_source: payload.lead_source || null,
+          preferred_contact_method: form.preferred_contact_method || null,
         });
         return clientId!;
       }
@@ -149,6 +190,58 @@ export function ClientFormView() {
               placeholder="123 Oak Street, Springfield"
               className={FIELD_INPUT}
             />
+          </div>
+          {isEdit && (
+            <div className="space-y-1.5">
+              <div className={FIELD_LABEL}>Status</div>
+              <Select value={form.status} onValueChange={(v) => set({ status: v as ClientStatus })}>
+                <SelectTrigger className={FIELD_INPUT}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <div className={FIELD_LABEL}>
+              Lead source <span className="normal-case text-muted-foreground">(optional)</span>
+            </div>
+            <Input
+              id="client-lead-source"
+              value={form.lead_source}
+              onChange={(e) => set({ lead_source: e.target.value })}
+              placeholder="Referral, Google, word of mouth…"
+              className={FIELD_INPUT}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className={FIELD_LABEL}>
+              Preferred contact method <span className="normal-case text-muted-foreground">(optional)</span>
+            </div>
+            <Select
+              value={form.preferred_contact_method || NONE}
+              onValueChange={(v) =>
+                set({ preferred_contact_method: v === NONE ? "" : (v as PreferredContactMethod) })
+              }
+            >
+              <SelectTrigger className={FIELD_INPUT}>
+                <SelectValue placeholder="No preference" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>No preference</SelectItem>
+                {CONTACT_METHOD_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>

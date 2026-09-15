@@ -18,10 +18,25 @@ export interface ResolvedCreateExpenseAction {
   date_was_defaulted: boolean;
 }
 
+/** Mirrors ResolvedCreateTaskAction in supabase/functions/assistant-chat/tools.ts (CRM Phase 7). */
+export interface ResolvedCreateTaskAction {
+  type: "create_task";
+  title: string;
+  client_id: string | null;
+  client_name: string | null;
+  opportunity_id: string | null;
+  opportunity_title: string | null;
+  due_date: string | null;
+  task_type: string;
+  priority: string;
+}
+
+export type ResolvedAction = ResolvedCreateExpenseAction | ResolvedCreateTaskAction;
+
 interface AssistantChatResponse {
   ok: boolean;
   reply?: string;
-  pendingAction?: ResolvedCreateExpenseAction;
+  pendingAction?: ResolvedAction;
   error?: string;
   message?: string;
 }
@@ -30,6 +45,7 @@ interface AssistantExecuteResponse {
   ok: boolean;
   executed?: boolean;
   expense_id?: string;
+  task_id?: string;
   error?: string;
   message?: string;
 }
@@ -45,7 +61,7 @@ export class AssistantError extends Error {
 
 export interface AssistantReply {
   reply: string;
-  pendingAction?: ResolvedCreateExpenseAction;
+  pendingAction?: ResolvedAction;
 }
 
 /** Calls the assistant-chat Edge Function in chat mode. Throws AssistantError on any failure. */
@@ -66,7 +82,7 @@ export async function sendAssistantMessage(messages: AssistantApiMessage[]): Pro
  * effect of anything the model says; see index.ts's top comment for why
  * this is architecturally separate from the chat path.
  */
-export async function executeAssistantAction(action: ResolvedCreateExpenseAction): Promise<string> {
+export async function executeAssistantAction(action: ResolvedAction): Promise<string> {
   const { data, error } = await supabase.functions.invoke<AssistantExecuteResponse>("assistant-chat", {
     body: { mode: "execute_action", action },
   });
@@ -74,7 +90,7 @@ export async function executeAssistantAction(action: ResolvedCreateExpenseAction
   if (!data?.ok || !data.executed) {
     throw new AssistantError(data?.message ?? "That couldn't be saved.", data?.error);
   }
-  return data.expense_id!;
+  return (data.expense_id ?? data.task_id)!;
 }
 
 interface GenerateDescriptionResponse {

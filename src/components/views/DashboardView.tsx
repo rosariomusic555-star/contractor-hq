@@ -9,6 +9,7 @@ import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
+import { FollowUpsCard } from "@/components/dashboard/FollowUpsCard";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -231,11 +232,14 @@ export function DashboardView() {
       {/* ---- Mobile: ongoing jobs ---- */}
       <OngoingJobsCard className="md:hidden" />
 
-      {/* ---- Needs you + recent activity ---- */}
+      {/* ---- Follow-ups + Needs you ---- */}
       <div className="grid gap-5 lg:grid-cols-2">
+        <FollowUpsCard />
         <NeedsYou />
-        <RecentActivity />
       </div>
+
+      {/* ---- Recent activity ---- */}
+      <RecentActivity />
 
       {/* ---- Recent quotes + recent invoices ---- */}
       <div className="grid gap-5 lg:grid-cols-2">

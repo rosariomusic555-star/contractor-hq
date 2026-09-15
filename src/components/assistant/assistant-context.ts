@@ -1,8 +1,8 @@
 import { createContext, useContext } from "react";
-import type { ResolvedCreateExpenseAction } from "@/lib/assistant";
+import type { ResolvedAction } from "@/lib/assistant";
 
 export interface AssistantPendingAction {
-  action: ResolvedCreateExpenseAction;
+  action: ResolvedAction;
   status: "pending" | "confirming" | "confirmed" | "cancelled" | "failed";
   error?: string;
 }

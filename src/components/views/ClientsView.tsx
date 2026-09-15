@@ -149,7 +149,19 @@ export function ClientsView() {
               const s = get(client.id);
               const kind = KIND_META[s.kind];
               return (
-                <div key={client.id} className="card-surface p-[18px]">
+                <div
+                  key={client.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/clients/${client.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/clients/${client.id}`);
+                    }
+                  }}
+                  className="card-surface cursor-pointer p-[18px] transition-shadow hover:shadow-card-hover"
+                >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-sm font-extrabold text-primary-foreground">
@@ -165,11 +177,16 @@ export function ClientsView() {
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenuItem onClick={() => navigate(`/clients/${client.id}/edit`)}>
                           Edit
                         </DropdownMenuItem>
@@ -206,7 +223,7 @@ export function ClientsView() {
               return (
                 <ListCard
                   key={client.id}
-                  onClick={() => navigate(`/clients/${client.id}/edit`)}
+                  onClick={() => navigate(`/clients/${client.id}`)}
                   borderColor={kind.border}
                   eyebrow={`${kind.label} · ${s.projects} project${s.projects === 1 ? "" : "s"}`}
                   eyebrowColor={kind.border}
