@@ -83,9 +83,12 @@ import {
   QUOTE_DEFAULTS_FALLBACK,
   listProductCatalog,
   listQuickQuoteRates,
+  getOpportunityByQuoteId,
+  moveOpportunityStage,
   type Quote,
   type Category,
 } from "@/lib/api";
+import { ToastAction } from "@/components/ui/toast";
 import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
 import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
@@ -573,13 +576,36 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       if (projectId) await updateProject(projectId, { status: "quote_sent" });
       return token;
     },
-    onSuccess: (token) => {
+    onSuccess: async (token) => {
       invalidate();
       void logProjectEvent(projectId, "quote_sent", `Quote shared · ${formatCurrency(grandTotal)}`, {
         quote_id: quote.id,
       });
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
       setShareUrl(`${window.location.origin}/quote/${token}`);
+
+      // CRM Phase 5 — sending a proposal *offers* to advance the linked
+      // opportunity's stage (never silently), per the ask.
+      const opportunity = await getOpportunityByQuoteId(quote.id);
+      if (opportunity && opportunity.stage !== "proposal_sent" && opportunity.stage !== "won" && opportunity.stage !== "lost") {
+        toast({
+          title: "Quote shared",
+          description: `Advance "${opportunity.title}" to Proposal Sent?`,
+          action: (
+            <ToastAction
+              altText="Advance stage"
+              onClick={() => {
+                moveOpportunityStage(opportunity, "proposal_sent").then(() => {
+                  qc.invalidateQueries({ queryKey: ["opportunity", opportunity.id] });
+                  qc.invalidateQueries({ queryKey: ["opportunities"] });
+                });
+              }}
+            >
+              Advance
+            </ToastAction>
+          ),
+        });
+      }
     },
     onError,
   });

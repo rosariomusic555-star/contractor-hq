@@ -2582,6 +2582,23 @@ export async function getOpportunity(id: string): Promise<Opportunity> {
   return data;
 }
 
+/** Reverse lookup for CRM Phase 5 (Quote/Proposal Integration) — lets a
+ * quote screen ask "is this quote tied to a pipeline opportunity?"
+ * without the quote itself needing to know about opportunities. Null for
+ * a quote created outside the pipeline (the common case). */
+export async function getOpportunityByQuoteId(quoteId: string): Promise<Opportunity | null> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(OPPORTUNITY_SELECT)
+    .eq("quote_id", quoteId)
+    .maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205") return null;
+    throw error;
+  }
+  return data;
+}
+
 export async function createOpportunity(input: {
   client_id: string;
   title: string;
@@ -2678,6 +2695,54 @@ function opportunityStageLabel(stage: OpportunityStage): string {
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+// Stages that come before real estimate work starts — createQuoteFromOpportunity
+// only auto-advances out of these, never regressing an opportunity that's
+// already further along (e.g. re-quoting a "proposal_sent" opportunity
+// shouldn't knock it back a stage).
+const PRE_ESTIMATE_STAGES: OpportunityStage[] = [
+  "new_lead",
+  "attempting_contact",
+  "contacted",
+  "qualified",
+  "site_visit_scheduled",
+  "site_visit_completed",
+];
+
+/**
+ * CRM Phase 5 (Quote/Proposal Integration) — creates a quote carrying the
+ * opportunity's customer, address, description and measurements forward
+ * (no retyping), links it back via opportunities.quote_id, advances the
+ * stage to "estimate_in_progress" (only if still earlier in the pipeline),
+ * and logs it — same combined update+log shape as moveOpportunityStage()
+ * and setAppointmentStatus(), so this is never a silent side effect.
+ * Never creates a second client or project record; an opportunity that
+ * already has a quote_id should route to that existing quote instead of
+ * calling this again.
+ */
+export async function createQuoteFromOpportunity(
+  opportunity: Pick<Opportunity, "id" | "client_id" | "stage" | "address" | "description" | "measurements">,
+): Promise<Quote> {
+  const notes =
+    [
+      opportunity.address ? `Address: ${opportunity.address}` : null,
+      opportunity.description,
+      opportunity.measurements ? `Measurements: ${opportunity.measurements}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n") || null;
+
+  const quote = await createQuote({ client_id: opportunity.client_id, notes });
+  await updateOpportunity(opportunity.id, { quote_id: quote.id });
+  await logActivity(opportunity.client_id, "quote_created", "Quote created from opportunity", {
+    opportunity_id: opportunity.id,
+    quote_id: quote.id,
+  });
+  if (PRE_ESTIMATE_STAGES.includes(opportunity.stage)) {
+    await moveOpportunityStage(opportunity, "estimate_in_progress");
+  }
+  return quote;
 }
 
 // ---------------------------------------------------------------------------

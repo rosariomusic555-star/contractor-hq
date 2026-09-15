@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Trash2, ImagePlus, Loader2 } from "lucide-react";
+import { ChevronLeft, Trash2, ImagePlus, Loader2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,7 +15,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
-import { OPPORTUNITY_STAGES, opportunityStageMeta } from "@/lib/statusMeta";
+import { OPPORTUNITY_STAGES, opportunityStageMeta, quoteStatusMeta } from "@/lib/statusMeta";
 import {
   getOpportunity,
   updateOpportunity,
@@ -29,6 +29,9 @@ import {
   listTasksForOpportunity,
   setTaskCompleted,
   listAppointmentsForOpportunity,
+  getQuote,
+  quoteTotal,
+  createQuoteFromOpportunity,
   type Opportunity,
   type OpportunityStage,
   type OpportunityPriority,
@@ -80,17 +83,28 @@ export function OpportunityDetailView() {
   const field = (key: keyof Opportunity, value: string | number | null) =>
     draft[key] ?? (value == null ? "" : String(value));
   const setField = (key: string, value: string) => setDraft((d) => ({ ...d, [key]: value }));
-  const commitField = (key: keyof Opportunity, current: string | number | null) => {
-    const value = draft[key];
-    if (value === undefined) return;
+  const clearDraft = (key: string) =>
     setDraft((d) => {
       const next = { ...d };
       delete next[key];
       return next;
     });
-    if (value === (current == null ? "" : String(current))) return;
+  const commitField = (key: keyof Opportunity, current: string | number | null) => {
+    const value = draft[key];
+    if (value === undefined) return;
+    if (value === (current == null ? "" : String(current))) {
+      clearDraft(key);
+      return;
+    }
+    // Keep the draft value in place until the save actually lands — clearing
+    // it immediately (before the network round trip resolves) opens a window
+    // where a same-gesture click elsewhere (e.g. "Create quote") reads
+    // neither the just-typed draft nor the not-yet-updated cached value.
     const isNumeric = key === "estimated_value" || key === "probability";
-    updateMut.mutate({ [key]: value.trim() === "" ? null : isNumeric ? Number(value) : value.trim() });
+    updateMut.mutate(
+      { [key]: value.trim() === "" ? null : isNumeric ? Number(value) : value.trim() },
+      { onSuccess: () => clearDraft(key) },
+    );
   };
 
   if (isLoading) return <p className="text-muted-foreground">Loading…</p>;
@@ -283,12 +297,101 @@ export function OpportunityDetailView() {
         </div>
 
         <div className="space-y-5">
+          <OpportunityQuoteCard
+            opportunity={{
+              ...opportunity,
+              address: field("address", opportunity.address) || null,
+              description: field("description", opportunity.description) || null,
+              measurements: field("measurements", opportunity.measurements) || null,
+            }}
+          />
           <OpportunityAppointmentsCard opportunityId={id} clientId={opportunity.client_id} />
           <OpportunityTasksCard opportunityId={id} clientId={opportunity.client_id} />
           <OpportunityActivityCard opportunityId={id} clientId={opportunity.client_id} />
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * CRM Phase 5 (Quote/Proposal Integration) — no quote yet: a "Create
+ * quote" button that carries the opportunity's customer/address/
+ * description/measurements forward via createQuoteFromOpportunity()
+ * (no retyping). A linked quote: its live status + total, and once
+ * that quote is approved, a "Create project" nudge that marks this
+ * opportunity Won and hands off to the exact same createProject/
+ * updateQuote flow the standalone-quote "Create project" nudge already
+ * uses — never a second client or project record.
+ */
+function OpportunityQuoteCard({ opportunity }: { opportunity: Opportunity }) {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data: quote } = useQuery({
+    queryKey: ["quote", opportunity.quote_id],
+    queryFn: () => getQuote(opportunity.quote_id!),
+    enabled: !!opportunity.quote_id,
+  });
+
+  const createQuoteMut = useMutation({
+    mutationFn: () => createQuoteFromOpportunity(opportunity),
+    onSuccess: (quote) => {
+      qc.invalidateQueries({ queryKey: ["opportunity", opportunity.id] });
+      qc.invalidateQueries({ queryKey: ["opportunities"] });
+      qc.invalidateQueries({ queryKey: ["opportunity-activities", opportunity.id] });
+      navigate(`/quotes/${quote.id}`);
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const approved = quote?.status === "approved";
+  const showWonNudge = approved && opportunity.stage !== "won" && opportunity.stage !== "lost";
+
+  return (
+    <section className="card-surface space-y-3 p-5">
+      <h3 className="text-base font-bold text-foreground">Quote</h3>
+      {!opportunity.quote_id ? (
+        <>
+          <p className="text-sm text-muted-foreground">No quote yet.</p>
+          <Button
+            size="sm"
+            className="font-bold"
+            disabled={createQuoteMut.isPending}
+            onClick={() => createQuoteMut.mutate()}
+          >
+            <FileText className="mr-2 h-3.5 w-3.5" />
+            {createQuoteMut.isPending ? "Creating…" : "Create quote"}
+          </Button>
+        </>
+      ) : (
+        <Link
+          to={`/quotes/${opportunity.quote_id}`}
+          className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
+        >
+          <div>
+            <div className="text-sm font-bold text-foreground">
+              {quote ? formatCurrency(quoteTotal(quote.quote_sections)) : "…"}
+            </div>
+            {quote && <span className={quoteStatusMeta(quote.status).badge}>{quoteStatusMeta(quote.status).label}</span>}
+          </div>
+        </Link>
+      )}
+      {showWonNudge && (
+        <div className="rounded-lg border border-success/30 bg-success/10 p-3">
+          <p className="text-xs font-semibold text-foreground">Quote approved — convert to a project?</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2 h-7 px-2 text-xs font-semibold"
+            onClick={() => navigate("/projects/new", { state: { linkQuoteId: opportunity.quote_id, linkOpportunityId: opportunity.id } })}
+          >
+            Create project →
+          </Button>
+        </div>
+      )}
+    </section>
   );
 }
 
