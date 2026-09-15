@@ -49,6 +49,7 @@ import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
+import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
@@ -1430,6 +1431,7 @@ function ClientShareCard({
 }: ClientShareCardProps) {
   const clientName = clients.find((c) => c.id === clientId)?.name;
   const clientInitial = clientName ? clientName.trim().charAt(0).toUpperCase() || "?" : "?";
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
 
   const pillTriggerClass =
     "h-auto items-center gap-2.5 rounded-xl border-none bg-white/[0.08] px-3.5 py-3 text-left transition-colors hover:bg-white/[0.14] focus:ring-2 focus:ring-primary focus:ring-offset-0 [&>span]:line-clamp-1";
@@ -1440,25 +1442,23 @@ function ClientShareCard({
     <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
       {/* Dark header — Client / Project pickers, styled as pills */}
       <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
-        <Select value={clientId ?? NONE} onValueChange={(v) => onClientChange(v === NONE ? null : v)}>
-          <SelectTrigger className={pillTriggerClass}>
-            <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
-              {clientInitial}
-            </span>
-            <span className={pillLabelClass}>Client</span>
-            <span className={pillValueClass}>
-              <SelectValue placeholder="No client" />
-            </span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>No client</SelectItem>
-            {clients.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <button
+          type="button"
+          onClick={() => setClientPickerOpen(true)}
+          className={cn("flex", pillTriggerClass)}
+        >
+          <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
+            {clientInitial}
+          </span>
+          <span className={pillLabelClass}>Client</span>
+          <span className={pillValueClass}>{clientName ?? "No client"}</span>
+        </button>
+        <ClientPickerDialog
+          open={clientPickerOpen}
+          onOpenChange={setClientPickerOpen}
+          onSelect={onClientChange}
+          allowClear
+        />
 
         <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
           <SelectTrigger className={pillTriggerClass}>

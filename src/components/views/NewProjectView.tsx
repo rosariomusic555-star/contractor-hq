@@ -5,21 +5,13 @@ import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { useToast } from "@/hooks/use-toast";
-import { listClients, createClient, createProject, updateQuote, logProjectEvent } from "@/lib/api";
-
-const NO_CLIENT = "__none__";
-const NEW_CLIENT = "__new__";
+import { listClients, createProject, updateQuote, logProjectEvent } from "@/lib/api";
 
 /** Dedicated "New project" screen (/projects/new) — replaces the old modal.
- * Project name + client (pick existing, or create one inline).
+ * Project name + client (pick existing, or create one inline via the
+ * shared ClientPickerDialog — see src/components/common/ClientPicker.tsx).
  *
  * Reachable from a standalone quote's "Create project" nudge (Estimated
  * Cost card), which navigates here with `state: { linkQuoteId }`. In that
@@ -36,30 +28,16 @@ export function NewProjectView() {
   const linkQuoteId = (location.state as { linkQuoteId?: string } | null)?.linkQuoteId ?? null;
 
   const [name, setName] = useState("");
-  const [clientChoice, setClientChoice] = useState<string>(NO_CLIENT);
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newPhone, setNewPhone] = useState("");
-  const [newAddress, setNewAddress] = useState("");
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
+  const selectedClient = clients.find((c) => c.id === clientId) ?? null;
 
-  const creatingNew = clientChoice === NEW_CLIENT;
-  const canSave = name.trim().length > 0 && (!creatingNew || newName.trim().length > 0);
+  const canSave = name.trim().length > 0;
 
   const createMut = useMutation({
     mutationFn: async () => {
-      let clientId: string | null =
-        creatingNew || clientChoice === NO_CLIENT ? null : clientChoice;
-      if (creatingNew) {
-        const client = await createClient({
-          name: newName.trim(),
-          email: newEmail.trim(),
-          phone: newPhone.trim(),
-          address: newAddress.trim(),
-        });
-        clientId = client.id;
-      }
       const project = await createProject({ name: name.trim(), client_id: clientId, status: "draft" });
       if (linkQuoteId) await updateQuote(linkQuoteId, { project_id: project.id });
       return project;
@@ -106,66 +84,18 @@ export function NewProjectView() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="project-client">Client</Label>
-          <Select value={clientChoice} onValueChange={setClientChoice}>
-            <SelectTrigger id="project-client">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_CLIENT}>No client</SelectItem>
-              {clients.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-              <SelectItem value={NEW_CLIENT}>+ Create new client</SelectItem>
-            </SelectContent>
-          </Select>
+          <Label>Client</Label>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm hover:bg-muted/50"
+          >
+            <span className={selectedClient ? "text-foreground" : "text-muted-foreground"}>
+              {selectedClient ? selectedClient.name : "No client"}
+            </span>
+            <span className="text-xs font-semibold text-primary">Change</span>
+          </button>
         </div>
-
-        {creatingNew && (
-          <div className="space-y-4 rounded-xl border border-border p-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-client-name">Client name</Label>
-              <Input
-                id="new-client-name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Client name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-client-email">Email</Label>
-              <Input
-                id="new-client-email"
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="client@email.com"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-client-phone">Phone</Label>
-              <Input
-                id="new-client-phone"
-                value={newPhone}
-                onChange={(e) => setNewPhone(e.target.value)}
-                placeholder="(555) 123-4567"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-client-address">
-                Address <span className="text-muted-foreground">(optional)</span>
-              </Label>
-              <Input
-                id="new-client-address"
-                value={newAddress}
-                onChange={(e) => setNewAddress(e.target.value)}
-                placeholder="123 Oak Street, Springfield"
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="flex justify-end gap-3">
@@ -183,6 +113,8 @@ export function NewProjectView() {
           {createMut.isPending ? "Creating…" : "Create project"}
         </Button>
       </div>
+
+      <ClientPickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onSelect={setClientId} allowClear />
     </div>
   );
 }

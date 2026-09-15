@@ -13,6 +13,9 @@ export type ProjectStatus = "draft" | "quote_sent" | "approved" | "invoiced" | "
 export type QuoteStatus = "draft" | "sent" | "approved";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 
+export type ClientStatus = "lead" | "active" | "past" | "inactive";
+export type PreferredContactMethod = "phone" | "email" | "text";
+
 export interface Client {
   id: string;
   user_id: string;
@@ -21,6 +24,15 @@ export interface Client {
   phone: string | null;
   address: string | null;
   created_at: string;
+  /** CRM fields (0048) — additive, all nullable/defaulted. A persisted
+   * replacement for ClientsView's old client-side-only computed "kind". */
+  status: ClientStatus;
+  lead_source: string | null;
+  preferred_contact_method: PreferredContactMethod | null;
+  tags: string[];
+  internal_notes: string | null;
+  /** Freeform key/value store — no field-type system, just a flat object. */
+  custom_fields: Record<string, string>;
 }
 
 /** A user's own editable list of work categories (Settings > Categories). */
@@ -431,6 +443,23 @@ export function materialsCogs(sections: MaterialsSection[] = []): number {
   return total;
 }
 
+/** A customer's realized revenue — paid invoices only (0048), same
+ * revenue-recognition rule as everywhere else in the app that talks
+ * about real money received. */
+export function clientLifetimeRevenue(invoices: Invoice[]): number {
+  return invoices
+    .filter((i) => i.status === "paid")
+    .reduce((sum, i) => sum + Number(i.amount), 0);
+}
+
+/** What a customer still owes — sent/overdue invoices; a draft invoice
+ * hasn't been issued to them yet, so it isn't a real obligation. */
+export function clientOutstandingBalance(invoices: Invoice[]): number {
+  return invoices
+    .filter((i) => i.status === "sent" || i.status === "overdue")
+    .reduce((sum, i) => sum + Number(i.amount), 0);
+}
+
 // ---------------------------------------------------------------------------
 // Clients
 // ---------------------------------------------------------------------------
@@ -452,6 +481,7 @@ export async function createClient(input: {
   email: string;
   phone: string;
   address: string;
+  lead_source?: string | null;
 }): Promise<Client> {
   const { data, error } = await supabase
     .from("clients")
@@ -460,6 +490,7 @@ export async function createClient(input: {
       email: input.email || null,
       phone: input.phone || null,
       address: input.address || null,
+      lead_source: input.lead_source || null,
     })
     .select()
     .single();
@@ -469,7 +500,21 @@ export async function createClient(input: {
 
 export async function updateClient(
   id: string,
-  patch: Partial<Pick<Client, "name" | "email" | "phone" | "address">>,
+  patch: Partial<
+    Pick<
+      Client,
+      | "name"
+      | "email"
+      | "phone"
+      | "address"
+      | "status"
+      | "lead_source"
+      | "preferred_contact_method"
+      | "tags"
+      | "internal_notes"
+      | "custom_fields"
+    >
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("clients").update(patch).eq("id", id);
   if (error) throw error;
@@ -545,6 +590,18 @@ export async function getProject(id: string): Promise<Project> {
     .single();
   if (error) throw error;
   return data;
+}
+
+/** A customer's own projects (0048, Customer 360 page) — distinct from
+ * listProjects()'s full-list use everywhere else. */
+export async function listProjectsForClient(clientId: string): Promise<Project[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_SELECT)
+    .eq("client_id", clientId)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function createProject(input: {
@@ -1172,6 +1229,29 @@ export async function getQuote(id: string): Promise<Quote> {
   return sortQuote(fallback);
 }
 
+/**
+ * Every quote belonging to a customer (0048, Customer 360 page) — a
+ * quote can reach a client two ways: directly (`client_id` set, the
+ * standalone/override case) or through its project (`project_id` in one
+ * of this client's projects) — quotes on a project usually leave
+ * `client_id` null and rely on the project's own client, per Quote's own
+ * doc comment, so both paths have to be checked.
+ */
+export async function listQuotesForClient(clientId: string): Promise<Quote[]> {
+  const projects = await listProjectsForClient(clientId);
+  const orParts = [`client_id.eq.${clientId}`];
+  if (projects.length) orParts.push(`project_id.in.(${projects.map((p) => p.id).join(",")})`);
+
+  const build = (select: string) =>
+    supabase.from("quotes").select(select).or(orParts.join(",")).order("updated_at", { ascending: false });
+  const { data, error } = await build(QUOTE_SELECT);
+  if (!error) return (data ?? []).map(sortQuote);
+  if (!isMissingRelationshipError(error)) throw error;
+  const { data: fallback, error: fallbackError } = await build(QUOTE_SELECT_NO_IMAGES);
+  if (fallbackError) throw fallbackError;
+  return (fallback ?? []).map(sortQuote);
+}
+
 // ---------------------------------------------------------------------------
 // Quote defaults (Settings > Quote defaults) — one row per user. Falls back
 // to QUOTE_DEFAULTS_FALLBACK before the user has ever saved a row.
@@ -1544,6 +1624,25 @@ export async function getInvoice(id: string): Promise<Invoice> {
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Every invoice belonging to a customer (0048, Customer 360 page) — an
+ * invoice has no client_id column at all (see the Invoice type's own
+ * doc comment), so this is only ever reachable through the client's
+ * projects. A client with no projects yet simply has none. */
+export async function listInvoicesForClient(clientId: string): Promise<Invoice[]> {
+  const projects = await listProjectsForClient(clientId);
+  if (projects.length === 0) return [];
+  const { data, error } = await supabase
+    .from("invoices")
+    .select(INVOICE_SELECT)
+    .in(
+      "project_id",
+      projects.map((p) => p.id),
+    )
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
 }
 
 /**
@@ -2127,4 +2226,281 @@ export async function getMyEmployeeRecord(authUserId: string): Promise<Employee 
     throw error;
   }
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// CRM — customer records (0048, Phase 1). Contacts/addresses/files/
+// activities are all owned through a `clients` join (see that migration's
+// security note), not a direct user_id column.
+// ---------------------------------------------------------------------------
+
+export interface ClientContact {
+  id: string;
+  client_id: string;
+  name: string;
+  role: string | null;
+  phone: string | null;
+  email: string | null;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export async function listClientContacts(clientId: string): Promise<ClientContact[]> {
+  const { data, error } = await supabase
+    .from("client_contacts")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function addClientContact(
+  clientId: string,
+  input: {
+    name: string;
+    role?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    is_primary?: boolean;
+  },
+): Promise<ClientContact> {
+  const { data, error } = await supabase
+    .from("client_contacts")
+    .insert({
+      client_id: clientId,
+      name: input.name,
+      role: input.role ?? null,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      is_primary: input.is_primary ?? false,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteClientContact(id: string): Promise<void> {
+  const { error } = await supabase.from("client_contacts").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+
+export interface ClientAddress {
+  id: string;
+  client_id: string;
+  label: string | null;
+  address: string;
+  is_billing: boolean;
+  created_at: string;
+}
+
+export async function listClientAddresses(clientId: string): Promise<ClientAddress[]> {
+  const { data, error } = await supabase
+    .from("client_addresses")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function addClientAddress(
+  clientId: string,
+  input: { label?: string | null; address: string; is_billing?: boolean },
+): Promise<ClientAddress> {
+  const { data, error } = await supabase
+    .from("client_addresses")
+    .insert({
+      client_id: clientId,
+      label: input.label ?? null,
+      address: input.address,
+      is_billing: input.is_billing ?? false,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteClientAddress(id: string): Promise<void> {
+  const { error } = await supabase.from("client_addresses").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+
+export interface ClientFile {
+  id: string;
+  client_id: string;
+  storage_path: string;
+  name: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function listClientFiles(clientId: string): Promise<ClientFile[]> {
+  const { data, error } = await supabase
+    .from("client_files")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** Compresses, uploads, and records the row — same order/rollback as addProjectImage. */
+export async function addClientFile(
+  clientId: string,
+  file: File,
+  input: { sort_order?: number } = {},
+): Promise<ClientFile> {
+  const compressed = await compressImageFile(file);
+  const path = `clients/${clientId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("client_files")
+    .insert({
+      client_id: clientId,
+      storage_path: path,
+      name: file.name,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function deleteClientFile(file: Pick<ClientFile, "id" | "storage_path">): Promise<void> {
+  const { error: storageError } = await supabase.storage.from(IMAGES_BUCKET).remove([file.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("client_files").delete().eq("id", file.id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Activities — the client-wide timeline (0048). Phase 1 only writes
+// manual entries ("log a note/call"); later CRM phases add automatic
+// writes (quote sent, pipeline stage changed, etc.) with no schema change.
+// ---------------------------------------------------------------------------
+
+export type ActivityKind = "note" | "call" | "text" | "email" | "other";
+
+export interface Activity {
+  id: string;
+  client_id: string;
+  project_id: string | null;
+  quote_id: string | null;
+  invoice_id: string | null;
+  created_by: string;
+  kind: string;
+  summary: string;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function listActivities(clientId: string): Promise<Activity[]> {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function logActivity(
+  clientId: string,
+  kind: ActivityKind,
+  summary: string,
+  input: {
+    project_id?: string | null;
+    quote_id?: string | null;
+    invoice_id?: string | null;
+    meta?: Record<string, unknown>;
+  } = {},
+): Promise<Activity> {
+  const { data, error } = await supabase
+    .from("activities")
+    .insert({
+      client_id: clientId,
+      kind,
+      summary,
+      project_id: input.project_id ?? null,
+      quote_id: input.quote_id ?? null,
+      invoice_id: input.invoice_id ?? null,
+      meta: input.meta ?? {},
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate detection (0048) — client-side only, checked against the
+// already-loaded client list before creating a new one (this app's scale
+// doesn't need a server-side fuzzy-search function). Never merges
+// automatically; only surfaces a warning so the user can pick the
+// existing record instead.
+// ---------------------------------------------------------------------------
+
+const normalizePhone = (v: string) => v.replace(/\D/g, "");
+const normalizeEmail = (v: string) => v.trim().toLowerCase();
+const normalizeName = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
+
+export interface PossibleDuplicate {
+  client: Client;
+  reason: "phone" | "email" | "name";
+}
+
+/** Phone/email matches are exact-after-normalizing (reliable signals);
+ * name matches are a looser substring check (a hint, not a hard match)
+ * since names collide far more easily. */
+export function findPossibleDuplicates(
+  input: { name?: string; email?: string; phone?: string },
+  clients: Client[],
+): PossibleDuplicate[] {
+  const name = input.name ? normalizeName(input.name) : "";
+  const email = input.email ? normalizeEmail(input.email) : "";
+  const phone = input.phone ? normalizePhone(input.phone) : "";
+
+  const results: PossibleDuplicate[] = [];
+  for (const c of clients) {
+    if (phone && c.phone && normalizePhone(c.phone) === phone) {
+      results.push({ client: c, reason: "phone" });
+      continue;
+    }
+    if (email && c.email && normalizeEmail(c.email) === email) {
+      results.push({ client: c, reason: "email" });
+      continue;
+    }
+    if (name.length >= 3 && normalizeName(c.name).includes(name)) {
+      results.push({ client: c, reason: "name" });
+    }
+  }
+  return results;
 }

@@ -1,4 +1,4 @@
-import type { ChangeOrderStatus, InvoiceStatus, ProjectStatus, QuoteStatus } from "./api";
+import type { ChangeOrderStatus, ClientStatus, InvoiceStatus, ProjectStatus, QuoteStatus } from "./api";
 
 /**
  * Single source of truth for status presentation across the app — badge class,
@@ -96,6 +96,26 @@ const CHANGE_ORDER_META: Record<ChangeOrderStatus, StatusMeta> = {
 
 export function changeOrderStatusMeta(status: string): StatusMeta {
   return CHANGE_ORDER_META[status as ChangeOrderStatus] ?? meta(titleCase(status), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Clients (CRM, 0048) — a real, persisted status, distinct from
+// ClientsView.tsx's own computed "kind" (active/repeat/lead/client),
+// which derives from real project/invoice history rather than this
+// manually-set field.
+// ---------------------------------------------------------------------------
+
+export const CLIENT_STATUS_META: Record<ClientStatus, StatusMeta> = {
+  lead: meta("Lead", "grey"),
+  active: meta("Active", "green"),
+  past: meta("Past", "blue"),
+  inactive: meta("Inactive", "red"),
+};
+
+export const CLIENT_STATUSES = Object.keys(CLIENT_STATUS_META) as ClientStatus[];
+
+export function clientStatusMeta(status: string): StatusMeta {
+  return CLIENT_STATUS_META[status as ClientStatus] ?? meta(titleCase(status), "grey");
 }
 
 // ---------------------------------------------------------------------------
