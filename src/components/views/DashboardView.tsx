@@ -26,6 +26,14 @@ function greeting(): string {
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
+// Best-effort first name from the account email (no separate name field
+// exists) — same level of inference already used for the avatar initials.
+function firstNameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  const word = local.split(/[^a-zA-Z]+/).find(Boolean) ?? "";
+  return word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : "";
+}
+
 /** Wraps a KpiCard so it's clickable — keeps the card's own look, just adds
  * a hover lift + focus ring since it's now a real link. */
 const KPI_LINK_CLASS =
@@ -75,7 +83,15 @@ export function DashboardView() {
   const sparkMax = Math.max(1, ...spark.map((p) => p.revenue));
 
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const mobileDateLabel = `${now.toLocaleDateString("en-US", { weekday: "short" })} ${now.getDate()} ${now.toLocaleDateString("en-US", { month: "short" })}`;
   const initials = (session?.user.email ?? "?").slice(0, 2).toUpperCase();
+  const firstName = firstNameFromEmail(session?.user.email ?? "");
+
+  const invoicedSub =
+    momChange == null
+      ? "Revenue invoiced"
+      : `${momChange >= 0 ? "+" : ""}${momChange.toFixed(1)}%`;
+  const invoicedSubTone = momChange == null ? "muted" : momChange >= 0 ? "positive" : "negative";
 
   const momPill =
     momChange == null ? null : (
@@ -93,18 +109,43 @@ export function DashboardView() {
 
   return (
     <div className="animate-fade-in space-y-6">
-      {/* ---- Mobile slate header ---- */}
-      <div className="mobile-header -mx-4 -mt-4 md:hidden">
-        <div className="flex items-center justify-between gap-3">
+      {/* ---- Mobile header (Dashboard-only greeting + quick-glance KPI rail) ---- */}
+      <div className="-mx-4 -mt-4 bg-background px-[18px] pt-[22px] pb-1 md:hidden">
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-sidebar-foreground/70">
-              {dateLabel}
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+              {mobileDateLabel}
             </p>
-            <h1 className="mt-0.5 text-2xl font-bold tracking-tight">{greeting()}</h1>
+            <h1 className="mt-1.5 text-[28px] font-extrabold leading-[1.05] tracking-tight text-foreground">
+              {greeting()}
+              {firstName && (
+                <>
+                  ,
+                  <br />
+                  {firstName}
+                </>
+              )}
+            </h1>
           </div>
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full bg-sidebar-primary text-sm font-extrabold text-sidebar-primary-foreground shadow-sm ring-1 ring-white/10">
+          <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full border border-border bg-card text-[13px] font-extrabold text-foreground">
             {initials}
           </span>
+        </div>
+
+        <div className="scrollbar-hide -mx-[18px] mt-4 flex gap-2.5 overflow-x-auto px-[18px] pb-1">
+          <Link to="/revenue" className={cn(KPI_LINK_CLASS, "min-w-[126px] shrink-0")}>
+            <KpiCard label="Invoiced" value={formatCurrency(thisMonthRevenue)} sub={invoicedSub} subTone={invoicedSubTone} />
+          </Link>
+          <Link to="/invoices?filter=unpaid" className={cn(KPI_LINK_CLASS, "min-w-[126px] shrink-0")}>
+            <KpiCard
+              label="Unpaid"
+              value={<span className="text-destructive">{formatCurrency(outstandingTotal)}</span>}
+              sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
+            />
+          </Link>
+          <Link to="/quotes?filter=open" className={cn(KPI_LINK_CLASS, "min-w-[126px] shrink-0")}>
+            <KpiCard label="Open quotes" value={openQuotes.length} sub={`${awaitingResponse} awaiting reply`} />
+          </Link>
         </div>
       </div>
 
@@ -201,27 +242,6 @@ export function DashboardView() {
           </div>
         </section>
       </Link>
-
-      {/* ---- Mobile tiles ---- */}
-      <div className="grid grid-cols-2 gap-3 md:hidden">
-        <Link to="/quotes?filter=open" className={KPI_LINK_CLASS}>
-          <KpiCard
-            label="Open quotes"
-            value={openQuotes.length}
-            sub={`${awaitingResponse} awaiting reply`}
-            clickable
-          />
-        </Link>
-        <Link to="/invoices?filter=unpaid" className={KPI_LINK_CLASS}>
-          <KpiCard
-            label="Unpaid"
-            value={formatCurrency(outstandingTotal)}
-            sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
-            subTone={over30 > 0 ? "negative" : "muted"}
-            clickable
-          />
-        </Link>
-      </div>
 
       {/* ---- Desktop chart + ongoing jobs ---- */}
       <div className="hidden grid-cols-1 gap-5 md:grid lg:grid-cols-3">
