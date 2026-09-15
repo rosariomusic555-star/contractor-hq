@@ -13,18 +13,18 @@ export function SidebarUser() {
   const initials = email.slice(0, 2).toUpperCase() || "?";
 
   return (
-    <div className="p-4 border-t border-sidebar-border mt-auto">
+    <div className="border-t border-hairline py-[14px] px-[18px] mt-auto">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-3 px-4 py-3 w-full rounded-lg hover:bg-sidebar-accent/50 transition-colors">
-            <div className="w-9 h-9 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0">
-              <span className="text-sm font-medium text-sidebar-foreground">{initials}</span>
+          <button className="flex items-center gap-[10px] px-2 py-2 w-full rounded-lg hover:bg-muted/50 transition-colors">
+            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+              <span className="text-xs font-bold text-foreground">{initials}</span>
             </div>
             <div className="flex-1 min-w-0 text-left">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
+              <p className="text-[13px] font-semibold text-foreground truncate">
                 {email || "Signed in"}
               </p>
-              <p className="text-xs text-sidebar-foreground/60 truncate">Account</p>
+              <p className="text-[11px] text-muted-subtle truncate">Owner</p>
             </div>
           </button>
         </DropdownMenuTrigger>

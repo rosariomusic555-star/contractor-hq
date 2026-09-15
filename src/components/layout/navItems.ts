@@ -32,3 +32,20 @@ export const navItems: NavItem[] = [
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
+
+export interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const byTo = (to: string) => navItems.find((item) => item.to === to)!;
+
+// Sidebar-only grouping of navItems into labeled sections (desktop Sidebar).
+// BottomTabBar and its "More" sheet intentionally keep their own flat list.
+export const navGroups: NavGroup[] = [
+  { label: "Overview", items: ["/dashboard"].map(byTo) },
+  { label: "Pipeline", items: ["/pipeline", "/tasks", "/appointments", "/communications"].map(byTo) },
+  { label: "Work", items: ["/projects", "/quotes"].map(byTo) },
+  { label: "Money", items: ["/invoices", "/revenue"].map(byTo) },
+  { label: "Business", items: ["/clients", "/settings"].map(byTo) },
+];
