@@ -28,12 +28,14 @@ import {
   logActivity,
   listTasksForOpportunity,
   setTaskCompleted,
+  listAppointmentsForOpportunity,
   type Opportunity,
   type OpportunityStage,
   type OpportunityPriority,
   type ActivityKind,
 } from "@/lib/api";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
+import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
@@ -281,11 +283,44 @@ export function OpportunityDetailView() {
         </div>
 
         <div className="space-y-5">
+          <OpportunityAppointmentsCard opportunityId={id} clientId={opportunity.client_id} />
           <OpportunityTasksCard opportunityId={id} clientId={opportunity.client_id} />
           <OpportunityActivityCard opportunityId={id} clientId={opportunity.client_id} />
         </div>
       </div>
     </div>
+  );
+}
+
+function OpportunityAppointmentsCard({ opportunityId, clientId }: { opportunityId: string; clientId: string }) {
+  const [addOpen, setAddOpen] = useState(false);
+
+  const { data: appointments = [] } = useQuery({
+    queryKey: ["opportunity-appointments", opportunityId],
+    queryFn: () => listAppointmentsForOpportunity(opportunityId),
+  });
+
+  const upcoming = appointments.filter((a) => a.status === "scheduled");
+
+  return (
+    <section className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-foreground">Appointments</h3>
+        <button type="button" onClick={() => setAddOpen(true)} className="text-xs font-bold text-primary hover:underline">
+          + Add
+        </button>
+      </div>
+      {upcoming.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">No upcoming appointments.</p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {upcoming.map((a) => (
+            <AppointmentRow key={a.id} appointment={a} />
+          ))}
+        </div>
+      )}
+      <CreateAppointmentDialog open={addOpen} onOpenChange={setAddOpen} defaultClientId={clientId} defaultOpportunityId={opportunityId} />
+    </section>
   );
 }
 

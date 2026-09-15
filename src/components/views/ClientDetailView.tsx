@@ -52,10 +52,12 @@ import {
   logActivity,
   listTasksForClient,
   setTaskCompleted,
+  listAppointmentsForClient,
   type ActivityKind,
 } from "@/lib/api";
 import { clientStatusMeta, projectStatusMeta, quoteStatusMeta, invoiceStatusMeta, opportunityStageMeta } from "@/lib/statusMeta";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
+import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
 
 const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
   note: "Note",
@@ -233,6 +235,7 @@ export function ClientDetailView() {
         </div>
 
         <div className="space-y-5">
+          <ClientAppointmentsCard clientId={clientId} />
           <ClientTasksCard clientId={clientId} />
 
           <section className="card-surface p-5">
@@ -617,6 +620,38 @@ function ActivityCard({ clientId }: { clientId: string }) {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+function ClientAppointmentsCard({ clientId }: { clientId: string }) {
+  const [addOpen, setAddOpen] = useState(false);
+
+  const { data: appointments = [] } = useQuery({
+    queryKey: ["client-appointments", clientId],
+    queryFn: () => listAppointmentsForClient(clientId),
+  });
+
+  const upcoming = appointments.filter((a) => a.status === "scheduled");
+
+  return (
+    <section className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-foreground">Appointments</h3>
+        <button type="button" onClick={() => setAddOpen(true)} className="text-xs font-bold text-primary hover:underline">
+          + Add
+        </button>
+      </div>
+      {upcoming.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">No upcoming appointments.</p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {upcoming.map((a) => (
+            <AppointmentRow key={a.id} appointment={a} />
+          ))}
+        </div>
+      )}
+      <CreateAppointmentDialog open={addOpen} onOpenChange={setAddOpen} defaultClientId={clientId} />
     </section>
   );
 }

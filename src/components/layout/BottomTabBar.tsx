@@ -17,6 +17,7 @@ import {
   LogOut,
   Kanban,
   ListChecks,
+  CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -177,6 +178,7 @@ export function BottomTabBar() {
             <h2 className="px-1 pb-2 text-base font-bold text-foreground">More</h2>
             <ActionRow icon={Kanban} label="Pipeline" onClick={() => go("/pipeline", () => setMoreOpen(false))} />
             <ActionRow icon={ListChecks} label="Tasks" onClick={() => go("/tasks", () => setMoreOpen(false))} />
+            <ActionRow icon={CalendarClock} label="Appointments" onClick={() => go("/appointments", () => setMoreOpen(false))} />
             <ActionRow icon={FileText} label="Quotes" onClick={() => go("/quotes", () => setMoreOpen(false))} />
             <ActionRow icon={Receipt} label="Invoices" onClick={() => go("/invoices", () => setMoreOpen(false))} />
             <ActionRow icon={Users} label="Clients" onClick={() => go("/clients", () => setMoreOpen(false))} />

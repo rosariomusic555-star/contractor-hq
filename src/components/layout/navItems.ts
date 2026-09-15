@@ -8,6 +8,7 @@ import {
   Settings,
   Kanban,
   ListChecks,
+  CalendarClock,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ export const navItems: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/pipeline", label: "Pipeline", icon: Kanban },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
+  { to: "/appointments", label: "Appointments", icon: CalendarClock },
   { to: "/projects", label: "Projects", icon: Briefcase },
   { to: "/quotes", label: "Quotes", icon: FileText },
   { to: "/invoices", label: "Invoices", icon: Receipt },

@@ -2906,6 +2906,169 @@ export async function deleteTask(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Appointments & Site Visits (CRM Phase 4, 0051). Ownership-through-clients,
+// same as every CRM table except tasks (see the comment above) — an
+// appointment always belongs to a customer.
+// ---------------------------------------------------------------------------
+
+export type AppointmentType =
+  | "phone_consultation"
+  | "site_visit"
+  | "estimate_appointment"
+  | "design_meeting"
+  | "proposal_review"
+  | "follow_up";
+
+export type AppointmentStatus = "scheduled" | "completed" | "cancelled" | "no_show";
+
+export interface Appointment {
+  id: string;
+  client_id: string;
+  opportunity_id: string | null;
+  type: AppointmentType;
+  date_time: string;
+  duration_minutes: number;
+  address: string | null;
+  status: AppointmentStatus;
+  notes: string | null;
+  assigned_to: string | null;
+  reminder_at: string | null;
+  outcome: string | null;
+  created_at: string;
+  updated_at: string;
+  client?: { name: string } | null;
+}
+
+export const APPOINTMENT_TYPE_LABEL: Record<AppointmentType, string> = {
+  phone_consultation: "Phone Consultation",
+  site_visit: "Site Visit",
+  estimate_appointment: "Estimate Appointment",
+  design_meeting: "Design Meeting",
+  proposal_review: "Proposal Review",
+  follow_up: "Follow-Up",
+};
+
+const APPOINTMENT_SELECT = "*, client:clients(name)";
+
+export async function listAppointments(): Promise<Appointment[]> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(APPOINTMENT_SELECT)
+    .order("date_time", { ascending: true });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listAppointmentsForClient(clientId: string): Promise<Appointment[]> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(APPOINTMENT_SELECT)
+    .eq("client_id", clientId)
+    .order("date_time", { ascending: true });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listAppointmentsForOpportunity(opportunityId: string): Promise<Appointment[]> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(APPOINTMENT_SELECT)
+    .eq("opportunity_id", opportunityId)
+    .order("date_time", { ascending: true });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createAppointment(input: {
+  client_id: string;
+  opportunity_id?: string | null;
+  type?: AppointmentType;
+  date_time: string;
+  duration_minutes?: number;
+  address?: string | null;
+  notes?: string | null;
+  assigned_to?: string | null;
+  reminder_at?: string | null;
+}): Promise<Appointment> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .insert({
+      client_id: input.client_id,
+      opportunity_id: input.opportunity_id ?? null,
+      type: input.type ?? "site_visit",
+      date_time: input.date_time,
+      duration_minutes: input.duration_minutes ?? 60,
+      address: input.address ?? null,
+      notes: input.notes ?? null,
+      assigned_to: input.assigned_to ?? null,
+      reminder_at: input.reminder_at ?? null,
+    })
+    .select(APPOINTMENT_SELECT)
+    .single();
+  if (error) throw error;
+  await logActivity(input.client_id, "appointment_scheduled", `Appointment scheduled: ${APPOINTMENT_TYPE_LABEL[input.type ?? "site_visit"]}`, {
+    opportunity_id: input.opportunity_id ?? null,
+    meta: { appointment_id: data.id, date_time: input.date_time },
+  });
+  return data;
+}
+
+export async function updateAppointment(
+  id: string,
+  patch: Partial<
+    Pick<
+      Appointment,
+      | "type"
+      | "date_time"
+      | "duration_minutes"
+      | "address"
+      | "notes"
+      | "assigned_to"
+      | "reminder_at"
+      | "status"
+      | "outcome"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("appointments").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteAppointment(id: string): Promise<void> {
+  const { error } = await supabase.from("appointments").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Marks an appointment as completed (or cancelled/no-show) and, for a
+ * completion, logs it to the activity timeline — same combined
+ * update+log pattern as moveOpportunityStage(), so a status change is
+ * never silent. */
+export async function setAppointmentStatus(
+  appointment: Pick<Appointment, "id" | "client_id" | "opportunity_id" | "type">,
+  status: AppointmentStatus,
+  outcome?: string | null,
+): Promise<void> {
+  await updateAppointment(appointment.id, { status, outcome: outcome ?? null });
+  if (status === "completed") {
+    await logActivity(
+      appointment.client_id,
+      "appointment_completed",
+      `Appointment completed: ${APPOINTMENT_TYPE_LABEL[appointment.type]}${outcome ? ` — ${outcome}` : ""}`,
+      { opportunity_id: appointment.opportunity_id, meta: { appointment_id: appointment.id } },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Duplicate detection (0048) — client-side only, checked against the
 // already-loaded client list before creating a new one (this app's scale
 // doesn't need a server-side fuzzy-search function). Never merges

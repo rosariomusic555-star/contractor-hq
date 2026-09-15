@@ -1,4 +1,5 @@
 import type {
+  AppointmentStatus,
   ChangeOrderStatus,
   ClientStatus,
   InvoiceStatus,
@@ -149,6 +150,21 @@ export const OPPORTUNITY_STAGES = Object.keys(OPPORTUNITY_STAGE_META) as Opportu
 
 export function opportunityStageMeta(stage: string): StatusMeta {
   return OPPORTUNITY_STAGE_META[stage as OpportunityStage] ?? meta(titleCase(stage), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Appointments & site visits (CRM Phase 4, 0051)
+// ---------------------------------------------------------------------------
+
+export const APPOINTMENT_STATUS_META: Record<AppointmentStatus, StatusMeta> = {
+  scheduled: meta("Scheduled", "blue"),
+  completed: meta("Completed", "green"),
+  cancelled: meta("Cancelled", "grey"),
+  no_show: meta("No-Show", "red"),
+};
+
+export function appointmentStatusMeta(status: string): StatusMeta {
+  return APPOINTMENT_STATUS_META[status as AppointmentStatus] ?? meta(titleCase(status), "grey");
 }
 
 // ---------------------------------------------------------------------------
