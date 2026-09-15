@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ClientPickerDialog } from "@/components/common/ClientPicker";
+import { FilterSegment, type FilterOption } from "@/components/common/FilterControls";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -23,13 +24,17 @@ import {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+type PipelineTab = "board" | "sources";
+
 /**
  * The sales pipeline — a Kanban board on desktop (drag between the 11
  * default stages, see statusMeta.ts's OPPORTUNITY_STAGES), a stage-
  * grouped list with a "Move" picker on mobile (drag-and-drop doesn't
  * work well on touch for this many columns). Every stage change goes
  * through moveOpportunityStage() so it's recorded in the activity
- * timeline, never a silent overwrite.
+ * timeline, never a silent overwrite. A "By source" tab (CRM Phase 6)
+ * rolls the same opportunities up by lead_source for a quick read on
+ * where the pipeline is coming from.
  */
 export function PipelineView() {
   const { data: opportunities = [], isLoading } = useQuery({
@@ -39,6 +44,7 @@ export function PipelineView() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
+  const [tab, setTab] = useState<PipelineTab>("board");
 
   const moveMut = useMutation({
     mutationFn: ({ opp, toStage }: { opp: Opportunity; toStage: OpportunityStage }) =>
@@ -80,41 +86,56 @@ export function PipelineView() {
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
 
-      {/* Desktop: drag-and-drop board */}
-      <div className="hidden overflow-x-auto pb-4 lg:block">
-        <DragDropContext onDragEnd={onDragEnd}>
-          <div className="flex gap-3" style={{ minWidth: OPPORTUNITY_STAGES.length * 272 }}>
-            {OPPORTUNITY_STAGES.map((stage) => (
-              <PipelineColumn key={stage} stage={stage} opportunities={opportunities.filter((o) => o.stage === stage)} />
-            ))}
-          </div>
-        </DragDropContext>
-      </div>
+      <FilterSegment
+        options={[
+          { label: "Board", value: "board" } as FilterOption<PipelineTab>,
+          { label: "By source", value: "sources" } as FilterOption<PipelineTab>,
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
 
-      {/* Mobile: stage-grouped list, no drag — a Select per card instead */}
-      <div className="space-y-5 lg:hidden">
-        {OPPORTUNITY_STAGES.map((stage) => {
-          const items = opportunities.filter((o) => o.stage === stage);
-          if (items.length === 0) return null;
-          const meta = opportunityStageMeta(stage);
-          return (
-            <div key={stage}>
-              <div className="mb-2 flex items-center gap-2">
-                <span className={meta.badge}>{meta.label}</span>
-                <span className="text-xs text-muted-foreground">{items.length}</span>
-              </div>
-              <div className="space-y-2">
-                {items.map((o) => (
-                  <OpportunityCard key={o.id} opportunity={o} />
+      {tab === "board" ? (
+        <>
+          {/* Desktop: drag-and-drop board */}
+          <div className="hidden overflow-x-auto pb-4 lg:block">
+            <DragDropContext onDragEnd={onDragEnd}>
+              <div className="flex gap-3" style={{ minWidth: OPPORTUNITY_STAGES.length * 272 }}>
+                {OPPORTUNITY_STAGES.map((stage) => (
+                  <PipelineColumn key={stage} stage={stage} opportunities={opportunities.filter((o) => o.stage === stage)} />
                 ))}
               </div>
-            </div>
-          );
-        })}
-        {!isLoading && opportunities.length === 0 && (
-          <div className="card-surface p-10 text-center text-muted-foreground">No opportunities yet.</div>
-        )}
-      </div>
+            </DragDropContext>
+          </div>
+
+          {/* Mobile: stage-grouped list, no drag — a Select per card instead */}
+          <div className="space-y-5 lg:hidden">
+            {OPPORTUNITY_STAGES.map((stage) => {
+              const items = opportunities.filter((o) => o.stage === stage);
+              if (items.length === 0) return null;
+              const meta = opportunityStageMeta(stage);
+              return (
+                <div key={stage}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className={meta.badge}>{meta.label}</span>
+                    <span className="text-xs text-muted-foreground">{items.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {items.map((o) => (
+                      <OpportunityCard key={o.id} opportunity={o} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {!isLoading && opportunities.length === 0 && (
+              <div className="card-surface p-10 text-center text-muted-foreground">No opportunities yet.</div>
+            )}
+          </div>
+        </>
+      ) : (
+        <LeadSourceReport opportunities={opportunities} />
+      )}
 
       <CreateOpportunityDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
@@ -283,5 +304,81 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
       </Dialog>
       <ClientPickerDialog open={clientPickerOpen} onOpenChange={setClientPickerOpen} onSelect={setClientId} />
     </>
+  );
+}
+
+interface SourceRow {
+  source: string;
+  leads: number;
+  won: number;
+  lost: number;
+  openValue: number;
+  wonValue: number;
+}
+
+/**
+ * CRM Phase 6 — rolls opportunities up by lead_source. Deliberately
+ * labeled "estimated value," not "revenue": estimated_value is real
+ * user-entered data, but tying it to actual invoiced revenue would mean
+ * an N+1 fetch of every won opportunity's linked project/quote/invoice
+ * chain for a summary view — not worth it at this app's scale, and this
+ * app never fabricates precision the data doesn't support (see
+ * demoData.ts's rules).
+ */
+function LeadSourceReport({ opportunities }: { opportunities: Opportunity[] }) {
+  const bySource = new Map<string, SourceRow>();
+  for (const o of opportunities) {
+    const key = o.lead_source?.trim() || "Unknown";
+    const row = bySource.get(key) ?? { source: key, leads: 0, won: 0, lost: 0, openValue: 0, wonValue: 0 };
+    row.leads += 1;
+    if (o.stage === "won") {
+      row.won += 1;
+      row.wonValue += o.estimated_value ?? 0;
+    } else if (o.stage === "lost") {
+      row.lost += 1;
+    } else {
+      row.openValue += o.estimated_value ?? 0;
+    }
+    bySource.set(key, row);
+  }
+  const rows = Array.from(bySource.values()).sort((a, b) => b.leads - a.leads);
+
+  if (rows.length === 0) {
+    return <div className="card-surface p-10 text-center text-muted-foreground">No opportunities yet.</div>;
+  }
+
+  return (
+    <div className="card-surface overflow-x-auto p-0">
+      <table className="w-full min-w-[640px] text-sm">
+        <thead>
+          <tr className="border-b border-hairline text-left text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+            <th className="px-4 py-3">Lead source</th>
+            <th className="px-4 py-3 text-right">Leads</th>
+            <th className="px-4 py-3 text-right">Won</th>
+            <th className="px-4 py-3 text-right">Lost</th>
+            <th className="px-4 py-3 text-right">Win rate</th>
+            <th className="px-4 py-3 text-right">Est. value (open)</th>
+            <th className="px-4 py-3 text-right">Won value (est.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const decided = r.won + r.lost;
+            const winRate = decided > 0 ? Math.round((r.won / decided) * 100) : null;
+            return (
+              <tr key={r.source} className="border-b border-hairline last:border-0">
+                <td className="px-4 py-3 font-semibold text-foreground">{r.source}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{r.leads}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{r.won}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{r.lost}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{winRate == null ? "—" : `${winRate}%`}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(r.openValue)}</td>
+                <td className="px-4 py-3 text-right tabular-nums font-semibold text-success">{formatCurrency(r.wonValue)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -28,6 +28,7 @@ import { PipelineView } from "@/components/views/PipelineView";
 import { OpportunityDetailView } from "@/components/views/OpportunityDetailView";
 import { TasksView } from "@/components/views/TasksView";
 import { AppointmentsView } from "@/components/views/AppointmentsView";
+import { CommunicationsView } from "@/components/views/CommunicationsView";
 import { ClientFormView } from "@/components/views/ClientFormView";
 import { SettingsView } from "@/components/views/SettingsView";
 import { SettingsBusinessProfileView } from "@/components/views/SettingsBusinessProfileView";
@@ -97,6 +98,7 @@ const App = () => (
               <Route path="/pipeline/:id" element={<OpportunityDetailView />} />
               <Route path="/tasks" element={<TasksView />} />
               <Route path="/appointments" element={<AppointmentsView />} />
+              <Route path="/communications" element={<CommunicationsView />} />
               <Route path="/settings" element={<SettingsView />} />
               <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
               <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />

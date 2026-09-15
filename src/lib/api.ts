@@ -2441,6 +2441,7 @@ export interface Activity {
   summary: string;
   meta: Record<string, unknown>;
   created_at: string;
+  client?: { name: string } | null;
 }
 
 export async function listActivities(clientId: string): Promise<Activity[]> {
@@ -2463,6 +2464,28 @@ export async function listActivitiesForOpportunity(opportunityId: string): Promi
     .from("activities")
     .select("*")
     .eq("opportunity_id", opportunityId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+const MANUAL_COMMUNICATION_KINDS = ["note", "call", "text", "email"] as const;
+
+/** CRM Phase 6's "Communication Center" — every manually-logged note/
+ * call/text/email across every customer, newest first. Reuses the
+ * activities table (no new table): the same manual-log composer on
+ * Customer 360 already writes these rows, this just surfaces them
+ * cross-customer. Auto-generated kinds (stage_changed, quote_sent,
+ * etc.) are excluded — those belong in each record's own activity
+ * feed, not the communication log. */
+export async function listCommunications(): Promise<Activity[]> {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*, client:clients(name)")
+    .in("kind", MANUAL_COMMUNICATION_KINDS)
     .order("created_at", { ascending: false });
   if (error) {
     if (error.code === "PGRST205") return [];
