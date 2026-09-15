@@ -2404,7 +2404,30 @@ export async function deleteClientFile(file: Pick<ClientFile, "id" | "storage_pa
 // writes (quote sent, pipeline stage changed, etc.) with no schema change.
 // ---------------------------------------------------------------------------
 
-export type ActivityKind = "note" | "call" | "text" | "email" | "other";
+export type ActivityKind =
+  | "note"
+  | "call"
+  | "text"
+  | "email"
+  | "other"
+  // Auto-generated kinds (CRM Phases 2+) — the DB column is open text
+  // (see 0048's comment), so new kinds never need a migration; this union
+  // just keeps callers honest. Not every kind below is wired up to fire
+  // automatically yet — added now so later phases don't touch the type.
+  | "stage_changed"
+  | "quote_created"
+  | "quote_sent"
+  | "quote_viewed"
+  | "proposal_approved"
+  | "proposal_rejected"
+  | "opportunity_won"
+  | "opportunity_lost"
+  | "project_created"
+  | "invoice_sent"
+  | "invoice_paid"
+  | "appointment_scheduled"
+  | "appointment_completed"
+  | "task_completed";
 
 export interface Activity {
   id: string;
@@ -2412,6 +2435,7 @@ export interface Activity {
   project_id: string | null;
   quote_id: string | null;
   invoice_id: string | null;
+  opportunity_id: string | null;
   created_by: string;
   kind: string;
   summary: string;
@@ -2432,6 +2456,21 @@ export async function listActivities(clientId: string): Promise<Activity[]> {
   return data ?? [];
 }
 
+/** An opportunity's own feed — narrower than listActivities(), which
+ * returns everything for the whole customer. */
+export async function listActivitiesForOpportunity(opportunityId: string): Promise<Activity[]> {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("*")
+    .eq("opportunity_id", opportunityId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
 export async function logActivity(
   clientId: string,
   kind: ActivityKind,
@@ -2440,6 +2479,7 @@ export async function logActivity(
     project_id?: string | null;
     quote_id?: string | null;
     invoice_id?: string | null;
+    opportunity_id?: string | null;
     meta?: Record<string, unknown>;
   } = {},
 ): Promise<Activity> {
@@ -2452,12 +2492,417 @@ export async function logActivity(
       project_id: input.project_id ?? null,
       quote_id: input.quote_id ?? null,
       invoice_id: input.invoice_id ?? null,
+      opportunity_id: input.opportunity_id ?? null,
       meta: input.meta ?? {},
     })
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities — Sales Pipeline (CRM Phase 2, 0049). Every opportunity
+// belongs to exactly one customer; a customer can have many over time.
+// ---------------------------------------------------------------------------
+
+export type OpportunityStage =
+  | "new_lead"
+  | "attempting_contact"
+  | "contacted"
+  | "qualified"
+  | "site_visit_scheduled"
+  | "site_visit_completed"
+  | "estimate_in_progress"
+  | "proposal_sent"
+  | "follow_up"
+  | "won"
+  | "lost";
+
+export type OpportunityPriority = "low" | "normal" | "high";
+
+export interface Opportunity {
+  id: string;
+  client_id: string;
+  title: string;
+  address: string | null;
+  project_type: string | null;
+  description: string | null;
+  estimated_value: number | null;
+  probability: number | null;
+  expected_close_date: string | null;
+  lead_source: string | null;
+  assigned_to: string | null;
+  stage: OpportunityStage;
+  priority: OpportunityPriority;
+  tags: string[];
+  measurements: string | null;
+  lost_reason: string | null;
+  next_action: string | null;
+  next_action_date: string | null;
+  last_contact_date: string | null;
+  quote_id: string | null;
+  project_id: string | null;
+  created_at: string;
+  updated_at: string;
+  client?: { name: string } | null;
+}
+
+const OPPORTUNITY_SELECT = "*, client:clients(name)";
+
+export async function listOpportunities(): Promise<Opportunity[]> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(OPPORTUNITY_SELECT)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** An opportunity's own client (0048/0049, Customer 360 page). */
+export async function listOpportunitiesForClient(clientId: string): Promise<Opportunity[]> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(OPPORTUNITY_SELECT)
+    .eq("client_id", clientId)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function getOpportunity(id: string): Promise<Opportunity> {
+  const { data, error } = await supabase.from("opportunities").select(OPPORTUNITY_SELECT).eq("id", id).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function createOpportunity(input: {
+  client_id: string;
+  title: string;
+  address?: string | null;
+  project_type?: string | null;
+  description?: string | null;
+  estimated_value?: number | null;
+  probability?: number | null;
+  expected_close_date?: string | null;
+  lead_source?: string | null;
+  assigned_to?: string | null;
+  priority?: OpportunityPriority;
+}): Promise<Opportunity> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .insert({
+      client_id: input.client_id,
+      title: input.title,
+      address: input.address ?? null,
+      project_type: input.project_type ?? null,
+      description: input.description ?? null,
+      estimated_value: input.estimated_value ?? null,
+      probability: input.probability ?? null,
+      expected_close_date: input.expected_close_date ?? null,
+      lead_source: input.lead_source ?? null,
+      assigned_to: input.assigned_to ?? null,
+      priority: input.priority ?? "normal",
+    })
+    .select(OPPORTUNITY_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateOpportunity(
+  id: string,
+  patch: Partial<
+    Pick<
+      Opportunity,
+      | "title"
+      | "address"
+      | "project_type"
+      | "description"
+      | "estimated_value"
+      | "probability"
+      | "expected_close_date"
+      | "lead_source"
+      | "assigned_to"
+      | "stage"
+      | "priority"
+      | "tags"
+      | "measurements"
+      | "lost_reason"
+      | "next_action"
+      | "next_action_date"
+      | "last_contact_date"
+      | "quote_id"
+      | "project_id"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("opportunities").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteOpportunity(id: string): Promise<void> {
+  const { error } = await supabase.from("opportunities").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * The Kanban board's drag handler — moves the stage AND records it in the
+ * activity timeline in one call, so a stage change is never a silent
+ * overwrite (section 3 of the CRM ask).
+ */
+export async function moveOpportunityStage(
+  opportunity: Pick<Opportunity, "id" | "client_id" | "stage">,
+  toStage: OpportunityStage,
+): Promise<void> {
+  await updateOpportunity(opportunity.id, { stage: toStage });
+  await logActivity(
+    opportunity.client_id,
+    "stage_changed",
+    `Stage changed: ${opportunityStageLabel(opportunity.stage)} → ${opportunityStageLabel(toStage)}`,
+    { opportunity_id: opportunity.id },
+  );
+}
+
+// Tiny local label map — statusMeta.ts owns the canonical/full version
+// (OPPORTUNITY_STAGE_META); this avoids api.ts depending on that UI
+// module just to write a plain-text activity summary.
+function opportunityStageLabel(stage: OpportunityStage): string {
+  return stage
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// ---------------------------------------------------------------------------
+
+export interface OpportunityPhoto {
+  id: string;
+  opportunity_id: string;
+  storage_path: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function listOpportunityPhotos(opportunityId: string): Promise<OpportunityPhoto[]> {
+  const { data, error } = await supabase
+    .from("opportunity_photos")
+    .select("*")
+    .eq("opportunity_id", opportunityId)
+    .order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function addOpportunityPhoto(
+  opportunityId: string,
+  file: File,
+  input: { sort_order?: number } = {},
+): Promise<OpportunityPhoto> {
+  const compressed = await compressImageFile(file);
+  const path = `opportunities/${opportunityId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("opportunity_photos")
+    .insert({ opportunity_id: opportunityId, storage_path: path, sort_order: input.sort_order ?? 0 })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function deleteOpportunityPhoto(
+  photo: Pick<OpportunityPhoto, "id" | "storage_path">,
+): Promise<void> {
+  const { error: storageError } = await supabase.storage.from(IMAGES_BUCKET).remove([photo.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("opportunity_photos").delete().eq("id", photo.id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Tasks & Follow-ups (CRM Phase 3, 0050). A task can stand fully alone
+// (no client/opportunity/project) — the "global task view" the ask
+// requires — so unlike every CRM table so far, it can't be owned via a
+// clients join; it uses a direct user_id column instead, backed by the
+// same "employees excluded" restrictive policy 0047 added for that exact
+// shape of table.
+// ---------------------------------------------------------------------------
+
+export type TaskType =
+  | "call"
+  | "text"
+  | "email"
+  | "site_visit"
+  | "prepare_estimate"
+  | "send_proposal"
+  | "follow_up"
+  | "collect_deposit"
+  | "schedule_project"
+  | "general_task";
+
+export type TaskPriority = "low" | "normal" | "high";
+export type TaskRecurrence = "none" | "daily" | "weekly" | "monthly";
+
+export interface Task {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  due_at: string | null;
+  client_id: string | null;
+  opportunity_id: string | null;
+  project_id: string | null;
+  assigned_to: string | null;
+  priority: TaskPriority;
+  task_type: TaskType;
+  completed: boolean;
+  completed_at: string | null;
+  reminder_at: string | null;
+  recurrence: TaskRecurrence | null;
+  created_at: string;
+  updated_at: string;
+  client?: { name: string } | null;
+}
+
+export const TASK_TYPE_LABEL: Record<TaskType, string> = {
+  call: "Call",
+  text: "Text",
+  email: "Email",
+  site_visit: "Site Visit",
+  prepare_estimate: "Prepare Estimate",
+  send_proposal: "Send Proposal",
+  follow_up: "Follow Up",
+  collect_deposit: "Collect Deposit",
+  schedule_project: "Schedule Project",
+  general_task: "General Task",
+};
+
+const TASK_SELECT = "*, client:clients(name)";
+
+export async function listTasks(): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .order("due_at", { ascending: true, nullsFirst: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listTasksForClient(clientId: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("client_id", clientId)
+    .order("due_at", { ascending: true, nullsFirst: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function listTasksForOpportunity(opportunityId: string): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(TASK_SELECT)
+    .eq("opportunity_id", opportunityId)
+    .order("due_at", { ascending: true, nullsFirst: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createTask(input: {
+  title: string;
+  description?: string | null;
+  due_at?: string | null;
+  client_id?: string | null;
+  opportunity_id?: string | null;
+  project_id?: string | null;
+  assigned_to?: string | null;
+  priority?: TaskPriority;
+  task_type?: TaskType;
+  reminder_at?: string | null;
+  recurrence?: TaskRecurrence | null;
+}): Promise<Task> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({
+      title: input.title,
+      description: input.description ?? null,
+      due_at: input.due_at ?? null,
+      client_id: input.client_id ?? null,
+      opportunity_id: input.opportunity_id ?? null,
+      project_id: input.project_id ?? null,
+      assigned_to: input.assigned_to ?? null,
+      priority: input.priority ?? "normal",
+      task_type: input.task_type ?? "general_task",
+      reminder_at: input.reminder_at ?? null,
+      recurrence: input.recurrence ?? null,
+    })
+    .select(TASK_SELECT)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTask(
+  id: string,
+  patch: Partial<
+    Pick<
+      Task,
+      | "title"
+      | "description"
+      | "due_at"
+      | "client_id"
+      | "opportunity_id"
+      | "project_id"
+      | "assigned_to"
+      | "priority"
+      | "task_type"
+      | "reminder_at"
+      | "recurrence"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("tasks").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setTaskCompleted(id: string, completed: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("tasks")
+    .update({ completed, completed_at: completed ? new Date().toISOString() : null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------

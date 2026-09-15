@@ -34,6 +34,7 @@ import {
   listProjectsForClient,
   listQuotesForClient,
   listInvoicesForClient,
+  listOpportunitiesForClient,
   clientLifetimeRevenue,
   clientOutstandingBalance,
   quoteTotal,
@@ -49,9 +50,12 @@ import {
   getSignedImageUrls,
   listActivities,
   logActivity,
+  listTasksForClient,
+  setTaskCompleted,
   type ActivityKind,
 } from "@/lib/api";
-import { clientStatusMeta, projectStatusMeta, quoteStatusMeta, invoiceStatusMeta } from "@/lib/statusMeta";
+import { clientStatusMeta, projectStatusMeta, quoteStatusMeta, invoiceStatusMeta, opportunityStageMeta } from "@/lib/statusMeta";
+import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 
 const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
   note: "Note",
@@ -81,6 +85,10 @@ export function ClientDetailView() {
   const { data: invoices = [] } = useQuery({
     queryKey: ["client-invoices", clientId],
     queryFn: () => listInvoicesForClient(clientId),
+  });
+  const { data: opportunities = [] } = useQuery({
+    queryKey: ["client-opportunities", clientId],
+    queryFn: () => listOpportunitiesForClient(clientId),
   });
 
   const [tagInput, setTagInput] = useState("");
@@ -180,6 +188,16 @@ export function ClientDetailView() {
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <LinkedRecordsCard
+            title="Opportunities"
+            emptyLabel="No opportunities yet."
+            items={opportunities.map((o) => ({
+              id: o.id,
+              to: `/pipeline/${o.id}`,
+              label: o.title,
+              pill: opportunityStageMeta(o.stage),
+            }))}
+          />
+          <LinkedRecordsCard
             title="Projects"
             emptyLabel="No projects yet."
             items={projects.map((p) => ({
@@ -215,6 +233,8 @@ export function ClientDetailView() {
         </div>
 
         <div className="space-y-5">
+          <ClientTasksCard clientId={clientId} />
+
           <section className="card-surface p-5">
             <h3 className="text-base font-bold text-foreground">Money</h3>
             <div className="mt-2">
@@ -597,6 +617,49 @@ function ActivityCard({ clientId }: { clientId: string }) {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+function ClientTasksCard({ clientId }: { clientId: string }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [addOpen, setAddOpen] = useState(false);
+
+  const { data: tasks = [] } = useQuery({
+    queryKey: ["client-tasks", clientId],
+    queryFn: () => listTasksForClient(clientId),
+  });
+
+  const completeMut = useMutation({
+    mutationFn: ({ id, completed }: { id: string; completed: boolean }) => setTaskCompleted(id, completed),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-tasks", clientId] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const open = tasks.filter((t) => !t.completed);
+
+  return (
+    <section className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-foreground">Tasks</h3>
+        <button type="button" onClick={() => setAddOpen(true)} className="text-xs font-bold text-primary hover:underline">
+          + Add
+        </button>
+      </div>
+      {open.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">No open tasks.</p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {open.map((t) => (
+            <TaskRow key={t.id} task={t} onToggle={(v) => completeMut.mutate({ id: t.id, completed: v })} />
+          ))}
+        </div>
+      )}
+      <CreateTaskDialog open={addOpen} onOpenChange={setAddOpen} defaultClientId={clientId} />
     </section>
   );
 }

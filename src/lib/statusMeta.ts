@@ -1,4 +1,11 @@
-import type { ChangeOrderStatus, ClientStatus, InvoiceStatus, ProjectStatus, QuoteStatus } from "./api";
+import type {
+  ChangeOrderStatus,
+  ClientStatus,
+  InvoiceStatus,
+  OpportunityStage,
+  ProjectStatus,
+  QuoteStatus,
+} from "./api";
 
 /**
  * Single source of truth for status presentation across the app — badge class,
@@ -116,6 +123,32 @@ export const CLIENT_STATUSES = Object.keys(CLIENT_STATUS_META) as ClientStatus[]
 
 export function clientStatusMeta(status: string): StatusMeta {
   return CLIENT_STATUS_META[status as ClientStatus] ?? meta(titleCase(status), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Opportunities / sales pipeline (CRM Phase 2, 0049). Order here is the
+// Kanban board's column order (Object.keys preserves insertion order),
+// same convention as PROJECT_STATUSES.
+// ---------------------------------------------------------------------------
+
+export const OPPORTUNITY_STAGE_META: Record<OpportunityStage, StatusMeta> = {
+  new_lead: meta("New Lead", "grey"),
+  attempting_contact: meta("Attempting Contact", "amber"),
+  contacted: meta("Contacted", "blue"),
+  qualified: meta("Qualified", "blue"),
+  site_visit_scheduled: meta("Site Visit Scheduled", "blue"),
+  site_visit_completed: meta("Site Visit Completed", "blue"),
+  estimate_in_progress: meta("Estimate in Progress", "amber"),
+  proposal_sent: meta("Proposal Sent", "amber"),
+  follow_up: meta("Follow-Up / Decision", "amber"),
+  won: meta("Won", "greenSolid"),
+  lost: meta("Lost", "red"),
+};
+
+export const OPPORTUNITY_STAGES = Object.keys(OPPORTUNITY_STAGE_META) as OpportunityStage[];
+
+export function opportunityStageMeta(stage: string): StatusMeta {
+  return OPPORTUNITY_STAGE_META[stage as OpportunityStage] ?? meta(titleCase(stage), "grey");
 }
 
 // ---------------------------------------------------------------------------
