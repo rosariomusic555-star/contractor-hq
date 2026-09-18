@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { cn, pluralize } from "@/lib/utils";
-import { listProjects, type ProjectStatus } from "@/lib/api";
+import { listProjects, listOpportunities, listQuotes, type Opportunity, type ProjectStatus, type Quote } from "@/lib/api";
 import { projectStatusMeta } from "@/lib/statusMeta";
+import { jobSizeLabel } from "@/lib/jobSize";
 
 /** Statuses that count as an active job — signed off and either in progress
  * or being billed. Excludes draft/quote_sent (no confirmed job yet) and paid
@@ -16,7 +17,22 @@ const ONGOING_STATUSES: ProjectStatus[] = ["approved", "invoiced"];
  */
 export function OngoingJobsCard({ className }: { className?: string }) {
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
+  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: () => listOpportunities() });
+  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
+
   const ongoing = projects.filter((p) => ONGOING_STATUSES.includes(p.status));
+
+  const opportunitiesByProjectId = new Map<string, Opportunity>();
+  for (const o of opportunities) {
+    if (o.project_id) opportunitiesByProjectId.set(o.project_id, o);
+  }
+  const quotesByProject = new Map<string, Quote[]>();
+  for (const q of quotes) {
+    if (!q.project_id) continue;
+    const list = quotesByProject.get(q.project_id);
+    if (list) list.push(q);
+    else quotesByProject.set(q.project_id, [q]);
+  }
 
   return (
     <section className={cn("card-surface p-5", className)}>
@@ -35,6 +51,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
         <ul className="mt-3 divide-y divide-hairline">
           {ongoing.map((project) => {
             const meta = projectStatusMeta(project.status);
+            const size = jobSizeLabel(project, opportunitiesByProjectId, quotesByProject);
             return (
               <li key={project.id}>
                 <Link
@@ -46,6 +63,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
                     <p className="truncate text-xs text-muted-foreground">
                       {project.client?.name ?? "No client"}
                     </p>
+                    {size && <p className="truncate text-xs text-muted-subtle">{size}</p>}
                   </div>
                   <span className={cn("shrink-0", meta.badge)}>{meta.label}</span>
                 </Link>

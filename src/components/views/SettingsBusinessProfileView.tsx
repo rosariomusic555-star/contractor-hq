@@ -1,15 +1,56 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, Building2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
+import {
+  getBusinessProfile,
+  saveBusinessProfile,
+  BUSINESS_PROFILE_FALLBACK,
+  type BusinessProfile,
+} from "@/lib/api";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 const FIELD_INPUT = "h-11 rounded-xl border-transparent bg-muted px-3.5 focus-visible:border-primary focus-visible:bg-card";
 
+/** Real, persisted (0055) — the address here is what the Dashboard Weather
+ * Strip geocodes. Previously this whole screen was hardcoded defaultValue
+ * props with a Save button wired to nothing. */
 export function SettingsBusinessProfileView() {
   const { session } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
+
+  const seed = (): BusinessProfile => data ?? BUSINESS_PROFILE_FALLBACK;
+  const [draft, setDraft] = useState<BusinessProfile>(seed);
+  const dirty = useRef(false);
+
+  useEffect(() => {
+    if (dirty.current) return;
+    setDraft(seed());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const edit = (patch: Partial<BusinessProfile>) => {
+    dirty.current = true;
+    setDraft((d) => ({ ...d, ...patch }));
+  };
+
+  const saveMut = useMutation({
+    mutationFn: () => saveBusinessProfile(draft),
+    onSuccess: () => {
+      dirty.current = false;
+      qc.invalidateQueries({ queryKey: ["business-profile"] });
+      toast({ title: "Business profile saved" });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
@@ -37,28 +78,49 @@ export function SettingsBusinessProfileView() {
         <div className="grid grid-cols-1 gap-5 bg-card p-5 md:grid-cols-2">
           <div className="space-y-1.5">
             <div className={FIELD_LABEL}>Company name</div>
-            <Input id="companyName" defaultValue="Rossi Hardscape LLC" className={FIELD_INPUT} />
+            <Input
+              value={draft.company_name ?? ""}
+              onChange={(e) => edit({ company_name: e.target.value || null })}
+              className={FIELD_INPUT}
+            />
           </div>
           <div className="space-y-1.5">
             <div className={FIELD_LABEL}>Phone</div>
-            <Input id="phone" defaultValue="(413) 555-0100" className={FIELD_INPUT} />
+            <Input
+              value={draft.phone ?? ""}
+              onChange={(e) => edit({ phone: e.target.value || null })}
+              className={FIELD_INPUT}
+            />
           </div>
           <div className="space-y-1.5">
             <div className={FIELD_LABEL}>Business email</div>
-            <Input id="email" defaultValue="billing@rossihardscape.com" className={FIELD_INPUT} />
+            <Input
+              value={draft.email ?? ""}
+              onChange={(e) => edit({ email: e.target.value || null })}
+              className={FIELD_INPUT}
+            />
           </div>
           <div className="space-y-1.5">
             <div className={FIELD_LABEL}>License #</div>
-            <Input id="license" defaultValue="MA HIC #187204" className={FIELD_INPUT} />
+            <Input
+              value={draft.license ?? ""}
+              onChange={(e) => edit({ license: e.target.value || null })}
+              className={FIELD_INPUT}
+            />
           </div>
           <div className="space-y-1.5 md:col-span-2">
             <div className={FIELD_LABEL}>Address</div>
-            <Input id="address" defaultValue="128 Pine St, Northampton MA 01060" className={FIELD_INPUT} />
+            <Input
+              value={draft.address ?? ""}
+              onChange={(e) => edit({ address: e.target.value || null })}
+              placeholder="128 Pine St, Northampton MA 01060"
+              className={FIELD_INPUT}
+            />
+            <p className="text-[11px] text-muted-subtle">Used to geocode the Dashboard's 7-day weather strip.</p>
           </div>
           <div className="space-y-1.5 md:col-span-2">
             <div className={FIELD_LABEL}>Account email</div>
             <Input
-              id="accountEmail"
               value={session?.user.email ?? ""}
               readOnly
               disabled
@@ -69,7 +131,13 @@ export function SettingsBusinessProfileView() {
       </div>
 
       <div className="flex justify-end">
-        <Button className="h-11 rounded-xl font-bold">Save changes</Button>
+        <Button
+          className="h-11 rounded-xl font-bold"
+          onClick={() => saveMut.mutate()}
+          disabled={saveMut.isPending || isLoading}
+        >
+          {saveMut.isPending ? "Saving…" : "Save changes"}
+        </Button>
       </div>
     </div>
   );

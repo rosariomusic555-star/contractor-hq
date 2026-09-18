@@ -36,6 +36,7 @@ import {
   listMaterialsSheets,
   listExpenses,
   listChangeOrders,
+  listMaterialOrders,
   listProjectEvents,
   quoteTotal,
   listProjectImages,
@@ -89,6 +90,10 @@ export function ProjectDetailView() {
     queryKey: ["change-orders", { project: id }],
     queryFn: () => listChangeOrders(id),
   });
+  const { data: materialOrders = [] } = useQuery({
+    queryKey: ["material-orders", { project: id }],
+    queryFn: () => listMaterialOrders(id),
+  });
   const { data: events = [] } = useQuery({ queryKey: ["project-events", id], queryFn: () => listProjectEvents(id) });
 
   const statusMutation = useMutation({
@@ -100,6 +105,16 @@ export function ProjectDetailView() {
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't update status", description: err.message, variant: "destructive" }),
+  });
+
+  const scheduleMutation = useMutation({
+    mutationFn: (month: string | null) => updateProject(id, { target_install_month: month }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", id] });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Couldn't update target install month", description: err.message, variant: "destructive" }),
   });
 
   if (isLoading) return <p className="text-muted-foreground">Loading project…</p>;
@@ -150,6 +165,9 @@ export function ProjectDetailView() {
     changeOrders.length === 0
       ? "None yet"
       : `${approvedCOTotal > 0 ? "+" : ""}${formatCurrency(approvedCOTotal)} approved${pendingCOCount ? ` · ${pendingCOCount} pending` : ""}`;
+  const pendingDeliveryCount = materialOrders.filter((mo) => mo.status !== "delivered").length;
+  const materialOrdersSummary =
+    materialOrders.length === 0 ? "None yet" : `${pluralize(materialOrders.length, "order")} · ${pendingDeliveryCount} pending`;
 
   const statusSelect = (
     <Select value={project.status} onValueChange={(v) => statusMutation.mutate(v as ProjectStatus)}>
@@ -206,6 +224,11 @@ export function ProjectDetailView() {
               title="Change orders"
               summary={changeOrdersSummary}
               onOpen={() => navigate(`/projects/${id}/change-orders`)}
+            />
+            <HubCard
+              title="Material orders"
+              summary={materialOrdersSummary}
+              onOpen={() => navigate(`/projects/${id}/material-orders`)}
             />
           </div>
 
@@ -278,6 +301,28 @@ export function ProjectDetailView() {
                 </div>
               </div>
             )}
+          </section>
+
+          <section className="card-surface p-5">
+            <h3 className="text-base font-bold text-foreground">Schedule</h3>
+            <div className="mt-2 space-y-1.5">
+              <Label htmlFor="target-install-month" className="text-xs font-semibold text-muted-foreground">
+                Target install month
+              </Label>
+              <Input
+                id="target-install-month"
+                type="month"
+                value={project.target_install_month ? project.target_install_month.slice(0, 7) : ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  scheduleMutation.mutate(v ? `${v}-01` : null);
+                }}
+                className="h-10"
+              />
+            </div>
+            <p className="mt-2 text-[11px] text-muted-subtle">
+              Feeds the Dashboard Seasonal Backlog card once this job is approved.
+            </p>
           </section>
 
           {project.client && (

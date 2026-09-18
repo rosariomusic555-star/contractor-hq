@@ -3,6 +3,7 @@ import type {
   ChangeOrderStatus,
   ClientStatus,
   InvoiceStatus,
+  MaterialOrderStatus,
   OpportunityStage,
   ProjectStatus,
   QuoteStatus,
@@ -104,6 +105,20 @@ const CHANGE_ORDER_META: Record<ChangeOrderStatus, StatusMeta> = {
 
 export function changeOrderStatusMeta(status: string): StatusMeta {
   return CHANGE_ORDER_META[status as ChangeOrderStatus] ?? meta(titleCase(status), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Material orders (0056)
+// ---------------------------------------------------------------------------
+
+const MATERIAL_ORDER_META: Record<MaterialOrderStatus, StatusMeta> = {
+  ordered: meta("Ordered", "blue"),
+  delivered: meta("Delivered", "green"),
+  delayed: meta("Delayed", "red"),
+};
+
+export function materialOrderStatusMeta(status: string): StatusMeta {
+  return MATERIAL_ORDER_META[status as MaterialOrderStatus] ?? meta(titleCase(status), "grey");
 }
 
 // ---------------------------------------------------------------------------

@@ -63,6 +63,10 @@ export interface Project {
   client_id: string | null;
   name: string;
   status: ProjectStatus;
+  /** First-of-month date (e.g. "2026-10-01"), or null if not yet scheduled.
+   * Drives the Dashboard Seasonal Backlog card (0053) — the UI only ever
+   * shows/edits the month, never the day. */
+  target_install_month: string | null;
   created_at: string;
   updated_at: string;
   client?: ClientRef | null;
@@ -624,7 +628,7 @@ export async function createProject(input: {
 
 export async function updateProject(
   id: string,
-  patch: Partial<Pick<Project, "name" | "client_id" | "status">>,
+  patch: Partial<Pick<Project, "name" | "client_id" | "status" | "target_install_month">>,
 ): Promise<void> {
   const { error } = await supabase.from("projects").update(patch).eq("id", id);
   if (error) throw error;
@@ -652,6 +656,105 @@ export async function deleteProject(id: string): Promise<void> {
   }
   const { error } = await supabase.from("projects").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Business profile (0055) — one row per user, same shape as QuoteDefaults.
+// Backs Settings > Business profile (previously 100% decorative) and is the
+// address the Dashboard Weather Strip geocodes.
+// ---------------------------------------------------------------------------
+
+export interface BusinessProfile {
+  company_name: string | null;
+  phone: string | null;
+  email: string | null;
+  license: string | null;
+  address: string | null;
+}
+
+export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
+  company_name: null,
+  phone: null,
+  email: null,
+  license: null,
+  address: null,
+};
+
+export async function getBusinessProfile(): Promise<BusinessProfile> {
+  const { data, error } = await supabase.from("business_profile").select("*").maybeSingle();
+  if (error) {
+    // PGRST205 = migration 0055 hasn't been run yet — degrade to the fallback
+    // instead of breaking Settings or the Dashboard.
+    if (error.code === "PGRST205") return BUSINESS_PROFILE_FALLBACK;
+    throw error;
+  }
+  if (!data) return BUSINESS_PROFILE_FALLBACK;
+  return {
+    company_name: data.company_name ?? null,
+    phone: data.phone ?? null,
+    email: data.email ?? null,
+    license: data.license ?? null,
+    address: data.address ?? null,
+  };
+}
+
+export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Promise<BusinessProfile> {
+  const merged = { ...(await getBusinessProfile()), ...patch };
+  const { data, error } = await supabase
+    .from("business_profile")
+    .upsert({
+      company_name: merged.company_name,
+      phone: merged.phone,
+      email: merged.email,
+      license: merged.license,
+      address: merged.address,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return {
+    company_name: data.company_name ?? null,
+    phone: data.phone ?? null,
+    email: data.email ?? null,
+    license: data.license ?? null,
+    address: data.address ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Backlog settings (0054) — one row per user, same shape as QuoteDefaults.
+// Backs Settings > Seasonal capacity and the Dashboard Seasonal Backlog card.
+// ---------------------------------------------------------------------------
+
+export interface BacklogSettings {
+  capacity_dollars_per_month: number;
+}
+
+export const BACKLOG_SETTINGS_FALLBACK: BacklogSettings = {
+  capacity_dollars_per_month: 50000,
+};
+
+export async function getBacklogSettings(): Promise<BacklogSettings> {
+  const { data, error } = await supabase.from("backlog_settings").select("*").maybeSingle();
+  if (error) {
+    // PGRST205 = migration 0054 hasn't been run yet — degrade to the fallback
+    // instead of breaking the Dashboard.
+    if (error.code === "PGRST205") return BACKLOG_SETTINGS_FALLBACK;
+    throw error;
+  }
+  if (!data) return BACKLOG_SETTINGS_FALLBACK;
+  return { capacity_dollars_per_month: Number(data.capacity_dollars_per_month) };
+}
+
+export async function saveBacklogSettings(patch: Partial<BacklogSettings>): Promise<BacklogSettings> {
+  const merged = { ...(await getBacklogSettings()), ...patch };
+  const { data, error } = await supabase
+    .from("backlog_settings")
+    .upsert({ capacity_dollars_per_month: merged.capacity_dollars_per_month })
+    .select()
+    .single();
+  if (error) throw error;
+  return { capacity_dollars_per_month: Number(data.capacity_dollars_per_month) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1817,6 +1920,155 @@ export async function updateChangeOrder(
 
 export async function deleteChangeOrder(id: string): Promise<void> {
   const { error } = await supabase.from("change_orders").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Material orders (0056) — supplier orders/deliveries per project. Same
+// parent (order) + child (line items) shape as change orders above.
+// ---------------------------------------------------------------------------
+
+export type MaterialOrderStatus = "ordered" | "delivered" | "delayed";
+export type MaterialOrderUnit = "pallet" | "ton" | "cubic_yard" | "bag" | "linear_foot" | "each";
+
+export const MATERIAL_ORDER_UNITS: { value: MaterialOrderUnit; label: string; plural: string }[] = [
+  { value: "pallet", label: "Pallet", plural: "pallets" },
+  { value: "ton", label: "Ton", plural: "tons" },
+  { value: "cubic_yard", label: "Cubic yard", plural: "cubic yards" },
+  { value: "bag", label: "Bag", plural: "bags" },
+  { value: "linear_foot", label: "Linear foot", plural: "linear feet" },
+  { value: "each", label: "Each", plural: "each" },
+];
+
+export const materialOrderUnitLabel = (unit: MaterialOrderUnit, quantity: number): string =>
+  MATERIAL_ORDER_UNITS.find((u) => u.value === unit)?.[quantity === 1 ? "label" : "plural"] ?? unit;
+
+export interface MaterialOrderItem {
+  id: string;
+  material_order_id: string;
+  description: string;
+  quantity: number;
+  unit: MaterialOrderUnit;
+  sort_order: number;
+}
+
+export interface MaterialOrder {
+  id: string;
+  project_id: string;
+  user_id: string;
+  supplier: string | null;
+  expected_delivery_date: string | null;
+  status: MaterialOrderStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  material_order_items: MaterialOrderItem[];
+  project?: ProjectRef | null;
+}
+
+const MATERIAL_ORDER_SELECT = "*, material_order_items(*), project:projects(name)";
+
+/** Omitting projectId returns every material order the user owns, across
+ * all projects — used by the Dashboard deliveries card. */
+export async function listMaterialOrders(projectId?: string): Promise<MaterialOrder[]> {
+  let query = supabase
+    .from("material_orders")
+    .select(MATERIAL_ORDER_SELECT)
+    .order("expected_delivery_date", { ascending: true, nullsFirst: false });
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data, error } = await query;
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createMaterialOrder(input: {
+  project_id: string;
+  supplier?: string | null;
+  expected_delivery_date?: string | null;
+  status?: MaterialOrderStatus;
+  notes?: string | null;
+  items: { description: string; quantity: number; unit: MaterialOrderUnit }[];
+}): Promise<MaterialOrder> {
+  const { data: order, error } = await supabase
+    .from("material_orders")
+    .insert({
+      project_id: input.project_id,
+      supplier: input.supplier ?? null,
+      expected_delivery_date: input.expected_delivery_date ?? null,
+      status: input.status ?? "ordered",
+      notes: input.notes ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  if (input.items.length > 0) {
+    const { error: itemsError } = await supabase.from("material_order_items").insert(
+      input.items.map((item, i) => ({
+        material_order_id: order.id,
+        description: item.description,
+        quantity: item.quantity,
+        unit: item.unit,
+        sort_order: i,
+      })),
+    );
+    if (itemsError) throw itemsError;
+  }
+
+  const { data, error: refetchError } = await supabase
+    .from("material_orders")
+    .select(MATERIAL_ORDER_SELECT)
+    .eq("id", order.id)
+    .single();
+  if (refetchError) throw refetchError;
+  return data;
+}
+
+export async function updateMaterialOrder(
+  id: string,
+  patch: Partial<Pick<MaterialOrder, "supplier" | "expected_delivery_date" | "status" | "notes">>,
+): Promise<void> {
+  const { error } = await supabase.from("material_orders").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteMaterialOrder(id: string): Promise<void> {
+  const { error } = await supabase.from("material_orders").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function addMaterialOrderItem(
+  materialOrderId: string,
+  input: { description: string; quantity: number; unit: MaterialOrderUnit; sort_order?: number },
+): Promise<MaterialOrderItem> {
+  const { data, error } = await supabase
+    .from("material_order_items")
+    .insert({
+      material_order_id: materialOrderId,
+      description: input.description,
+      quantity: input.quantity,
+      unit: input.unit,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMaterialOrderItem(
+  id: string,
+  patch: Partial<Pick<MaterialOrderItem, "description" | "quantity" | "unit" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("material_order_items").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteMaterialOrderItem(id: string): Promise<void> {
+  const { error } = await supabase.from("material_order_items").delete().eq("id", id);
   if (error) throw error;
 }
 

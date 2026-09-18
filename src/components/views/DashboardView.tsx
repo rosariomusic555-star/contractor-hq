@@ -7,6 +7,9 @@ import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { RecentQuotes } from "@/components/dashboard/RecentQuotes";
 import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
+import { WeatherStrip } from "@/components/dashboard/WeatherStrip";
+import { SeasonalBacklogCard } from "@/components/dashboard/SeasonalBacklogCard";
+import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliveriesCard";
 import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
 import { FollowUpsCard } from "@/components/dashboard/FollowUpsCard";
@@ -174,6 +177,9 @@ export function DashboardView() {
         }
       />
 
+      {/* ---- Weather strip (hides itself if no address / API failure) ---- */}
+      <WeatherStrip />
+
       {/* ---- Desktop KPI row ---- */}
       <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
         <Link to="/revenue" className={KPI_LINK_CLASS}>
@@ -243,14 +249,14 @@ export function DashboardView() {
         </section>
       </Link>
 
-      {/* ---- Desktop chart + ongoing jobs ---- */}
-      <div className="hidden grid-cols-1 gap-5 md:grid lg:grid-cols-3">
-        <RevenueChart className="lg:col-span-2" />
+      {/* ---- Seasonal backlog + ongoing jobs ---- */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <SeasonalBacklogCard className="lg:col-span-2" />
         <OngoingJobsCard />
       </div>
 
-      {/* ---- Mobile: ongoing jobs ---- */}
-      <OngoingJobsCard className="md:hidden" />
+      {/* ---- Material deliveries ---- */}
+      <MaterialDeliveriesCard />
 
       {/* ---- Follow-ups + Needs you ---- */}
       <div className="grid gap-5 lg:grid-cols-2">
@@ -265,6 +271,13 @@ export function DashboardView() {
       <div className="grid gap-5 lg:grid-cols-2">
         <RecentQuotes />
         <RecentInvoices />
+      </div>
+
+      {/* ---- Revenue overview — secondary now that Seasonal backlog owns the
+           top slot; still useful once invoice history builds up. Desktop
+           only, same as before (mobile already has the sparkline card up top). ---- */}
+      <div className="hidden md:block">
+        <RevenueChart />
       </div>
     </div>
   );

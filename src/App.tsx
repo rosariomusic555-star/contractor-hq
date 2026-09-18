@@ -17,6 +17,7 @@ import { ProjectInvoicesView } from "@/components/views/ProjectInvoicesView";
 import { ProjectInvoiceDetailView } from "@/components/views/ProjectInvoiceDetailView";
 import { ProjectExpensesView } from "@/components/views/ProjectExpensesView";
 import { ProjectChangeOrdersView } from "@/components/views/ProjectChangeOrdersView";
+import { ProjectMaterialOrdersView } from "@/components/views/ProjectMaterialOrdersView";
 import { QuotesView } from "@/components/views/QuotesView";
 import { QuoteDetailView } from "@/components/views/QuoteDetailView";
 import { InvoicesView } from "@/components/views/InvoicesView";
@@ -33,6 +34,7 @@ import { ClientFormView } from "@/components/views/ClientFormView";
 import { SettingsView } from "@/components/views/SettingsView";
 import { SettingsBusinessProfileView } from "@/components/views/SettingsBusinessProfileView";
 import { SettingsQuoteDefaultsView } from "@/components/views/SettingsQuoteDefaultsView";
+import { SettingsCapacityView } from "@/components/views/SettingsCapacityView";
 import { SettingsCategoriesView } from "@/components/views/SettingsCategoriesView";
 import { SettingsExpenseCategoriesView } from "@/components/views/SettingsExpenseCategoriesView";
 import { SettingsInvoicingView } from "@/components/views/SettingsInvoicingView";
@@ -85,6 +87,7 @@ const App = () => (
               />
               <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
               <Route path="/projects/:id/change-orders" element={<ProjectChangeOrdersView />} />
+              <Route path="/projects/:id/material-orders" element={<ProjectMaterialOrdersView />} />
               <Route path="/quotes" element={<QuotesView />} />
               <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
               <Route path="/invoices" element={<InvoicesView />} />
@@ -102,6 +105,7 @@ const App = () => (
               <Route path="/settings" element={<SettingsView />} />
               <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
               <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
+              <Route path="/settings/capacity" element={<SettingsCapacityView />} />
               <Route path="/settings/categories" element={<SettingsCategoriesView />} />
               <Route
                 path="/settings/expense-categories"
