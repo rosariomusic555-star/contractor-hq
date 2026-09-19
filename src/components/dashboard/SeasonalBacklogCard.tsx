@@ -1,7 +1,17 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
-import { listProjects, listQuotes, listChangeOrders, getBacklogSettings, type ChangeOrder, type Quote } from "@/lib/api";
+import {
+  listProjects,
+  listQuotes,
+  listChangeOrders,
+  getBacklogSettings,
+  saveBacklogSettings,
+  type BacklogRangeMonths,
+  type ChangeOrder,
+  type Quote,
+} from "@/lib/api";
 import { seasonalBacklog, type BacklogFullness } from "@/lib/backlog";
 
 const FULLNESS_BADGE: Record<BacklogFullness, string> = {
@@ -9,6 +19,8 @@ const FULLNESS_BADGE: Record<BacklogFullness, string> = {
   room: "badge-status badge-info",
   full: "badge-status badge-pending",
 };
+
+const RANGE_OPTIONS: BacklogRangeMonths[] = [6, 12];
 
 function groupById<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -30,10 +42,26 @@ function groupById<T extends { project_id: string | null }>(rows: T[]): Map<stri
  * on the Dashboard (see RevenueChart's new spot lower down).
  */
 export function SeasonalBacklogCard({ className }: { className?: string }) {
+  const qc = useQueryClient();
   const { data: projects = [], isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
   const { data: settings } = useQuery({ queryKey: ["backlog-settings"], queryFn: getBacklogSettings });
+
+  // Optimistic local override so clicking the toggle feels instant instead
+  // of waiting on the save round-trip; settings.default_range_months (the
+  // persisted per-user value) takes over once loaded/once this unmounts.
+  const [localRange, setLocalRange] = useState<BacklogRangeMonths | null>(null);
+  const range = localRange ?? settings?.default_range_months ?? 6;
+
+  const rangeMut = useMutation({
+    mutationFn: (months: BacklogRangeMonths) => saveBacklogSettings({ default_range_months: months }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["backlog-settings"] }),
+  });
+  const selectRange = (months: BacklogRangeMonths) => {
+    setLocalRange(months);
+    rangeMut.mutate(months);
+  };
 
   const quotesByProject = groupById<Quote>(quotes);
   const changeOrdersByProject = groupById<ChangeOrder>(changeOrders);
@@ -44,6 +72,7 @@ export function SeasonalBacklogCard({ className }: { className?: string }) {
     quotesByProject,
     changeOrdersByProject,
     capacity,
+    range,
   );
 
   return (
@@ -51,18 +80,38 @@ export function SeasonalBacklogCard({ className }: { className?: string }) {
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-base font-bold text-foreground">Seasonal backlog</h3>
-          <p className="mt-0.5 text-sm text-muted-foreground">Committed work, next 6 months</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Committed work, next {range} months</p>
         </div>
-        {seasonTotalJobs > 0 && (
-          <div className="text-right">
-            <p className="text-2xl font-extrabold tracking-tight tabular-nums text-foreground">
-              {formatCurrency(seasonTotalDollars)}
-            </p>
-            <p className="mt-1 text-xs font-semibold text-muted-foreground">
-              {pluralize(seasonTotalJobs, "job")} booked
-            </p>
+        <div className="flex flex-col items-end gap-2">
+          <div className="inline-flex rounded-lg bg-muted p-0.5">
+            {RANGE_OPTIONS.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => selectRange(opt)}
+                aria-pressed={range === opt}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-bold transition-colors",
+                  range === opt
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {opt} months
+              </button>
+            ))}
           </div>
-        )}
+          {seasonTotalJobs > 0 && (
+            <div className="text-right">
+              <p className="text-2xl font-extrabold tracking-tight tabular-nums text-foreground">
+                {formatCurrency(seasonTotalDollars)}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                {pluralize(seasonTotalJobs, "job")} booked
+              </p>
+            </div>
+          )}
+        </div>
       </header>
 
       {isLoading ? (
@@ -81,9 +130,9 @@ export function SeasonalBacklogCard({ className }: { className?: string }) {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="flex gap-3 overflow-x-auto pb-1 md:grid md:grid-cols-6 md:overflow-visible md:pb-0">
           {months.map((m) => (
-            <div key={m.key} className="rounded-xl bg-muted/40 p-3">
+            <div key={m.key} className="min-w-[110px] shrink-0 rounded-xl bg-muted/40 p-3 md:min-w-0">
               <p className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{m.label}</p>
               <p className="mt-1.5 text-lg font-extrabold tabular-nums text-foreground">
                 {m.committedDollars > 0 ? formatCurrency(m.committedDollars) : "—"}

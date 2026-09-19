@@ -732,12 +732,18 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
 // Backs Settings > Seasonal capacity and the Dashboard Seasonal Backlog card.
 // ---------------------------------------------------------------------------
 
+export type BacklogRangeMonths = 6 | 12;
+
 export interface BacklogSettings {
   capacity_dollars_per_month: number;
+  /** Last-selected range on the Dashboard Seasonal Backlog card (0057) —
+   * persisted so it doesn't reset to 6 months on every load. */
+  default_range_months: BacklogRangeMonths;
 }
 
 export const BACKLOG_SETTINGS_FALLBACK: BacklogSettings = {
   capacity_dollars_per_month: 50000,
+  default_range_months: 6,
 };
 
 export async function getBacklogSettings(): Promise<BacklogSettings> {
@@ -749,18 +755,28 @@ export async function getBacklogSettings(): Promise<BacklogSettings> {
     throw error;
   }
   if (!data) return BACKLOG_SETTINGS_FALLBACK;
-  return { capacity_dollars_per_month: Number(data.capacity_dollars_per_month) };
+  return {
+    capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
+    // Column added in 0057 — degrade to the default on a not-yet-migrated row.
+    default_range_months: (data.default_range_months as BacklogRangeMonths | undefined) ?? 6,
+  };
 }
 
 export async function saveBacklogSettings(patch: Partial<BacklogSettings>): Promise<BacklogSettings> {
   const merged = { ...(await getBacklogSettings()), ...patch };
   const { data, error } = await supabase
     .from("backlog_settings")
-    .upsert({ capacity_dollars_per_month: merged.capacity_dollars_per_month })
+    .upsert({
+      capacity_dollars_per_month: merged.capacity_dollars_per_month,
+      default_range_months: merged.default_range_months,
+    })
     .select()
     .single();
   if (error) throw error;
-  return { capacity_dollars_per_month: Number(data.capacity_dollars_per_month) };
+  return {
+    capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
+    default_range_months: (data.default_range_months as BacklogRangeMonths | undefined) ?? 6,
+  };
 }
 
 // ---------------------------------------------------------------------------

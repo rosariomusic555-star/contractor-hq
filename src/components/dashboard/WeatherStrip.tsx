@@ -40,14 +40,19 @@ export function WeatherStrip({ className }: { className?: string }) {
   if (!address || !days || days.length === 0) return null;
 
   return (
-    <section className={cn("card-surface flex gap-2 overflow-x-auto p-3", className)}>
+    <section
+      className={cn(
+        "card-surface flex gap-2 overflow-x-auto p-3 md:grid md:grid-cols-7 md:gap-3 md:overflow-visible",
+        className,
+      )}
+    >
       {days.map((d) => {
         const Icon = ICON[d.icon];
         return (
           <div
             key={d.date}
             className={cn(
-              "flex min-w-[80px] shrink-0 flex-col items-center gap-1 rounded-xl px-2.5 py-2.5 text-center",
+              "flex min-w-[80px] shrink-0 flex-col items-center gap-1 rounded-xl px-2.5 py-2.5 text-center md:min-w-0",
               d.flagged ? "bg-destructive/10" : "bg-muted/40",
             )}
             title={d.flagReason ? FLAG_LABEL[d.flagReason] : d.conditionLabel}
