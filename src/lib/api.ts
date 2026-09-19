@@ -309,6 +309,9 @@ export interface MaterialsSheet {
   name: string;
   sort_order: number;
   created_at: string;
+  // Only populated where the select asks for it (the global Material
+  // Sheets list) — project-scoped callers already know their own project.
+  project?: ProjectRef | null;
 }
 
 export interface Expense {
@@ -322,6 +325,9 @@ export interface Expense {
   created_at: string;
   /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
   expense_category_id: string | null;
+  // Only populated where the select asks for it (the global Expenses
+  // list) — project-scoped callers already know their own project.
+  project?: ProjectRef | null;
 }
 
 export type ChangeOrderStatus = "pending" | "approved" | "rejected";
@@ -1020,15 +1026,35 @@ export async function upsertCatalogPriceOverride(catalogProductId: string, price
 // used by the sheet builder and by a quote once explicitly linked to one.
 // ---------------------------------------------------------------------------
 
-export async function listMaterialsSheets(projectId: string): Promise<MaterialsSheet[]> {
-  const { data, error } = await supabase
+/** Omitting projectId returns every materials sheet the user owns, across
+ * all projects — used by the global Material Sheets list. */
+export async function listMaterialsSheets(projectId?: string): Promise<MaterialsSheet[]> {
+  let query = supabase
     .from("materials_sheets")
-    .select("*")
-    .eq("project_id", projectId)
+    .select("*, project:projects(name)")
     .order("created_at");
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data, error } = await query;
   if (error) {
     // PGRST205 = migration 0042 hasn't been run yet — degrade to empty,
     // same convention as every other not-yet-migrated table in this file.
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** Every materials section (with its items) the user owns, across all
+ * projects/sheets — RLS-scoped, same unfiltered-list convention as
+ * listQuotes()/listInvoices(). Used by the global Material Sheets list to
+ * compute each sheet's cost via materialsCogs() without an N+1 per-sheet
+ * fetch; group by sheet_id client-side. */
+export async function listAllMaterialsSections(): Promise<MaterialsSection[]> {
+  const { data, error } = await supabase
+    .from("materials_sections")
+    .select("*, materials_items(*)")
+    .order("sort_order");
+  if (error) {
     if (error.code === "PGRST205") return [];
     throw error;
   }
@@ -1809,12 +1835,15 @@ export async function deleteInvoice(id: string): Promise<void> {
 // Expenses
 // ---------------------------------------------------------------------------
 
-export async function listExpenses(projectId: string): Promise<Expense[]> {
-  const { data, error } = await supabase
+/** Omitting projectId returns every expense the user owns, across all
+ * projects — used by the global Expenses list. */
+export async function listExpenses(projectId?: string): Promise<Expense[]> {
+  let query = supabase
     .from("expenses")
-    .select("*")
-    .eq("project_id", projectId)
+    .select("*, project:projects(name)")
     .order("created_at", { ascending: false });
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }
