@@ -16,6 +16,7 @@ import { FollowUpsCard } from "@/components/dashboard/FollowUpsCard";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
+import { useGreeting } from "@/hooks/use-greeting";
 import { cn, formatCurrency } from "@/lib/utils";
 import { listQuotes, listInvoices, createQuote, createInvoice } from "@/lib/api";
 import { monthlyRevenue } from "@/lib/metrics";
@@ -23,19 +24,6 @@ import { overdueCount } from "@/lib/aging";
 import { DEMO_REVENUE_GOAL } from "@/lib/demoData";
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-
-function greeting(): string {
-  const h = new Date().getHours();
-  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-}
-
-// Best-effort first name from the account email (no separate name field
-// exists) — same level of inference already used for the avatar initials.
-function firstNameFromEmail(email: string): string {
-  const local = email.split("@")[0] ?? "";
-  const word = local.split(/[^a-zA-Z]+/).find(Boolean) ?? "";
-  return word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : "";
-}
 
 /** Wraps a KpiCard so it's clickable — keeps the card's own look, just adds
  * a hover lift + focus ring since it's now a real link. */
@@ -46,6 +34,7 @@ export function DashboardView() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { session } = useAuth();
+  const { greeting, firstName } = useGreeting();
 
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
@@ -88,7 +77,6 @@ export function DashboardView() {
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const mobileDateLabel = `${now.toLocaleDateString("en-US", { weekday: "short" })} ${now.getDate()} ${now.toLocaleDateString("en-US", { month: "short" })}`;
   const initials = (session?.user.email ?? "?").slice(0, 2).toUpperCase();
-  const firstName = firstNameFromEmail(session?.user.email ?? "");
 
   const invoicedSub =
     momChange == null
@@ -120,7 +108,7 @@ export function DashboardView() {
               {mobileDateLabel}
             </p>
             <h1 className="mt-1.5 text-[28px] font-extrabold leading-[1.05] tracking-tight text-foreground">
-              {greeting()}
+              {greeting}
               {firstName && (
                 <>
                   ,
@@ -154,7 +142,7 @@ export function DashboardView() {
 
       {/* ---- Desktop header ---- */}
       <PageHeader
-        title="Dashboard"
+        title={firstName ? `${greeting}, ${firstName}` : greeting}
         subtitle={`${dateLabel} · here's your business overview`}
         actions={
           <>

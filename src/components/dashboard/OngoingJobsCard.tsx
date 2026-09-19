@@ -9,6 +9,7 @@ import { jobSizeLabel } from "@/lib/jobSize";
  * or being billed. Excludes draft/quote_sent (no confirmed job yet) and paid
  * (closed out). */
 const ONGOING_STATUSES: ProjectStatus[] = ["approved", "invoiced"];
+const MAX_ITEMS = 5;
 
 /**
  * "Ongoing jobs" — real projects currently in progress. Same card shell/
@@ -21,6 +22,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
 
   const ongoing = projects.filter((p) => ONGOING_STATUSES.includes(p.status));
+  const shown = ongoing.slice(0, MAX_ITEMS);
 
   const opportunitiesByProjectId = new Map<string, Opportunity>();
   for (const o of opportunities) {
@@ -49,7 +51,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
         <p className="mt-3 text-sm text-muted-foreground">No ongoing jobs right now.</p>
       ) : (
         <ul className="mt-3 divide-y divide-hairline">
-          {ongoing.map((project) => {
+          {shown.map((project) => {
             const meta = projectStatusMeta(project.status);
             const size = jobSizeLabel(project, opportunitiesByProjectId, quotesByProject);
             return (
