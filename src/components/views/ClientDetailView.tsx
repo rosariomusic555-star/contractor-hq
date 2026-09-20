@@ -10,6 +10,7 @@ import {
   Trash2,
   ImagePlus,
   Loader2,
+  Send,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,9 @@ import {
   setTaskCompleted,
   listAppointmentsForClient,
   type ActivityKind,
+  type Client,
 } from "@/lib/api";
+import { inviteClientToHub } from "@/lib/portalApi";
 import { clientStatusMeta, projectStatusMeta, quoteStatusMeta, invoiceStatusMeta, opportunityStageMeta } from "@/lib/statusMeta";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
@@ -262,6 +265,8 @@ export function ClientDetailView() {
             )}
           </section>
 
+          <ClientHubCard client={client} />
+
           <ContactsCard clientId={clientId} />
           <AddressesCard clientId={clientId} />
 
@@ -319,6 +324,69 @@ function LinkedRecordsCard({
             </Link>
           ))}
         </div>
+      )}
+    </section>
+  );
+}
+
+/** Contractor-facing hub status + invite control (Client Hub, Phase 1).
+ * "invited"/"active" are derived purely from the two timestamp columns —
+ * no separate status enum to keep in sync. Sending an invite/resend both
+ * go through the same mutation: the magic-link email via portalSupabase
+ * (never the contractor's own session), then stamping portal_invited_at
+ * through the ordinary authenticated clients update. */
+function ClientHubCard({ client }: { client: Client }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const inviteMut = useMutation({
+    mutationFn: async () => {
+      if (!client.email) throw new Error("Add an email address first.");
+      await inviteClientToHub(client.email);
+      await updateClient(client.id, { portal_invited_at: new Date().toISOString() });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client", client.id] });
+      toast({ title: client.portal_invited_at ? "Link resent" : "Invite sent" });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const status: "active" | "invited" | "never" = client.portal_last_sign_in_at
+    ? "active"
+    : client.portal_invited_at
+      ? "invited"
+      : "never";
+
+  return (
+    <section className="card-surface p-5">
+      <h3 className="text-base font-bold text-foreground">Client hub</h3>
+      <div className="mt-2 flex items-start justify-between gap-3">
+        <div className="space-y-0.5">
+          <p className="text-sm font-bold text-foreground">
+            {status === "active" ? "Active" : status === "invited" ? "Invited" : "Never signed in"}
+          </p>
+          {client.portal_last_sign_in_at ? (
+            <p className="text-xs text-muted-subtle">Last sign-in {timeAgo(client.portal_last_sign_in_at)}</p>
+          ) : client.portal_invited_at ? (
+            <p className="text-xs text-muted-subtle">Invited {timeAgo(client.portal_invited_at)}</p>
+          ) : (
+            <p className="text-xs text-muted-subtle">Hasn't been invited yet</p>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          disabled={!client.email || inviteMut.isPending}
+          onClick={() => inviteMut.mutate()}
+        >
+          <Send className="h-3.5 w-3.5" />
+          {inviteMut.isPending ? "Sending…" : status === "never" ? "Invite" : "Resend link"}
+        </Button>
+      </div>
+      {!client.email && (
+        <p className="mt-2 text-xs text-muted-subtle">Add an email address above to invite this client.</p>
       )}
     </section>
   );

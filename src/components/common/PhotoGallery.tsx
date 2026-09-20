@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { Check, Eye, EyeOff, ImagePlus, Loader2, Share2, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,8 @@ import {
   addProjectImage,
   updateProjectImageCaption,
   deleteProjectImage,
+  setProjectImagesClientVisible,
+  acceptProjectImage,
   listMaterialOrderImages,
   addMaterialOrderImage,
   updateMaterialOrderImageCaption,
@@ -23,12 +25,22 @@ export type PhotoOwner = { type: "project"; id: string } | { type: "material_ord
 
 /** The subset of ProjectImage/MaterialOrderImage this gallery actually
  * needs — both satisfy it structurally, so the same rendering code works
- * for either owner type without a shared DB table. */
+ * for either owner type without a shared DB table. `client_visible` is
+ * project-images-only (Client Hub, 0064) — undefined for a material-order
+ * owner, where delivery photos have no visibility flag at all (always
+ * visible in the hub, per spec). */
 interface GalleryPhoto {
   id: string;
   storage_path: string;
   caption: string | null;
   sort_order: number;
+  client_visible?: boolean;
+  /** Client Hub Phase 5 (0067) — project-images-only, same as
+   * client_visible. A client-submitted photo starts accepted=false and
+   * lives in its own "From client" section (never the main grid) until
+   * the contractor accepts it. */
+  uploaded_by_client?: boolean;
+  accepted?: boolean;
 }
 
 interface PhotoGalleryProps {
@@ -72,9 +84,14 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
   const remove = (image: GalleryPhoto) =>
     owner.type === "project" ? deleteProjectImage(image) : deleteMaterialOrderImage(image);
 
-  const { data: images = [], isLoading } = useQuery({ queryKey, queryFn: list });
+  const { data: allImages = [], isLoading } = useQuery({ queryKey, queryFn: list });
+  // A client-submitted photo (Phase 5) never appears in the main grid —
+  // it lives in its own "From client" section below until accepted.
+  const images = allImages.filter((i) => i.accepted !== false);
+  const pendingImages =
+    owner.type === "project" ? allImages.filter((i) => i.uploaded_by_client && i.accepted === false) : [];
 
-  const paths = images.map((i) => i.storage_path);
+  const paths = allImages.map((i) => i.storage_path);
   const { data: signedUrls = {} } = useQuery({
     queryKey: ["photo-gallery-urls", owner.type, owner.id, images.map((i) => i.id).join(",")],
     queryFn: () => getSignedImageUrls(paths),
@@ -110,6 +127,29 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
     onError,
   });
 
+  // Client Hub (0064) visibility — project-owned photos only; a
+  // material-order (delivery) gallery has no visibility flag at all, so
+  // these are simply never called for that owner type.
+  const visibilityMut = useMutation({
+    mutationFn: ({ ids, visible }: { ids: string[]; visible: boolean }) =>
+      setProjectImagesClientVisible(ids, visible),
+    onSuccess: (_data, { visible }) => {
+      invalidate();
+      if (lightboxImage) setLightboxImage((img) => (img ? { ...img, client_visible: visible } : img));
+    },
+    onError,
+  });
+  const hiddenCount = owner.type === "project" ? images.filter((i) => !i.client_visible).length : 0;
+
+  // Client Hub Phase 5 — moves a client-submitted photo into the regular
+  // gallery. Still starts hidden from the client (see acceptProjectImage's
+  // own doc comment) — accepting isn't the same as sharing it back.
+  const acceptMut = useMutation({
+    mutationFn: (id: string) => acceptProjectImage(id),
+    onSuccess: invalidate,
+    onError,
+  });
+
   const openLightbox = (img: GalleryPhoto) => {
     setLightboxImage(img);
     setCaptionDraft(img.caption ?? "");
@@ -125,14 +165,81 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
 
   return (
     <section className={cn(!bare && "card-surface p-5")}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-bold text-foreground">{title}</h3>
-        {images.length > 0 && (
-          <span className="text-[13px] font-semibold text-muted-foreground">
-            {pluralize(images.length, "photo")}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+          {owner.type === "project" && hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => visibilityMut.mutate({ ids: images.map((i) => i.id), visible: true })}
+              disabled={visibilityMut.isPending}
+              className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline disabled:opacity-50"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Share all with client
+            </button>
+          )}
+          {images.length > 0 && (
+            <span className="text-[13px] font-semibold text-muted-foreground">
+              {pluralize(images.length, "photo")}
+            </span>
+          )}
+        </div>
       </div>
+      {owner.type === "project" && images.length > 0 && (
+        <p className="mt-1 text-[11px] text-muted-subtle">
+          {hiddenCount === 0
+            ? "All photos are visible to the client."
+            : hiddenCount === images.length
+              ? "Hidden from the client — tap the eye icon on a photo to share it."
+              : `${pluralize(images.length - hiddenCount, "photo")} visible to the client.`}
+        </p>
+      )}
+
+      {pendingImages.length > 0 && (
+        <div className="mt-3 rounded-xl border-[1.5px] border-dashed border-warning/40 bg-warning/5 p-3">
+          <p className="text-xs font-bold text-warning">
+            From client — {pluralize(pendingImages.length, "photo")} awaiting review
+          </p>
+          <div className="mt-2 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6">
+            {pendingImages.map((img) => (
+              <div key={img.id} className="group relative aspect-square overflow-hidden rounded-xl bg-muted">
+                {signedUrls[img.storage_path] ? (
+                  <img
+                    src={signedUrls[img.storage_path]}
+                    alt={img.caption ?? ""}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
+                  </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-black/60 p-1">
+                  <button
+                    type="button"
+                    onClick={() => acceptMut.mutate(img.id)}
+                    disabled={acceptMut.isPending}
+                    aria-label="Accept photo"
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteMut.mutate(img)}
+                    disabled={deleteMut.isPending}
+                    aria-label="Reject photo"
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20 text-white hover:bg-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
@@ -146,7 +253,7 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
             key={img.id}
             type="button"
             onClick={() => openLightbox(img)}
-            className="group aspect-square overflow-hidden rounded-xl bg-muted"
+            className="group relative aspect-square overflow-hidden rounded-xl bg-muted"
             aria-label={img.caption || "View photo"}
           >
             {signedUrls[img.storage_path] ? (
@@ -159,6 +266,32 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
               <div className="flex h-full w-full items-center justify-center">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
               </div>
+            )}
+            {owner.type === "project" && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  visibilityMut.mutate({ ids: [img.id], visible: !img.client_visible });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    visibilityMut.mutate({ ids: [img.id], visible: !img.client_visible });
+                  }
+                }}
+                aria-label={img.client_visible ? "Hide from client" : "Share with client"}
+                className={cn(
+                  "absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full backdrop-blur-sm transition-colors",
+                  img.client_visible
+                    ? "bg-primary/90 text-primary-foreground"
+                    : "bg-black/50 text-white/90 hover:bg-black/70",
+                )}
+              >
+                {img.client_visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              </span>
             )}
           </button>
         ))}
@@ -227,6 +360,27 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
                   placeholder="Add a caption…"
                 />
               </div>
+              {owner.type === "project" && (
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    visibilityMut.mutate({ ids: [lightboxImage.id], visible: !lightboxImage.client_visible })
+                  }
+                  disabled={visibilityMut.isPending}
+                >
+                  {lightboxImage.client_visible ? (
+                    <>
+                      <EyeOff className="h-4 w-4" />
+                      Hide from client
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-4 w-4" />
+                      Share with client
+                    </>
+                  )}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 className="text-destructive hover:bg-destructive/10 hover:text-destructive"

@@ -1,13 +1,17 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
+  ImagePlus,
+  Loader2,
   Mail,
   Phone,
   MapPin,
+  Send,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   Select,
@@ -19,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
@@ -46,8 +51,13 @@ import {
   materialsCogs,
   listProjectNotes,
   deleteProjectNote,
+  updateClient,
+  listProjectMessages,
+  sendProjectMessage,
+  getSignedImageUrls,
   type ProjectStatus,
 } from "@/lib/api";
+import { inviteClientToHub } from "@/lib/portalApi";
 import {
   PROJECT_STATUS_META,
   PROJECT_STATUSES,
@@ -113,17 +123,34 @@ export function ProjectDetailView() {
   });
 
   const durationMutation = useMutation({
-    mutationFn: (patch: {
+    mutationFn: async (patch: {
       estimated_duration_days?: number | null;
       actual_start_date?: string | null;
       actual_end_date?: string | null;
-    }) => updateProject(id, patch),
+    }) => {
+      await updateProject(id, patch);
+      // Client-visible milestone (Client Hub activity feed) — only on the
+      // real null → date transition, not every subsequent edit to the field.
+      if (patch.actual_start_date && !project?.actual_start_date) {
+        void logProjectEvent(id, "project_started", "Work started");
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["projects", id] });
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't update estimated duration", description: err.message, variant: "destructive" }),
+  });
+
+  const inviteToHubMut = useMutation({
+    mutationFn: async () => {
+      if (!project?.client?.email || !project.client_id) throw new Error("This client has no email on file.");
+      await inviteClientToHub(project.client.email);
+      await updateClient(project.client_id, { portal_invited_at: new Date().toISOString() });
+    },
+    onSuccess: () => toast({ title: "Invite sent" }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
   if (isLoading) return <p className="text-muted-foreground">Loading project…</p>;
@@ -545,6 +572,21 @@ export function ProjectDetailView() {
                   </p>
                 )}
               </div>
+              {project.client.email && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  disabled={inviteToHubMut.isPending}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    inviteToHubMut.mutate();
+                  }}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {inviteToHubMut.isPending ? "Sending…" : "Invite to client hub"}
+                </Button>
+              )}
             </section>
           )}
 
@@ -573,6 +615,7 @@ export function ProjectDetailView() {
         title="Project Images"
         emptyText="No photos yet — add progress photos, before/after, or site conditions."
       />
+      <ProjectMessagesCard projectId={id} clientId={project.client_id} />
       <FieldUpdatesCard projectId={id} />
     </div>
   );
@@ -653,6 +696,165 @@ function HubCard({ title, summary, onOpen }: { title: string; summary: ReactNode
       </span>
       <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
     </button>
+  );
+}
+
+/**
+ * Client Hub Phase 5 — the contractor's side of the per-project message
+ * thread. The client's side lives in the portal
+ * (PortalProjectOverview.tsx); this is deliberately not a second inbox —
+ * every message sent from either side also lands in the existing
+ * Communications activity log via a dual-write (see sendProjectMessage()/
+ * migration 0067's portal_send_message()).
+ */
+function ProjectMessagesCard({ projectId, clientId }: { projectId: string; clientId: string | null }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [body, setBody] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+
+  const { data: messages = [], isLoading } = useQuery({
+    queryKey: ["project-messages", projectId],
+    queryFn: () => listProjectMessages(projectId),
+  });
+
+  const allPaths = messages.flatMap((m) => m.image_paths);
+  const { data: signedUrls = {} } = useQuery({
+    queryKey: ["project-messages-urls", projectId, allPaths],
+    queryFn: () => getSignedImageUrls(allPaths),
+    enabled: allPaths.length > 0,
+  });
+
+  const sendMut = useMutation({
+    mutationFn: () => sendProjectMessage(projectId, clientId, body, files),
+    onSuccess: () => {
+      setBody("");
+      setFiles([]);
+      qc.invalidateQueries({ queryKey: ["project-messages", projectId] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const canSend = (body.trim().length > 0 || files.length > 0) && !sendMut.isPending;
+
+  return (
+    <section className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-foreground">Messages</h3>
+        {messages.length > 0 && (
+          <span className="text-[13px] font-semibold text-muted-foreground">
+            {pluralize(messages.length, "message")}
+          </span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
+      ) : messages.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          No messages yet — send an update or question to the client below.
+        </p>
+      ) : (
+        <ul className="mt-3 max-h-96 space-y-3 overflow-y-auto">
+          {messages.map((m) => (
+            <li
+              key={m.id}
+              className={cn(
+                "max-w-[85%] rounded-xl px-3 py-2",
+                m.sender === "contractor" ? "ml-auto bg-primary/10" : "bg-muted",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-foreground">
+                  {m.sender === "contractor" ? "You" : "Client"}
+                </span>
+                <span className="text-[11px] text-muted-subtle">{timeAgo(m.created_at)}</span>
+              </div>
+              {m.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-foreground/80">{m.body}</p>}
+              {m.image_paths.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {m.image_paths.map((path) =>
+                    signedUrls[path] ? (
+                      <img
+                        key={path}
+                        src={signedUrls[path]}
+                        alt=""
+                        className="h-16 w-16 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div key={path} className="flex h-16 w-16 items-center justify-center rounded-lg bg-black/10">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {files.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {files.map((f, i) => (
+            <span
+              key={`${f.name}-${i}`}
+              className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+            >
+              {f.name}
+              <button
+                type="button"
+                onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                aria-label="Remove photo"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 flex items-end gap-2">
+        <Textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Write a message to the client…"
+          rows={2}
+          className="min-h-0 flex-1 resize-none"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[1.5px] border-border text-muted-subtle transition-colors hover:border-primary hover:text-primary"
+          aria-label="Attach photos"
+        >
+          <ImagePlus className="h-4 w-4" />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const picked = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (picked.length) setFiles((prev) => [...prev, ...picked]);
+          }}
+        />
+        <Button
+          type="button"
+          size="icon"
+          onClick={() => sendMut.mutate()}
+          disabled={!canSend}
+          aria-label="Send message"
+          className="shrink-0"
+        >
+          {sendMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </Button>
+      </div>
+    </section>
   );
 }
 

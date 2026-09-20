@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronLeft, Building2 } from "lucide-react";
+import { ChevronLeft, Building2, ImagePlus, Loader2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,8 @@ import { useAuth } from "@/lib/auth";
 import {
   getBusinessProfile,
   saveBusinessProfile,
+  uploadBusinessLogo,
+  getSignedImageUrls,
   BUSINESS_PROFILE_FALLBACK,
   type BusinessProfile,
 } from "@/lib/api";
@@ -30,6 +32,24 @@ export function SettingsBusinessProfileView() {
   const seed = (): BusinessProfile => data ?? BUSINESS_PROFILE_FALLBACK;
   const [draft, setDraft] = useState<BusinessProfile>(seed);
   const dirty = useRef(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: logoUrls = {} } = useQuery({
+    queryKey: ["business-profile-logo-url", data?.logo_url],
+    queryFn: () => getSignedImageUrls([data!.logo_url!]),
+    enabled: !!data?.logo_url,
+  });
+  const logoPreviewUrl = data?.logo_url ? logoUrls[data.logo_url] : null;
+
+  const logoMut = useMutation({
+    mutationFn: async (file: File) => {
+      if (!session?.user.id) throw new Error("Not signed in.");
+      const path = await uploadBusinessLogo(session.user.id, file);
+      await saveBusinessProfile({ logo_url: path });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["business-profile"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
 
   useEffect(() => {
     if (dirty.current) return;
@@ -76,6 +96,39 @@ export function SettingsBusinessProfileView() {
         </div>
 
         <div className="grid grid-cols-1 gap-5 bg-card p-5 md:grid-cols-2">
+          <div className="space-y-1.5 md:col-span-2">
+            <div className={FIELD_LABEL}>
+              Logo <span className="normal-case text-muted-foreground">(shown in the Client Hub)</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoMut.isPending}
+                className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.5px] border-dashed border-border bg-muted text-muted-subtle transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {logoMut.isPending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : logoPreviewUrl ? (
+                  <img src={logoPreviewUrl} alt="Business logo" className="h-full w-full object-cover" />
+                ) : (
+                  <ImagePlus className="h-5 w-5" />
+                )}
+              </button>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) logoMut.mutate(file);
+                }}
+              />
+              <p className="text-[11px] text-muted-subtle">Square images work best.</p>
+            </div>
+          </div>
           <div className="space-y-1.5">
             <div className={FIELD_LABEL}>Company name</div>
             <Input

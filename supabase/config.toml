@@ -22,3 +22,12 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/create-employee/deno.json"
 entrypoint = "./functions/create-employee/index.ts"
+
+[functions.portal-request-link]
+enabled = true
+# Public entry point — there is no signed-in caller at all yet (this IS the
+# sign-in request). The function does its own email-match + rate-limit
+# gating server-side before ever touching Supabase Auth's own OTP endpoint.
+verify_jwt = false
+import_map = "./functions/portal-request-link/deno.json"
+entrypoint = "./functions/portal-request-link/index.ts"

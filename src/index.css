@@ -302,3 +302,16 @@
     display: none;
   }
 }
+
+/* Client Hub (0064) "download as PDF" — this app has no PDF-generation
+   library or service anywhere; the browser's own print-to-PDF is the
+   entire mechanism, so any element meant to disappear from that output
+   (nav chrome, action buttons) just needs this one class. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}

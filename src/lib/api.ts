@@ -10,7 +10,7 @@ const IMAGES_BUCKET = "images";
 // ---------------------------------------------------------------------------
 
 export type ProjectStatus = "draft" | "quote_sent" | "approved" | "invoiced" | "paid";
-export type QuoteStatus = "draft" | "sent" | "approved";
+export type QuoteStatus = "draft" | "sent" | "approved" | "declined";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 
 export type ClientStatus = "lead" | "active" | "past" | "inactive";
@@ -33,6 +33,14 @@ export interface Client {
   internal_notes: string | null;
   /** Freeform key/value store — no field-type system, just a flat object. */
   custom_fields: Record<string, string>;
+  /** Client Hub (0063) — set when the contractor sends (or resends) an
+   * invite, and when the client actually signs in. Neither is a foreign
+   * key into any auth table; the portal session is matched to client rows
+   * by email at read time (see get_portal_context() SQL), so these two
+   * columns are purely for the contractor-facing "invited / active / never
+   * signed in" status. */
+  portal_invited_at: string | null;
+  portal_last_sign_in_at: string | null;
 }
 
 /** A user's own editable list of work categories (Settings > Categories). */
@@ -101,6 +109,16 @@ export interface ProjectImage {
    * null for an owner upload. Same table/query either way, so these show
    * up in the owner's existing gallery automatically. */
   uploaded_by_employee_id: string | null;
+  /** Client Hub (0064) — defaults hidden; the contractor opts a photo in
+   * before it appears in the portal's Photos section. */
+  client_visible: boolean;
+  /** Client Hub Phase 5 (0067) — true only for a photo the CLIENT uploaded
+   * from the portal (site conditions, a question, a problem they spotted).
+   * `accepted` defaults true for every other upload path (owner/employee),
+   * and false only for a fresh client upload — it never auto-publishes
+   * into the main gallery grid until the contractor accepts it. */
+  uploaded_by_client: boolean;
+  accepted: boolean;
 }
 
 /** A photo attached to a quote line item (paver style, area being worked
@@ -160,6 +178,12 @@ export interface Quote {
   share_token: string | null;
   signed_at: string | null;
   signed_by: string | null;
+  /** Client Hub (0065) — captured alongside signed_by/signed_at on portal
+   * approval; null for a quote signed the old way (share-link sign_quote,
+   * which never captured IP), and always null for a declined quote. */
+  signed_ip: string | null;
+  declined_at: string | null;
+  decline_comment: string | null;
   created_at: string;
   updated_at: string;
   // Which materials sheet (0042) this quote's Estimated Cost pulls its real
@@ -376,6 +400,14 @@ export interface ChangeOrder {
   amount: number;
   status: ChangeOrderStatus;
   approved_at: string | null;
+  /** Client Hub (0065) — a client-side approval/decline now captures a
+   * signature name (and IP), same as a quote's signed_by/signed_ip; both
+   * stay null for a contractor-side one-tap approval, which still works
+   * exactly as before. */
+  approved_by: string | null;
+  approved_ip: string | null;
+  declined_at: string | null;
+  decline_comment: string | null;
   created_at: string;
 }
 
@@ -551,6 +583,7 @@ export async function updateClient(
       | "tags"
       | "internal_notes"
       | "custom_fields"
+      | "portal_invited_at"
     >
   >,
 ): Promise<void> {
@@ -717,6 +750,11 @@ export interface BusinessProfile {
   email: string | null;
   license: string | null;
   address: string | null;
+  /** Client Hub (0064) — shown as the portal's own header branding, since
+   * to a client the hub reads as the contractor's portal, not
+   * ContractorHQ's. A path into the `images` bucket under
+   * business-logos/{user_id}/..., resolved via getSignedImageUrls(). */
+  logo_url: string | null;
 }
 
 export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
@@ -725,6 +763,7 @@ export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
   email: null,
   license: null,
   address: null,
+  logo_url: null,
 };
 
 export async function getBusinessProfile(): Promise<BusinessProfile> {
@@ -742,6 +781,7 @@ export async function getBusinessProfile(): Promise<BusinessProfile> {
     email: data.email ?? null,
     license: data.license ?? null,
     address: data.address ?? null,
+    logo_url: data.logo_url ?? null,
   };
 }
 
@@ -755,6 +795,7 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
       email: merged.email,
       license: merged.license,
       address: merged.address,
+      logo_url: merged.logo_url,
     })
     .select()
     .single();
@@ -765,7 +806,21 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
     email: data.email ?? null,
     license: data.license ?? null,
     address: data.address ?? null,
+    logo_url: data.logo_url ?? null,
   };
+}
+
+/** Uploads a new logo (replacing any previous one — old object is
+ * best-effort removed), returns the storage path to save as
+ * business_profile.logo_url. */
+export async function uploadBusinessLogo(userId: string, file: File): Promise<string> {
+  const compressed = await compressImageFile(file, { maxDimension: 512, quality: 0.9 });
+  const path = `business-logos/${userId}/${randomImageFilename(file.name)}`;
+  const { error } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (error) throw error;
+  return path;
 }
 
 // ---------------------------------------------------------------------------
@@ -893,6 +948,23 @@ export async function updateProjectImageCaption(id: string, caption: string | nu
   if (error) throw error;
 }
 
+/** Client Hub (0064) visibility toggle — one photo, or (bulk "share with
+ * client") several at once. */
+export async function setProjectImagesClientVisible(ids: string[], visible: boolean): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from("project_images").update({ client_visible: visible }).in("id", ids);
+  if (error) throw error;
+}
+
+/** Accepts a client-submitted photo (Client Hub Phase 5) into the regular
+ * gallery — it still starts hidden from the client (client_visible stays
+ * false, same as any other photo) until the contractor explicitly shares
+ * it back via setProjectImagesClientVisible(). */
+export async function acceptProjectImage(id: string): Promise<void> {
+  const { error } = await supabase.from("project_images").update({ accepted: true }).eq("id", id);
+  if (error) throw error;
+}
+
 export async function deleteProjectImage(
   image: Pick<ProjectImage, "id" | "storage_path">,
 ): Promise<void> {
@@ -902,6 +974,72 @@ export async function deleteProjectImage(
   if (storageError) throw storageError;
   const { error } = await supabase.from("project_images").delete().eq("id", image.id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Project messages (Client Hub Phase 5, 0067) — the per-project thread
+// between contractor and client. Deliberately its own table, not the
+// `activities` log (that's a flat one-off log, not a two-way thread) — but
+// every message still writes a matching activities row (see
+// portal_send_message's SQL for the client→contractor direction; this
+// file's sendProjectMessage does the same for contractor→client) so it
+// surfaces on the EXISTING Communications page and a client's own Activity
+// card, per the "don't build a second inbox" instruction.
+// ---------------------------------------------------------------------------
+
+export interface ProjectMessage {
+  id: string;
+  project_id: string;
+  user_id: string;
+  sender: "contractor" | "client";
+  body: string | null;
+  image_paths: string[];
+  created_at: string;
+}
+
+export async function listProjectMessages(projectId: string): Promise<ProjectMessage[]> {
+  const { data, error } = await supabase
+    .from("project_messages")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function sendProjectMessage(
+  projectId: string,
+  clientId: string | null,
+  body: string,
+  files: File[],
+): Promise<void> {
+  const imagePaths: string[] = [];
+  for (const file of files) {
+    const compressed = await compressImageFile(file);
+    const path = `project-messages/${projectId}/${randomImageFilename(file.name)}`;
+    const { error: uploadError } = await supabase.storage
+      .from(IMAGES_BUCKET)
+      .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+    if (uploadError) throw uploadError;
+    imagePaths.push(path);
+  }
+
+  const { error } = await supabase.from("project_messages").insert({
+    project_id: projectId,
+    sender: "contractor",
+    body: body.trim() || null,
+    image_paths: imagePaths,
+  });
+  if (error) throw error;
+
+  if (clientId) {
+    await logActivity(clientId, "text", `Message to client: ${(body.trim() || "(photo)").slice(0, 140)}`, {
+      project_id: projectId,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2425,6 +2563,7 @@ export type ProjectEventKind =
   | "status_changed"
   | "quote_sent"
   | "quote_signed"
+  | "quote_declined"
   | "invoice_created"
   | "invoice_sent"
   | "invoice_paid"
@@ -2432,7 +2571,8 @@ export type ProjectEventKind =
   | "change_order_created"
   | "change_order_approved"
   | "change_order_rejected"
-  | "quote_reverted";
+  | "quote_reverted"
+  | "project_started";
 
 export interface ProjectEvent {
   id: string;

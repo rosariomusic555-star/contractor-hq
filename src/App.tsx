@@ -4,7 +4,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
+import { PortalAuthProvider } from "@/lib/portalAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { PortalLayout } from "@/components/portal/PortalLayout";
+import { PortalHome } from "@/components/portal/PortalHome";
+import { PortalProjectOverview } from "@/components/portal/PortalProjectOverview";
+import { PortalDocumentView } from "@/components/portal/PortalDocumentView";
 import { ScrollToTop } from "@/components/layout/ScrollToTop";
 import { DashboardView } from "@/components/views/DashboardView";
 import { NeedsYouView } from "@/components/views/NeedsYouView";
@@ -71,6 +76,24 @@ const App = () => (
             {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
             <Route path="/quote/:token" element={<SharedQuotePage />} />
             <Route path="/invoice/:token" element={<SharedInvoicePage />} />
+
+            {/* Client Hub (/portal) — its own auth entirely (PortalAuthProvider,
+                backed by portalSupabase's separate session), never the
+                contractor AuthProvider above. PortalLayout renders the sign-in
+                screen in place when there's no portal session, same convention
+                AppLayout uses for the contractor side. */}
+            <Route
+              path="/portal"
+              element={
+                <PortalAuthProvider>
+                  <PortalLayout />
+                </PortalAuthProvider>
+              }
+            >
+              <Route index element={<PortalHome />} />
+              <Route path="projects/:id" element={<PortalProjectOverview />} />
+              <Route path="projects/:projectId/documents/:kind/:id" element={<PortalDocumentView />} />
+            </Route>
 
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
