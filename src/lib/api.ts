@@ -1083,6 +1083,15 @@ export async function listMaterialsSheets(projectId?: string): Promise<Materials
  * listQuotes()/listInvoices(). Used by the global Material Sheets list to
  * compute each sheet's cost via materialsCogs() without an N+1 per-sheet
  * fetch; group by sheet_id client-side. */
+/** The top-level `.order("sort_order")` only orders the sections
+ * themselves — PostgREST doesn't guarantee a nested embed's (materials_items
+ * here) row order, so each section's own items need their own client-side
+ * sort. Mirrors sortQuote() below for quote_sections/quote_items. */
+function sortMaterialsSections(sections: MaterialsSection[]): MaterialsSection[] {
+  for (const s of sections) s.materials_items?.sort((a, b) => a.sort_order - b.sort_order);
+  return sections;
+}
+
 export async function listAllMaterialsSections(): Promise<MaterialsSection[]> {
   const { data, error } = await supabase
     .from("materials_sections")
@@ -1092,7 +1101,7 @@ export async function listAllMaterialsSections(): Promise<MaterialsSection[]> {
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return data ?? [];
+  return sortMaterialsSections(data ?? []);
 }
 
 export async function createMaterialsSheet(
@@ -1136,7 +1145,7 @@ export async function listMaterials(projectId: string): Promise<MaterialsSection
     .eq("project_id", projectId)
     .order("sort_order");
   if (error) throw error;
-  return data ?? [];
+  return sortMaterialsSections(data ?? []);
 }
 
 export async function listMaterialsBySheet(sheetId: string): Promise<MaterialsSection[]> {
@@ -1146,7 +1155,7 @@ export async function listMaterialsBySheet(sheetId: string): Promise<MaterialsSe
     .eq("sheet_id", sheetId)
     .order("sort_order");
   if (error) throw error;
-  return data ?? [];
+  return sortMaterialsSections(data ?? []);
 }
 
 export async function createMaterialsSection(

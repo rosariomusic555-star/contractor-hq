@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import {
   ChevronLeft,
   ChevronRight,
@@ -53,6 +54,8 @@ import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
+import { ReorderControls } from "@/components/common/ReorderControls";
+import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteFinancials, demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
 import { compressImageFile } from "@/lib/imageUpload";
@@ -294,6 +297,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   };
   const setSections = (fn: (s: DraftSection[]) => DraftSection[]) =>
     edit((d) => ({ ...d, sections: fn(d.sections) }));
+  const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftItem, DraftSection>(setSections);
 
   // Not-yet-uploaded image previews are local blob URLs — revoke them
   // before throwing the draft away so they don't leak. Nothing was ever
@@ -845,20 +849,41 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             </div>
           )}
 
-          {draft.sections.map((section) => (
-            <QuoteSectionCard
-              key={section.id}
-              section={section}
-              subtotal={sectionSubtotal(section)}
-              categories={categories}
-              onRename={(name) => renameSection(section.id, name)}
-              onToggleOptional={(checked) => toggleSectionOptional(section.id, checked)}
-              onDeleteSection={() => removeSection(section.id)}
-              onAddItem={() => addItem(section.id)}
-              onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
-              onDeleteItem={(iid) => removeItem(section.id, iid)}
-            />
-          ))}
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Droppable droppableId="quote-sections" type="section">
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-4">
+                  {draft.sections.map((section, index) => (
+                    <Draggable key={section.id} draggableId={section.id} index={index}>
+                      {(dragProvided, dragSnapshot) => (
+                        <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                          <QuoteSectionCard
+                            section={section}
+                            subtotal={sectionSubtotal(section)}
+                            categories={categories}
+                            onRename={(name) => renameSection(section.id, name)}
+                            onToggleOptional={(checked) => toggleSectionOptional(section.id, checked)}
+                            onDeleteSection={() => removeSection(section.id)}
+                            onAddItem={() => addItem(section.id)}
+                            onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
+                            onDeleteItem={(iid) => removeItem(section.id, iid)}
+                            dragHandleProps={dragProvided.dragHandleProps}
+                            dragging={dragSnapshot.isDragging}
+                            canMoveUp={index > 0}
+                            canMoveDown={index < draft.sections.length - 1}
+                            onMoveUp={() => moveSection(index, -1)}
+                            onMoveDown={() => moveSection(index, 1)}
+                            onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <button
@@ -1578,6 +1603,14 @@ interface QuoteSectionCardProps {
   onAddItem: () => void;
   onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
+  dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
+  dragging: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  /** Moves the item at `itemIndex` (within this section) up/down one spot. */
+  onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
 }
 
 function QuoteSectionCard({
@@ -1590,14 +1623,26 @@ function QuoteSectionCard({
   onAddItem,
   onEditItem,
   onDeleteItem,
+  dragHandleProps,
+  dragging,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+  onMoveItem,
 }: QuoteSectionCardProps) {
   const items = section.items;
 
   return (
-    <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
+    <div
+      className={cn(
+        "overflow-hidden rounded-card border border-border bg-card shadow-card transition-shadow",
+        dragging && "opacity-90 shadow-card-hover",
+      )}
+    >
       {/* Slate section header — editable name + running subtotal. Same
           blue-gray the mobile top banner used before it switched to ink. */}
-      <div className="flex items-center justify-between gap-5 bg-sidebar px-5 py-4">
+      <div className="group flex items-center gap-3 bg-sidebar px-5 py-4">
         <div className="min-w-0 flex-1">
           <input
             value={section.name}
@@ -1612,6 +1657,15 @@ function QuoteSectionCard({
             {formatCurrency(subtotal)}
           </div>
         </div>
+        <ReorderControls
+          tone="dark"
+          dragHandleProps={dragHandleProps}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          label={section.name || "section"}
+        />
       </div>
 
       {/* Optional toggle + delete */}
@@ -1657,20 +1711,38 @@ function QuoteSectionCard({
       </div>
 
       {/* Items */}
-      <div className="flex flex-col gap-3 p-[18px]">
-        {items.map((item) => (
-          <QuoteItemRow
-            key={item.id}
-            item={item}
-            categories={categories}
-            onEdit={(patch) => onEditItem(item.id, patch)}
-            onDelete={() => onDeleteItem(item.id)}
-          />
-        ))}
+      <div className="p-[18px]">
+        <Droppable droppableId={section.id} type="item">
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
+              {items.map((item, index) => (
+                <Draggable key={item.id} draggableId={item.id} index={index}>
+                  {(dragProvided, dragSnapshot) => (
+                    <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                      <QuoteItemRow
+                        item={item}
+                        categories={categories}
+                        onEdit={(patch) => onEditItem(item.id, patch)}
+                        onDelete={() => onDeleteItem(item.id)}
+                        dragHandleProps={dragProvided.dragHandleProps}
+                        dragging={dragSnapshot.isDragging}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < items.length - 1}
+                        onMoveUp={() => onMoveItem(index, -1)}
+                        onMoveDown={() => onMoveItem(index, 1)}
+                      />
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
         <button
           type="button"
           onClick={onAddItem}
-          className="flex h-[52px] items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+          className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
         >
           <Plus className="h-4 w-4" />
           Add item to this section
@@ -1685,11 +1757,28 @@ interface QuoteItemRowProps {
   categories: Category[];
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
+  dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
+  dragging: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }
 
 const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
-function QuoteItemRow({ item, categories, onEdit, onDelete }: QuoteItemRowProps) {
+function QuoteItemRow({
+  item,
+  categories,
+  onEdit,
+  onDelete,
+  dragHandleProps,
+  dragging,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+}: QuoteItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
@@ -1700,26 +1789,44 @@ function QuoteItemRow({ item, categories, onEdit, onDelete }: QuoteItemRowProps)
   const total = item.quantity * item.price;
 
   return (
-    <div className="flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover">
-      {/* Item name + delete. Textarea so long names wrap and it auto-grows. */}
-      <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] items-end gap-3">
-        <div className="min-w-0">
-          <div className={ITEM_FIELD_LABEL}>Item</div>
+    <div
+      className={cn(
+        "group flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover",
+        dragging && "border-primary/40 opacity-90 shadow-card-hover",
+      )}
+    >
+      {/* Item name + handle/arrows + delete — the label sits on its own
+          line above; the input, reorder group, and trash share one row so
+          the controls center on the input itself (not the label+input
+          block), independent of everything below (description, category,
+          photos). Textarea so long names wrap and it auto-grows. */}
+      <div>
+        <div className={ITEM_FIELD_LABEL}>Item</div>
+        <div className="mt-1 flex items-center gap-3">
           <AutoGrowTextarea
             value={item.name}
             onChange={(e) => onEdit({ name: e.target.value })}
             placeholder="Item name"
-            className="mt-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
+            className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
           />
+          <ReorderControls
+            dragHandleProps={dragHandleProps}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            label={item.name || "item"}
+            className="mr-2"
+          />
+          <button
+            type="button"
+            onClick={onDelete}
+            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Remove item"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="mb-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
-          aria-label="Remove item"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
       </div>
 
       {/* Description */}

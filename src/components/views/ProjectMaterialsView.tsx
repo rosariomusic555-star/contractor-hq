@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,6 +30,8 @@ import { Button } from "@/components/ui/button";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { StatusPill } from "@/components/common/StatusPill";
+import { ReorderControls } from "@/components/common/ReorderControls";
+import { useSectionReorder } from "@/hooks/use-section-reorder";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -363,6 +366,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     markDirty();
     setDraft((d) => fn(d));
   };
+  const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftItem, DraftSection>(edit);
 
   const discard = () => {
     dirty.current = false;
@@ -502,8 +506,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             smart_section_build_type: ds.smart_section_build_type,
           });
           sectionId = created.id;
-        } else if (server.name !== name) {
-          await updateMaterialsSection(server.id, { name });
+        } else if (server.name !== name || server.sort_order !== si) {
+          await updateMaterialsSection(server.id, { name, sort_order: si });
         }
 
         const serverItems = new Map((server?.materials_items ?? []).map((i) => [i.id, i]));
@@ -543,7 +547,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: srv.price_book_item_id ?? null,
               catalog_product_id: srv.catalog_product_id ?? null,
               waste_percent: Number(srv.waste_percent ?? 0),
-            })
+            }) ||
+            srv.sort_order !== ii
           ) {
             await updateMaterialsItem(srv.id, {
               name: di.name,
@@ -554,6 +559,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
               waste_percent: di.waste_percent,
+              sort_order: ii,
             });
           }
 
@@ -759,22 +765,43 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </div>
       )}
 
-      {draft.map((section) => (
-        <SectionCard
-          key={section.id}
-          section={section}
-          expenseCategories={expenseCategories}
-          priceBookItems={priceBookItems}
-          catalogItems={catalogItems}
-          priceOverrides={priceOverrides}
-          onRename={(name) => renameSection(section.id, name)}
-          onDelete={() => deleteSection(section.id)}
-          onAddItem={() => addItem(section.id)}
-          onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
-          onDeleteItem={(iid) => deleteItem(section.id, iid)}
-          onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
-        />
-      ))}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="materials-sections" type="section">
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-5">
+              {draft.map((section, index) => (
+                <Draggable key={section.id} draggableId={section.id} index={index}>
+                  {(dragProvided, dragSnapshot) => (
+                    <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                      <SectionCard
+                        section={section}
+                        expenseCategories={expenseCategories}
+                        priceBookItems={priceBookItems}
+                        catalogItems={catalogItems}
+                        priceOverrides={priceOverrides}
+                        onRename={(name) => renameSection(section.id, name)}
+                        onDelete={() => deleteSection(section.id)}
+                        onAddItem={() => addItem(section.id)}
+                        onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
+                        onDeleteItem={(iid) => deleteItem(section.id, iid)}
+                        onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
+                        dragHandleProps={dragProvided.dragHandleProps}
+                        dragging={dragSnapshot.isDragging}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < draft.length - 1}
+                        onMoveUp={() => moveSection(index, -1)}
+                        onMoveDown={() => moveSection(index, 1)}
+                        onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
+                      />
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <button
@@ -883,6 +910,14 @@ interface SectionCardProps {
   onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
   onApplyCalculatedLines: (lines: CalculatedLine[]) => void;
+  dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
+  dragging: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  /** Moves the item at `itemIndex` (within this section) up/down one spot. */
+  onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
 }
 
 function SectionCard({
@@ -897,15 +932,27 @@ function SectionCard({
   onEditItem,
   onDeleteItem,
   onApplyCalculatedLines,
+  dragHandleProps,
+  dragging,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+  onMoveItem,
 }: SectionCardProps) {
   const subtotal = section.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0);
   const buildType = findSmartSectionTemplate(section.smart_section_build_type);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
+    <div
+      className={cn(
+        "overflow-hidden rounded-card border border-border bg-card shadow-card transition-shadow",
+        dragging && "opacity-90 shadow-card-hover",
+      )}
+    >
       {/* Slate section header — editable name + running subtotal */}
-      <div className="flex items-center justify-between gap-5 bg-sidebar px-5 py-4">
+      <div className="group flex items-center gap-3 bg-sidebar px-5 py-4">
         <input
           value={section.name}
           onChange={(e) => onRename(e.target.value)}
@@ -918,6 +965,15 @@ function SectionCard({
             {formatCurrency(subtotal)}
           </div>
         </div>
+        <ReorderControls
+          tone="dark"
+          dragHandleProps={dragHandleProps}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          canMoveUp={canMoveUp}
+          canMoveDown={canMoveDown}
+          label={section.name || "section"}
+        />
       </div>
 
       {/* Calculator (Smart Sections only) + Delete */}
@@ -964,23 +1020,41 @@ function SectionCard({
       </div>
 
       {/* Items */}
-      <div className="flex flex-col gap-3 p-[18px]">
-        {section.items.map((item) => (
-          <ItemRow
-            key={item.id}
-            item={item}
-            expenseCategories={expenseCategories}
-            priceBookItems={priceBookItems}
-            catalogItems={catalogItems}
-            priceOverrides={priceOverrides}
-            onEdit={(patch) => onEditItem(item.id, patch)}
-            onDelete={() => onDeleteItem(item.id)}
-          />
-        ))}
+      <div className="p-[18px]">
+        <Droppable droppableId={section.id} type="item">
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
+              {section.items.map((item, index) => (
+                <Draggable key={item.id} draggableId={item.id} index={index}>
+                  {(dragProvided, dragSnapshot) => (
+                    <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                      <ItemRow
+                        item={item}
+                        expenseCategories={expenseCategories}
+                        priceBookItems={priceBookItems}
+                        catalogItems={catalogItems}
+                        priceOverrides={priceOverrides}
+                        onEdit={(patch) => onEditItem(item.id, patch)}
+                        onDelete={() => onDeleteItem(item.id)}
+                        dragHandleProps={dragProvided.dragHandleProps}
+                        dragging={dragSnapshot.isDragging}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < section.items.length - 1}
+                        onMoveUp={() => onMoveItem(index, -1)}
+                        onMoveDown={() => onMoveItem(index, 1)}
+                      />
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
         <button
           type="button"
           onClick={onAddItem}
-          className="flex h-[52px] items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+          className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
         >
           <Plus className="h-4 w-4" />
           Add item to this section
@@ -1010,6 +1084,12 @@ interface ItemRowProps {
   priceOverrides: CatalogPriceOverride[];
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
+  dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
+  dragging: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }
 
 function ItemRow({
@@ -1020,6 +1100,12 @@ function ItemRow({
   priceOverrides,
   onEdit,
   onDelete,
+  dragHandleProps,
+  dragging,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
 }: ItemRowProps) {
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
@@ -1071,39 +1157,57 @@ function ItemRow({
     : null;
 
   return (
-    <div className="flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover">
-      {/* Item name + price book picker + delete */}
-      <div className="grid grid-cols-[minmax(0,1fr)_1.75rem_1.75rem] items-end gap-3">
-        <div className="min-w-0">
-          <div className={ITEM_FIELD_LABEL}>Item</div>
+    <div
+      className={cn(
+        "group flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover",
+        dragging && "border-primary/40 opacity-90 shadow-card-hover",
+      )}
+    >
+      {/* Item name + price book picker + handle/arrows + delete — the
+          label sits on its own line above; the input and every button
+          share one row so they center on the input itself (not the
+          label+input block), independent of everything below (category,
+          qty/cost fields). */}
+      <div>
+        <div className={ITEM_FIELD_LABEL}>Item</div>
+        <div className="mt-1 flex items-center gap-3">
           <AutoGrowTextarea
             value={item.name}
             onChange={(e) => onEdit({ name: e.target.value })}
             placeholder="Item name"
-            className="mt-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
+            className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
           />
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className={cn(
+              "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg transition-colors",
+              linked || catalogLinked
+                ? "bg-primary/15 text-primary hover:bg-primary/25"
+                : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
+            )}
+            aria-label="Pick from Price Book or Catalog"
+          >
+            <BookOpen className="h-4 w-4" />
+          </button>
+          <ReorderControls
+            dragHandleProps={dragHandleProps}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            label={item.name || "item"}
+            className="mr-2"
+          />
+          <button
+            type="button"
+            onClick={onDelete}
+            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Remove item"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          className={cn(
-            "mb-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-lg transition-colors",
-            linked || catalogLinked
-              ? "bg-primary/15 text-primary hover:bg-primary/25"
-              : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
-          )}
-          aria-label="Pick from Price Book or Catalog"
-        >
-          <BookOpen className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="mb-1.5 flex h-[30px] w-[30px] items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
-          aria-label="Remove item"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
       </div>
 
       {/* Category — its own full-width row so the picked name is never
