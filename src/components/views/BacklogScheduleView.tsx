@@ -245,7 +245,7 @@ export function BacklogScheduleView() {
                     monthLabel={monthDate.toLocaleDateString("en-US", { month: "long" })}
                     committedDollars={m.committedDollars}
                     jobCount={m.jobCount}
-                    jobs={nearbyJobs}
+                    jobs={m.jobs}
                     today={today}
                     onOpenMonth={() => setPanel({ mode: "month", monthIndex: i })}
                     onOpenDay={(date) => setPanel({ mode: "day", date })}

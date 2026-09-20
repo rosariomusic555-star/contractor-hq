@@ -4,9 +4,9 @@ import { formatCurrency } from "@/lib/utils";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import type { BacklogJob } from "@/lib/backlog";
 
-/** Hover a mini-month day cell — lists every job covering that day
- * (project, client, amount, status). No-ops (just renders children) on an
- * empty day, same as not wrapping it at all. */
+/** Hover a day cell (year page) or a whole month thumbnail (dashboard) —
+ * lists every job in `jobs` (project, client, amount, status). No-ops (just
+ * renders children) when `jobs` is empty, same as not wrapping it at all. */
 export function DayTooltip({ jobs, children }: { jobs: BacklogJob[]; children: ReactNode }) {
   if (jobs.length === 0) return <>{children}</>;
 

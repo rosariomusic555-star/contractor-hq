@@ -65,3 +65,12 @@ export function monthGridDays(year: number, month: number, today: Date = new Dat
 export function jobsOnDate(jobs: BacklogJob[], date: Date): BacklogJob[] {
   return jobs.filter((j) => jobOverlapsRange(j, date, date));
 }
+
+/** Plain day-1-through-last-day list for a month, no leading/trailing days
+ * from neighboring months — the Dashboard's square thumbnails (unlike
+ * monthGridDays' always-42-day grid) don't show adjacent months at all, so
+ * there's nothing to pad against. */
+export function daysInMonth(year: number, month: number): Date[] {
+  const count = new Date(year, month + 1, 0).getDate();
+  return Array.from({ length: count }, (_, i) => new Date(year, month, i + 1));
+}

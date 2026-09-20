@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { cn, formatCurrency, pluralize } from "@/lib/utils";
+import { cn, formatCurrencyWhole, pluralize } from "@/lib/utils";
 import type { BacklogJob } from "@/lib/backlog";
 import { TONE_SOLID_CLASS, TONE_TINT_CLASS, projectStatusMeta } from "@/lib/statusMeta";
 import { monthGridDays, jobsOnDate, JOB_DRAG_MIME, MAX_VISIBLE_DOTS } from "@/lib/backlogSchedule";
@@ -24,6 +24,7 @@ export function MiniMonth({
   onOpenMonth,
   onOpenDay,
   onMoveJob,
+  enableDragDrop = true,
 }: {
   year: number;
   month: number;
@@ -34,7 +35,10 @@ export function MiniMonth({
   today: Date;
   onOpenMonth: () => void;
   onOpenDay: (date: Date) => void;
-  onMoveJob: (projectId: string, date: Date) => void;
+  onMoveJob?: (projectId: string, date: Date) => void;
+  /** Off for the read-only Dashboard card — scheduling only happens on the
+   * full Backlog Schedule page. */
+  enableDragDrop?: boolean;
 }) {
   const days = monthGridDays(year, month, today);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -47,7 +51,7 @@ export function MiniMonth({
             header is the same height — no jump between a 1-line and a
             2-line card in the grid. */}
         <p className={cn("text-[11px] font-semibold text-muted-foreground", jobCount === 0 && "invisible")}>
-          {formatCurrency(committedDollars)} · {pluralize(jobCount, "job")}
+          {formatCurrencyWhole(committedDollars)} · {pluralize(jobCount, "job")}
         </p>
       </button>
 
@@ -59,7 +63,10 @@ export function MiniMonth({
 
       <div className="mt-0.5 grid grid-cols-7 gap-[2px]">
         {days.map((day) => {
-          const dayJobs = jobsOnDate(jobs, day.date);
+          // Out-of-month leading/trailing days never show that neighbor
+          // month's jobs — otherwise the same job would render twice
+          // (once in its own month, once bleeding into the adjacent one).
+          const dayJobs = day.inMonth ? jobsOnDate(jobs, day.date) : [];
           const singleJob = dayJobs.length === 1 ? dayJobs[0] : null;
           const statuses = new Set(dayJobs.map((j) => j.status));
           const tintTone = statuses.size === 1 ? projectStatusMeta(dayJobs[0].status).tone : null;
@@ -68,24 +75,28 @@ export function MiniMonth({
             <DayTooltip key={day.key} jobs={dayJobs}>
               <button
                 type="button"
-                draggable={!!singleJob}
+                draggable={enableDragDrop && !!singleJob}
                 onDragStart={
-                  singleJob
+                  enableDragDrop && singleJob
                     ? (e) => {
                         e.dataTransfer.setData(JOB_DRAG_MIME, singleJob.projectId);
                         e.dataTransfer.effectAllowed = "move";
                       }
                     : undefined
                 }
-                onDragOver={(e) => e.preventDefault()}
-                onDragEnter={() => setDragOverKey(day.key)}
-                onDragLeave={() => setDragOverKey((k) => (k === day.key ? null : k))}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOverKey(null);
-                  const projectId = e.dataTransfer.getData(JOB_DRAG_MIME);
-                  if (projectId) onMoveJob(projectId, day.date);
-                }}
+                onDragOver={enableDragDrop ? (e) => e.preventDefault() : undefined}
+                onDragEnter={enableDragDrop ? () => setDragOverKey(day.key) : undefined}
+                onDragLeave={enableDragDrop ? () => setDragOverKey((k) => (k === day.key ? null : k)) : undefined}
+                onDrop={
+                  enableDragDrop
+                    ? (e) => {
+                        e.preventDefault();
+                        setDragOverKey(null);
+                        const projectId = e.dataTransfer.getData(JOB_DRAG_MIME);
+                        if (projectId) onMoveJob?.(projectId, day.date);
+                      }
+                    : undefined
+                }
                 onClick={() => onOpenDay(day.date)}
                 className={cn(
                   "flex aspect-square min-h-[30px] flex-col items-center justify-center gap-[2px] rounded text-[10px] transition-colors",
