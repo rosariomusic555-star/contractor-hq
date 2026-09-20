@@ -55,9 +55,11 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { ReorderControls } from "@/components/common/ReorderControls";
+import { SectionCard } from "@/components/common/SectionCard";
 import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
+import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteFinancials, demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
@@ -302,6 +304,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const setSections = (fn: (s: DraftSection[]) => DraftSection[]) =>
     edit((d) => ({ ...d, sections: fn(d.sections) }));
   const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftItem, DraftSection>(setSections);
+  const {
+    isCollapsed,
+    toggle: toggleCollapse,
+    expand: expandSection,
+    collapseAll,
+    expandAll,
+  } = useSectionCollapse();
+  // Tracked only so a collapsed section's header knows to auto-expand on
+  // hover while a line item is being dragged over it — collapsing hides the
+  // item Droppable's visible content but keeps it mounted (see SectionCard).
+  const [isDraggingItem, setIsDraggingItem] = useState(false);
 
   // Not-yet-uploaded image previews are local blob URLs — revoke them
   // before throwing the draft away so they don't leak. Nothing was ever
@@ -886,7 +899,33 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             </div>
           )}
 
-          <DragDropContext onDragEnd={onDragEnd}>
+          {draft.sections.length > 0 && (
+            <div className="flex items-center justify-end gap-3 text-xs font-bold text-primary">
+              <button
+                type="button"
+                onClick={() => collapseAll(draft.sections.map((s) => s.id))}
+                className="hover:underline"
+              >
+                Collapse all
+              </button>
+              <span className="text-border">|</span>
+              <button
+                type="button"
+                onClick={() => expandAll(draft.sections.map((s) => s.id))}
+                className="hover:underline"
+              >
+                Expand all
+              </button>
+            </div>
+          )}
+
+          <DragDropContext
+            onDragStart={(start) => setIsDraggingItem(start.type === "item")}
+            onDragEnd={(result) => {
+              setIsDraggingItem(false);
+              onDragEnd(result);
+            }}
+          >
             <Droppable droppableId="quote-sections" type="section">
               {(provided) => (
                 <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-4">
@@ -911,6 +950,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             onMoveUp={() => moveSection(index, -1)}
                             onMoveDown={() => moveSection(index, 1)}
                             onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
+                            collapsed={isCollapsed(section.id)}
+                            onToggleCollapse={() => toggleCollapse(section.id)}
+                            isDraggingItem={isDraggingItem}
+                            onAutoExpand={() => expandSection(section.id)}
                           />
                         </div>
                       )}
@@ -1682,6 +1725,10 @@ interface QuoteSectionCardProps {
   onMoveDown: () => void;
   /** Moves the item at `itemIndex` (within this section) up/down one spot. */
   onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  isDraggingItem: boolean;
+  onAutoExpand: () => void;
 }
 
 function QuoteSectionCard({
@@ -1701,125 +1748,108 @@ function QuoteSectionCard({
   onMoveUp,
   onMoveDown,
   onMoveItem,
+  collapsed,
+  onToggleCollapse,
+  isDraggingItem,
+  onAutoExpand,
 }: QuoteSectionCardProps) {
   const items = section.items;
 
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-card border border-border bg-card shadow-card transition-shadow",
-        dragging && "opacity-90 shadow-card-hover",
-      )}
-    >
-      {/* Slate section header — editable name + running subtotal. Same
-          blue-gray the mobile top banner used before it switched to ink. */}
-      <div className="group flex items-center gap-3 bg-sidebar px-5 py-4">
-        <div className="min-w-0 flex-1">
-          <input
-            value={section.name}
-            onChange={(e) => onRename(e.target.value)}
-            placeholder="New section"
-            className="-ml-2.5 w-full rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
-          />
-        </div>
-        <div className="shrink-0 text-right">
-          <div className="text-[11px] text-background/55">{pluralize(items.length, "item")}</div>
-          <div className="mt-0.5 text-[19px] font-extrabold tracking-tight tabular-nums text-background">
-            {formatCurrency(subtotal)}
-          </div>
-        </div>
-        <ReorderControls
-          tone="dark"
-          dragHandleProps={dragHandleProps}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          label={section.name || "section"}
-        />
-      </div>
+    <SectionCard
+      name={section.name}
+      onRename={onRename}
+      subtotal={subtotal}
+      itemNames={items.map((i) => i.name)}
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      isDraggingItem={isDraggingItem}
+      onAutoExpand={onAutoExpand}
+      dragHandleProps={dragHandleProps}
+      dragging={dragging}
+      canMoveUp={canMoveUp}
+      canMoveDown={canMoveDown}
+      onMoveUp={onMoveUp}
+      onMoveDown={onMoveDown}
+      secondRow={
+        <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
+          <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Switch
+              checked={section.is_optional}
+              onCheckedChange={onToggleOptional}
+              aria-label="Optional section"
+            />
+            Optional section — client can add or drop it
+          </label>
 
-      {/* Optional toggle + delete */}
-      <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
-        <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          <Switch
-            checked={section.is_optional}
-            onCheckedChange={onToggleOptional}
-            aria-label="Optional section"
-          />
-          Optional section — client can add or drop it
-        </label>
-
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <button
-              className="shrink-0 text-muted-foreground hover:text-destructive"
-              aria-label="Delete section"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {items.length > 0
-                  ? `Removes ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Nothing is saved until you press Save changes.`
-                  : "This section is empty."}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={onDeleteSection}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                className="shrink-0 text-muted-foreground hover:text-destructive"
+                aria-label="Delete section"
               >
-                Remove
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-
-      {/* Items */}
-      <div className="p-[18px]">
-        <Droppable droppableId={section.id} type="item">
-          {(provided) => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
-              {items.map((item, index) => (
-                <Draggable key={item.id} draggableId={item.id} index={index}>
-                  {(dragProvided, dragSnapshot) => (
-                    <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
-                      <QuoteItemRow
-                        item={item}
-                        categories={categories}
-                        onEdit={(patch) => onEditItem(item.id, patch)}
-                        onDelete={() => onDeleteItem(item.id)}
-                        dragHandleProps={dragProvided.dragHandleProps}
-                        dragging={dragSnapshot.isDragging}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < items.length - 1}
-                        onMoveUp={() => onMoveItem(index, -1)}
-                        onMoveDown={() => onMoveItem(index, 1)}
-                      />
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-        <button
-          type="button"
-          onClick={onAddItem}
-          className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
-        >
-          <Plus className="h-4 w-4" />
-          Add item to this section
-        </button>
-      </div>
-    </div>
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {items.length > 0
+                    ? `Removes ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Nothing is saved until you press Save changes.`
+                    : "This section is empty."}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={onDeleteSection}
+                >
+                  Remove
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      }
+    >
+      <Droppable droppableId={section.id} type="item">
+        {(provided) => (
+          <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
+            {items.map((item, index) => (
+              <Draggable key={item.id} draggableId={item.id} index={index}>
+                {(dragProvided, dragSnapshot) => (
+                  <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                    <QuoteItemRow
+                      item={item}
+                      categories={categories}
+                      onEdit={(patch) => onEditItem(item.id, patch)}
+                      onDelete={() => onDeleteItem(item.id)}
+                      dragHandleProps={dragProvided.dragHandleProps}
+                      dragging={dragSnapshot.isDragging}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < items.length - 1}
+                      onMoveUp={() => onMoveItem(index, -1)}
+                      onMoveDown={() => onMoveItem(index, 1)}
+                    />
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+      <button
+        type="button"
+        onClick={onAddItem}
+        className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+      >
+        <Plus className="h-4 w-4" />
+        Add item to this section
+      </button>
+    </SectionCard>
   );
 }
 

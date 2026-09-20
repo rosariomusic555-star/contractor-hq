@@ -29,9 +29,11 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { StatusPill } from "@/components/common/StatusPill";
 import { ReorderControls } from "@/components/common/ReorderControls";
+import { SectionCard } from "@/components/common/SectionCard";
 import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
+import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import {
   AlertDialog,
@@ -368,6 +370,17 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     setDraft((d) => fn(d));
   };
   const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftItem, DraftSection>(edit);
+  const {
+    isCollapsed,
+    toggle: toggleCollapse,
+    expand: expandSection,
+    collapseAll,
+    expandAll,
+  } = useSectionCollapse();
+  // Tracked only so a collapsed section's header knows to auto-expand on
+  // hover while a line item is being dragged over it — collapsing hides the
+  // item Droppable's visible content but keeps it mounted (see SectionCard).
+  const [isDraggingItem, setIsDraggingItem] = useState(false);
 
   const discard = () => {
     dirty.current = false;
@@ -752,7 +765,33 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </div>
       )}
 
-      <DragDropContext onDragEnd={onDragEnd}>
+      {draft.length > 0 && (
+        <div className="flex items-center justify-end gap-3 text-xs font-bold text-primary">
+          <button
+            type="button"
+            onClick={() => collapseAll(draft.map((s) => s.id))}
+            className="hover:underline"
+          >
+            Collapse all
+          </button>
+          <span className="text-border">|</span>
+          <button
+            type="button"
+            onClick={() => expandAll(draft.map((s) => s.id))}
+            className="hover:underline"
+          >
+            Expand all
+          </button>
+        </div>
+      )}
+
+      <DragDropContext
+        onDragStart={(start) => setIsDraggingItem(start.type === "item")}
+        onDragEnd={(result) => {
+          setIsDraggingItem(false);
+          onDragEnd(result);
+        }}
+      >
         <Droppable droppableId="materials-sections" type="section">
           {(provided) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-5">
@@ -760,7 +799,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                 <Draggable key={section.id} draggableId={section.id} index={index}>
                   {(dragProvided, dragSnapshot) => (
                     <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
-                      <SectionCard
+                      <MaterialsSectionCard
                         section={section}
                         expenseCategories={expenseCategories}
                         priceBookItems={priceBookItems}
@@ -779,6 +818,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         onMoveUp={() => moveSection(index, -1)}
                         onMoveDown={() => moveSection(index, 1)}
                         onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
+                        collapsed={isCollapsed(section.id)}
+                        onToggleCollapse={() => toggleCollapse(section.id)}
+                        isDraggingItem={isDraggingItem}
+                        onAutoExpand={() => expandSection(section.id)}
                       />
                     </div>
                   )}
@@ -905,9 +948,13 @@ interface SectionCardProps {
   onMoveDown: () => void;
   /** Moves the item at `itemIndex` (within this section) up/down one spot. */
   onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  isDraggingItem: boolean;
+  onAutoExpand: () => void;
 }
 
-function SectionCard({
+function MaterialsSectionCard({
   section,
   expenseCategories,
   priceBookItems,
@@ -926,127 +973,113 @@ function SectionCard({
   onMoveUp,
   onMoveDown,
   onMoveItem,
+  collapsed,
+  onToggleCollapse,
+  isDraggingItem,
+  onAutoExpand,
 }: SectionCardProps) {
   const subtotal = section.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0);
   const buildType = findSmartSectionTemplate(section.smart_section_build_type);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
 
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-card border border-border bg-card shadow-card transition-shadow",
-        dragging && "opacity-90 shadow-card-hover",
-      )}
-    >
-      {/* Slate section header — editable name + running subtotal */}
-      <div className="group flex items-center gap-3 bg-sidebar px-5 py-4">
-        <input
-          value={section.name}
-          onChange={(e) => onRename(e.target.value)}
-          placeholder="New section"
-          className="-ml-2.5 min-w-0 flex-1 rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
-        />
-        <div className="shrink-0 text-right">
-          <div className="text-[11px] text-background/55">{pluralize(section.items.length, "item")}</div>
-          <div className="mt-0.5 text-[19px] font-extrabold tracking-tight tabular-nums text-background">
-            {formatCurrency(subtotal)}
-          </div>
-        </div>
-        <ReorderControls
-          tone="dark"
-          dragHandleProps={dragHandleProps}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          label={section.name || "section"}
-        />
-      </div>
-
-      {/* Calculator (Smart Sections only) + Delete */}
-      <div className="flex items-center justify-between border-b border-hairline px-5 py-2.5">
-        {buildType ? (
-          <button
-            type="button"
-            onClick={() => setCalculatorOpen(true)}
-            className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
-          >
-            <Calculator className="h-4 w-4" />
-            Calculate quantities
-          </button>
-        ) : (
-          <span />
-        )}
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
-              <Trash2 className="h-4 w-4" />
-              Delete section
+    <SectionCard
+      name={section.name}
+      onRename={onRename}
+      subtotal={subtotal}
+      itemNames={section.items.map((i) => i.name)}
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      isDraggingItem={isDraggingItem}
+      onAutoExpand={onAutoExpand}
+      dragHandleProps={dragHandleProps}
+      dragging={dragging}
+      canMoveUp={canMoveUp}
+      canMoveDown={canMoveDown}
+      onMoveUp={onMoveUp}
+      onMoveDown={onMoveDown}
+      secondRow={
+        <div className="flex items-center justify-between border-b border-hairline px-5 py-2.5">
+          {buildType ? (
+            <button
+              type="button"
+              onClick={() => setCalculatorOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
+            >
+              <Calculator className="h-4 w-4" />
+              Calculate quantities
             </button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
-              <AlertDialogDescription>
-                {section.items.length > 0
-                  ? `Removes ${section.items.length} item${section.items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)} from the sheet. Nothing is saved until you press Save changes.`
-                  : "This section is empty."}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={onDelete}
-              >
-                Remove
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-
-      {/* Items */}
-      <div className="p-[18px]">
-        <Droppable droppableId={section.id} type="item">
-          {(provided) => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
-              {section.items.map((item, index) => (
-                <Draggable key={item.id} draggableId={item.id} index={index}>
-                  {(dragProvided, dragSnapshot) => (
-                    <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
-                      <ItemRow
-                        item={item}
-                        expenseCategories={expenseCategories}
-                        priceBookItems={priceBookItems}
-                        catalogItems={catalogItems}
-                        priceOverrides={priceOverrides}
-                        onEdit={(patch) => onEditItem(item.id, patch)}
-                        onDelete={() => onDeleteItem(item.id)}
-                        dragHandleProps={dragProvided.dragHandleProps}
-                        dragging={dragSnapshot.isDragging}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < section.items.length - 1}
-                        onMoveUp={() => onMoveItem(index, -1)}
-                        onMoveDown={() => onMoveItem(index, 1)}
-                      />
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
+          ) : (
+            <span />
           )}
-        </Droppable>
-        <button
-          type="button"
-          onClick={onAddItem}
-          className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
-        >
-          <Plus className="h-4 w-4" />
-          Add item to this section
-        </button>
-      </div>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
+                <Trash2 className="h-4 w-4" />
+                Delete section
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {section.items.length > 0
+                    ? `Removes ${section.items.length} item${section.items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)} from the sheet. Nothing is saved until you press Save changes.`
+                    : "This section is empty."}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={onDelete}
+                >
+                  Remove
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      }
+    >
+      <Droppable droppableId={section.id} type="item">
+        {(provided) => (
+          <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
+            {section.items.map((item, index) => (
+              <Draggable key={item.id} draggableId={item.id} index={index}>
+                {(dragProvided, dragSnapshot) => (
+                  <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                    <ItemRow
+                      item={item}
+                      expenseCategories={expenseCategories}
+                      priceBookItems={priceBookItems}
+                      catalogItems={catalogItems}
+                      priceOverrides={priceOverrides}
+                      onEdit={(patch) => onEditItem(item.id, patch)}
+                      onDelete={() => onDeleteItem(item.id)}
+                      dragHandleProps={dragProvided.dragHandleProps}
+                      dragging={dragSnapshot.isDragging}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < section.items.length - 1}
+                      onMoveUp={() => onMoveItem(index, -1)}
+                      onMoveDown={() => onMoveItem(index, 1)}
+                    />
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+      <button
+        type="button"
+        onClick={onAddItem}
+        className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+      >
+        <Plus className="h-4 w-4" />
+        Add item to this section
+      </button>
 
       {buildType && (
         <SmartSectionCalculatorDialog
@@ -1057,7 +1090,7 @@ function SectionCard({
           onApply={onApplyCalculatedLines}
         />
       )}
-    </div>
+    </SectionCard>
   );
 }
 
