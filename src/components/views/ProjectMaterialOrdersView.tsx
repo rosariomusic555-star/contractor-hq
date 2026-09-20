@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Plus, Trash2, Truck } from "lucide-react";
+import { ChevronLeft, ImagePlus, Plus, Trash2, Truck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { useToast } from "@/hooks/use-toast";
 import { pluralize } from "@/lib/utils";
 import {
@@ -34,6 +35,7 @@ import {
   createMaterialOrder,
   updateMaterialOrder,
   deleteMaterialOrder,
+  addMaterialOrderImage,
   MATERIAL_ORDER_UNITS,
   materialOrderUnitLabel,
   type MaterialOrder,
@@ -70,6 +72,12 @@ export function ProjectMaterialOrdersView() {
   const [expectedDate, setExpectedDate] = useState("");
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<DraftItem[]>([emptyItem()]);
+  // Photos picked before the order exists yet — just local previews (same
+  // File objects PhotoGallery's own uploader would compress/upload) until
+  // the order is actually created, at which point they upload through the
+  // exact same addMaterialOrderImage() the delivery card's gallery uses.
+  const [stagedPhotos, setStagedPhotos] = useState<{ file: File; previewUrl: string }[]>([]);
+  const stagedPhotoInputRef = useRef<HTMLInputElement>(null);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["material-orders", { project: id }] });
@@ -78,8 +86,8 @@ export function ProjectMaterialOrdersView() {
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
   const addMut = useMutation({
-    mutationFn: () =>
-      createMaterialOrder({
+    mutationFn: async () => {
+      const order = await createMaterialOrder({
         project_id: id,
         supplier: supplier.trim() || null,
         expected_delivery_date: expectedDate || null,
@@ -87,13 +95,20 @@ export function ProjectMaterialOrdersView() {
         items: items
           .filter((it) => it.description.trim())
           .map((it) => ({ description: it.description.trim(), quantity: parseFloat(it.quantity) || 0, unit: it.unit })),
-      }),
+      });
+      for (let i = 0; i < stagedPhotos.length; i++) {
+        await addMaterialOrderImage(order.id, stagedPhotos[i].file, { sort_order: i });
+      }
+      return order;
+    },
     onSuccess: () => {
       invalidate();
       setSupplier("");
       setExpectedDate("");
       setNotes("");
       setItems([emptyItem()]);
+      stagedPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+      setStagedPhotos([]);
     },
     onError,
   });
@@ -195,6 +210,52 @@ export function ProjectMaterialOrdersView() {
             <Plus className="h-3.5 w-3.5" />
             Add line item
           </button>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Photos (optional)</Label>
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6">
+            {stagedPhotos.map((p, i) => (
+              <div key={i} className="group relative aspect-square overflow-hidden rounded-xl bg-muted">
+                <img src={p.previewUrl} alt="" className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    URL.revokeObjectURL(p.previewUrl);
+                    setStagedPhotos((prev) => prev.filter((_, idx) => idx !== i));
+                  }}
+                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/70 text-background transition-opacity md:opacity-0 md:group-hover:opacity-100"
+                  aria-label="Remove photo"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => stagedPhotoInputRef.current?.click()}
+              className="flex aspect-square items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-muted-subtle transition-colors hover:border-primary hover:text-primary"
+              aria-label="Add photos"
+            >
+              <ImagePlus className="h-5 w-5" />
+            </button>
+            <input
+              ref={stagedPhotoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                setStagedPhotos((prev) => [
+                  ...prev,
+                  ...files.map((file) => ({ file, previewUrl: URL.createObjectURL(file) })),
+                ]);
+              }}
+            />
+          </div>
         </div>
 
         <div className="space-y-1.5">
@@ -312,6 +373,15 @@ function MaterialOrderCard({
       <p className="mt-2 text-[11px] text-muted-subtle">
         {pluralize(order.material_order_items.length, "line item")}
       </p>
+
+      <div className="mt-3 border-t border-hairline pt-3">
+        <PhotoGallery
+          owner={{ type: "material_order", id: order.id }}
+          title="Photos"
+          emptyText="No photos yet — add proof of delivery, damaged items, or a packing slip."
+          bare
+        />
+      </div>
     </section>
   );
 }

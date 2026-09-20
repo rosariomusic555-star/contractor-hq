@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,8 +7,6 @@ import {
   Mail,
   Phone,
   MapPin,
-  ImagePlus,
-  Loader2,
   Trash2,
 } from "lucide-react";
 import {
@@ -18,13 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
+import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -39,11 +36,6 @@ import {
   listMaterialOrders,
   listProjectEvents,
   quoteTotal,
-  listProjectImages,
-  addProjectImage,
-  updateProjectImageCaption,
-  deleteProjectImage,
-  getSignedImageUrls,
   logProjectEvent,
   updateProject,
   pickHeadlineQuote,
@@ -53,7 +45,6 @@ import {
   listProjectNotes,
   deleteProjectNote,
   type ProjectStatus,
-  type ProjectImage,
 } from "@/lib/api";
 import {
   PROJECT_STATUS_META,
@@ -416,7 +407,11 @@ export function ProjectDetailView() {
         </div>
       </div>
 
-      <ProjectImagesCard projectId={id} />
+      <PhotoGallery
+        owner={{ type: "project", id }}
+        title="Project Images"
+        emptyText="No photos yet — add progress photos, before/after, or site conditions."
+      />
       <FieldUpdatesCard projectId={id} />
     </div>
   );
@@ -501,204 +496,12 @@ function HubCard({ title, summary, onOpen }: { title: string; summary: ReactNode
 }
 
 /**
- * A project's photo gallery (0025) — progress photos, before/after, site
- * conditions. Full-width so the grid has room; unlike everything else on
- * this page, uploads/deletes/caption edits are real, immediate writes (no
- * draft+Save — there's nothing to "save" about a photo, it either uploaded
- * or it didn't).
- */
-function ProjectImagesCard({ projectId }: { projectId: string }) {
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [lightboxImage, setLightboxImage] = useState<ProjectImage | null>(null);
-  const [captionDraft, setCaptionDraft] = useState("");
-
-  const { data: images = [], isLoading } = useQuery({
-    queryKey: ["project-images", projectId],
-    queryFn: () => listProjectImages(projectId),
-  });
-
-  const paths = images.map((i) => i.storage_path);
-  const { data: signedUrls = {} } = useQuery({
-    queryKey: ["project-image-urls", projectId, images.map((i) => i.id).join(",")],
-    queryFn: () => getSignedImageUrls(paths),
-    enabled: paths.length > 0,
-    staleTime: 30 * 60 * 1000,
-  });
-
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["project-images", projectId] });
-  const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
-
-  const uploadMut = useMutation({
-    mutationFn: async (files: File[]) => {
-      for (let i = 0; i < files.length; i++) {
-        await addProjectImage(projectId, files[i], { sort_order: images.length + i });
-      }
-    },
-    onSuccess: invalidate,
-    onError,
-  });
-
-  const captionMut = useMutation({
-    mutationFn: ({ id, caption }: { id: string; caption: string | null }) =>
-      updateProjectImageCaption(id, caption),
-    onSuccess: invalidate,
-    onError,
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: (image: ProjectImage) => deleteProjectImage(image),
-    onSuccess: () => {
-      setLightboxImage(null);
-      invalidate();
-    },
-    onError,
-  });
-
-  const openLightbox = (img: ProjectImage) => {
-    setLightboxImage(img);
-    setCaptionDraft(img.caption ?? "");
-  };
-
-  const saveCaption = () => {
-    if (!lightboxImage) return;
-    const trimmed = captionDraft.trim();
-    if (trimmed !== (lightboxImage.caption ?? "")) {
-      captionMut.mutate({ id: lightboxImage.id, caption: trimmed || null });
-    }
-  };
-
-  return (
-    <section className="card-surface p-5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-base font-bold text-foreground">Project Images</h3>
-        {images.length > 0 && (
-          <span className="text-[13px] font-semibold text-muted-foreground">
-            {pluralize(images.length, "photo")}
-          </span>
-        )}
-      </div>
-
-      {isLoading ? (
-        <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
-      ) : images.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">
-          No photos yet — add progress photos, before/after, or site conditions.
-        </p>
-      ) : null}
-
-      <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6">
-        {images.map((img) => (
-          <button
-            key={img.id}
-            type="button"
-            onClick={() => openLightbox(img)}
-            className="group aspect-square overflow-hidden rounded-xl bg-muted"
-            aria-label={img.caption || "View photo"}
-          >
-            {signedUrls[img.storage_path] ? (
-              <img
-                src={signedUrls[img.storage_path]}
-                alt={img.caption ?? ""}
-                className="h-full w-full object-cover transition-transform group-hover:scale-105"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
-              </div>
-            )}
-          </button>
-        ))}
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploadMut.isPending}
-          className="flex aspect-square items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-muted-subtle transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Add photos"
-        >
-          {uploadMut.isPending ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <ImagePlus className="h-5 w-5" />
-          )}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = "";
-            if (files.length) uploadMut.mutate(files);
-          }}
-        />
-      </div>
-
-      <Dialog
-        open={!!lightboxImage}
-        onOpenChange={(open) => {
-          if (!open) {
-            saveCaption();
-            setLightboxImage(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-lg gap-3 p-4">
-          <DialogTitle className="text-sm font-bold text-foreground">Photo</DialogTitle>
-          {lightboxImage && (
-            <>
-              {signedUrls[lightboxImage.storage_path] ? (
-                <img
-                  src={signedUrls[lightboxImage.storage_path]}
-                  alt=""
-                  className="max-h-[60vh] w-full rounded-xl object-contain"
-                />
-              ) : (
-                <div className="flex h-64 items-center justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-subtle" />
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label htmlFor="image-caption" className="text-xs font-semibold text-muted-foreground">
-                  Caption
-                </Label>
-                <Input
-                  id="image-caption"
-                  value={captionDraft}
-                  onChange={(e) => setCaptionDraft(e.target.value)}
-                  onBlur={saveCaption}
-                  placeholder="Add a caption…"
-                />
-              </div>
-              <Button
-                variant="outline"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => deleteMut.mutate(lightboxImage)}
-                disabled={deleteMut.isPending}
-              >
-                <Trash2 className="h-4 w-4" />
-                {deleteMut.isPending ? "Removing…" : "Delete photo"}
-              </Button>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-    </section>
-  );
-}
-
-/**
  * Free-text updates employees (0043) posted from the field — read-only
  * from the owner's side (an employee's own project screen is where they
  * get written), with a delete affordance since the owner's "own"
  * project_notes policy already permits it. Employee-uploaded photos need
  * no equivalent card here — they land in the exact same project_images
- * table/query ProjectImagesCard above already reads, regardless of who
+ * table/query the PhotoGallery above already reads, regardless of who
  * uploaded them.
  */
 function FieldUpdatesCard({ projectId }: { projectId: string }) {

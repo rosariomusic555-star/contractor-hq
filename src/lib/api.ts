@@ -2121,7 +2121,20 @@ export async function updateMaterialOrder(
   if (error) throw error;
 }
 
+/** Best-effort cleans up this order's own photos in Storage before the
+ * (cascading) delete — same reasoning as deleteProject's own cleanup. */
 export async function deleteMaterialOrder(id: string): Promise<void> {
+  try {
+    const { data: images } = await supabase
+      .from("material_order_images")
+      .select("storage_path")
+      .eq("material_order_id", id);
+    if (images?.length) {
+      await supabase.storage.from(IMAGES_BUCKET).remove(images.map((i) => i.storage_path));
+    }
+  } catch (err) {
+    console.warn("Failed to clean up material order images before deleting order:", err);
+  }
   const { error } = await supabase.from("material_orders").delete().eq("id", id);
   if (error) throw error;
 }
@@ -2155,6 +2168,85 @@ export async function updateMaterialOrderItem(
 
 export async function deleteMaterialOrderItem(id: string): Promise<void> {
   const { error } = await supabase.from("material_order_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Material order (delivery) photos (0059) — same shape as project_images,
+// so PhotoGallery (src/components/common/PhotoGallery.tsx) can treat a
+// delivery's photos identically to a project's: proof of delivery, a
+// damaged pallet, a packing slip.
+// ---------------------------------------------------------------------------
+
+export interface MaterialOrderImage {
+  id: string;
+  material_order_id: string;
+  storage_path: string;
+  caption: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function listMaterialOrderImages(materialOrderId: string): Promise<MaterialOrderImage[]> {
+  const { data, error } = await supabase
+    .from("material_order_images")
+    .select("*")
+    .eq("material_order_id", materialOrderId)
+    .order("sort_order");
+  if (error) {
+    // PGRST205 = migration 0059 hasn't been run yet — degrade to empty
+    // instead of breaking the delivery card, same as listProjectImages().
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** Compresses, uploads, and records the row — same order/rollback as
+ * addProjectImage. */
+export async function addMaterialOrderImage(
+  materialOrderId: string,
+  file: File,
+  input: { caption?: string | null; sort_order?: number } = {},
+): Promise<MaterialOrderImage> {
+  const compressed = await compressImageFile(file);
+  const path = `material-orders/${materialOrderId}/${randomImageFilename(file.name)}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("material_order_images")
+    .insert({
+      material_order_id: materialOrderId,
+      storage_path: path,
+      caption: input.caption ?? null,
+      sort_order: input.sort_order ?? 0,
+    })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function updateMaterialOrderImageCaption(id: string, caption: string | null): Promise<void> {
+  const { error } = await supabase.from("material_order_images").update({ caption }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteMaterialOrderImage(
+  image: Pick<MaterialOrderImage, "id" | "storage_path">,
+): Promise<void> {
+  const { error: storageError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .remove([image.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("material_order_images").delete().eq("id", image.id);
   if (error) throw error;
 }
 
