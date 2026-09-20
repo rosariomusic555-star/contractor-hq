@@ -27,6 +27,7 @@ import {
 import { StatusPill } from "@/components/common/StatusPill";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
+import { SupplierCombobox } from "@/components/common/SupplierCombobox";
 import { useToast } from "@/hooks/use-toast";
 import { pluralize } from "@/lib/utils";
 import {
@@ -36,6 +37,7 @@ import {
   updateMaterialOrder,
   deleteMaterialOrder,
   addMaterialOrderImage,
+  touchSupplierUsage,
   MATERIAL_ORDER_UNITS,
   materialOrderUnitLabel,
   type MaterialOrder,
@@ -101,8 +103,9 @@ export function ProjectMaterialOrdersView() {
       }
       return order;
     },
-    onSuccess: () => {
+    onSuccess: (order) => {
       invalidate();
+      if (order.supplier) void touchSupplierUsage(order.supplier);
       setSupplier("");
       setExpectedDate("");
       setNotes("");
@@ -152,7 +155,7 @@ export function ProjectMaterialOrdersView() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Supplier</Label>
-            <Input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="e.g. Techo-Bloc" />
+            <SupplierCombobox value={supplier} onChange={setSupplier} placeholder="e.g. Techo-Bloc" />
           </div>
           <div className="space-y-1.5">
             <Label>Expected delivery date</Label>

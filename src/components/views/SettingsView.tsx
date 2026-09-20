@@ -10,6 +10,7 @@ const SECTIONS = [
   { label: "Seasonal capacity", to: "/settings/capacity" },
   { label: "Categories", to: "/settings/categories" },
   { label: "Expense categories", to: "/settings/expense-categories" },
+  { label: "Suppliers", to: "/settings/suppliers" },
   { label: "Invoicing & payments", to: "/settings/invoicing" },
   { label: "Price Book", to: "/settings/pricebook" },
   { label: "Manage Smart Section Templates", to: "/settings/smart-sections" },

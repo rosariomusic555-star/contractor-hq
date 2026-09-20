@@ -41,6 +41,7 @@ import { SettingsQuoteDefaultsView } from "@/components/views/SettingsQuoteDefau
 import { SettingsCapacityView } from "@/components/views/SettingsCapacityView";
 import { SettingsCategoriesView } from "@/components/views/SettingsCategoriesView";
 import { SettingsExpenseCategoriesView } from "@/components/views/SettingsExpenseCategoriesView";
+import { SettingsSuppliersView } from "@/components/views/SettingsSuppliersView";
 import { SettingsInvoicingView } from "@/components/views/SettingsInvoicingView";
 import { SettingsPricebookView } from "@/components/views/SettingsPricebookView";
 import { SettingsSmartSectionsView } from "@/components/views/SettingsSmartSectionsView";
@@ -119,6 +120,7 @@ const App = () => (
                 path="/settings/expense-categories"
                 element={<SettingsExpenseCategoriesView />}
               />
+              <Route path="/settings/suppliers" element={<SettingsSuppliersView />} />
               <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
               <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
               <Route path="/settings/smart-sections" element={<SettingsSmartSectionsView />} />

@@ -2029,6 +2029,107 @@ export async function deleteChangeOrder(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Suppliers (0062) — a contractor's own list of yards/distributors they buy
+// from, for the Supplier combobox on Material orders. Deliberately separate
+// from Product Catalog manufacturers (Techo-Bloc, Belgard…) — a supplier is
+// who you buy from, not who makes the product. `material_orders.supplier`
+// stays a plain denormalized text column (see below): this table is purely
+// the dropdown's source of truth + contact info + most-recently-used
+// ordering, not a foreign key material_orders points at, so deleting a
+// supplier here never touches existing delivery records.
+// ---------------------------------------------------------------------------
+
+export interface Supplier {
+  id: string;
+  user_id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+/** Most-recently-used first, then alphabetical — the supplier ordered from
+ * every week sits at the top. */
+export async function listSuppliers(): Promise<Supplier[]> {
+  const { data, error } = await supabase
+    .from("suppliers")
+    .select("*")
+    .order("last_used_at", { ascending: false, nullsFirst: false })
+    .order("name", { ascending: true });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createSupplier(input: {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+}): Promise<Supplier> {
+  const { data, error } = await supabase
+    .from("suppliers")
+    .insert({
+      name: input.name.trim(),
+      phone: input.phone || null,
+      email: input.email || null,
+      address: input.address || null,
+    })
+    .select()
+    .single();
+  if (error) {
+    // Someone already saved this exact name (e.g. typed on another device,
+    // or picked the same "Create" option twice in a race) — treat it as a
+    // successful pick of the existing row rather than an error.
+    if (error.code === "23505") {
+      const { data: existing, error: fetchError } = await supabase
+        .from("suppliers")
+        .select("*")
+        .eq("name", input.name.trim())
+        .single();
+      if (!fetchError && existing) return existing;
+    }
+    throw error;
+  }
+  return data;
+}
+
+export async function updateSupplier(
+  id: string,
+  patch: Partial<Pick<Supplier, "name" | "phone" | "email" | "address">>,
+): Promise<void> {
+  const { error } = await supabase.from("suppliers").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** Deleting a supplier here never touches material_orders — `supplier` is
+ * denormalized text there, not a foreign key, so existing deliveries keep
+ * the name they were saved with. */
+export async function deleteSupplier(id: string): Promise<void> {
+  const { error } = await supabase.from("suppliers").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Best-effort — bumps last_used_at so this supplier rises to the top of
+ * the combobox next time. Called whenever a material order is saved with a
+ * supplier name; failing silently (e.g. before migration 0062 is live, or
+ * a name that was renamed/deleted since) is fine, it just means the MRU
+ * ordering doesn't update this once. */
+export async function touchSupplierUsage(name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  try {
+    await supabase.from("suppliers").update({ last_used_at: new Date().toISOString() }).eq("name", trimmed);
+  } catch {
+    // best-effort, see doc comment above
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Material orders (0056) — supplier orders/deliveries per project. Same
 // parent (order) + child (line items) shape as change orders above.
 // ---------------------------------------------------------------------------
