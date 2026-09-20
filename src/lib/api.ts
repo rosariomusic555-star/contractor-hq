@@ -63,10 +63,16 @@ export interface Project {
   client_id: string | null;
   name: string;
   status: ProjectStatus;
-  /** First-of-month date (e.g. "2026-10-01"), or null if not yet scheduled.
-   * Drives the Dashboard Seasonal Backlog card (0053) — the UI only ever
-   * shows/edits the month, never the day. */
+  /** Legacy month-precision field (0053) — superseded by
+   * scheduled_start_date/scheduled_end_date (0058) as of the Backlog
+   * Schedule calendar. Nothing new reads or writes this; left in place
+   * (never dropped) since old rows were backfilled from it. */
   target_install_month: string | null;
+  /** Day-precision scheduling (0058) — the Backlog Schedule calendar's
+   * source of truth. Both nullable: a start with no end renders as a
+   * single-day bar; neither means the job sits in the Unscheduled rail. */
+  scheduled_start_date: string | null;
+  scheduled_end_date: string | null;
   created_at: string;
   updated_at: string;
   client?: ClientRef | null;
@@ -634,7 +640,9 @@ export async function createProject(input: {
 
 export async function updateProject(
   id: string,
-  patch: Partial<Pick<Project, "name" | "client_id" | "status" | "target_install_month">>,
+  patch: Partial<
+    Pick<Project, "name" | "client_id" | "status" | "target_install_month" | "scheduled_start_date" | "scheduled_end_date">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("projects").update(patch).eq("id", id);
   if (error) throw error;
@@ -733,17 +741,24 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
 // ---------------------------------------------------------------------------
 
 export type BacklogRangeMonths = 6 | 12;
+export type BacklogCalendarView = "month" | "quarter" | "timeline";
 
 export interface BacklogSettings {
   capacity_dollars_per_month: number;
   /** Last-selected range on the Dashboard Seasonal Backlog card (0057) —
    * persisted so it doesn't reset to 6 months on every load. */
   default_range_months: BacklogRangeMonths;
+  /** Legacy (0058) — the Backlog Schedule page was briefly Month/Quarter/
+   * Timeline before simplifying to Month-only; the view switcher is gone,
+   * so nothing writes this anymore. Column kept (never dropped) rather
+   * than backed out. */
+  default_calendar_view: BacklogCalendarView;
 }
 
 export const BACKLOG_SETTINGS_FALLBACK: BacklogSettings = {
   capacity_dollars_per_month: 50000,
   default_range_months: 6,
+  default_calendar_view: "month",
 };
 
 export async function getBacklogSettings(): Promise<BacklogSettings> {
@@ -757,8 +772,9 @@ export async function getBacklogSettings(): Promise<BacklogSettings> {
   if (!data) return BACKLOG_SETTINGS_FALLBACK;
   return {
     capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
-    // Column added in 0057 — degrade to the default on a not-yet-migrated row.
+    // Columns added in 0057/0058 — degrade to the default on a not-yet-migrated row.
     default_range_months: (data.default_range_months as BacklogRangeMonths | undefined) ?? 6,
+    default_calendar_view: (data.default_calendar_view as BacklogCalendarView | undefined) ?? "month",
   };
 }
 
@@ -769,6 +785,7 @@ export async function saveBacklogSettings(patch: Partial<BacklogSettings>): Prom
     .upsert({
       capacity_dollars_per_month: merged.capacity_dollars_per_month,
       default_range_months: merged.default_range_months,
+      default_calendar_view: merged.default_calendar_view,
     })
     .select()
     .single();
@@ -776,6 +793,7 @@ export async function saveBacklogSettings(patch: Partial<BacklogSettings>): Prom
   return {
     capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
     default_range_months: (data.default_range_months as BacklogRangeMonths | undefined) ?? 6,
+    default_calendar_view: (data.default_calendar_view as BacklogCalendarView | undefined) ?? "month",
   };
 }
 

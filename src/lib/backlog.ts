@@ -1,5 +1,6 @@
-import type { ChangeOrder, Project, ProjectStatus, Quote } from "./api";
+import type { ChangeOrder, Opportunity, Project, ProjectStatus, Quote } from "./api";
 import { projectContractValue } from "./api";
+import { jobSizeLabel } from "./jobSize";
 
 /** A job counts as "committed" backlog once it's past the quoting stage.
  * There's no real deposit-received tracking in the schema yet (flagged as a
@@ -7,7 +8,27 @@ import { projectContractValue } from "./api";
  * signed contract, regardless of billing progress. */
 const COMMITTED_STATUSES: ProjectStatus[] = ["approved", "invoiced", "paid"];
 
-export type BacklogFullness = "full" | "room" | "open";
+/** One committed job, as it appears inside a BacklogMonth or in
+ * unscheduledJobs. Single source of truth for both the Dashboard card
+ * (which only reads the month aggregates) and the full Backlog Schedule
+ * page (/backlog, which renders these rows) — see seasonalBacklog(). */
+export interface BacklogJob {
+  projectId: string;
+  projectName: string;
+  clientName: string | null;
+  status: ProjectStatus;
+  /** Real contract value — projectContractValue() (headline quote +
+   * approved change orders), same figure the month total sums. */
+  contractDollars: number;
+  /** "1 ea Paver Patio" — see jobSizeLabel(). Null falls back to just the
+   * project name, same as the Ongoing Jobs card. */
+  scopeLabel: string | null;
+  /** Day-precision scheduling (0058) — the Backlog Schedule calendar's bar
+   * span. startDate is always set for anything other than unscheduledJobs;
+   * endDate may be null (renders as a single-day bar). */
+  startDate: string | null;
+  endDate: string | null;
+}
 
 export interface BacklogMonth {
   /** "2026-10" */
@@ -16,37 +37,62 @@ export interface BacklogMonth {
   label: string;
   committedDollars: number;
   jobCount: number;
-  capacityDollars: number;
-  remainingDollars: number;
-  fullness: BacklogFullness;
-  /** "Full" | "Room for 2" | "Open" */
-  fullnessLabel: string;
+  jobs: BacklogJob[];
 }
 
 export interface SeasonalBacklog {
   months: BacklogMonth[];
   seasonTotalDollars: number;
   seasonTotalJobs: number;
+  /** Committed jobs (see COMMITTED_STATUSES) with no scheduled_start_date
+   * set — can't be placed on the calendar. Not scoped to monthsForward
+   * (there's no month to fall in/out of range), always the full set. */
+  unscheduledJobs: BacklogJob[];
+}
+
+function toBacklogJob(
+  project: Project,
+  quotesByProject: Map<string, Quote[]>,
+  changeOrdersByProject: Map<string, ChangeOrder[]>,
+  opportunitiesByProjectId: Map<string, Opportunity>,
+): BacklogJob {
+  return {
+    projectId: project.id,
+    projectName: project.name,
+    clientName: project.client?.name ?? null,
+    status: project.status,
+    contractDollars: projectContractValue(
+      quotesByProject.get(project.id) ?? [],
+      changeOrdersByProject.get(project.id) ?? [],
+    ),
+    scopeLabel: jobSizeLabel(project, opportunitiesByProjectId, quotesByProject),
+    startDate: project.scheduled_start_date,
+    endDate: project.scheduled_end_date,
+  };
 }
 
 /**
- * Groups committed jobs (see COMMITTED_STATUSES) by target_install_month
- * across the next `monthsForward` calendar months (default 6, starting this
+ * Groups committed jobs (see COMMITTED_STATUSES) by the month their
+ * scheduled_start_date falls in (0058 — a job spanning multiple months
+ * counts fully toward its start month, never split/double-counted), across
+ * the next `monthsForward` calendar months (default 6, starting this
  * month). Each project's dollar value is its real contract value
  * (projectContractValue — headline quote + approved change orders), keyed
  * off `quotesByProject`/`changeOrdersByProject` maps the caller builds from
- * listQuotes()/listChangeOrders().
+ * listQuotes()/listChangeOrders(); scope labels come from jobSizeLabel(),
+ * keyed off an `opportunitiesByProjectId` map the caller builds from
+ * listOpportunities().
  *
- * "Room for N" is derived from real numbers, not a fabricated guess: N is
- * the month's own remaining capacity divided by its own average committed
- * job value so far. A month with no committed jobs yet shows "Open"
- * instead of guessing an average.
+ * Previously also computed a capacity/"Room for N" fullness figure per
+ * month (against Settings > Seasonal capacity) — removed as not useful;
+ * that setting still exists (Settings > Seasonal capacity) but nothing
+ * reads it anymore.
  */
 export function seasonalBacklog(
   projects: Project[],
   quotesByProject: Map<string, Quote[]>,
   changeOrdersByProject: Map<string, ChangeOrder[]>,
-  capacityDollarsPerMonth: number,
+  opportunitiesByProjectId: Map<string, Opportunity>,
   monthsForward = 6,
   from: Date = new Date(),
 ): SeasonalBacklog {
@@ -59,42 +105,31 @@ export function seasonalBacklog(
       label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
       committedDollars: 0,
       jobCount: 0,
-      capacityDollars: capacityDollarsPerMonth,
-      remainingDollars: capacityDollarsPerMonth,
-      fullness: "open",
-      fullnessLabel: "Open",
+      jobs: [],
     });
   }
   const byKey = new Map(months.map((m) => [m.key, m]));
+  const unscheduledJobs: BacklogJob[] = [];
 
   for (const p of projects) {
-    if (!p.target_install_month || !COMMITTED_STATUSES.includes(p.status)) continue;
-    const month = byKey.get(p.target_install_month.slice(0, 7));
-    if (!month) continue;
-    const value = projectContractValue(quotesByProject.get(p.id) ?? [], changeOrdersByProject.get(p.id) ?? []);
-    month.committedDollars += value;
-    month.jobCount += 1;
-  }
+    if (!COMMITTED_STATUSES.includes(p.status)) continue;
+    const job = toBacklogJob(p, quotesByProject, changeOrdersByProject, opportunitiesByProjectId);
 
-  for (const m of months) {
-    m.remainingDollars = Math.max(0, m.capacityDollars - m.committedDollars);
-    if (m.committedDollars <= 0) {
-      m.fullness = "open";
-      m.fullnessLabel = "Open";
-    } else if (m.committedDollars >= m.capacityDollars) {
-      m.fullness = "full";
-      m.fullnessLabel = "Full";
-    } else {
-      const avgJobValue = m.committedDollars / m.jobCount;
-      const remainingSlots = Math.max(1, Math.round(m.remainingDollars / avgJobValue));
-      m.fullness = "room";
-      m.fullnessLabel = `Room for ${remainingSlots}`;
+    if (!p.scheduled_start_date) {
+      unscheduledJobs.push(job);
+      continue;
     }
+    const month = byKey.get(p.scheduled_start_date.slice(0, 7));
+    if (!month) continue;
+    month.committedDollars += job.contractDollars;
+    month.jobCount += 1;
+    month.jobs.push(job);
   }
 
   return {
     months,
     seasonTotalDollars: months.reduce((s, m) => s + m.committedDollars, 0),
     seasonTotalJobs: months.reduce((s, m) => s + m.jobCount, 0),
+    unscheduledJobs,
   };
 }

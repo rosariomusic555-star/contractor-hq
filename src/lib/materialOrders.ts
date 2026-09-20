@@ -12,9 +12,8 @@ export interface UpcomingDelivery {
   expectedDeliveryDate: string;
   dayLabel: string;
   status: MaterialOrderStatus;
-  /** The job's target_install_month (the closest real field to a
-   * "scheduled start" — see Weather Strip's same gap) has already begun
-   * before this delivery is expected to land. */
+  /** The job's scheduled_start_date (0058) has already begun before this
+   * delivery is expected to land. */
   conflict: boolean;
 }
 
@@ -53,8 +52,8 @@ export function upcomingDeliveries(
 
     const project = projectsById.get(order.project_id);
     const conflict =
-      !!project?.target_install_month &&
-      deliveryDate > new Date(`${project.target_install_month}T00:00:00`);
+      !!project?.scheduled_start_date &&
+      deliveryDate > new Date(`${project.scheduled_start_date}T00:00:00`);
 
     for (const item of order.material_order_items) {
       rows.push({

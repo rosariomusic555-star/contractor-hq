@@ -40,6 +40,31 @@ const TONE: Record<Tone, Pick<StatusMeta, "badge" | "border">> = {
 
 const meta = (label: string, tone: Tone): StatusMeta => ({ label, tone, ...TONE[tone] });
 
+/** Solid tone classes for the Backlog Schedule calendar's status dots and
+ * the legend swatches — same tone tokens as TONE above (badge/border),
+ * just a solid fill instead of a tinted pill. */
+export const TONE_SOLID_CLASS: Record<Tone, string> = {
+  green: "bg-success text-success-foreground",
+  greenSolid: "bg-primary text-primary-foreground",
+  amber: "bg-warning-strong text-warning-foreground",
+  red: "bg-destructive text-destructive-foreground",
+  blue: "bg-info text-info-foreground",
+  grey: "bg-muted-foreground text-background",
+};
+
+/** Light wash background — a mini month day cell tints with this when
+ * every job covering that day shares one status, so a job's date range
+ * reads as a continuous colored block. Mixed-status days fall back to a
+ * neutral tint instead of picking one job's color arbitrarily. */
+export const TONE_TINT_CLASS: Record<Tone, string> = {
+  green: "bg-success/15",
+  greenSolid: "bg-primary/15",
+  amber: "bg-warning-strong/15",
+  red: "bg-destructive/15",
+  blue: "bg-info/15",
+  grey: "bg-muted-foreground/15",
+};
+
 // ---------------------------------------------------------------------------
 // Quotes
 // ---------------------------------------------------------------------------

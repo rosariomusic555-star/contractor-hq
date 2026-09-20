@@ -8,6 +8,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { ScrollToTop } from "@/components/layout/ScrollToTop";
 import { DashboardView } from "@/components/views/DashboardView";
 import { NeedsYouView } from "@/components/views/NeedsYouView";
+import { BacklogScheduleView } from "@/components/views/BacklogScheduleView";
 import { ProjectsView } from "@/components/views/ProjectsView";
 import { NewProjectView } from "@/components/views/NewProjectView";
 import { ProjectDetailView } from "@/components/views/ProjectDetailView";
@@ -74,6 +75,7 @@ const App = () => (
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardView />} />
               <Route path="/needs-you" element={<NeedsYouView />} />
+              <Route path="/backlog" element={<BacklogScheduleView />} />
               <Route path="/projects" element={<ProjectsView />} />
               <Route path="/projects/new" element={<NewProjectView />} />
               <Route path="/projects/:id" element={<ProjectDetailView />} />

@@ -108,13 +108,14 @@ export function ProjectDetailView() {
   });
 
   const scheduleMutation = useMutation({
-    mutationFn: (month: string | null) => updateProject(id, { target_install_month: month }),
+    mutationFn: (patch: { scheduled_start_date?: string | null; scheduled_end_date?: string | null }) =>
+      updateProject(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["projects", id] });
     },
     onError: (err: Error) =>
-      toast({ title: "Couldn't update target install month", description: err.message, variant: "destructive" }),
+      toast({ title: "Couldn't update schedule", description: err.message, variant: "destructive" }),
   });
 
   if (isLoading) return <p className="text-muted-foreground">Loading project…</p>;
@@ -305,23 +306,40 @@ export function ProjectDetailView() {
 
           <section className="card-surface p-5">
             <h3 className="text-base font-bold text-foreground">Schedule</h3>
-            <div className="mt-2 space-y-1.5">
-              <Label htmlFor="target-install-month" className="text-xs font-semibold text-muted-foreground">
-                Target install month
-              </Label>
-              <Input
-                id="target-install-month"
-                type="month"
-                value={project.target_install_month ? project.target_install_month.slice(0, 7) : ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  scheduleMutation.mutate(v ? `${v}-01` : null);
-                }}
-                className="h-10"
-              />
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="scheduled-start" className="text-xs font-semibold text-muted-foreground">
+                  Start date
+                </Label>
+                <Input
+                  id="scheduled-start"
+                  type="date"
+                  value={project.scheduled_start_date ?? ""}
+                  onChange={(e) =>
+                    scheduleMutation.mutate({ scheduled_start_date: e.target.value || null })
+                  }
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="scheduled-end" className="text-xs font-semibold text-muted-foreground">
+                  End date
+                </Label>
+                <Input
+                  id="scheduled-end"
+                  type="date"
+                  min={project.scheduled_start_date ?? undefined}
+                  value={project.scheduled_end_date ?? ""}
+                  onChange={(e) =>
+                    scheduleMutation.mutate({ scheduled_end_date: e.target.value || null })
+                  }
+                  className="h-10"
+                />
+              </div>
             </div>
             <p className="mt-2 text-[11px] text-muted-subtle">
-              Feeds the Dashboard Seasonal Backlog card once this job is approved.
+              Feeds the Dashboard Seasonal Backlog card and the Backlog Schedule calendar once this job is
+              approved.
             </p>
           </section>
 
