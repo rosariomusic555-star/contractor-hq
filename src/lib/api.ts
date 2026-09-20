@@ -73,6 +73,14 @@ export interface Project {
    * single-day bar; neither means the job sits in the Unscheduled rail. */
   scheduled_start_date: string | null;
   scheduled_end_date: string | null;
+  /** Estimated duration card (0061) — owner-entered estimate in working
+   * (crew) days, plus the actual start/end dates measured against it once
+   * the job runs. Deliberately separate from scheduled_start_date/
+   * scheduled_end_date above: those are the planned window, these are
+   * reality, and the two are allowed to disagree. */
+  estimated_duration_days: number | null;
+  actual_start_date: string | null;
+  actual_end_date: string | null;
   created_at: string;
   updated_at: string;
   client?: ClientRef | null;
@@ -655,7 +663,18 @@ export async function createProject(input: {
 export async function updateProject(
   id: string,
   patch: Partial<
-    Pick<Project, "name" | "client_id" | "status" | "target_install_month" | "scheduled_start_date" | "scheduled_end_date">
+    Pick<
+      Project,
+      | "name"
+      | "client_id"
+      | "status"
+      | "target_install_month"
+      | "scheduled_start_date"
+      | "scheduled_end_date"
+      | "estimated_duration_days"
+      | "actual_start_date"
+      | "actual_end_date"
+    >
   >,
 ): Promise<void> {
   const { error } = await supabase.from("projects").update(patch).eq("id", id);

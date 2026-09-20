@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
@@ -25,6 +26,7 @@ import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
+import { projectDurationStatus, scheduledWindowWorkingDays } from "@/lib/projectDuration";
 import {
   getProject,
   listQuotes,
@@ -64,6 +66,7 @@ export function ProjectDetailView() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [estimateDraft, setEstimateDraft] = useState("");
 
   const { data: project, isLoading, isError, error } = useQuery({
     queryKey: ["projects", id],
@@ -109,6 +112,20 @@ export function ProjectDetailView() {
       toast({ title: "Couldn't update schedule", description: err.message, variant: "destructive" }),
   });
 
+  const durationMutation = useMutation({
+    mutationFn: (patch: {
+      estimated_duration_days?: number | null;
+      actual_start_date?: string | null;
+      actual_end_date?: string | null;
+    }) => updateProject(id, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", id] });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Couldn't update estimated duration", description: err.message, variant: "destructive" }),
+  });
+
   if (isLoading) return <p className="text-muted-foreground">Loading project…</p>;
   if (isError || !project)
     return <p className="text-destructive">Failed to load project: {(error as Error)?.message}</p>;
@@ -126,6 +143,15 @@ export function ProjectDetailView() {
   const realCost = actualCost ?? predictedCost;
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
   const marginProfit = realCost != null ? contract - realCost : null;
+
+  const durationStatus = projectDurationStatus(project);
+  const scheduledWindowDays = scheduledWindowWorkingDays(project);
+  const windowNote =
+    project.estimated_duration_days &&
+    scheduledWindowDays != null &&
+    project.estimated_duration_days > scheduledWindowDays
+      ? `Estimate exceeds scheduled window by ${pluralize(project.estimated_duration_days - scheduledWindowDays, "day")}`
+      : null;
 
   const meta = projectStatusMeta(project.status);
   const demo = demoJobMeta(project);
@@ -332,6 +358,141 @@ export function ProjectDetailView() {
               Feeds the Dashboard Seasonal Backlog card and the Backlog Schedule calendar once this job is
               approved.
             </p>
+          </section>
+
+          <section className="card-surface p-5">
+            <h3 className="text-base font-bold text-foreground">Estimated duration</h3>
+
+            {project.estimated_duration_days == null ? (
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">No estimate set</p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="Days"
+                    value={estimateDraft}
+                    onChange={(e) => setEstimateDraft(e.target.value)}
+                    className="h-9 w-20"
+                    aria-label="Estimated crew days"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!estimateDraft || Number(estimateDraft) <= 0 || durationMutation.isPending}
+                    onClick={() => {
+                      const days = parseInt(estimateDraft, 10);
+                      if (days > 0) {
+                        durationMutation.mutate({ estimated_duration_days: days });
+                        setEstimateDraft("");
+                      }
+                    }}
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={project.estimated_duration_days}
+                    onChange={(e) => {
+                      const days = e.target.value ? parseInt(e.target.value, 10) : null;
+                      durationMutation.mutate({ estimated_duration_days: days && days > 0 ? days : null });
+                    }}
+                    className="h-10 w-20"
+                    aria-label="Estimated crew days"
+                  />
+                  <span className="text-sm text-muted-foreground">crew days estimated</span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="actual-start" className="text-xs font-semibold text-muted-foreground">
+                      Actual start
+                    </Label>
+                    <Input
+                      id="actual-start"
+                      type="date"
+                      value={project.actual_start_date ?? ""}
+                      onChange={(e) =>
+                        durationMutation.mutate({ actual_start_date: e.target.value || null })
+                      }
+                      className="h-10"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="actual-end" className="text-xs font-semibold text-muted-foreground">
+                      Actual end
+                    </Label>
+                    <Input
+                      id="actual-end"
+                      type="date"
+                      min={project.actual_start_date ?? undefined}
+                      value={project.actual_end_date ?? ""}
+                      onChange={(e) =>
+                        durationMutation.mutate({ actual_end_date: e.target.value || null })
+                      }
+                      className="h-10"
+                    />
+                  </div>
+                </div>
+
+                {(durationStatus.state === "in_progress" || durationStatus.state === "complete") && (
+                  <div className="mt-3">
+                    {(() => {
+                      const isOver =
+                        (durationStatus.state === "in_progress" && durationStatus.overDays > 0) ||
+                        (durationStatus.state === "complete" && durationStatus.diffDays > 0);
+                      const label =
+                        durationStatus.state === "in_progress"
+                          ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}${
+                              durationStatus.overDays > 0
+                                ? ` · ${pluralize(durationStatus.overDays, "day")} over`
+                                : ""
+                            }`
+                          : `Took ${pluralize(durationStatus.totalDays, "day")} · ${
+                              durationStatus.diffDays > 0
+                                ? `${pluralize(durationStatus.diffDays, "day")} over estimate`
+                                : durationStatus.diffDays < 0
+                                  ? `finished ${pluralize(-durationStatus.diffDays, "day")} early`
+                                  : "right on estimate"
+                            }`;
+                      const progressPct = Math.min(
+                        100,
+                        ((durationStatus.state === "in_progress"
+                          ? durationStatus.elapsedDays
+                          : durationStatus.totalDays) /
+                          durationStatus.estimateDays) *
+                          100,
+                      );
+                      return (
+                        <>
+                          <p className={cn("text-sm font-semibold", isOver ? "text-destructive" : "text-foreground")}>
+                            {label}
+                          </p>
+                          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                isOver ? "bg-destructive" : "bg-primary",
+                              )}
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {windowNote && <p className="mt-3 text-[11px] text-warning">{windowNote}</p>}
+              </>
+            )}
           </section>
 
           {project.client && (
