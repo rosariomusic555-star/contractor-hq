@@ -12,8 +12,6 @@ import {
   Wand2,
   Calculator,
   X,
-  Link2,
-  Link2Off,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,7 +29,9 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { StatusPill } from "@/components/common/StatusPill";
 import { ReorderControls } from "@/components/common/ReorderControls";
+import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
+import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -588,7 +588,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // Only ambiguous — and only shown — once this project has more than one
   // materials sheet or more than one quote. Below that, a single sheet's
   // cost feeds a single quote's Estimated Cost automatically, no link needed.
-  const needsExplicitLink = sheets.length > 1 || projectQuotes.length > 1;
+  const needsExplicitLink = needsExplicitDocumentLink(sheets.length, projectQuotes.length);
   const linkedQuote = projectQuotes.find((q) => q.material_sheet_id === sheetId);
   const [linkQuoteOpen, setLinkQuoteOpen] = useState(false);
 
@@ -727,32 +727,17 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           </span>
         </div>
         {needsExplicitLink && sheetId && (
-          <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-sidebar/95 px-5 py-2.5">
-            <span className="flex items-center gap-1.5 text-xs text-background/70">
-              {linkedQuote ? <Link2 className="h-3.5 w-3.5" /> : <Link2Off className="h-3.5 w-3.5" />}
-              {linkedQuote
-                ? `Linked to ${formatCurrency(quoteTotal(linkedQuote.quote_sections))} quote`
-                : "Not linked to a quote"}
-            </span>
-            <div className="flex items-center gap-3">
-              {linkedQuote && (
-                <button
-                  type="button"
-                  onClick={() => unlinkQuoteMut.mutate(linkedQuote.id)}
-                  className="text-xs font-bold text-background/80 hover:text-background hover:underline"
-                >
-                  Unlink
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setLinkQuoteOpen(true)}
-                className="text-xs font-bold text-primary hover:underline"
-              >
-                {linkedQuote ? "Change" : "Link a quote"}
-              </button>
-            </div>
-          </div>
+          <LinkedDocumentBar
+            targetLabel="quote"
+            linked={
+              linkedQuote
+                ? { label: `Linked to ${formatCurrency(quoteTotal(linkedQuote.quote_sections))} quote` }
+                : null
+            }
+            onLink={() => setLinkQuoteOpen(true)}
+            onUnlink={() => unlinkQuoteMut.mutate(linkedQuote!.id)}
+            className="bg-sidebar/95"
+          />
         )}
       </div>
 

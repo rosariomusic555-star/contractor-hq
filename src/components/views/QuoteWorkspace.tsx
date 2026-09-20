@@ -55,7 +55,9 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { ReorderControls } from "@/components/common/ReorderControls";
+import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
+import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteFinancials, demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
 import { compressImageFile } from "@/lib/imageUpload";
@@ -671,7 +673,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // the project's single (or only) sheet, exactly as before this feature
   // (materialsCogs(materials) is the whole-project aggregate, which equals
   // "that one sheet" whenever there's at most one).
-  const needsExplicitMaterialsLink = !!projectId && (materialsSheets.length > 1 || projectQuotes.length > 1);
+  const needsExplicitMaterialsLink = !!projectId && needsExplicitDocumentLink(materialsSheets.length, projectQuotes.length);
   const linkedSheet = materialsSheets.find((s) => s.id === quote.material_sheet_id);
   const materialsCost = needsExplicitMaterialsLink
     ? quote.material_sheet_id
@@ -838,6 +840,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         onShare={() => ensureLinkMut.mutate("share")}
         onCopy={() => ensureLinkMut.mutate("copy")}
         actionsDisabled={isDirty || ensureLinkMut.isPending}
+        needsMaterialsLink={needsExplicitMaterialsLink}
+        linkedSheet={linkedSheet ? { id: linkedSheet.id, name: linkedSheet.name } : null}
+        onOpenLinkedSheet={() => linkedSheet && navigate(`/projects/${projectId}/materials/${linkedSheet.id}`)}
+        onLinkMaterialsSheet={() => setLinkSheetPickerOpen(true)}
+        onUnlinkMaterialsSheet={() => linkMaterialSheetMut.mutate(null)}
       />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
@@ -980,9 +987,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             profit={margin}
             marginPct={marginPct}
             needsMaterialsLink={needsExplicitMaterialsLink}
-            linkedSheetName={linkedSheet?.name ?? null}
-            onLinkMaterialsSheet={() => setLinkSheetPickerOpen(true)}
-            onUnlinkMaterialsSheet={() => linkMaterialSheetMut.mutate(null)}
             depositPct={draft.depositPct}
             deposit={depositAmount}
             lineItems={baseTotal}
@@ -1012,9 +1016,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           profit={margin}
           marginPct={marginPct}
           needsMaterialsLink={needsExplicitMaterialsLink}
-          linkedSheetName={linkedSheet?.name ?? null}
-          onLinkMaterialsSheet={() => setLinkSheetPickerOpen(true)}
-          onUnlinkMaterialsSheet={() => linkMaterialSheetMut.mutate(null)}
           depositPct={draft.depositPct}
           deposit={depositAmount}
           lineItems={baseTotal}
@@ -1180,14 +1181,10 @@ interface QuoteSummaryCardProps {
   marginPct: number | null;
   /** True once this quote's project has more than one materials sheet or
    * more than one quote — the single-document implicit pairing no longer
-   * applies, so the Est. cost row shows a Link/Change/Unlink affordance
-   * instead of pairing automatically. */
+   * applies, so a null cost can't be resolved with "Create project" (that's
+   * only for a truly standalone quote); linking now happens via the
+   * LinkedDocumentBar on the Client Share Card instead. */
   needsMaterialsLink: boolean;
-  /** Name of the currently-linked sheet, if any (only meaningful when
-   * needsMaterialsLink is true). */
-  linkedSheetName: string | null;
-  onLinkMaterialsSheet: () => void;
-  onUnlinkMaterialsSheet: () => void;
   depositPct: number;
   deposit: number;
   lineItems: number;
@@ -1217,9 +1214,6 @@ function QuoteSummaryCard({
   profit,
   marginPct,
   needsMaterialsLink,
-  linkedSheetName,
-  onLinkMaterialsSheet,
-  onUnlinkMaterialsSheet,
   depositPct,
   deposit,
   lineItems,
@@ -1278,29 +1272,18 @@ function QuoteSummaryCard({
               cost == null ? (
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-[13px] font-extrabold text-foreground">Not available</span>
-                  <button
-                    type="button"
-                    onClick={needsMaterialsLink ? onLinkMaterialsSheet : onCreateProject}
-                    className="text-[10px] font-bold text-primary hover:underline"
-                  >
-                    {needsMaterialsLink ? "Link materials sheet" : "Create project"}
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-start gap-1">
-                  <span>{formatCurrency(cost)}</span>
-                  {needsMaterialsLink && (
-                    <span className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
-                      {linkedSheetName}
-                      <button type="button" onClick={onLinkMaterialsSheet} className="font-bold text-primary hover:underline">
-                        Change
-                      </button>
-                      <button type="button" onClick={onUnlinkMaterialsSheet} className="font-bold text-primary hover:underline">
-                        Unlink
-                      </button>
-                    </span>
+                  {!needsMaterialsLink && (
+                    <button
+                      type="button"
+                      onClick={onCreateProject}
+                      className="text-[10px] font-bold text-primary hover:underline"
+                    >
+                      Create project
+                    </button>
                   )}
                 </div>
+              ) : (
+                <span>{formatCurrency(cost)}</span>
               )
             }
           />
@@ -1319,29 +1302,18 @@ function QuoteSummaryCard({
               cost == null ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="text-sm font-extrabold text-foreground">Not available</span>
-                  <button
-                    type="button"
-                    onClick={needsMaterialsLink ? onLinkMaterialsSheet : onCreateProject}
-                    className="text-xs font-bold text-primary hover:underline"
-                  >
-                    {needsMaterialsLink ? "Link materials sheet" : "Create project"}
-                  </button>
-                </span>
-              ) : (
-                <span className="inline-flex flex-col items-end gap-0.5">
-                  <span>{formatCurrency(cost)}</span>
-                  {needsMaterialsLink && (
-                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
-                      {linkedSheetName}
-                      <button type="button" onClick={onLinkMaterialsSheet} className="font-bold text-primary hover:underline">
-                        Change
-                      </button>
-                      <button type="button" onClick={onUnlinkMaterialsSheet} className="font-bold text-primary hover:underline">
-                        Unlink
-                      </button>
-                    </span>
+                  {!needsMaterialsLink && (
+                    <button
+                      type="button"
+                      onClick={onCreateProject}
+                      className="text-xs font-bold text-primary hover:underline"
+                    >
+                      Create project
+                    </button>
                   )}
                 </span>
+              ) : (
+                <span>{formatCurrency(cost)}</span>
               )
             }
           />
@@ -1460,6 +1432,15 @@ interface ClientShareCardProps {
   onShare: () => void;
   onCopy: () => void;
   actionsDisabled?: boolean;
+  /** True once this quote's project has more than one materials sheet or
+   * more than one quote (see needsExplicitDocumentLink) — shows the link
+   * bar at all; false hides it entirely (implicit single-sheet pairing, or
+   * a standalone quote with no project). */
+  needsMaterialsLink: boolean;
+  linkedSheet: { id: string; name: string } | null;
+  onOpenLinkedSheet: () => void;
+  onLinkMaterialsSheet: () => void;
+  onUnlinkMaterialsSheet: () => void;
 }
 
 /**
@@ -1479,6 +1460,11 @@ function ClientShareCard({
   onShare,
   onCopy,
   actionsDisabled,
+  needsMaterialsLink,
+  linkedSheet,
+  onOpenLinkedSheet,
+  onLinkMaterialsSheet,
+  onUnlinkMaterialsSheet,
 }: ClientShareCardProps) {
   const clientName = clients.find((c) => c.id === clientId)?.name;
   const clientInitial = clientName ? clientName.trim().charAt(0).toUpperCase() || "?" : "?";
@@ -1531,6 +1517,16 @@ function ClientShareCard({
           </SelectContent>
         </Select>
       </div>
+
+      {needsMaterialsLink && (
+        <LinkedDocumentBar
+          targetLabel="materials sheet"
+          linked={linkedSheet ? { label: linkedSheet.name, onOpen: onOpenLinkedSheet } : null}
+          onLink={onLinkMaterialsSheet}
+          onUnlink={onUnlinkMaterialsSheet}
+          className="bg-foreground/95"
+        />
+      )}
 
       {/* White footer — link status + url + Share/Copy */}
       <div className="flex flex-wrap items-center gap-3.5 bg-card p-4">
