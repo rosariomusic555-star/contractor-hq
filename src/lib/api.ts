@@ -388,7 +388,13 @@ export interface ChangeOrderImage {
 // Derived amounts
 // ---------------------------------------------------------------------------
 
-/** Whether a line item counts toward the quote total given its section. */
+/** Whether a line item has actually been committed to — required items
+ * always; an optional section/item only once the client has checked it on
+ * the live page. This is narrower than "counts toward the quote total"
+ * (see quoteTotal() below) — it's for deciding what to actually bill for
+ * (InvoiceWorkspace's line-item picker) or count as recognized revenue
+ * (metrics.ts revenueByCategory), where speculative optional work nobody
+ * picked must never be included. */
 export function quoteItemIncluded(section: QuoteSection, item: QuoteItem): boolean {
   if (section.is_optional || item.is_optional) return item.client_selected;
   return true;
@@ -399,12 +405,20 @@ export function quoteLineTotal(item: { price: number; quantity?: number | null }
   return Number(item.price) * (item.quantity == null ? 1 : Number(item.quantity));
 }
 
-/** Quote total = sum of included line items (quotes have no stored amount). */
+/** Quote total = every line item, required or optional (quotes have no
+ * stored amount) — the quote's full all-in value, the same number shown
+ * everywhere a quote's total appears (the Quote builder's headline, quote
+ * list, project rollups/contract value, dashboard, backlog). This is
+ * deliberately NOT gated by quoteItemIncluded()/client_selected — that's a
+ * narrower "what's actually committed" concept used only for invoicing and
+ * revenue recognition (see quoteItemIncluded's own doc comment), which
+ * would otherwise never reach a quote's full total for an unselected
+ * optional quote and so never register as fully paid. */
 export function quoteTotal(sections: QuoteSection[] = []): number {
   let total = 0;
   for (const section of sections) {
     for (const item of section.quote_items ?? []) {
-      if (quoteItemIncluded(section, item)) total += quoteLineTotal(item);
+      total += quoteLineTotal(item);
     }
   }
   return total;

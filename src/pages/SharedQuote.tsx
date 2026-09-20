@@ -119,12 +119,32 @@ export default function SharedQuotePage() {
     return true;
   };
 
+  // Required items only, regardless of what's currently checked — the
+  // guaranteed floor of the quote.
+  const baseSubtotal = sections.reduce(
+    (sum, section) =>
+      sum +
+      (section.is_optional
+        ? 0
+        : section.items.reduce((s, item) => s + (item.is_optional ? 0 : quoteLineTotal(item)), 0)),
+    0,
+  );
+  const optionalCount = sections.reduce(
+    (n, section) =>
+      n + (section.is_optional ? section.items.length : section.items.filter((i) => i.is_optional).length),
+    0,
+  );
+  // Base + whatever's currently checked — moves live as the client toggles
+  // optional sections/items above.
   const subtotal = sections.reduce(
     (sum, section) =>
       sum +
       section.items.reduce((s, item) => (isIncluded(section, item) ? s + quoteLineTotal(item) : s), 0),
     0,
   );
+  // Deposit is a percentage of the full quote total — required items plus
+  // whatever optional work the client currently has checked — matching how
+  // the deposit is sized everywhere else a quote total is shown.
   const deposit = (subtotal * Number(quote.deposit_percentage)) / 100;
   const isApproved = quote.status === "approved";
 
@@ -168,10 +188,24 @@ export default function SharedQuotePage() {
 
         <div className="rounded-xl border border-border bg-muted/40 p-5 space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Subtotal</span>
+            <span className="text-muted-foreground">Quote total</span>
             <span className="text-xl font-bold text-foreground">{formatCurrency(subtotal)}</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
+          {optionalCount > 0 && (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Base (required)</span>
+                <span className="font-semibold text-foreground">{formatCurrency(baseSubtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Optional items selected</span>
+                <span className="font-semibold text-foreground">
+                  {formatCurrency(subtotal - baseSubtotal)}
+                </span>
+              </div>
+            </>
+          )}
+          <div className="flex items-center justify-between text-sm pt-1">
             <span className="text-muted-foreground">
               Deposit due ({quote.deposit_percentage}%)
             </span>

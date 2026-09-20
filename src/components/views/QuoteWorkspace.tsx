@@ -196,10 +196,11 @@ const seed = (quote: Quote): QuoteDraft => ({
 const lineTotal = (i: DraftItem) => i.price * i.quantity;
 /** An item is an "optional add-on" if its section or the item itself is flagged. */
 const itemIsAddon = (s: DraftSection, i: DraftItem) => s.is_optional || i.is_optional;
-/** Whether a draft line item counts toward the shown total. */
-const itemIncluded = (s: DraftSection, i: DraftItem) =>
-  itemIsAddon(s, i) ? i.client_selected : true;
-/** A section's base (non-optional) subtotal — what always counts. */
+/** A section's base (non-optional) subtotal — what always counts toward the
+ * base/required total, regardless of client_selected (that field reflects
+ * what the client has picked on the live page so far — irrelevant while
+ * drafting/previewing, where every optional item should count toward the
+ * "optional" figure unconditionally, not just the ones already picked). */
 const baseSubtotal = (s: DraftSection) =>
   s.is_optional ? 0 : s.items.reduce((sum, i) => (i.is_optional ? sum : sum + lineTotal(i)), 0);
 
@@ -651,11 +652,26 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   });
 
   // --- derived amounts (from the draft) ---------------------------------
-  const sectionSubtotal = (s: DraftSection) =>
-    s.items.reduce((sum, i) => (itemIncluded(s, i) ? sum + lineTotal(i) : sum), 0);
-  const quoteTotalLive = draft.sections.reduce((sum, s) => sum + sectionSubtotal(s), 0);
+  // A section's own header subtotal is a plain sum of everything in it —
+  // required or optional — so an optional section always shows its real
+  // worth instead of $0 until a client checks it off on the live page.
+  const sectionSubtotal = (s: DraftSection) => s.items.reduce((sum, i) => sum + lineTotal(i), 0);
   const baseTotal = draft.sections.reduce((sum, s) => sum + baseSubtotal(s), 0);
-  // Add-ons the client has picked (roll into the total); vs. everything optional.
+  // Every optional item counts toward this figure unconditionally — not
+  // gated by client_selected, which only reflects what's been picked on the
+  // live page so far and is irrelevant while drafting/previewing.
+  const optionalTotal = draft.sections.reduce(
+    (sum, s) => sum + s.items.reduce((a, i) => a + (itemIsAddon(s, i) ? lineTotal(i) : 0), 0),
+    0,
+  );
+  const optionalItemCount = draft.sections.reduce(
+    (n, s) => n + s.items.filter((i) => itemIsAddon(s, i)).length,
+    0,
+  );
+  // Add-ons the client has actually picked on the live page (rolls into the
+  // Totals breakdown below) vs. everything still available to pick — a
+  // different, narrower concept than optionalTotal above (which counts
+  // every optional item regardless of pick state).
   const selectedAddonsTotal = draft.sections.reduce(
     (sum, s) =>
       sum +
@@ -680,17 +696,26 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       ? materialsCogs(linkedSheetSections)
       : null
     : materialsCogs(materials);
-  const fin = demoQuoteFinancials(
-    quoteTotalLive,
-    quoteDefaults.sales_tax_pct,
-    quoteDefaults.quote_validity_days,
-  );
+  // Base and optional each get their own sales-tax figure computed
+  // independently, so both are correct standing alone — their sum is the
+  // headline "Quote total," the quote's full all-in value.
+  const finBase = demoQuoteFinancials(baseTotal, quoteDefaults.sales_tax_pct, quoteDefaults.quote_validity_days);
+  const finOptional = demoQuoteFinancials(optionalTotal, quoteDefaults.sales_tax_pct, quoteDefaults.quote_validity_days);
   // Material markup was a synthetic demo percentage — it never counted toward
   // the real quote total (api.ts quoteTotal(), the shared client-facing page,
   // and the Project detail "Contract" figure all only ever summed real line
   // items). Folding it in here made the Builder's own total disagree with
   // every other number in the app; sales tax stays, unrelated to this.
-  const grandTotal = quoteTotalLive + fin.taxAmount;
+  const baseTotalWithTax = baseTotal + finBase.taxAmount;
+  const optionalTotalWithTax = optionalTotal + finOptional.taxAmount;
+  // The headline figure — required + optional + tax, matching quoteTotal()
+  // (api.ts) everywhere else a quote's total is shown (quote list, project
+  // rollups, dashboard, backlog) — a quote's total means the same thing
+  // everywhere now.
+  const grandTotal = baseTotalWithTax + optionalTotalWithTax;
+  // Deposit, cost, and margin all compare against the same all-in headline
+  // — once optional work is part of "the total," it's part of everything
+  // derived from it too.
   const depositAmount = Math.round((grandTotal * draft.depositPct) / 100);
   // Standalone quotes (no project) have no real cost source — the Materials
   // Sheet lives on a project. There used to be a guessed fallback here
@@ -700,6 +725,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // to null too rather than displaying a number built on the same guess.
   // A project-linked quote with an ambiguous, unlinked materials sheet is
   // equally undefined until the user picks one — see needsExplicitMaterialsLink.
+  // materialsCogs() already sums the whole linked sheet unconditionally (a
+  // materials sheet has no optional/required split of its own), so this
+  // cost figure was never scoped down to "required only" to begin with.
   const estCost = projectId ? materialsCost : null;
   const margin = estCost == null ? null : grandTotal - estCost;
   const marginPct = estCost == null ? null : grandTotal > 0 ? (margin! / grandTotal) * 100 : 0;
@@ -968,8 +996,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 <MoneyRow label="Selected add-ons" value={formatCurrency(selectedAddonsTotal)} />
               )}
               <MoneyRow
-                label={`Sales tax ${fin.taxPct}% (materials)`}
-                value={formatCurrency(fin.taxAmount)}
+                label={`Sales tax ${finBase.taxPct}% (materials)`}
+                value={formatCurrency(finBase.taxAmount)}
               />
             </div>
             {optionalAvailableTotal > 0 && (
@@ -983,6 +1011,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             variant="desktop"
             onCreateProject={handleCreateProjectClick}
             total={grandTotal}
+            baseTotal={baseTotalWithTax}
+            optionalTotal={optionalTotalWithTax}
+            optionalCount={optionalItemCount}
             cost={estCost}
             profit={margin}
             marginPct={marginPct}
@@ -990,8 +1021,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             depositPct={draft.depositPct}
             deposit={depositAmount}
             lineItems={baseTotal}
-            taxPct={fin.taxPct}
-            tax={fin.taxAmount}
+            taxPct={finBase.taxPct}
+            tax={finBase.taxAmount}
             open={breakdownOpen}
             onToggle={() => setBreakdownOpen((o) => !o)}
             sendLabel={sendLabel}
@@ -1012,6 +1043,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           variant="mobile"
           onCreateProject={handleCreateProjectClick}
           total={grandTotal}
+          baseTotal={baseTotalWithTax}
+          optionalTotal={optionalTotalWithTax}
+          optionalCount={optionalItemCount}
           cost={estCost}
           profit={margin}
           marginPct={marginPct}
@@ -1019,8 +1053,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           depositPct={draft.depositPct}
           deposit={depositAmount}
           lineItems={baseTotal}
-          taxPct={fin.taxPct}
-          tax={fin.taxAmount}
+          taxPct={finBase.taxPct}
+          tax={finBase.taxAmount}
           open={breakdownOpen}
           onToggle={() => setBreakdownOpen((o) => !o)}
           sendLabel={sendLabel}
@@ -1171,7 +1205,17 @@ interface QuoteSummaryCardProps {
    * first (same saveMut the Save button uses) so the new project gets
    * whatever's currently in the editor, then navigates to create it. */
   onCreateProject: () => void;
+  /** All-in headline figure — required + optional + tax. Matches
+   * quoteTotal() (api.ts) and every other place a quote's total is shown. */
   total: number;
+  /** Required-items-only subtotal, tax included — shown as a secondary
+   * "Base (required)" line under the headline. */
+  baseTotal: number;
+  /** Sum of every optional section/item, tax included — 0 when the quote
+   * has none, in which case both secondary lines are hidden (baseTotal
+   * would just equal total, redundantly). */
+  optionalTotal: number;
+  optionalCount: number;
   /** Null for a standalone quote, or a project-linked quote with an
    * ambiguous, unlinked materials sheet (see needsMaterialsLink) — either
    * way there's no real cost source yet, so this and profit/marginPct show
@@ -1210,6 +1254,9 @@ function QuoteSummaryCard({
   variant,
   onCreateProject,
   total,
+  baseTotal,
+  optionalTotal,
+  optionalCount,
   cost,
   profit,
   marginPct,
@@ -1262,6 +1309,23 @@ function QuoteSummaryCard({
           </span>
         )}
       </div>
+
+      {/* Base + optional breakdown — the headline above is already their
+          sum, so this is just showing what it's made of. Hidden entirely
+          when the quote has no optional sections/items, so nothing changes
+          for a quote that doesn't use them. */}
+      {optionalCount > 0 && (
+        <div className="flex flex-col gap-1 border-t border-hairline pt-3 text-xs font-semibold text-muted-foreground">
+          <div className="flex items-center justify-between">
+            <span>Base (required)</span>
+            <span className="tabular-nums">{formatCurrency(baseTotal)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Optional items ({optionalCount})</span>
+            <span className="tabular-nums">{formatCurrency(optionalTotal)}</span>
+          </div>
+        </div>
+      )}
 
       {isMobile ? (
         <div className="grid grid-cols-3 gap-2">

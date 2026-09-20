@@ -1,5 +1,5 @@
 import type { Category, Invoice, Quote } from "./api";
-import { quoteItemIncluded, quoteLineTotal, quoteTotal } from "./api";
+import { quoteItemIncluded, quoteLineTotal } from "./api";
 
 export interface MonthPoint {
   key: string; // "2024-01"
@@ -44,11 +44,14 @@ export interface CategoryRevenue {
  * category" card.
  *
  * A quote counts only once it's "fully paid": the sum of its paid invoices'
- * amounts covers quoteTotal(). At that point quoteTotal() (not the raw
- * invoice sum, which needn't match it) is attributed across categories in
- * proportion to each category's share of the quote's included line items —
- * which is just each item's quoteLineTotal() bucketed by category_id.
- * Partially-paid quotes contribute nothing yet, anywhere.
+ * amounts covers what was actually committed to — required items plus any
+ * optional ones the client actually selected (quoteItemIncluded()), NOT
+ * quoteTotal()'s full all-in figure, which includes optional work nobody
+ * picked and so would never be reached by real payments. At that point the
+ * committed total (not the raw invoice sum, which needn't match it) is
+ * attributed across categories in proportion to each category's share of
+ * the quote's included line items — each item's quoteLineTotal() bucketed
+ * by category_id. Partially-paid quotes contribute nothing yet, anywhere.
  *
  * An invoice with no quote_id (standalone, or a project invoice never linked
  * to a quote) has no line items to categorize — a paid one counts its full
@@ -76,9 +79,14 @@ export function revenueByCategory(
   }
 
   for (const quote of quotes) {
-    const total = quoteTotal(quote.quote_sections);
-    if (total <= 0) continue;
-    if ((paidByQuote.get(quote.id) ?? 0) < total) continue;
+    let committedTotal = 0;
+    for (const section of quote.quote_sections) {
+      for (const item of section.quote_items ?? []) {
+        if (quoteItemIncluded(section, item)) committedTotal += quoteLineTotal(item);
+      }
+    }
+    if (committedTotal <= 0) continue;
+    if ((paidByQuote.get(quote.id) ?? 0) < committedTotal) continue;
     for (const section of quote.quote_sections) {
       for (const item of section.quote_items ?? []) {
         if (quoteItemIncluded(section, item)) add(item.category_id, quoteLineTotal(item));
