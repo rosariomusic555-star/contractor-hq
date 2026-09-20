@@ -30,6 +30,7 @@ import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { StatusPill } from "@/components/common/StatusPill";
 import { ReorderControls } from "@/components/common/ReorderControls";
 import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
+import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import {
@@ -672,6 +673,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
           )}
           <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
+          <GoToProjectLink projectId={projectId} isDirty={isDirty} className="mt-1.5" />
         </div>
         {sheetId && (
           <div className="flex shrink-0 items-center gap-3">

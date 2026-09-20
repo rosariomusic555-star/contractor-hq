@@ -17,6 +17,7 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
+import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -292,6 +293,7 @@ export function InvoiceWorkspace({
           {clientName ? ` · ${clientName}` : ""}
           {invoice.due_date ? ` · due ${invoice.due_date.slice(0, 10)}` : ""}
         </p>
+        {projectId && <GoToProjectLink projectId={projectId} isDirty={isDirty} className="mt-1.5" />}
       </div>
 
       {persistedLink && (

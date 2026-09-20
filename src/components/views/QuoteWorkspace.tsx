@@ -56,6 +56,7 @@ import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { ReorderControls } from "@/components/common/ReorderControls";
 import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
+import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import { quoteStatusMeta } from "@/lib/statusMeta";
@@ -863,6 +864,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         projectId={quote.project_id}
         projects={projects}
         onProjectChange={(v) => updateProjectLinkMut.mutate(v)}
+        isDirty={isDirty}
         hasToken={!!quote.share_token}
         shareUrl={quote.share_token ? `${window.location.origin}/quote/${quote.share_token}` : null}
         onShare={() => ensureLinkMut.mutate("share")}
@@ -1490,6 +1492,9 @@ interface ClientShareCardProps {
   projectId: string | null;
   projects: { id: string; name: string }[];
   onProjectChange: (id: string | null) => void;
+  /** The quote builder's own unsaved-changes flag — passed straight through
+   * to GoToProjectLink. */
+  isDirty: boolean;
   /** Whether a share token already exists — drives the status dot/label. */
   hasToken: boolean;
   shareUrl: string | null;
@@ -1519,6 +1524,7 @@ function ClientShareCard({
   projectId,
   projects,
   onProjectChange,
+  isDirty,
   hasToken,
   shareUrl,
   onShare,
@@ -1561,25 +1567,30 @@ function ClientShareCard({
           allowClear
         />
 
-        <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
-          <SelectTrigger className={pillTriggerClass}>
-            <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
-              <Briefcase className="h-3.5 w-3.5" />
-            </span>
-            <span className={pillLabelClass}>Project</span>
-            <span className={pillValueClass}>
-              <SelectValue placeholder="No project" />
-            </span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>No project</SelectItem>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col gap-1.5">
+          <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
+            <SelectTrigger className={pillTriggerClass}>
+              <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
+                <Briefcase className="h-3.5 w-3.5" />
+              </span>
+              <span className={pillLabelClass}>Project</span>
+              <span className={pillValueClass}>
+                <SelectValue placeholder="No project" />
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>No project</SelectItem>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {projectId && (
+            <GoToProjectLink projectId={projectId} isDirty={isDirty} tone="dark" className="self-end px-1" />
+          )}
+        </div>
       </div>
 
       {needsMaterialsLink && (
