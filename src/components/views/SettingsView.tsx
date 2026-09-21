@@ -7,7 +7,6 @@ import { DEMO_CREWS } from "@/lib/demoData";
 const SECTIONS = [
   { label: "Business profile", to: "/settings/business-profile" },
   { label: "Quote defaults", to: "/settings/quote-defaults" },
-  { label: "Seasonal capacity", to: "/settings/capacity" },
   { label: "Categories", to: "/settings/categories" },
   { label: "Expense categories", to: "/settings/expense-categories" },
   { label: "Suppliers", to: "/settings/suppliers" },

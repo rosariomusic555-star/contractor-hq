@@ -893,69 +893,15 @@ export async function uploadBusinessLogo(userId: string, file: File): Promise<st
 }
 
 // ---------------------------------------------------------------------------
-// Bookings settings (0054) — one row per user, same shape as QuoteDefaults.
-// Backs Settings > Seasonal capacity and the Dashboard Bookings card.
-// Table is still named backlog_settings in the DB — not renamed (see the
-// "renaming Seasonal backlog to Bookings" task: DB objects only get renamed
-// when literally named "backlog", and this one isn't).
+// Bookings settings (0054) — one row per user, in the backlog_settings DB
+// table (name unchanged — see the "renaming Seasonal backlog to Bookings"
+// task: DB objects only get renamed when literally named "backlog"). Used
+// to back Settings > Seasonal capacity, a per-month $ capacity figure the
+// Dashboard Bookings card compared committed work against; removed as not
+// useful (the capacity setting, its Settings page, and this whole get/save
+// module all went together — nothing else ever read this table). The
+// backlog_settings table itself is left in place, unread.
 // ---------------------------------------------------------------------------
-
-export type BookingsRangeMonths = 6 | 12;
-export type BookingsCalendarView = "month" | "quarter" | "timeline";
-
-export interface BookingsSettings {
-  capacity_dollars_per_month: number;
-  /** Last-selected range on the Dashboard Bookings card (0057) —
-   * persisted so it doesn't reset to 6 months on every load. */
-  default_range_months: BookingsRangeMonths;
-  /** Legacy (0058) — the Bookings page was briefly Month/Quarter/
-   * Timeline before simplifying to Month-only; the view switcher is gone,
-   * so nothing writes this anymore. Column kept (never dropped) rather
-   * than backed out. */
-  default_calendar_view: BookingsCalendarView;
-}
-
-export const BOOKINGS_SETTINGS_FALLBACK: BookingsSettings = {
-  capacity_dollars_per_month: 50000,
-  default_range_months: 6,
-  default_calendar_view: "month",
-};
-
-export async function getBookingsSettings(): Promise<BookingsSettings> {
-  const { data, error } = await supabase.from("backlog_settings").select("*").maybeSingle();
-  if (error) {
-    // PGRST205 = migration 0054 hasn't been run yet — degrade to the fallback
-    // instead of breaking the Dashboard.
-    if (error.code === "PGRST205") return BOOKINGS_SETTINGS_FALLBACK;
-    throw error;
-  }
-  if (!data) return BOOKINGS_SETTINGS_FALLBACK;
-  return {
-    capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
-    // Columns added in 0057/0058 — degrade to the default on a not-yet-migrated row.
-    default_range_months: (data.default_range_months as BookingsRangeMonths | undefined) ?? 6,
-    default_calendar_view: (data.default_calendar_view as BookingsCalendarView | undefined) ?? "month",
-  };
-}
-
-export async function saveBookingsSettings(patch: Partial<BookingsSettings>): Promise<BookingsSettings> {
-  const merged = { ...(await getBookingsSettings()), ...patch };
-  const { data, error } = await supabase
-    .from("backlog_settings")
-    .upsert({
-      capacity_dollars_per_month: merged.capacity_dollars_per_month,
-      default_range_months: merged.default_range_months,
-      default_calendar_view: merged.default_calendar_view,
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return {
-    capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
-    default_range_months: (data.default_range_months as BookingsRangeMonths | undefined) ?? 6,
-    default_calendar_view: (data.default_calendar_view as BookingsCalendarView | undefined) ?? "month",
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Project images — a project's photo gallery (0025): progress photos,

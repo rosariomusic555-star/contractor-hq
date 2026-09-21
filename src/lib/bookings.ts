@@ -84,9 +84,8 @@ function toBookingJob(
  * listOpportunities().
  *
  * Previously also computed a capacity/"Room for N" fullness figure per
- * month (against Settings > Seasonal capacity) — removed as not useful;
- * that setting still exists (Settings > Seasonal capacity) but nothing
- * reads it anymore.
+ * month (against a Settings > Seasonal capacity page) — removed as not
+ * useful, along with that page and its setting.
  */
 export function seasonalBookings(
   projects: Project[],

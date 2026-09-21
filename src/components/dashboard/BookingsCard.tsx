@@ -30,11 +30,10 @@ const CURRENT_YEAR = new Date().getFullYear();
  * (see RevenueChart's new spot lower down).
  *
  * Used to also show a capacity "Open"/"Room for N"/"Full" pill per month
- * (against Settings > Seasonal capacity) — removed as not useful. That
- * setting still exists but nothing reads it anymore. Also used to have a
- * rolling 6/12-months-forward range toggle (backed by
- * backlog_settings.default_range_months — DB table name unchanged) —
- * replaced by this year view; that column is likewise now dormant.
+ * (against a Settings > Seasonal capacity page) — removed as not useful,
+ * along with that page and its setting. Also used to have a rolling
+ * 6/12-months-forward range toggle, backed by a since-removed
+ * default_range_months setting — replaced by this year view.
  *
  * Months render as square <MonthThumbnail> heat-map recaps — day-numbered,
  * draggable mini calendars are the /bookings year page's MiniMonth; this
