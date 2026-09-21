@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 import { listInvoices, createInvoice, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/aging";
+import { agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/financials";
 
 /** "unpaid" is a combined filter — sent + overdue, i.e. billed but not yet
  * paid. Same definition the Dashboard's own "Unpaid" KPI uses, so arriving

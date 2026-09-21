@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { demoJobMeta, demoQuoteFinancials } from "./demoData";
+import { demoJobMeta } from "./demoData";
 import {
   invoiceStatusMeta,
   projectStatusMeta,
@@ -37,11 +37,6 @@ describe("demoData helpers are deterministic and consistent", () => {
     const a = demoJobMeta({ id: "abc-123", status: "approved" });
     const b = demoJobMeta({ id: "zzz-999", status: "approved" });
     expect(a).not.toEqual(b);
-  });
-
-  it("quote financials degrade gracefully at zero", () => {
-    expect(demoQuoteFinancials(0, 6.25, 14).marginPct).toBe(0);
-    expect(demoQuoteFinancials(10000, 6.25, 14).marginPct).toBeGreaterThan(0);
   });
 });
 

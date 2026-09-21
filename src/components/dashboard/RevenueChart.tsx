@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { listInvoices } from "@/lib/api";
-import { monthlyRevenue, momChange } from "@/lib/metrics";
+import { monthlyRevenue, momChange } from "@/lib/financials";
 
 const GREEN = "hsl(131 36% 64%)";
 

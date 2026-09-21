@@ -42,7 +42,7 @@ import {
   type Quote,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { invoiceDaysLate } from "@/lib/aging";
+import { invoiceDaysLate } from "@/lib/financials";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 const FIELD_INPUT = "h-11 rounded-xl border-transparent bg-muted px-3.5 focus-visible:border-primary focus-visible:bg-card";

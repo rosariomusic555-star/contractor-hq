@@ -15,6 +15,7 @@
 // model does. See index.ts's top comment for the full propose/execute split.
 
 import {
+  approvedChangeOrderTotal,
   invoiceDaysLate,
   materialsCogs,
   momChange,
@@ -23,7 +24,8 @@ import {
   quoteItemIncluded,
   quoteLineTotal,
   quoteTotal,
-  revenueByCategory,
+  collectedByCategory,
+  type ChangeOrderLike,
   type QuoteLike,
 } from "./format.ts";
 
@@ -46,7 +48,7 @@ export const TOOLS = [
   {
     name: "get_project_financials",
     description:
-      "Get the quoted total, predicted cost (from the Materials Sheet), actual cost-to-date (from logged expenses), and predicted/actual profit and margin for one project. This is the tool for any 'margin', 'profit', or 'how much have I spent on X job' question.",
+      "Get the contract total (headline quote + approved change orders), predicted cost (from the Materials Sheet), actual cost-to-date (from logged expenses), and predicted/actual profit and margin for one project. This is the tool for any 'margin', 'profit', or 'how much have I spent on X job' question.",
     input_schema: {
       type: "object",
       properties: { project_id: { type: "string" } },
@@ -267,8 +269,19 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
     .eq("project_id", input.project_id);
   if (qErr) throw qErr;
 
+  const { data: changeOrders, error: coErr } = await sb
+    .from("change_orders")
+    .select("status,amount")
+    .eq("project_id", input.project_id);
+  if (coErr) throw coErr;
+
   const headline = pickHeadlineQuote((quotes ?? []) as QuoteLike[]);
-  const quoted = headline ? quoteTotal(headline.quote_sections) : null;
+  const quoteBase = headline ? quoteTotal(headline.quote_sections) : null;
+  // Contract value = headline quote + APPROVED change orders only — same
+  // definition as everywhere else in the app (projectContractValue() in
+  // src/lib/api.ts). Null only when there's no quote at all yet.
+  const quoted =
+    quoteBase != null ? quoteBase + approvedChangeOrderTotal((changeOrders ?? []) as ChangeOrderLike[]) : null;
 
   const { data: materialsSections, error: mErr } = await sb
     .from("materials_sections")
@@ -296,7 +309,9 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
     project_name: project.name,
     status: project.status,
     client_name: project.client?.name ?? null,
-    quoted_total: quoted,
+    // Headline quote total + approved change orders — same "contract
+    // value" every other screen in the app shows for this project.
+    contract_total: quoted,
     predicted_cost: predictedCost,
     actual_cost_to_date: actualCost,
     predicted_profit: quoted != null && predictedCost != null ? quoted - predictedCost : null,
@@ -577,8 +592,10 @@ async function revenueSummaryTool(
   input: { date_from?: string; date_to?: string; by_category?: boolean },
   sb: SupabaseClient,
 ) {
-  // "Revenue invoiced" (matches the Dashboard's own label) — every non-draft
-  // invoice, not just paid ones. See src/lib/metrics.ts monthlyRevenue().
+  // Invoiced basis (matches the Revenue page's own "Invoiced" card) — every
+  // non-draft invoice, not just paid ones. Note the Dashboard's own
+  // headline "This month" figure is collected (cash-basis), a different
+  // number from total_invoiced below — see src/lib/financials.ts.
   let q = sb.from("invoices").select("amount,created_at,status,quote_id").neq("status", "draft");
   if (input.date_from) q = q.gte("created_at", input.date_from);
   if (input.date_to) q = q.lte("created_at", input.date_to);
@@ -600,11 +617,12 @@ async function revenueSummaryTool(
     if (qErr) throw qErr;
     const { data: categories, error: cErr } = await sb.from("categories").select("id,name");
     if (cErr) throw cErr;
-    // Category revenue counts a quote once it's fully paid, independent of
-    // any date range — same semantics as src/lib/metrics.ts revenueByCategory().
+    // Category revenue is collected (paid invoices), attributed by each
+    // invoice's linked quote — same basis as the Revenue page's own
+    // "Revenue by category", independent of the date range above (all-time).
     const { data: allInvoices, error: aErr } = await sb.from("invoices").select("amount,status,quote_id");
     if (aErr) throw aErr;
-    result.by_category = revenueByCategory(quotes ?? [], allInvoices ?? [], categories ?? []);
+    result.by_category = collectedByCategory(quotes ?? [], allInvoices ?? [], categories ?? []);
   }
 
   return result;

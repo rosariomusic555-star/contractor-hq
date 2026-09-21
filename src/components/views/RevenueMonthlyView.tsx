@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { formatCurrency, pluralize } from "@/lib/utils";
 import { listInvoices } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
-import { monthlyBreakdown, hasYearOfHistory, invoicedTotal, collectedTotal, rangeDateLabel } from "@/lib/revenue";
+import { monthlyBreakdown, hasYearOfHistory, invoicedTotal, collectedTotal, rangeDateLabel } from "@/lib/financials";
 
 const GREY = "hsl(201 12% 46%)";
 const GREEN = "hsl(131 36% 64%)";

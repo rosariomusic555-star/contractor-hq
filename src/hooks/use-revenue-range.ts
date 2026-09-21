@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { resolveRange, type DateRange, type RangeKey } from "@/lib/revenue";
+import { resolveRange, type DateRange, type RangeKey } from "@/lib/financials";
 
 /**
  * Drives every Revenue detail page's date-range selector — same shape,

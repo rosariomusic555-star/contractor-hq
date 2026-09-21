@@ -9,10 +9,13 @@ import {
   listProjects,
   listQuotes,
   listChangeOrders,
+  listInvoices,
   listMaterialsSheets,
   listAllMaterialsSections,
+  listExpenses,
   listCategories,
   type ChangeOrder,
+  type Invoice,
   type Quote,
 } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
@@ -24,7 +27,7 @@ import {
   jobSizeDistribution,
   rangeDateLabel,
   type ProjectFinancials,
-} from "@/lib/revenue";
+} from "@/lib/financials";
 
 export function RevenueJobsView() {
   const navigate = useNavigate();
@@ -39,6 +42,29 @@ export function RevenueJobsView() {
     queryFn: listAllMaterialsSections,
   });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: () => listExpenses() });
+
+  const invoicesByProject = useMemo(() => {
+    const map = new Map<string, Invoice[]>();
+    for (const inv of invoices) {
+      if (!inv.project_id) continue;
+      const list = map.get(inv.project_id);
+      if (list) list.push(inv);
+      else map.set(inv.project_id, [inv]);
+    }
+    return map;
+  }, [invoices]);
+
+  const expensesByProject = useMemo(() => {
+    const map = new Map<string, { amount: number }[]>();
+    for (const e of expenses) {
+      const list = map.get(e.project_id);
+      if (list) list.push(e);
+      else map.set(e.project_id, [e]);
+    }
+    return map;
+  }, [expenses]);
 
   const quotesByProject = useMemo(() => {
     const map = new Map<string, Quote[]>();
@@ -62,8 +88,18 @@ export function RevenueJobsView() {
   }, [changeOrders]);
 
   const financials = useMemo(
-    () => buildProjectFinancials(projects, quotesByProject, changeOrdersByProject, materialsSheets, materialsSections, categories),
-    [projects, quotesByProject, changeOrdersByProject, materialsSheets, materialsSections, categories],
+    () =>
+      buildProjectFinancials(
+        projects,
+        quotesByProject,
+        changeOrdersByProject,
+        invoicesByProject,
+        materialsSheets,
+        materialsSections,
+        expensesByProject,
+        categories,
+      ),
+    [projects, quotesByProject, changeOrdersByProject, invoicesByProject, materialsSheets, materialsSections, expensesByProject, categories],
   );
 
   const rows = useMemo(() => closedJobRows(financials, range), [financials, range]);
@@ -76,7 +112,7 @@ export function RevenueJobsView() {
       const key = r.category?.id ?? "uncategorized";
       const name = r.category?.name ?? "Uncategorized";
       const t = totals.get(key) ?? { name, sum: 0, count: 0 };
-      t.sum += r.revenue;
+      t.sum += r.contractValue;
       t.count += 1;
       totals.set(key, t);
     }
@@ -89,7 +125,7 @@ export function RevenueJobsView() {
       project: (r) => r.project.name,
       client: (r) => r.project.client?.name ?? "",
       category: (r) => r.category?.name ?? "Uncategorized",
-      value: (r) => r.revenue,
+      value: (r) => r.contractValue,
       completed: (r) => r.jobDate,
     },
     "completed",
@@ -135,7 +171,7 @@ export function RevenueJobsView() {
                       <td className="font-bold text-foreground">{r.project.name}</td>
                       <td className="text-muted-foreground">{r.project.client?.name ?? "—"}</td>
                       <td className="text-muted-foreground">{r.category?.name ?? "Uncategorized"}</td>
-                      <td className="font-bold tabular-nums">{formatCurrency(r.revenue)}</td>
+                      <td className="font-bold tabular-nums">{formatCurrency(r.contractValue)}</td>
                       <td className="text-muted-foreground">{r.jobDate.slice(0, 10)}</td>
                     </tr>
                   ))}

@@ -2,7 +2,7 @@ import type { ChangeOrder, Invoice, Project, ProjectStatus, Quote } from "./api"
 import { pickHeadlineQuote, projectContractValue, isDepositOverdue } from "./api";
 import { quoteScopeSummary } from "./jobSize";
 import { projectDurationStatus } from "./projectDuration";
-import { invoiceDaysLate } from "./aging";
+import { invoiceDaysLate, isProjectClosed, ALL_TIME_RANGE, collectedTotal } from "./financials";
 import type { UpcomingDelivery } from "./materialOrders";
 import type { UpcomingAppointmentRow } from "./upcomingAppointments";
 import { APPOINTMENT_TYPE_LABEL } from "./api";
@@ -38,8 +38,10 @@ export interface OngoingJobCard {
 }
 
 /** Statuses that count as an active job — signed off and either in progress
- * or being billed. Excludes draft/quote_sent (no confirmed job yet) and paid
- * (closed out). */
+ * or being billed. Excludes draft/quote_sent (no confirmed job yet). A job
+ * that's actually been fully collected is excluded too, regardless of
+ * status — see the isProjectClosed() filter in buildOngoingJobCards()
+ * below, since "paid" is a manual field nobody reliably sets. */
 export const ONGOING_PROJECT_STATUSES: ProjectStatus[] = ["approved", "invoiced"];
 
 const dateRangeLabel = (startISO: string | null, endISO: string | null): string | null => {
@@ -141,9 +143,10 @@ export function buildOngoingJobCards(input: {
       const invoices = input.invoicesByProject.get(project.id) ?? [];
 
       const contractTotal = projectContractValue(quotes, changeOrders);
-      const paidTotal = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + Number(i.amount), 0);
+      const paidTotal = collectedTotal(invoices, ALL_TIME_RANGE);
       const remaining = Math.max(0, contractTotal - paidTotal);
       const paidPct = contractTotal > 0 ? Math.min(100, (paidTotal / contractTotal) * 100) : 0;
+      const closed = isProjectClosed(contractTotal, paidTotal);
 
       const durationStatus = projectDurationStatus(project);
       const durationLabel =
@@ -180,8 +183,13 @@ export function buildOngoingJobCards(input: {
         upNext: buildUpNext(delivery, appointment, pendingChangeOrder),
         alerts: buildAlerts({ invoices, changeOrders, durationOver, hasRain, depositOverdue }),
         _durationState: durationStatus.state,
+        _closed: closed,
       };
-    });
+    })
+    // A project that's been fully collected is done, regardless of what its
+    // manual status dropdown still says — it shouldn't linger on this card
+    // forever just because nobody remembered to flip it to a "closed" state.
+    .filter((c) => !c._closed);
 
   return cards
     .sort((a, b) => {
@@ -204,5 +212,5 @@ export function buildOngoingJobCards(input: {
       }
       return 0;
     })
-    .map(({ _durationState, ...card }) => card);
+    .map(({ _durationState, _closed, ...card }) => card);
 }

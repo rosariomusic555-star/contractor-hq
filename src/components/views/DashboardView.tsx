@@ -20,11 +20,15 @@ import { useAuth } from "@/lib/auth";
 import { useGreeting } from "@/hooks/use-greeting";
 import { cn, formatCurrency } from "@/lib/utils";
 import { listQuotes, listInvoices, createQuote, createInvoice } from "@/lib/api";
-import { monthlyRevenue } from "@/lib/metrics";
-import { overdueCount } from "@/lib/aging";
+import {
+  resolveRange,
+  invoicedTotal,
+  collectedTotal,
+  outstandingTotal,
+  monthlyCollected,
+  overdueCount,
+} from "@/lib/financials";
 import { DEMO_REVENUE_GOAL } from "@/lib/demoData";
-
-const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
 /** Wraps a KpiCard so it's clickable — keeps the card's own look, just adds
  * a hover lift + focus ring since it's now a real link. */
@@ -55,35 +59,36 @@ export function DashboardView() {
   });
 
   const now = new Date();
-  const thisMonth = monthKey(now);
-  const lastMonth = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-  const sumFor = (m: string) =>
-    invoices.filter((i) => i.created_at.slice(0, 7) === m).reduce((s, i) => s + Number(i.amount), 0);
+  // "This month" is deliberately cash-basis (collected, not invoiced) — the
+  // headline number people actually care about is money that's really come
+  // in. The mobile KPI rail's separate "Invoiced" tile below shows the
+  // billed figure explicitly, so nothing is hidden — just not conflated
+  // under one ambiguous "revenue" number. `now` is already a fresh Date
+  // every render, so there's nothing to memoize here.
+  const thisMonthRange = resolveRange("this_month", undefined, now);
+  const lastMonthAnchor = new Date(now.getFullYear(), now.getMonth() - 1, 15);
+  const lastMonthRange = resolveRange("this_month", undefined, lastMonthAnchor);
 
-  const thisMonthRevenue = sumFor(thisMonth);
-  const lastMonthRevenue = sumFor(lastMonth);
+  const thisMonthCollected = collectedTotal(invoices, thisMonthRange);
+  const lastMonthCollected = collectedTotal(invoices, lastMonthRange);
   const momChange =
-    lastMonthRevenue > 0 ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 : null;
+    lastMonthCollected > 0 ? ((thisMonthCollected - lastMonthCollected) / lastMonthCollected) * 100 : null;
+
+  const thisMonthInvoiced = invoicedTotal(invoices, thisMonthRange);
 
   const openQuotes = quotes.filter((q) => q.status === "draft" || q.status === "sent");
   const awaitingResponse = quotes.filter((q) => q.status === "sent").length;
   const outstanding = invoices.filter((i) => i.status === "sent" || i.status === "overdue");
-  const outstandingTotal = outstanding.reduce((s, i) => s + Number(i.amount), 0);
+  const unpaidTotal = outstandingTotal(invoices);
   const over30 = overdueCount(invoices, 30, now);
 
-  const goalPct = Math.min(100, Math.round((thisMonthRevenue / DEMO_REVENUE_GOAL) * 100));
-  const spark = monthlyRevenue(invoices).slice(-7);
+  const goalPct = Math.min(100, Math.round((thisMonthCollected / DEMO_REVENUE_GOAL) * 100));
+  const spark = monthlyCollected(invoices).slice(-7);
   const sparkMax = Math.max(1, ...spark.map((p) => p.revenue));
 
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const mobileDateLabel = `${now.toLocaleDateString("en-US", { weekday: "short" })} ${now.getDate()} ${now.toLocaleDateString("en-US", { month: "short" })}`;
   const initials = (session?.user.email ?? "?").slice(0, 2).toUpperCase();
-
-  const invoicedSub =
-    momChange == null
-      ? "Revenue invoiced"
-      : `${momChange >= 0 ? "+" : ""}${momChange.toFixed(1)}%`;
-  const invoicedSubTone = momChange == null ? "muted" : momChange >= 0 ? "positive" : "negative";
 
   const momPill =
     momChange == null ? null : (
@@ -126,12 +131,12 @@ export function DashboardView() {
 
         <div className="scrollbar-hide -mx-[18px] mt-4 flex gap-2.5 overflow-x-auto px-[18px] pb-1">
           <Link to="/revenue" className={cn(KPI_LINK_CLASS, "min-w-[126px] shrink-0")}>
-            <KpiCard label="Invoiced" value={formatCurrency(thisMonthRevenue)} sub={invoicedSub} subTone={invoicedSubTone} />
+            <KpiCard label="Invoiced" value={formatCurrency(thisMonthInvoiced)} sub="this month" />
           </Link>
           <Link to="/invoices?filter=unpaid" className={cn(KPI_LINK_CLASS, "min-w-[126px] shrink-0")}>
             <KpiCard
               label="Unpaid"
-              value={<span className="text-destructive">{formatCurrency(outstandingTotal)}</span>}
+              value={<span className="text-destructive">{formatCurrency(unpaidTotal)}</span>}
               sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
             />
           </Link>
@@ -174,8 +179,8 @@ export function DashboardView() {
         <Link to="/revenue" className={KPI_LINK_CLASS}>
           <KpiCard
             label="This month"
-            value={formatCurrency(thisMonthRevenue)}
-            sub={momPill ?? "Revenue invoiced"}
+            value={formatCurrency(thisMonthCollected)}
+            sub={momPill ?? "Collected"}
             subTone={momChange == null ? "muted" : momChange >= 0 ? "positive" : "negative"}
             clickable
           />
@@ -191,7 +196,7 @@ export function DashboardView() {
         <Link to="/invoices?filter=unpaid" className={KPI_LINK_CLASS}>
           <KpiCard
             label="Unpaid"
-            value={formatCurrency(outstandingTotal)}
+            value={formatCurrency(unpaidTotal)}
             sub={over30 > 0 ? `${over30} over 30 days` : `${outstanding.length} outstanding`}
             subTone={over30 > 0 ? "negative" : "muted"}
             clickable
@@ -207,7 +212,7 @@ export function DashboardView() {
             <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
           </div>
           <p className="mt-1 text-[34px] font-extrabold leading-none tracking-tight tabular-nums text-foreground">
-            {formatCurrency(thisMonthRevenue)}
+            {formatCurrency(thisMonthCollected)}
           </p>
           {momPill && <p className="mt-1.5 text-xs font-bold">{momPill}</p>}
 
@@ -229,7 +234,7 @@ export function DashboardView() {
           <div className="mt-3 flex items-center justify-between text-xs font-semibold text-muted-foreground">
             <span>{goalPct}% of {formatCurrency(DEMO_REVENUE_GOAL)} goal</span>
             <span className="text-foreground">
-              {formatCurrency(Math.max(0, DEMO_REVENUE_GOAL - thisMonthRevenue))} to go
+              {formatCurrency(Math.max(0, DEMO_REVENUE_GOAL - thisMonthCollected))} to go
             </span>
           </div>
           <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">

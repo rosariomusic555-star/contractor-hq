@@ -1,6 +1,6 @@
 import { pluralize, formatCurrency } from "./utils";
 import { quoteTotal, type Invoice, type Quote } from "./api";
-import { invoiceDaysLate } from "./aging";
+import { invoiceDaysLate } from "./financials";
 
 // Thresholds — confirmed 2026-09-09. Overdue invoices flag once 3+ days
 // past due; shared quotes flag once 3+ days old with no response.

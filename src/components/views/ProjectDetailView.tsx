@@ -60,6 +60,7 @@ import {
   type ProjectStatus,
 } from "@/lib/api";
 import { inviteClientToHub } from "@/lib/portalApi";
+import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost } from "@/lib/financials";
 import {
   PROJECT_STATUS_META,
   PROJECT_STATUSES,
@@ -161,16 +162,16 @@ export function ProjectDetailView() {
 
   const headlineQuote = pickHeadlineQuote(quotes);
   const contract = projectContractValue(quotes, changeOrders);
-  const invoicedTotal = invoices.reduce((s, i) => s + Number(i.amount), 0);
-  const paidTotal = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + Number(i.amount), 0);
-  const leftToBill = Math.max(0, contract - invoicedTotal);
+  const projectInvoicedTotal = invoicedTotal(invoices, ALL_TIME_RANGE);
+  const paidTotal = collectedTotal(invoices, ALL_TIME_RANGE);
+  const leftToBill = Math.max(0, contract - projectInvoicedTotal);
   const depositOverdue = isDepositOverdue(headlineQuote, contract, paidTotal);
 
   const totalMaterialsItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
   const predictedCost = totalMaterialsItems > 0 ? materialsCogs(materials) : null;
   const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
   const actualCost = expenses.length > 0 ? expensesTotal : null;
-  const realCost = actualCost ?? predictedCost;
+  const realCost = resolveCost(actualCost, predictedCost);
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
   const marginProfit = realCost != null ? contract - realCost : null;
 
@@ -202,7 +203,7 @@ export function ProjectDetailView() {
   const invoicesSummary =
     invoices.length === 0
       ? "None yet"
-      : `${pluralize(invoices.length, "invoice")} · ${formatCurrency(invoicedTotal)}`;
+      : `${pluralize(invoices.length, "invoice")} · ${formatCurrency(projectInvoicedTotal)}`;
   const expensesSummary =
     expenses.length === 0
       ? "None yet"
@@ -335,7 +336,7 @@ export function ProjectDetailView() {
             <h3 className="text-base font-bold text-foreground">Money</h3>
             <div className="mt-2">
               <MoneyRow label="Contract" value={contract > 0 ? formatCurrency(contract) : "—"} />
-              <MoneyRow label="Invoiced" value={formatCurrency(invoicedTotal)} />
+              <MoneyRow label="Invoiced" value={formatCurrency(projectInvoicedTotal)} />
               <MoneyRow label="Paid" value={formatCurrency(paidTotal)} />
               <MoneyRow label="Left to bill" value={formatCurrency(leftToBill)} strong />
             </div>

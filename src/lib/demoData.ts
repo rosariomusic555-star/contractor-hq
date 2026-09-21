@@ -57,8 +57,8 @@ export const DEMO_AVG_DAYS_TO_PAY = 19;
 
 // Quote validity days / sales tax % / deposit % / terms used to live here as
 // fixed demo constants. They're now real, persisted Quote defaults (Settings
-// > Quote defaults, src/lib/api.ts QuoteDefaults) — demoQuoteFinancials() and
-// demoQuoteTerms() below take them as real parameters instead.
+// > Quote defaults, src/lib/api.ts QuoteDefaults) — demoQuoteTerms() below
+// takes them as real parameters instead.
 
 export const DEMO_AUTOMATIONS = [
   { id: "quote-followup", label: "Quote follow-up", description: "Nudge the client 5 days after sending if no reply", enabled: true },
@@ -151,36 +151,6 @@ export function demoJobWeek(project: ProjectLike): DemoWeekDay[] {
     task: WEEK_TASKS[i],
     state: i < doneThrough - 1 ? "done" : i === doneThrough - 1 ? "today" : "upcoming",
   }));
-}
-
-// ---------------------------------------------------------------------------
-// Quote financials — layered on the REAL quote total
-// ---------------------------------------------------------------------------
-
-export interface DemoQuoteFinancials {
-  taxPct: number;
-  taxAmount: number;
-  estCost: number;
-  marginPct: number;
-  validUntilLabel: string;
-}
-
-/** taxPct and validityDays are the user's real, saved Quote defaults
- * (src/lib/api.ts getQuoteDefaults) — only estCost/marginPct are demo. */
-export function demoQuoteFinancials(
-  realQuoteTotal: number,
-  taxPct: number,
-  validityDays: number,
-): DemoQuoteFinancials {
-  const estCost = Math.round(realQuoteTotal * 0.6);
-  const materialsPortion = Math.round(realQuoteTotal * 0.35);
-  return {
-    taxPct,
-    taxAmount: Math.round((materialsPortion * taxPct) / 100),
-    estCost,
-    marginPct: realQuoteTotal > 0 ? Math.round(((realQuoteTotal - estCost) / realQuoteTotal) * 100) : 0,
-    validUntilLabel: `${validityDays} days`,
-  };
 }
 
 // ---------------------------------------------------------------------------

@@ -16,10 +16,9 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { formatCurrency, pluralize } from "@/lib/utils";
 import { listInvoices, type Invoice, type InvoiceStatus } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { invoiceDaysLate } from "@/lib/aging";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
 import { useSort } from "@/hooks/use-sort";
-import { invoicedInRange, invoicedTotal, rangeDateLabel } from "@/lib/revenue";
+import { invoiceDaysLate, invoicedTotal, rangeDateLabel, withinRange } from "@/lib/financials";
 
 const clientOf = (inv: Invoice) => inv.project?.client?.name ?? "No client";
 
@@ -42,8 +41,14 @@ export function RevenueInvoicedView() {
 
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
 
-  const inRange = useMemo(() => invoicedInRange(invoices, range), [invoices, range]);
+  // Draft invoices never count toward the "Invoiced" total (they haven't
+  // been sent to anyone), but the browsable list below still needs to show
+  // them — the status filter has a "Draft" option so a contractor can find
+  // and send one. So the list stays all-status-in-range; only the headline
+  // total and count use the real (draft-excluded) figure.
+  const inRange = useMemo(() => invoices.filter((i) => withinRange(i.created_at, range)), [invoices, range]);
   const total = invoicedTotal(invoices, range);
+  const realCount = inRange.filter((i) => i.status !== "draft").length;
 
   const clientOptions = useMemo(
     () => [...new Set(inRange.map(clientOf))].sort((a, b) => a.localeCompare(b)),
@@ -90,7 +95,7 @@ export function RevenueInvoicedView() {
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:max-w-md">
         <KpiCard label="Invoiced" value={formatCurrency(total)} sub={rangeDateLabel(range)} />
-        <KpiCard label="Invoices" value={inRange.length} sub={pluralize(inRange.length, "invoice")} />
+        <KpiCard label="Invoices" value={realCount} sub={pluralize(realCount, "invoice")} />
       </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

@@ -9,7 +9,7 @@ import { formatCurrency } from "@/lib/utils";
 import { listInvoices, listProjects, listClients } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
 import { useSort } from "@/hooks/use-sort";
-import { revenueByClient, invoicedTotal, rangeDateLabel, type ClientRevenueRow } from "@/lib/revenue";
+import { collectedByClient, collectedTotal, rangeDateLabel, type ClientRevenueRow } from "@/lib/financials";
 
 export function RevenueClientsView() {
   const navigate = useNavigate();
@@ -20,8 +20,8 @@ export function RevenueClientsView() {
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
 
-  const rows = useMemo(() => revenueByClient(invoices, projects, clients, range), [invoices, projects, clients, range]);
-  const total = invoicedTotal(invoices, range);
+  const rows = useMemo(() => collectedByClient(invoices, projects, clients, range), [invoices, projects, clients, range]);
+  const total = collectedTotal(invoices, range);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -54,7 +54,7 @@ export function RevenueClientsView() {
       />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:max-w-md">
-        <KpiCard label="Invoiced" value={formatCurrency(total)} sub={rangeDateLabel(range)} />
+        <KpiCard label="Collected" value={formatCurrency(total)} sub={rangeDateLabel(range)} />
         <KpiCard label="Clients" value={rows.filter((r) => r.revenue > 0).length} sub={`of ${rows.length} total`} />
       </div>
 

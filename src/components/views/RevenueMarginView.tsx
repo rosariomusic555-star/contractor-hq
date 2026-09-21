@@ -9,10 +9,13 @@ import {
   listProjects,
   listQuotes,
   listChangeOrders,
+  listInvoices,
   listMaterialsSheets,
   listAllMaterialsSections,
+  listExpenses,
   listCategories,
   type ChangeOrder,
+  type Invoice,
   type Quote,
 } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
@@ -23,7 +26,7 @@ import {
   avgMargin,
   rangeDateLabel,
   type ProjectFinancials,
-} from "@/lib/revenue";
+} from "@/lib/financials";
 
 export function RevenueMarginView() {
   const navigate = useNavigate();
@@ -38,6 +41,29 @@ export function RevenueMarginView() {
     queryFn: listAllMaterialsSections,
   });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: () => listExpenses() });
+
+  const invoicesByProject = useMemo(() => {
+    const map = new Map<string, Invoice[]>();
+    for (const inv of invoices) {
+      if (!inv.project_id) continue;
+      const list = map.get(inv.project_id);
+      if (list) list.push(inv);
+      else map.set(inv.project_id, [inv]);
+    }
+    return map;
+  }, [invoices]);
+
+  const expensesByProject = useMemo(() => {
+    const map = new Map<string, { amount: number }[]>();
+    for (const e of expenses) {
+      const list = map.get(e.project_id);
+      if (list) list.push(e);
+      else map.set(e.project_id, [e]);
+    }
+    return map;
+  }, [expenses]);
 
   const quotesByProject = useMemo(() => {
     const map = new Map<string, Quote[]>();
@@ -61,8 +87,18 @@ export function RevenueMarginView() {
   }, [changeOrders]);
 
   const financials = useMemo(
-    () => buildProjectFinancials(projects, quotesByProject, changeOrdersByProject, materialsSheets, materialsSections, categories),
-    [projects, quotesByProject, changeOrdersByProject, materialsSheets, materialsSections, categories],
+    () =>
+      buildProjectFinancials(
+        projects,
+        quotesByProject,
+        changeOrdersByProject,
+        invoicesByProject,
+        materialsSheets,
+        materialsSections,
+        expensesByProject,
+        categories,
+      ),
+    [projects, quotesByProject, changeOrdersByProject, invoicesByProject, materialsSheets, materialsSections, expensesByProject, categories],
   );
 
   const rows = useMemo(() => marginRowsInRange(financials, range), [financials, range]);
@@ -73,7 +109,7 @@ export function RevenueMarginView() {
     {
       project: (r) => r.project.name,
       client: (r) => r.project.client?.name ?? "",
-      revenue: (r) => r.revenue,
+      revenue: (r) => r.contractValue,
       cost: (r) => r.cost ?? -1,
       profit: (r) => r.profit ?? -Infinity,
       margin: (r) => r.marginPct ?? -Infinity,
@@ -89,7 +125,7 @@ export function RevenueMarginView() {
       const name = r.category?.name ?? "Uncategorized";
       const t = totals.get(key) ?? { name, profit: 0, revenue: 0, count: 0 };
       t.profit += r.profit!;
-      t.revenue += r.revenue;
+      t.revenue += r.contractValue;
       t.count += 1;
       totals.set(key, t);
     }
@@ -106,7 +142,7 @@ export function RevenueMarginView() {
       const label = new Date(`${key}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
       const t = totals.get(key) ?? { label, profit: 0, revenue: 0, count: 0 };
       t.profit += r.profit!;
-      t.revenue += r.revenue;
+      t.revenue += r.contractValue;
       t.count += 1;
       totals.set(key, t);
     }
@@ -128,11 +164,11 @@ export function RevenueMarginView() {
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-3">
         <KpiCard label="Avg. margin" value={avgPct != null ? `${avgPct}%` : "—"} sub={rangeDateLabel(range)} />
-        <KpiCard label="Jobs included" value={includedCount} sub="have a linked materials sheet" />
+        <KpiCard label="Jobs included" value={includedCount} sub="have a known cost" />
         <KpiCard
           label="Jobs excluded"
           value={excludedCount}
-          sub="cost unknown — no materials sheet"
+          sub="cost unknown — no expenses or materials sheet"
           subTone={excludedCount > 0 ? "negative" : "muted"}
         />
       </div>
@@ -159,7 +195,7 @@ export function RevenueMarginView() {
                     <tr key={r.project.id} className="cursor-pointer" onClick={() => navigate(`/projects/${r.project.id}`)}>
                       <td className="font-bold text-foreground">{r.project.name}</td>
                       <td className="text-muted-foreground">{r.project.client?.name ?? "—"}</td>
-                      <td className="font-bold tabular-nums">{formatCurrency(r.revenue)}</td>
+                      <td className="font-bold tabular-nums">{formatCurrency(r.contractValue)}</td>
                       <td className={cn("tabular-nums", r.cost == null && "text-muted-subtle")}>
                         {r.cost != null ? formatCurrency(r.cost) : "Cost unknown"}
                       </td>

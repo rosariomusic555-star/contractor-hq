@@ -15,7 +15,9 @@ import {
   listChangeOrders,
   listMaterialsSheets,
   listAllMaterialsSections,
+  listExpenses,
   type ChangeOrder,
+  type Invoice,
   type Quote,
 } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
@@ -23,11 +25,11 @@ import { useSort } from "@/hooks/use-sort";
 import {
   buildProjectFinancials,
   marginRowsInRange,
-  revenueByCategoryInvoiced,
-  invoicedTotal,
+  collectedByCategory,
+  collectedTotal,
   rangeDateLabel,
   type CategoryRow,
-} from "@/lib/revenue";
+} from "@/lib/financials";
 
 export function RevenueCategoriesView() {
   const navigate = useNavigate();
@@ -44,6 +46,28 @@ export function RevenueCategoriesView() {
     queryKey: ["materials-sections-all"],
     queryFn: listAllMaterialsSections,
   });
+  const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: () => listExpenses() });
+
+  const invoicesByProject = useMemo(() => {
+    const map = new Map<string, Invoice[]>();
+    for (const inv of invoices) {
+      if (!inv.project_id) continue;
+      const list = map.get(inv.project_id);
+      if (list) list.push(inv);
+      else map.set(inv.project_id, [inv]);
+    }
+    return map;
+  }, [invoices]);
+
+  const expensesByProject = useMemo(() => {
+    const map = new Map<string, { amount: number }[]>();
+    for (const e of expenses) {
+      const list = map.get(e.project_id);
+      if (list) list.push(e);
+      else map.set(e.project_id, [e]);
+    }
+    return map;
+  }, [expenses]);
 
   const quotesByProject = useMemo(() => {
     const map = new Map<string, Quote[]>();
@@ -67,15 +91,25 @@ export function RevenueCategoriesView() {
   }, [changeOrders]);
 
   const financials = useMemo(
-    () => buildProjectFinancials(projects, quotesByProject, changeOrdersByProject, materialsSheets, materialsSections, categories),
-    [projects, quotesByProject, changeOrdersByProject, materialsSheets, materialsSections, categories],
+    () =>
+      buildProjectFinancials(
+        projects,
+        quotesByProject,
+        changeOrdersByProject,
+        invoicesByProject,
+        materialsSheets,
+        materialsSections,
+        expensesByProject,
+        categories,
+      ),
+    [projects, quotesByProject, changeOrdersByProject, invoicesByProject, materialsSheets, materialsSections, expensesByProject, categories],
   );
 
   const rows = useMemo(
-    () => revenueByCategoryInvoiced(invoices, quotes, categories, financials, range),
+    () => collectedByCategory(invoices, quotes, categories, financials, range),
     [invoices, quotes, categories, financials, range],
   );
-  const total = invoicedTotal(invoices, range);
+  const total = collectedTotal(invoices, range);
 
   const { sorted, sortKey, dir, toggle } = useSort<CategoryRow>(
     rows,
@@ -106,12 +140,12 @@ export function RevenueCategoriesView() {
       />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:max-w-md">
-        <KpiCard label="Invoiced" value={formatCurrency(total)} sub={rangeDateLabel(range)} />
+        <KpiCard label="Collected" value={formatCurrency(total)} sub={rangeDateLabel(range)} />
         <KpiCard label="Categories" value={rows.length} sub="incl. Uncategorized" />
       </div>
       <p className="text-xs text-muted-foreground">
-        Revenue here means invoiced amounts (same basis as the rest of this page), split across categories by
-        each invoice's linked quote — not only fully-paid quotes.
+        Revenue here means cash actually collected (paid invoices), split across categories by each invoice's
+        linked quote — not invoiced or quoted amounts that haven't been paid yet.
       </p>
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
@@ -145,7 +179,7 @@ export function RevenueCategoriesView() {
                 ))}
                 {sorted.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-muted-foreground">No invoiced revenue in this range.</td>
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">No collected revenue in this range.</td>
                   </tr>
                 )}
               </tbody>
@@ -177,7 +211,7 @@ export function RevenueCategoriesView() {
                   <tr key={r.project.id} className="cursor-pointer" onClick={() => navigate(`/projects/${r.project.id}`)}>
                     <td className="font-bold text-foreground">{r.project.name}</td>
                     <td className="text-muted-foreground">{r.project.client?.name ?? "—"}</td>
-                    <td className="font-bold tabular-nums">{formatCurrency(r.revenue)}</td>
+                    <td className="font-bold tabular-nums">{formatCurrency(r.contractValue)}</td>
                     <td><StatusPill meta={projectStatusMeta(r.project.status)} /></td>
                   </tr>
                 ))}

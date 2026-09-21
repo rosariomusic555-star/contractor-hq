@@ -12,6 +12,7 @@
 
 import type { ChangeOrder, Invoice, MaterialsSection, Project, Quote } from "./api";
 import { approvedChangeOrderTotal, materialsCogs, pickHeadlineQuote, quoteTotal } from "./api";
+import { ALL_TIME_RANGE, invoicedTotal, collectedTotal } from "./financials";
 
 export interface ProjectImpact {
   originalContract: number;
@@ -87,8 +88,8 @@ export function computeProjectImpact(input: {
   const thisChangeOrder = thisChangeOrderTotal;
   const revisedContractTotal = originalContract + previouslyApproved + thisChangeOrder;
 
-  const invoicedToDate = invoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
-  const paidToDate = invoices.filter((inv) => inv.status === "paid").reduce((sum, inv) => sum + Number(inv.amount), 0);
+  const invoicedToDate = invoicedTotal(invoices, ALL_TIME_RANGE);
+  const paidToDate = collectedTotal(invoices, ALL_TIME_RANGE);
   const remainingToBill = Math.max(0, revisedContractTotal - invoicedToDate);
 
   const totalMaterialsItems = materialsSections.reduce((n, s) => n + s.materials_items.length, 0);

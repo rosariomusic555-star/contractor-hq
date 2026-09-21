@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { RANGE_PRESETS, type RangeKey } from "@/lib/revenue";
+import { RANGE_PRESETS, type RangeKey } from "@/lib/financials";
 
 /** The one date-range control every Revenue detail page shares — This
  * month / Last 3 months / Last 12 months / Year to date / Custom. */

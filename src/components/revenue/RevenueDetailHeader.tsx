@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { DateRangeSelect } from "./DateRangeSelect";
-import type { RangeKey } from "@/lib/revenue";
+import type { RangeKey } from "@/lib/financials";
 
 /** Shared "‹ Revenue" back link + title + date-range selector header for
  * every Revenue detail page. Each page renders its own headline KPI(s)

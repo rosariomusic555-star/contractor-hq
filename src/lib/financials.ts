@@ -1,10 +1,38 @@
 /* =============================================================================
- * Revenue page — shared calculation library.
+ * Financials — the ONE shared module for every derived money figure that
+ * spans more than a single record: date ranges, invoiced/collected/
+ * outstanding, aging, per-project cost/profit/margin, "closed" jobs, and
+ * the revenue-by-category / revenue-by-client breakdowns. Every screen that
+ * shows one of these figures — Dashboard, the Revenue page and its detail
+ * pages, Bookings, Ongoing jobs, project pages, the Change Order builder —
+ * calls into these same pure functions with the same input arrays, so a
+ * card and its detail page (and every other screen) can never disagree.
  *
- * Every stat card on the Revenue page (This month, Collected, Avg. margin,
- * Avg. job) and every one of its 7 detail pages call into these same pure
- * functions, with the same input arrays, so a card and its detail page can
- * never disagree — "one calculation path per stat."
+ * Canonical definitions (see the CRM/financials audit for the full
+ * reasoning):
+ *   - A quote's total (quoteTotal() in api.ts) already only counts required
+ *     items plus whatever optional items the client has actually selected
+ *     — never speculative optional work nobody picked.
+ *   - Contract value (projectContractValue() in api.ts) = that quote total
+ *     + APPROVED change orders only. Pending/declined change orders never
+ *     count toward it.
+ *   - "Invoiced" never counts a draft invoice — it hasn't been sent to
+ *     anyone, so it isn't a real obligation yet.
+ *   - "Collected" = paid invoices, dated by when they were actually paid
+ *     (paid_at), not when they were billed.
+ *   - "Outstanding" = sent + overdue invoices — always a live snapshot,
+ *     not date-range-scoped (same as real-world AR aging).
+ *   - Unqualified "revenue" (revenue by category, revenue by client) means
+ *     COLLECTED — cash actually received, not merely billed. Anywhere a
+ *     screen needs the invoiced (billed) basis instead, it says so
+ *     explicitly ("Invoiced").
+ *   - A job is "closed" once it's been fully collected (collected ≥
+ *     contract value) — derived, live, never a manual status field to
+ *     remember to set.
+ *   - Cost (for profit/margin) = actual logged expenses if any exist, else
+ *     the Materials Sheet's predicted cost, else unknown — unknown-cost
+ *     jobs are excluded from margin averages, never treated as zero-cost.
+ *   - Draft, void, and declined documents never count toward any total.
  * ========================================================================== */
 
 import type {
@@ -20,7 +48,7 @@ import type {
 import { materialsCogs, pickHeadlineQuote, projectContractValue, quoteItemIncluded, quoteLineTotal } from "./api";
 
 // ---------------------------------------------------------------------------
-// Date ranges — the one selector every detail page shares.
+// Date ranges — the one selector every Revenue-page card/detail page shares.
 // ---------------------------------------------------------------------------
 
 export type RangeKey = "this_month" | "last_3" | "last_12" | "ytd" | "custom";
@@ -48,7 +76,9 @@ const dayAfter = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(
  * Resolves a range key (+ custom bounds, "yyyy-mm-dd" strings) to concrete
  * start/end Dates. `end` is always exclusive and always "tomorrow" (or the
  * day after a custom end date) so anything dated today is included
- * regardless of time-of-day.
+ * regardless of time-of-day. Passing a `now` inside a past/future month
+ * (rather than today) resolves "this_month" to THAT month — the trick
+ * DashboardView uses to get "last calendar month" without a separate preset.
  */
 export function resolveRange(
   key: RangeKey,
@@ -74,6 +104,16 @@ export function resolveRange(
   }
 }
 
+/** Every record, regardless of date — for call sites that want an
+ * all-time total but still want to go through the same shared
+ * invoiced/collected functions rather than a second, hand-rolled filter. */
+export const ALL_TIME_RANGE: DateRange = {
+  key: "custom",
+  start: new Date(0),
+  end: new Date(8_640_000_000_000_000),
+  label: "All time",
+};
+
 export function withinRange(iso: string | null | undefined, range: DateRange): boolean {
   if (!iso) return false;
   const d = new Date(iso);
@@ -89,13 +129,13 @@ export function rangeDateLabel(range: DateRange): string {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Invoiced ("This month" card)
+// 1. Invoiced — never counts a draft invoice (see module doc comment).
 // ---------------------------------------------------------------------------
 
-/** "Invoiced" = every invoice billed in range, any status — same definition
- * used everywhere else in the app that talks about what's been billed. */
+const isRealInvoice = (i: Invoice) => i.status !== "draft";
+
 export function invoicedInRange(invoices: Invoice[], range: DateRange): Invoice[] {
-  return invoices.filter((i) => withinRange(i.created_at, range));
+  return invoices.filter((i) => isRealInvoice(i) && withinRange(i.created_at, range));
 }
 
 export function invoicedTotal(invoices: Invoice[], range: DateRange): number {
@@ -126,8 +166,81 @@ export function collectionRate(invoices: Invoice[], range: DateRange): number | 
 }
 
 // ---------------------------------------------------------------------------
+// 3. Outstanding / aging — always a live snapshot, never date-range-scoped.
+// ---------------------------------------------------------------------------
+
+const DAY = 86_400_000;
+const parseDueDate = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`);
+
+/**
+ * Days an invoice is past its due date. Negative = not due yet, 0 = no due
+ * date or not applicable (paid / draft). Real, derived from `due_date`.
+ */
+export function invoiceDaysLate(inv: Pick<Invoice, "due_date" | "status">, now: Date = new Date()): number {
+  if (!inv.due_date || inv.status === "paid" || inv.status === "draft") return 0;
+  return Math.floor((now.getTime() - parseDueDate(inv.due_date).getTime()) / DAY);
+}
+
+export interface AgingBucket {
+  key: "current" | "d1_30" | "d31_60" | "d60";
+  label: string;
+  amount: number;
+  count: number;
+}
+
+/** Buckets the outstanding (sent + overdue) invoices by how late they are. */
+export function agingBuckets(invoices: Invoice[], now: Date = new Date()): AgingBucket[] {
+  const buckets: Record<AgingBucket["key"], AgingBucket> = {
+    current: { key: "current", label: "Current", amount: 0, count: 0 },
+    d1_30: { key: "d1_30", label: "1–30 days", amount: 0, count: 0 },
+    d31_60: { key: "d31_60", label: "31–60 days", amount: 0, count: 0 },
+    d60: { key: "d60", label: "60+ days", amount: 0, count: 0 },
+  };
+  for (const inv of invoices) {
+    if (inv.status !== "sent" && inv.status !== "overdue") continue;
+    const late = invoiceDaysLate(inv, now);
+    const b = late <= 0 ? buckets.current : late <= 30 ? buckets.d1_30 : late <= 60 ? buckets.d31_60 : buckets.d60;
+    b.amount += Number(inv.amount);
+    b.count += 1;
+  }
+  return [buckets.current, buckets.d1_30, buckets.d31_60, buckets.d60];
+}
+
+/** Everything billed and not yet paid, as of right now — the one figure
+ * every "Outstanding" / "Unpaid" tile in the app shows. */
+export function outstandingTotal(invoices: Invoice[]): number {
+  return agingBuckets(invoices).reduce((s, b) => s + b.amount, 0);
+}
+
+/** Count of outstanding invoices more than `days` past due. */
+export function overdueCount(invoices: Invoice[], days = 30, now: Date = new Date()): number {
+  return invoices.filter(
+    (i) => (i.status === "sent" || i.status === "overdue") && invoiceDaysLate(i, now) > days,
+  ).length;
+}
+
+// ---------------------------------------------------------------------------
+// 4. Cost / profit / margin — the one cascade every screen uses.
+// ---------------------------------------------------------------------------
+
+/** The one canonical "cost" for margin/profit purposes: actual logged
+ * expenses if any have been logged, else the Materials Sheet's predicted
+ * cost, else unknown (null). Unknown-cost jobs are excluded from margin
+ * averages entirely — never silently treated as zero-cost. */
+export function resolveCost(actualCost: number | null, predictedCost: number | null): number | null {
+  return actualCost ?? predictedCost ?? null;
+}
+
+/** A job counts as closed once it's been fully paid off — derived, live,
+ * from the same contract-value and collected-total figures every other
+ * screen already shows. Never a manual field to remember to set. */
+export function isProjectClosed(contractValue: number, collected: number): boolean {
+  return contractValue > 0 && collected >= contractValue;
+}
+
+// ---------------------------------------------------------------------------
 // Per-project financials — the shared building block behind Avg. margin,
-// Avg. job, and Revenue by category's job counts.
+// Avg. job, "closed", and Revenue by category/client's job counts.
 // ---------------------------------------------------------------------------
 
 export interface ProjectFinancials {
@@ -135,11 +248,18 @@ export interface ProjectFinancials {
   quotes: Quote[];
   changeOrders: ChangeOrder[];
   /** projectContractValue() — the same "contract value" number shown on
-   * the project page's own Profit Summary card. */
-  revenue: number;
+   * the project page's own Money card, everywhere. */
+  contractValue: number;
+  /** All-time collected total for this one project (status=paid, any
+   * date) — what isProjectClosed()/closedJobRows() below compare against
+   * contractValue. */
+  collectedTotal: number;
+  /** Derived, live — see isProjectClosed(). */
+  closed: boolean;
   hasMaterialsSheet: boolean;
-  /** null when the project has no linked materials sheet at all — "cost
-   * unknown," per the Avg. margin page's own spec, not zero. */
+  hasExpenses: boolean;
+  /** null when there's no cost source at all — "cost unknown," per
+   * resolveCost()'s own doc comment, not zero. */
   cost: number | null;
   profit: number | null;
   marginPct: number | null;
@@ -180,8 +300,10 @@ export function buildProjectFinancials(
   projects: Project[],
   quotesByProject: Map<string, Quote[]>,
   changeOrdersByProject: Map<string, ChangeOrder[]>,
+  invoicesByProject: Map<string, Invoice[]>,
   materialsSheets: MaterialsSheet[],
   materialsSections: MaterialsSection[],
+  expensesByProject: Map<string, { amount: number }[]>,
   categories: Category[],
 ): ProjectFinancials[] {
   const sheetsByProject = new Map<string, MaterialsSheet[]>();
@@ -200,18 +322,32 @@ export function buildProjectFinancials(
   return projects.map((project) => {
     const quotes = quotesByProject.get(project.id) ?? [];
     const changeOrders = changeOrdersByProject.get(project.id) ?? [];
-    const revenue = projectContractValue(quotes, changeOrders);
+    const invoices = invoicesByProject.get(project.id) ?? [];
+    const expenses = expensesByProject.get(project.id) ?? [];
+
+    const contractValue = projectContractValue(quotes, changeOrders);
+    const collected = collectedTotal(invoices, ALL_TIME_RANGE);
+    const closed = isProjectClosed(contractValue, collected);
+
     const hasMaterialsSheet = (sheetsByProject.get(project.id) ?? []).length > 0;
-    const cost = hasMaterialsSheet ? materialsCogs(sectionsByProject.get(project.id) ?? []) : null;
-    const profit = cost != null ? revenue - cost : null;
-    const marginPct = cost != null && revenue > 0 ? Math.round(((revenue - cost) / revenue) * 100) : null;
+    const predictedCost = hasMaterialsSheet ? materialsCogs(sectionsByProject.get(project.id) ?? []) : null;
+    const hasExpenses = expenses.length > 0;
+    const actualCost = hasExpenses ? expenses.reduce((s, e) => s + Number(e.amount), 0) : null;
+    const cost = resolveCost(actualCost, predictedCost);
+
+    const profit = cost != null ? contractValue - cost : null;
+    const marginPct = cost != null && contractValue > 0 ? Math.round(((contractValue - cost) / contractValue) * 100) : null;
     const category = dominantCategory(pickHeadlineQuote(quotes), categories);
+
     return {
       project,
       quotes,
       changeOrders,
-      revenue,
+      contractValue,
+      collectedTotal: collected,
+      closed,
       hasMaterialsSheet,
+      hasExpenses,
       cost,
       profit,
       marginPct,
@@ -222,14 +358,14 @@ export function buildProjectFinancials(
 }
 
 // ---------------------------------------------------------------------------
-// 3. Avg. margin
+// 5. Avg. margin
 // ---------------------------------------------------------------------------
 
 /** Every priced job (headline quote reaches a real contract value) whose
  * job date falls in range — margin doesn't require the job to be closed
  * out, unlike Avg. job below. */
 export function marginRowsInRange(rows: ProjectFinancials[], range: DateRange): ProjectFinancials[] {
-  return rows.filter((r) => r.revenue > 0 && withinRange(r.jobDate, range));
+  return rows.filter((r) => r.contractValue > 0 && withinRange(r.jobDate, range));
 }
 
 export interface AvgMarginResult {
@@ -238,8 +374,8 @@ export interface AvgMarginResult {
   excludedCount: number;
 }
 
-/** Jobs with no linked materials sheet ("cost unknown") are excluded from
- * the average, not counted as 0% — that would understate real margins. */
+/** Jobs with unknown cost are excluded from the average, not counted as
+ * 0% — that would understate real margins. */
 export function avgMargin(rows: ProjectFinancials[]): AvgMarginResult {
   const withCost = rows.filter((r) => r.marginPct != null);
   if (withCost.length === 0) {
@@ -250,12 +386,15 @@ export function avgMargin(rows: ProjectFinancials[]): AvgMarginResult {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Avg. job
+// 6. Avg. job
 // ---------------------------------------------------------------------------
 
-/** "Closed" = paid off — the pipeline's terminal status. */
+/** "Closed" = fully collected (see isProjectClosed()) — derived, never a
+ * manual status field, so a job that's actually been paid off never
+ * silently sits out of this average because someone forgot to flip a
+ * dropdown. */
 export function closedJobRows(rows: ProjectFinancials[], range: DateRange): ProjectFinancials[] {
-  return rows.filter((r) => r.project.status === "paid" && r.revenue > 0 && withinRange(r.jobDate, range));
+  return rows.filter((r) => r.closed && withinRange(r.jobDate, range));
 }
 
 export interface JobStats {
@@ -267,7 +406,7 @@ export interface JobStats {
 }
 
 export function jobStats(rows: ProjectFinancials[]): JobStats {
-  const values = rows.map((r) => r.revenue).sort((a, b) => a - b);
+  const values = rows.map((r) => r.contractValue).sort((a, b) => a - b);
   const count = values.length;
   if (count === 0) return { count: 0, avg: 0, median: 0, max: 0, min: 0 };
   const avg = Math.round(values.reduce((s, v) => s + v, 0) / count);
@@ -294,13 +433,13 @@ const JOB_SIZE_BUCKET_DEFS: Array<{ key: string; label: string; min: number; max
 
 export function jobSizeDistribution(rows: ProjectFinancials[]): JobSizeBucket[] {
   return JOB_SIZE_BUCKET_DEFS.map((def) => {
-    const inBucket = rows.filter((r) => r.revenue >= def.min && r.revenue < def.max);
-    return { ...def, count: inBucket.length, amount: inBucket.reduce((s, r) => s + r.revenue, 0) };
+    const inBucket = rows.filter((r) => r.contractValue >= def.min && r.contractValue < def.max);
+    return { ...def, count: inBucket.length, amount: inBucket.reduce((s, r) => s + r.contractValue, 0) };
   });
 }
 
 // ---------------------------------------------------------------------------
-// 5. Invoiced by month
+// 7. Invoiced by month
 // ---------------------------------------------------------------------------
 
 export interface MonthlyPoint {
@@ -319,7 +458,7 @@ export interface MonthlyPoint {
 const monthKeyOf = (iso: string) => iso.slice(0, 7);
 
 export function monthlyBreakdown(invoices: Invoice[], range: DateRange): MonthlyPoint[] {
-  const inRange = invoices.filter((i) => withinRange(i.created_at, range));
+  const inRange = invoices.filter((i) => isRealInvoice(i) && withinRange(i.created_at, range));
   const buckets = new Map<string, MonthlyPoint>();
   for (const inv of inRange) {
     const key = monthKeyOf(inv.created_at);
@@ -354,14 +493,69 @@ export function hasYearOfHistory(invoices: Invoice[], now: Date = new Date()): b
 }
 
 // ---------------------------------------------------------------------------
-// 6. Revenue by category
+// 8. Monthly revenue points — Dashboard sparkline + "Revenue overview" chart.
+// ---------------------------------------------------------------------------
+
+export interface MonthPoint {
+  key: string; // "2026-09"
+  month: string; // "Sep"
+  revenue: number;
+}
+
+const monthKeyShort = (isoDate: string) => isoDate.slice(0, 7);
+const monthShortLabel = (isoDate: string) =>
+  new Date(isoDate.slice(0, 10) + "T00:00:00").toLocaleString("en-US", { month: "short" });
+
+/** Invoiced amounts summed per calendar month (by created_at), ascending —
+ * excludes drafts. Explicitly labeled "invoiced" everywhere it's shown
+ * (the Dashboard's "Revenue overview" chart); it is NOT the collected
+ * basis the Dashboard's own headline "This month" card uses. */
+export function monthlyRevenue(invoices: Invoice[]): MonthPoint[] {
+  const buckets = new Map<string, MonthPoint>();
+  for (const inv of invoices) {
+    if (!isRealInvoice(inv)) continue;
+    const key = monthKeyShort(inv.created_at);
+    const point = buckets.get(key) ?? { key, month: monthShortLabel(inv.created_at), revenue: 0 };
+    point.revenue += Number(inv.amount);
+    buckets.set(key, point);
+  }
+  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** Same shape as monthlyRevenue(), but collected (paid, by paid_at) —
+ * pairs with the Dashboard's own Collected-basis "This month" headline. */
+export function monthlyCollected(invoices: Invoice[]): MonthPoint[] {
+  const buckets = new Map<string, MonthPoint>();
+  for (const inv of invoices) {
+    if (inv.status !== "paid") continue;
+    const dateIso = inv.paid_at ?? inv.created_at;
+    const key = monthKeyShort(dateIso);
+    const point = buckets.get(key) ?? { key, month: monthShortLabel(dateIso), revenue: 0 };
+    point.revenue += Number(inv.amount);
+    buckets.set(key, point);
+  }
+  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** Percent change between the two most recent points present; null if not
+ * computable. Works for either monthlyRevenue() or monthlyCollected(). */
+export function momChange(points: MonthPoint[]): number | null {
+  if (points.length < 2) return null;
+  const prev = points[points.length - 2].revenue;
+  const curr = points[points.length - 1].revenue;
+  if (prev === 0) return null;
+  return ((curr - prev) / prev) * 100;
+}
+
+// ---------------------------------------------------------------------------
+// 9. Collected by category
 // ---------------------------------------------------------------------------
 
 export interface CategoryRow {
   id: string;
   name: string;
-  /** Invoiced revenue attributed to this category — same basis as the
-   * rest of the page (invoiced), not "fully paid quotes only". */
+  /** Collected revenue attributed to this category — cash actually
+   * received (see module doc comment on why "revenue" means collected). */
   revenue: number;
   jobCount: number;
   avgJobValue: number;
@@ -369,23 +563,19 @@ export interface CategoryRow {
 }
 
 /**
- * Revenue by category, on the same "invoiced" basis as the rest of the
- * Revenue page — replaces the old fully-paid-quote-only definition, which
- * silently showed "No fully paid quotes yet" on real businesses with real
- * invoiced revenue.
- *
- * Each invoice's dollar amount is split across categories in proportion to
- * its linked quote's included line items' category mix (so a $10k invoice
- * against a quote that's 70% "Patios" / 30% "Walls" attributes $7k/$3k).
- * An invoice with no quote, or whose quote has no categorized items,
- * counts its full amount toward Uncategorized — nothing silently drops
- * out of the total.
+ * Revenue by category, on the collected (cash-received) basis. Each paid
+ * invoice's dollar amount is split across categories in proportion to its
+ * linked quote's included line items' category mix (so a $10k paid invoice
+ * against a quote that's 70% "Patios" / 30% "Walls" attributes $7k/$3k). A
+ * paid invoice with no quote, or whose quote has no categorized items,
+ * counts its full amount toward Uncategorized — nothing silently drops out
+ * of the total.
  *
  * Job count / avg job value / margin are project-level, not invoice-level
  * — each project counts once, toward its single dominant category (see
  * buildProjectFinancials), scoped by job date rather than invoice date.
  */
-export function revenueByCategoryInvoiced(
+export function collectedByCategory(
   invoices: Invoice[],
   quotes: Quote[],
   categories: Category[],
@@ -399,7 +589,7 @@ export function revenueByCategoryInvoiced(
     revenueTotals.set(key, (revenueTotals.get(key) ?? 0) + amount);
   };
 
-  for (const inv of invoicedInRange(invoices, range)) {
+  for (const inv of collectedInRange(invoices, range)) {
     const amount = Number(inv.amount);
     const quote = inv.quote_id ? quotesById.get(inv.quote_id) : undefined;
     if (!quote) {
@@ -433,10 +623,10 @@ export function revenueByCategoryInvoiced(
   for (const job of jobs) {
     const key = job.category?.id ?? "uncategorized";
     jobCounts.set(key, (jobCounts.get(key) ?? 0) + 1);
-    jobValueSums.set(key, (jobValueSums.get(key) ?? 0) + job.revenue);
+    jobValueSums.set(key, (jobValueSums.get(key) ?? 0) + job.contractValue);
     if (job.profit != null) {
       const prev = marginSums.get(key) ?? { profit: 0, revenue: 0 };
-      marginSums.set(key, { profit: prev.profit + job.profit, revenue: prev.revenue + job.revenue });
+      marginSums.set(key, { profit: prev.profit + job.profit, revenue: prev.revenue + job.contractValue });
     }
   }
 
@@ -461,11 +651,14 @@ export function revenueByCategoryInvoiced(
 }
 
 // ---------------------------------------------------------------------------
-// 7. Revenue by client
+// 10. Collected by client
 // ---------------------------------------------------------------------------
 
 export interface ClientRevenueRow {
   client: Client;
+  /** Collected revenue (cash actually received) — same basis as
+   * collectedByCategory, so the two always reconcile against the same
+   * total collected figure for a given range. */
   revenue: number;
   pct: number;
   /** All-time job count — "how many jobs have we done for them," not
@@ -477,7 +670,7 @@ export interface ClientRevenueRow {
   lastJobDate: string | null;
 }
 
-export function revenueByClient(
+export function collectedByClient(
   invoices: Invoice[],
   projects: Project[],
   clients: Client[],
@@ -491,7 +684,7 @@ export function revenueByClient(
     const project = inv.project_id ? projectsById.get(inv.project_id) : undefined;
     const clientId = project?.client_id;
     if (!clientId) continue;
-    if (withinRange(inv.created_at, range)) {
+    if (inv.status === "paid" && withinRange(inv.paid_at ?? inv.created_at, range)) {
       revenueByClientId.set(clientId, (revenueByClientId.get(clientId) ?? 0) + Number(inv.amount));
     }
     if (inv.status === "sent" || inv.status === "overdue") {

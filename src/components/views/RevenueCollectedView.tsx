@@ -5,9 +5,8 @@ import { RevenueDetailHeader } from "@/components/revenue/RevenueDetailHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { listInvoices, type Invoice } from "@/lib/api";
-import { agingBuckets, invoiceDaysLate } from "@/lib/aging";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
-import { collectedInRange, collectedTotal, collectionRate, rangeDateLabel } from "@/lib/revenue";
+import { agingBuckets, invoiceDaysLate, collectedInRange, collectedTotal, collectionRate, rangeDateLabel } from "@/lib/financials";
 
 const clientOf = (inv: Invoice) => inv.project?.client?.name ?? "No client";
 

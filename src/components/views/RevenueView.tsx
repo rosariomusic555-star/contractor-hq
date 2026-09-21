@@ -23,24 +23,27 @@ import {
   listChangeOrders,
   listMaterialsSheets,
   listAllMaterialsSections,
+  listExpenses,
   listClients,
   type ChangeOrder,
+  type Invoice,
   type Quote,
 } from "@/lib/api";
 import {
   resolveRange,
+  ALL_TIME_RANGE,
   invoicedTotal,
   collectedTotal,
+  outstandingTotal,
   buildProjectFinancials,
   marginRowsInRange,
   avgMargin,
   closedJobRows,
   jobStats,
   monthlyBreakdown,
-  revenueByCategoryInvoiced,
-  revenueByClient,
-} from "@/lib/revenue";
-import { agingBuckets } from "@/lib/aging";
+  collectedByCategory,
+  collectedByClient,
+} from "@/lib/financials";
 
 const GREY = "hsl(201 12% 46%)";
 const GREEN = "hsl(131 36% 64%)";
@@ -70,9 +73,31 @@ export function RevenueView() {
     queryFn: listAllMaterialsSections,
   });
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
+  const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: () => listExpenses() });
 
   const thisMonthRange = useMemo(() => resolveRange("this_month", undefined), []);
   const last12Range = useMemo(() => resolveRange("last_12", undefined), []);
+
+  const invoicesByProject = useMemo(() => {
+    const map = new Map<string, Invoice[]>();
+    for (const inv of invoices) {
+      if (!inv.project_id) continue;
+      const list = map.get(inv.project_id);
+      if (list) list.push(inv);
+      else map.set(inv.project_id, [inv]);
+    }
+    return map;
+  }, [invoices]);
+
+  const expensesByProject = useMemo(() => {
+    const map = new Map<string, { amount: number }[]>();
+    for (const e of expenses) {
+      const list = map.get(e.project_id);
+      if (list) list.push(e);
+      else map.set(e.project_id, [e]);
+    }
+    return map;
+  }, [expenses]);
 
   const quotesByProject = useMemo(() => {
     const map = new Map<string, Quote[]>();
@@ -101,11 +126,13 @@ export function RevenueView() {
         projects,
         quotesByProject,
         changeOrdersByProject,
+        invoicesByProject,
         materialsSheets,
         materialsSections,
+        expensesByProject,
         categories,
       ),
-    [projects, quotesByProject, changeOrdersByProject, materialsSheets, materialsSections, categories],
+    [projects, quotesByProject, changeOrdersByProject, invoicesByProject, materialsSheets, materialsSections, expensesByProject, categories],
   );
 
   // ---- 1. This month / Invoiced ----
@@ -113,7 +140,7 @@ export function RevenueView() {
 
   // ---- 2. Collected ----
   const thisMonthCollected = collectedTotal(invoices, thisMonthRange);
-  const outstandingNow = agingBuckets(invoices).reduce((s, b) => s + b.amount, 0);
+  const outstandingNow = outstandingTotal(invoices);
 
   // ---- 3. Avg. margin ----
   const marginResult = avgMargin(marginRowsInRange(projectFinancials, last12Range));
@@ -124,9 +151,9 @@ export function RevenueView() {
   // ---- 5. Invoiced by month ----
   const monthlyData = useMemo(() => monthlyBreakdown(invoices, last12Range), [invoices, last12Range]);
 
-  // ---- 6. Revenue by category ----
+  // ---- 6. Revenue by category (collected basis — see financials.ts) ----
   const byCategory = useMemo(() => {
-    const rows = revenueByCategoryInvoiced(invoices, quotes, categories, projectFinancials, last12Range).filter(
+    const rows = collectedByCategory(invoices, quotes, categories, projectFinancials, last12Range).filter(
       (r) => r.revenue > 0,
     );
     const sum = rows.reduce((s, r) => s + r.revenue, 0) || 1;
@@ -137,14 +164,14 @@ export function RevenueView() {
     }));
   }, [invoices, quotes, categories, projectFinancials, last12Range]);
 
-  // ---- 7. Revenue by client ----
+  // ---- 7. Revenue by client (collected basis — see financials.ts) ----
   const byClient = useMemo(
-    () => revenueByClient(invoices, projects, clients, last12Range).filter((r) => r.revenue > 0).slice(0, 6),
+    () => collectedByClient(invoices, projects, clients, last12Range).filter((r) => r.revenue > 0).slice(0, 6),
     [invoices, projects, clients, last12Range],
   );
 
-  const totalBilled = invoices.reduce((s, i) => s + Number(i.amount), 0);
-  const totalPaid = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + Number(i.amount), 0);
+  const totalBilled = invoicedTotal(invoices, ALL_TIME_RANGE);
+  const totalPaid = collectedTotal(invoices, ALL_TIME_RANGE);
 
   return (
     <div className="animate-fade-in space-y-5">
@@ -230,7 +257,7 @@ export function RevenueView() {
             </div>
             {byCategory.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">
-                No invoiced revenue in the last 12 months yet.
+                No collected revenue in the last 12 months yet.
               </p>
             ) : (
               <div className="mt-2">
@@ -260,7 +287,7 @@ export function RevenueView() {
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
             </div>
             {byClient.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">No invoiced revenue in the last 12 months yet.</p>
+              <p className="mt-2 text-sm text-muted-foreground">No collected revenue in the last 12 months yet.</p>
             ) : (
               <div className="mt-2">
                 {byClient.map((c) => (

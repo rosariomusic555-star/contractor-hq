@@ -486,11 +486,13 @@ export interface ChangeOrderImage {
 
 /** Whether a line item has actually been committed to — required items
  * always; an optional section/item only once the client has checked it on
- * the live page. This is narrower than "counts toward the quote total"
- * (see quoteTotal() below) — it's for deciding what to actually bill for
- * (InvoiceWorkspace's line-item picker) or count as recognized revenue
- * (metrics.ts revenueByCategory), where speculative optional work nobody
- * picked must never be included. */
+ * the live page. quoteTotal() below is gated by this: a quote's total (and
+ * everything derived from it — contract value, deposits, invoicing,
+ * revenue-by-category) only ever counts what's actually been committed to,
+ * never speculative optional work nobody picked. Once a quote is approved
+ * its sections/items are locked (see the 0033 lock-approved-quotes
+ * triggers), so "currently selected" and "selected at signing" are the
+ * same thing from that point on. */
 export function quoteItemIncluded(section: QuoteSection, item: QuoteItem): boolean {
   if (section.is_optional || item.is_optional) return item.client_selected;
   return true;
@@ -501,20 +503,18 @@ export function quoteLineTotal(item: { price: number; quantity?: number | null }
   return Number(item.price) * (item.quantity == null ? 1 : Number(item.quantity));
 }
 
-/** Quote total = every line item, required or optional (quotes have no
- * stored amount) — the quote's full all-in value, the same number shown
- * everywhere a quote's total appears (the Quote builder's headline, quote
- * list, project rollups/contract value, dashboard, bookings). This is
- * deliberately NOT gated by quoteItemIncluded()/client_selected — that's a
- * narrower "what's actually committed" concept used only for invoicing and
- * revenue recognition (see quoteItemIncluded's own doc comment), which
- * would otherwise never reach a quote's full total for an unselected
- * optional quote and so never register as fully paid. */
+/** Quote total = required items + whatever optional items/sections the
+ * client has actually selected (quoteItemIncluded()) — the same number
+ * shown everywhere a quote's total appears (the Quote builder's headline,
+ * quote list, project rollups/contract value, dashboard, bookings). An
+ * optional item nobody picked will never be billed, so it never counts
+ * toward the total — "quote total" and "what will actually be invoiced"
+ * are the same figure now, everywhere in the app. */
 export function quoteTotal(sections: QuoteSection[] = []): number {
   let total = 0;
   for (const section of sections) {
     for (const item of section.quote_items ?? []) {
-      total += quoteLineTotal(item);
+      if (quoteItemIncluded(section, item)) total += quoteLineTotal(item);
     }
   }
   return total;
