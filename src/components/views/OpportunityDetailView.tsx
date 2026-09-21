@@ -5,6 +5,7 @@ import { ChevronLeft, Trash2, ImagePlus, Loader2, FileText, ArrowRight, Layers, 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -27,11 +28,13 @@ import {
   listLeadSources,
   listMaterialsSheets,
   createMaterialsSheet,
+  createMaterialsSection,
   listMaterialsBySheet,
   listQuotes,
   quoteTotal,
   materialsCogs,
   createQuoteFromOpportunity,
+  addQuoteSection,
   listProjectImages,
   addProjectImage,
   getSignedImageUrls,
@@ -40,6 +43,9 @@ import {
   listTasksForOpportunity,
   setTaskCompleted,
   listAppointmentsForOpportunity,
+  opportunityCategoryIds,
+  setOpportunityCategories,
+  setProjectCategories,
   type Opportunity,
   type OpportunityStage,
   type ActivityKind,
@@ -47,6 +53,7 @@ import {
   type Appointment,
 } from "@/lib/api";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
+import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
 
@@ -89,6 +96,8 @@ export function OpportunityDetailView() {
     queryFn: () => listAppointmentsForOpportunity(id),
   });
   const upcomingAppointment = appointments.find((a) => a.status === "scheduled");
+
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["opportunity", id] });
   const invalidateProjectLink = () => {
@@ -135,15 +144,23 @@ export function OpportunityDetailView() {
   // here (first sheet, first quote, first photo) — see
   // getOrCreateOpportunityProject's own doc comment (api.ts). Shared by the
   // Estimate card and the stage banner's "Create material sheet" action so
-  // there's exactly one place this happens.
+  // there's exactly one place this happens. `categoryNames` (optional,
+  // wired from EstimateCard's "start with a section per type" toggle)
+  // pre-adds one section per selected job type as a starting structure —
+  // never required, just a convenience default.
   const createSheetMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (categoryNames: string[]) => {
       const projectId = await getOrCreateOpportunityProject(id);
-      return createMaterialsSheet(projectId, { name: "Materials sheet" });
+      const sheet = await createMaterialsSheet(projectId, { name: "Materials sheet" });
+      for (const [i, name] of categoryNames.entries()) {
+        await createMaterialsSection(projectId, sheet.id, { name, sort_order: i });
+      }
+      return sheet;
     },
     onSuccess: (sheet, _vars) => {
       invalidateProjectLink();
       qc.invalidateQueries({ queryKey: ["materials-sheets"] });
+      qc.invalidateQueries({ queryKey: ["materials-sections-all"] });
       navigate(`/projects/${sheet.project_id}/materials/${sheet.id}`, {
         state: opportunity?.measurements ? { measurementsReference: opportunity.measurements } : undefined,
       });
@@ -152,13 +169,28 @@ export function OpportunityDetailView() {
   });
 
   const createQuoteMut = useMutation({
-    mutationFn: () => createQuoteFromOpportunity(opportunity!),
+    mutationFn: async (categoryNames: string[]) => {
+      const quote = await createQuoteFromOpportunity(opportunity!);
+      for (const [i, name] of categoryNames.entries()) {
+        await addQuoteSection(quote.id, { name, sort_order: i });
+      }
+      return quote;
+    },
     onSuccess: (quote) => {
       invalidateProjectLink();
       qc.invalidateQueries({ queryKey: ["quotes"] });
       qc.invalidateQueries({ queryKey: ["opportunity-activities", id] });
       navigate(`/quotes/${quote.id}`);
     },
+    onError,
+  });
+
+  const categoriesMut = useMutation({
+    mutationFn: (categoryIds: string[]) =>
+      opportunity?.project_id
+        ? setProjectCategories(opportunity.project_id, categoryIds)
+        : setOpportunityCategories(id, categoryIds),
+    onSuccess: invalidateProjectLink,
     onError,
   });
 
@@ -194,6 +226,9 @@ export function OpportunityDetailView() {
     return <p className="text-destructive">Failed to load opportunity: {(error as Error)?.message}</p>;
 
   const meta = opportunityStageMeta(opportunity.stage);
+  const categoryIds = opportunityCategoryIds(opportunity);
+  const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+  const categoryNames = categoryIds.map((cid) => categoryNameById.get(cid)).filter((n): n is string => !!n);
 
   return (
     <div className="animate-fade-in space-y-5">
@@ -209,10 +244,7 @@ export function OpportunityDetailView() {
             onBlur={() => commitField("title", opportunity.title)}
             className="h-auto border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0"
           />
-          <p className="mt-1 text-sm text-muted-foreground">
-            {opportunity.client?.name ?? "No client"}
-            {opportunity.project_type ? ` · ${opportunity.project_type}` : ""}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{opportunity.client?.name ?? "No client"}</p>
           {opportunity.project_id && (
             <Link
               to={`/projects/${opportunity.project_id}`}
@@ -247,7 +279,7 @@ export function OpportunityDetailView() {
           creatingSheet={createSheetMut.isPending}
           onLogContact={() => activityInputRef.current?.focus()}
           onScheduleVisit={() => setAppointmentDialogOpen(true)}
-          onCreateSheet={() => createSheetMut.mutate()}
+          onCreateSheet={() => createSheetMut.mutate(categoryNames)}
           onFollowUp={() => setTaskDialogOpen(true)}
         />
       )}
@@ -265,10 +297,14 @@ export function OpportunityDetailView() {
                   onBlur={() => commitField("address", opportunity.address)}
                 />
               </div>
-              <ProjectTypeField
-                value={opportunity.project_type}
-                onChange={(v) => updateMut.mutate({ project_type: v })}
-              />
+              <div className="space-y-1">
+                <div className={FIELD_LABEL}>Project types</div>
+                <CategoryMultiSelect
+                  value={categoryIds}
+                  onChange={(ids) => categoriesMut.mutate(ids)}
+                  placeholder="Select types…"
+                />
+              </div>
               <LeadSourceField
                 value={opportunity.lead_source}
                 onChange={(v) => updateMut.mutate({ lead_source: v })}
@@ -312,10 +348,11 @@ export function OpportunityDetailView() {
           <EstimateCard
             opportunity={opportunity}
             projectId={opportunity.project_id}
+            categoryNames={categoryNames}
             creatingSheet={createSheetMut.isPending}
             creatingQuote={createQuoteMut.isPending}
-            onCreateSheet={() => createSheetMut.mutate()}
-            onCreateQuote={() => createQuoteMut.mutate()}
+            onCreateSheet={(names) => createSheetMut.mutate(names)}
+            onCreateQuote={(names) => createQuoteMut.mutate(names)}
           />
           <OpportunityAppointmentsCard
             opportunityId={id}
@@ -427,27 +464,6 @@ function StageBanner({
   );
 }
 
-function ProjectTypeField({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
-  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  return (
-    <div className="space-y-1">
-      <div className={FIELD_LABEL}>Project type</div>
-      <Select value={value ?? undefined} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder="Select a type" />
-        </SelectTrigger>
-        <SelectContent>
-          {categories.map((c) => (
-            <SelectItem key={c.id} value={c.name}>
-              {c.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
 function LeadSourceField({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
   const { data: leadSources = [] } = useQuery({ queryKey: ["lead-sources"], queryFn: listLeadSources });
   return (
@@ -481,6 +497,7 @@ function LeadSourceField({ value, onChange }: { value: string | null; onChange: 
 function EstimateCard({
   opportunity,
   projectId,
+  categoryNames,
   creatingSheet,
   creatingQuote,
   onCreateSheet,
@@ -488,10 +505,14 @@ function EstimateCard({
 }: {
   opportunity: Opportunity;
   projectId: string | null;
+  /** Selected job types (Details card's Project types field), offered as a
+   * starting structure — see the "start with a section per type" toggle
+   * below. */
+  categoryNames: string[];
   creatingSheet: boolean;
   creatingQuote: boolean;
-  onCreateSheet: () => void;
-  onCreateQuote: () => void;
+  onCreateSheet: (categoryNames: string[]) => void;
+  onCreateQuote: (categoryNames: string[]) => void;
 }) {
   const { data: sheets = [] } = useQuery({
     queryKey: ["materials-sheets", { project: projectId }],
@@ -503,6 +524,11 @@ function EstimateCard({
     queryFn: () => listQuotes(projectId!),
     enabled: !!projectId,
   });
+  // Defaults on whenever there's something to pre-add and nothing exists
+  // yet — once a sheet/quote already exists, later ones are almost always
+  // a revision or a second option, not a fresh starting structure.
+  const [preAddSections, setPreAddSections] = useState(true);
+  const offerPreAdd = categoryNames.length > 0 && sheets.length === 0 && quotes.length === 0;
 
   return (
     <section className="card-surface space-y-3 p-5">
@@ -545,12 +571,33 @@ function EstimateCard({
         <p className="text-xs text-muted-subtle">No material sheet — margin won't be visible.</p>
       )}
 
+      {offerPreAdd && (
+        <label className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Checkbox
+            checked={preAddSections}
+            onCheckedChange={(v) => setPreAddSections(v === true)}
+            className="mt-0.5"
+          />
+          Start with a section per project type ({categoryNames.join(", ")})
+        </label>
+      )}
+
       <div className="flex flex-col gap-2 pt-1">
-        <Button size="sm" className="font-bold" disabled={creatingSheet} onClick={onCreateSheet}>
+        <Button
+          size="sm"
+          className="font-bold"
+          disabled={creatingSheet}
+          onClick={() => onCreateSheet(offerPreAdd && preAddSections ? categoryNames : [])}
+        >
           <Layers className="mr-2 h-3.5 w-3.5" />
           {creatingSheet ? "Creating…" : "Create material sheet"}
         </Button>
-        <Button size="sm" variant="outline" disabled={creatingQuote} onClick={onCreateQuote}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={creatingQuote}
+          onClick={() => onCreateQuote(offerPreAdd && preAddSections ? categoryNames : [])}
+        >
           <FileText className="mr-2 h-3.5 w-3.5" />
           {creatingQuote ? "Creating…" : "Create quote"}
         </Button>

@@ -2,18 +2,22 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
 import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
+import { CategoryChips } from "@/components/common/CategoryChips";
 import { formatCurrency, pluralize } from "@/lib/utils";
 import {
   listProjects,
   listQuotes,
   listChangeOrders,
+  listCategories,
   projectContractValue,
+  projectCategoryIds,
   type ProjectStatus,
 } from "@/lib/api";
 import { PROJECT_STATUSES, projectStatusMeta, VISUAL_STATUS_META } from "@/lib/statusMeta";
@@ -25,6 +29,7 @@ type Filter = "all" | ProjectStatus;
 export function ProjectsView() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const { data: projects = [], isLoading, isError, error } = useQuery({
@@ -33,6 +38,7 @@ export function ProjectsView() {
   });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
 
   /** Real contract value per project = its headline quote's total, plus its approved change orders. */
   const contractOf = useMemo(() => {
@@ -67,6 +73,7 @@ export function ProjectsView() {
 
   const filtered = projects.filter((p) => {
     if (filter === "all" ? !isRealJob(p) : p.status !== filter) return false;
+    if (typeFilter && !projectCategoryIds(p).includes(typeFilter)) return false;
     const term = search.toLowerCase();
     return !term || p.name.toLowerCase().includes(term) || (p.client?.name ?? "").toLowerCase().includes(term);
   });
@@ -106,6 +113,19 @@ export function ProjectsView() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
         <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+        <Select value={typeFilter ?? "all"} onValueChange={(v) => setTypeFilter(v === "all" ? null : v)}>
+          <SelectTrigger className="w-full md:w-44">
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <SearchInput value={search} onChange={setSearch} placeholder="Search projects or clients" className="hidden md:flex md:max-w-xs" />
       </div>
 
@@ -145,6 +165,7 @@ export function ProjectsView() {
                           <div className="text-xs text-muted-foreground">
                             {projectStatusMeta(p.status).label}
                           </div>
+                          <CategoryChips categoryIds={projectCategoryIds(p)} className="mt-1" max={3} />
                         </td>
                         <td className="text-muted-foreground">{p.client?.name ?? "No client"}</td>
                         <td className="font-bold tabular-nums">{contract > 0 ? formatCurrency(contract) : "—"}</td>
@@ -186,6 +207,7 @@ export function ProjectsView() {
                   title={p.name}
                   subtitle={`${p.client?.name ?? "No client"} · ${demo.crew}`}
                 >
+                  <CategoryChips categoryIds={projectCategoryIds(p)} className="mt-1.5" max={3} />
                   <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
                     <div className="h-full rounded-full bg-primary" style={{ width: `${demo.progressPct}%` }} />
                   </div>

@@ -7,8 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { FilterSegment, type FilterOption } from "@/components/common/FilterControls";
+import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
+import { CategoryChips } from "@/components/common/CategoryChips";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -20,8 +23,11 @@ import {
   markOpportunityWon,
   listClients,
   listQuotes,
+  listCategories,
   quoteTotal,
   pickHeadlineQuote,
+  opportunityCategoryIds,
+  setOpportunityCategories,
   type Opportunity,
   type OpportunityStage,
   type Quote,
@@ -78,10 +84,18 @@ export function PipelineView() {
     }
     return values;
   }, [quotes]);
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const qc = useQueryClient();
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [tab, setTab] = useState<PipelineTab>("board");
+  // "All types" (null) by default; picking one shows any opportunity that
+  // includes it among its (possibly several) job-type tags — never a strict
+  // single-type match.
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const filteredOpportunities = typeFilter
+    ? opportunities.filter((o) => opportunityCategoryIds(o).includes(typeFilter))
+    : opportunities;
 
   const moveMut = useMutation({
     // "won" always goes through the full Won transaction (quote lock,
@@ -135,14 +149,32 @@ export function PipelineView() {
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
 
-      <FilterSegment
-        options={[
-          { label: "Board", value: "board" } as FilterOption<PipelineTab>,
-          { label: "By source", value: "sources" } as FilterOption<PipelineTab>,
-        ]}
-        value={tab}
-        onChange={setTab}
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <FilterSegment
+          options={[
+            { label: "Board", value: "board" } as FilterOption<PipelineTab>,
+            { label: "By source", value: "sources" } as FilterOption<PipelineTab>,
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+        <Select
+          value={typeFilter ?? "all"}
+          onValueChange={(v) => setTypeFilter(v === "all" ? null : v)}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {tab === "board" ? (
         <>
@@ -154,7 +186,7 @@ export function PipelineView() {
                   <PipelineColumn
                     key={stage}
                     stage={stage}
-                    opportunities={opportunities.filter((o) => o.stage === stage)}
+                    opportunities={filteredOpportunities.filter((o) => o.stage === stage)}
                     closing={CLOSING_OPPORTUNITY_STAGES.includes(stage)}
                     quoteValueByProjectId={quoteValueByProjectId}
                   />
@@ -166,7 +198,7 @@ export function PipelineView() {
           {/* Mobile: stage-grouped list, no drag — a Select per card instead */}
           <div className="space-y-5 lg:hidden">
             {OPPORTUNITY_STAGES.map((stage) => {
-              const items = opportunities.filter((o) => o.stage === stage);
+              const items = filteredOpportunities.filter((o) => o.stage === stage);
               if (items.length === 0) return null;
               const meta = opportunityStageMeta(stage);
               return (
@@ -183,13 +215,13 @@ export function PipelineView() {
                 </div>
               );
             })}
-            {!isLoading && opportunities.length === 0 && (
-              <div className="card-surface p-10 text-center text-muted-foreground">No opportunities yet.</div>
+            {!isLoading && filteredOpportunities.length === 0 && (
+              <div className="card-surface p-10 text-center text-muted-foreground">No opportunities here.</div>
             )}
           </div>
         </>
       ) : (
-        <LeadSourceReport opportunities={opportunities} quoteValueByProjectId={quoteValueByProjectId} />
+        <LeadSourceReport opportunities={filteredOpportunities} quoteValueByProjectId={quoteValueByProjectId} />
       )}
 
       <CreateOpportunityDialog open={createOpen} onOpenChange={setCreateOpen} />
@@ -278,6 +310,7 @@ function OpportunityCard({
           {opportunity.address}
         </div>
       )}
+      <CategoryChips categoryIds={opportunityCategoryIds(opportunity)} className="mt-1.5" max={2} />
       <div className="mt-1.5 flex items-center justify-between gap-2">
         {quoteValue != null ? (
           <span className="text-sm font-extrabold tabular-nums text-foreground">
@@ -318,7 +351,7 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
   const [clientId, setClientId] = useState<string | null>(null);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [projectType, setProjectType] = useState("");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [leadSource, setLeadSource] = useState("");
 
   const selectedClient = clients.find((c) => c.id === clientId) ?? null;
@@ -327,19 +360,21 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
     if (!open) {
       setClientId(null);
       setTitle("");
-      setProjectType("");
+      setCategoryIds([]);
       setLeadSource("");
     }
   }, [open]);
 
   const createMut = useMutation({
-    mutationFn: () =>
-      createOpportunity({
+    mutationFn: async () => {
+      const opp = await createOpportunity({
         client_id: clientId!,
         title: title.trim(),
-        project_type: projectType.trim() || null,
         lead_source: leadSource.trim() || null,
-      }),
+      });
+      if (categoryIds.length > 0) await setOpportunityCategories(opp.id, categoryIds);
+      return opp;
+    },
     onSuccess: (opp) => {
       qc.invalidateQueries({ queryKey: ["opportunities"] });
       onOpenChange(false);
@@ -370,7 +405,7 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
               </button>
             </div>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (e.g. Backyard patio)" />
-            <Input value={projectType} onChange={(e) => setProjectType(e.target.value)} placeholder="Project type (optional)" />
+            <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} placeholder="Project types (optional)" />
             <Input value={leadSource} onChange={(e) => setLeadSource(e.target.value)} placeholder="Lead source (optional)" />
           </div>
           <Button

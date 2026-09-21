@@ -7,9 +7,12 @@ import { pickHeadlineQuote, quoteLineTotal } from "./api";
  * exists anywhere in the schema, so it's read from whichever real source is
  * available, in order:
  *
- *  1. The Pipeline opportunity this project was won from (project_type +
- *     measurements — only set for jobs that came through Pipeline's
- *     "Create project" flow, see NewProjectView's linkOpportunityId path).
+ *  1. The Pipeline opportunity this project was won from — its own
+ *     measurements text (sales-side data, never bootstrap-copied to the
+ *     project — see the pipeline restructure). Project type used to be
+ *     folded in here too; it's now the project's own job-type tags
+ *     (project_categories, migration 0079), shown as chips elsewhere
+ *     (CategoryChips) rather than in this free-text heuristic.
  *  2. The project's headline quote's single largest line item (quantity +
  *     unit + name) — reliable for Quick Quote's one-line-item quotes,
  *     noisier on an itemized quote with many granular lines, but present
@@ -22,20 +25,11 @@ export function jobSizeLabel(
   quotesByProject: Map<string, Quote[]>,
 ): string | null {
   const opportunity = opportunitiesByProjectId.get(project.id);
-  const fromOpportunity = opportunity
-    ? combine(opportunity.measurements, opportunity.project_type)
-    : null;
+  const fromOpportunity = opportunity?.measurements?.trim() || null;
   if (fromOpportunity) return fromOpportunity;
 
   const headline = pickHeadlineQuote(quotesByProject.get(project.id) ?? []);
   return headline ? largestLineItemLabel(headline) : null;
-}
-
-function combine(measurements: string | null, projectType: string | null): string | null {
-  const m = measurements?.trim() || null;
-  const t = projectType?.trim() || null;
-  if (m && t) return `${m} ${t}`;
-  return m ?? t;
 }
 
 function largestLineItemLabel(quote: Quote): string | null {

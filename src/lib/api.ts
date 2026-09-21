@@ -121,6 +121,20 @@ export interface Project {
   created_at: string;
   updated_at: string;
   client?: ClientRef | null;
+  /** Job type tags (Settings > Categories — "Job Categories"), many-to-many
+   * (migration 0079). A job can be several at once (Paver patio + Outdoor
+   * kitchen + Fire pit). This is the durable copy once a project exists —
+   * see projectCategoryIds() and opportunityCategoryIds(). Never drives
+   * Revenue by category (that's quote_items.category_id only); these are
+   * descriptive tags, not money. */
+  project_categories?: { category_id: string }[];
+}
+
+/** Flattens Project.project_categories into plain ids, in a stable order
+ * (Settings > Categories' own sort_order isn't carried on the join row, so
+ * callers that need name-ordered chips should sort via a categories list). */
+export function projectCategoryIds(project: Pick<Project, "project_categories">): string[] {
+  return (project.project_categories ?? []).map((r) => r.category_id);
 }
 
 /** A photo in a project's gallery (progress photos, before/after, site
@@ -789,7 +803,7 @@ export async function deleteLeadSource(id: string): Promise<void> {
 // Projects
 // ---------------------------------------------------------------------------
 
-const PROJECT_SELECT = "*, client:clients(name, email, phone, address)";
+const PROJECT_SELECT = "*, client:clients(name, email, phone, address), project_categories(category_id)";
 
 export async function listProjects(): Promise<Project[]> {
   const { data, error } = await supabase
@@ -862,6 +876,19 @@ export async function updateProject(
 ): Promise<void> {
   const { error } = await supabase.from("projects").update(patch).eq("id", id);
   if (error) throw error;
+}
+
+/** Replaces this project's full set of job-type tags (migration 0079) —
+ * delete-then-insert rather than a diff, since the caller always has the
+ * complete desired set from a multi-select, not an incremental add/remove. */
+export async function setProjectCategories(projectId: string, categoryIds: string[]): Promise<void> {
+  const { error: delError } = await supabase.from("project_categories").delete().eq("project_id", projectId);
+  if (delError) throw delError;
+  if (categoryIds.length === 0) return;
+  const { error: insError } = await supabase
+    .from("project_categories")
+    .insert(categoryIds.map((category_id) => ({ project_id: projectId, category_id })));
+  if (insError) throw insError;
 }
 
 /**
@@ -3638,7 +3665,6 @@ export interface Opportunity {
   client_id: string;
   title: string;
   address: string | null;
-  project_type: string | null;
   description: string | null;
   estimated_value: number | null;
   probability: number | null;
@@ -3658,9 +3684,29 @@ export interface Opportunity {
   created_at: string;
   updated_at: string;
   client?: { name: string } | null;
+  /** This opportunity's own job-type tags (migration 0079) — the live
+   * source before a project exists. Once linked, project_categories (via
+   * the embedded `project`) takes over and this becomes frozen history;
+   * always read through opportunityCategoryIds() rather than this field
+   * directly. */
+  opportunity_categories?: { category_id: string }[];
+  /** Read-through embed of the linked project's own category tags, purely
+   * so list views (the Kanban board) can show live, current types without
+   * a second query. Never write through this — use setProjectCategories. */
+  project?: { project_categories?: { category_id: string }[] } | null;
 }
 
-const OPPORTUNITY_SELECT = "*, client:clients(name)";
+/** The current job-type tags for an opportunity: the linked project's own
+ * tags once one exists (the durable, editable-from-either-page copy), else
+ * this opportunity's own pre-project tags. Never both, never merged — one
+ * live source at a time, same rule the rest of the restructure follows. */
+export function opportunityCategoryIds(o: Opportunity): string[] {
+  if (o.project) return (o.project.project_categories ?? []).map((r) => r.category_id);
+  return (o.opportunity_categories ?? []).map((r) => r.category_id);
+}
+
+const OPPORTUNITY_SELECT =
+  "*, client:clients(name), opportunity_categories(category_id), project:projects(project_categories(category_id))";
 
 export async function listOpportunities(): Promise<Opportunity[]> {
   const { data, error } = await supabase
@@ -3715,7 +3761,6 @@ export async function createOpportunity(input: {
   client_id: string;
   title: string;
   address?: string | null;
-  project_type?: string | null;
   description?: string | null;
   lead_source?: string | null;
 }): Promise<Opportunity> {
@@ -3725,7 +3770,6 @@ export async function createOpportunity(input: {
       client_id: input.client_id,
       title: input.title,
       address: input.address ?? null,
-      project_type: input.project_type ?? null,
       description: input.description ?? null,
       lead_source: input.lead_source ?? null,
     })
@@ -3733,6 +3777,24 @@ export async function createOpportunity(input: {
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Replaces this opportunity's own set of job-type tags (migration 0079) —
+ * only meaningful before a project exists; once one does, edit the
+ * project's tags directly via setProjectCategories instead (see
+ * opportunityCategoryIds' doc comment). Same delete-then-insert shape as
+ * setProjectCategories. */
+export async function setOpportunityCategories(opportunityId: string, categoryIds: string[]): Promise<void> {
+  const { error: delError } = await supabase
+    .from("opportunity_categories")
+    .delete()
+    .eq("opportunity_id", opportunityId);
+  if (delError) throw delError;
+  if (categoryIds.length === 0) return;
+  const { error: insError } = await supabase
+    .from("opportunity_categories")
+    .insert(categoryIds.map((category_id) => ({ opportunity_id: opportunityId, category_id })));
+  if (insError) throw insError;
 }
 
 /**
@@ -3753,7 +3815,6 @@ export async function updateOpportunity(
       Opportunity,
       | "title"
       | "address"
-      | "project_type"
       | "description"
       | "lead_source"
       | "stage"

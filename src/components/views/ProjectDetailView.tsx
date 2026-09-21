@@ -31,6 +31,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
+import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -59,6 +60,8 @@ import {
   listProjectMessages,
   sendProjectMessage,
   getSignedImageUrls,
+  setProjectCategories,
+  projectCategoryIds,
   type ProjectStatus,
 } from "@/lib/api";
 import { inviteClientToHub } from "@/lib/portalApi";
@@ -126,6 +129,16 @@ export function ProjectDetailView() {
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't update schedule", description: err.message, variant: "destructive" }),
+  });
+
+  const categoriesMutation = useMutation({
+    mutationFn: (categoryIds: string[]) => setProjectCategories(id, categoryIds),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", id] });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Couldn't update project types", description: err.message, variant: "destructive" }),
   });
 
   const durationMutation = useMutation({
@@ -270,6 +283,14 @@ export function ProjectDetailView() {
         </div>
       </div>
       <div className="md:hidden">{statusSelect}</div>
+
+      <div className="max-w-sm">
+        <CategoryMultiSelect
+          value={projectCategoryIds(project)}
+          onChange={(ids) => categoriesMutation.mutate(ids)}
+          placeholder="Project types…"
+        />
+      </div>
 
       {showWonBanner && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-success/30 bg-success/10 p-4">

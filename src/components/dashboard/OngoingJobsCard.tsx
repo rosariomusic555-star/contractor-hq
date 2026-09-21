@@ -23,6 +23,8 @@ import { upcomingDeliveries } from "@/lib/materialOrders";
 import { upcomingAppointmentRows } from "@/lib/upcomingAppointments";
 import { buildOngoingJobCards, type OngoingJobCard } from "@/lib/ongoingJobs";
 import { projectStatusMeta } from "@/lib/statusMeta";
+import { CategoryChips } from "@/components/common/CategoryChips";
+import { projectCategoryIds } from "@/lib/api";
 
 const MAX_ITEMS = 6;
 
@@ -195,6 +197,7 @@ function JobSnapshotCard({ card, coverUrl }: { card: OngoingJobCard; coverUrl: s
         </div>
         <p className="-mt-1.5 truncate text-xs text-muted-foreground">{project.client?.name ?? "No client"}</p>
         {card.scopeLabel && <p className="truncate text-xs text-muted-subtle">{card.scopeLabel}</p>}
+        <CategoryChips categoryIds={projectCategoryIds(project)} max={2} />
 
         <div>
           <div className="flex items-baseline justify-between gap-2">
