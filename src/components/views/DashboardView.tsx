@@ -238,13 +238,13 @@ export function DashboardView() {
         </section>
       </Link>
 
-      {/* ---- Bookings ---- */}
-      <BookingsCard />
-
       {/* ---- Ongoing jobs — full width: its redesigned project-snapshot
            cards (photo, money progress bar, schedule, alerts) need real
            room, not a squeezed 1-of-3 column. ---- */}
       <OngoingJobsCard />
+
+      {/* ---- Bookings ---- */}
+      <BookingsCard />
 
       {/* ---- Material deliveries + upcoming appointments ---- */}
       <div className="grid gap-5 lg:grid-cols-2">
