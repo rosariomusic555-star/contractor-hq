@@ -10,11 +10,15 @@ import {
   listOpportunities,
   listAppointments,
   listMaterialOrders,
+  listAllMaterialsSections,
+  listUsageLogsForItems,
   listProjectImagesForProjects,
   getSignedImageUrls,
   getBusinessProfile,
+  projectCategoryIds,
   type ChangeOrder,
   type Invoice,
+  type MaterialsItem,
   type Opportunity,
   type Quote,
 } from "@/lib/api";
@@ -22,9 +26,9 @@ import { getWeatherStrip, DEFAULT_WORK_WINDOW, type WorkWindow } from "@/lib/wea
 import { upcomingDeliveries } from "@/lib/materialOrders";
 import { upcomingAppointmentRows } from "@/lib/upcomingAppointments";
 import { buildOngoingJobCards, type OngoingJobCard } from "@/lib/ongoingJobs";
+import { trackedSheetIds, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import { CategoryChips } from "@/components/common/CategoryChips";
-import { projectCategoryIds } from "@/lib/api";
 
 const MAX_ITEMS = 6;
 
@@ -61,6 +65,10 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: () => listOpportunities() });
   const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
   const { data: materialOrders = [] } = useQuery({ queryKey: ["material-orders"], queryFn: () => listMaterialOrders() });
+  const { data: materialsSections = [] } = useQuery({
+    queryKey: ["materials-sections-all"],
+    queryFn: listAllMaterialsSections,
+  });
 
   const { data: profile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const address = profile?.address?.trim() || null;
@@ -85,6 +93,40 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   const deliveries = upcomingDeliveries(materialOrders, projectsById);
   const appointmentRows = upcomingAppointmentRows(appointments, opportunitiesById, projectsById);
 
+  // Material budget tracking (0080) — tracked lines per project (only the
+  // sheet(s) linked to the signed quote/an approved change order), and
+  // deliveries/usage keyed the same way, so buildOngoingJobCards can flag
+  // each ongoing project's material alerts without re-deriving any of this.
+  const trackedLinesByProject = new Map<string, MaterialsItem[]>();
+  for (const project of projects) {
+    const tracked = trackedSheetIds(quotesByProject.get(project.id) ?? [], changeOrdersByProject.get(project.id) ?? []);
+    if (tracked.size === 0) continue;
+    const lines = materialsSections.filter((s) => tracked.has(s.sheet_id)).flatMap((s) => s.materials_items);
+    if (lines.length > 0) trackedLinesByProject.set(project.id, lines);
+  }
+  const materialOrderDeliveriesByProject = new Map<string, DeliveryLineWithOrderStatus[]>();
+  for (const order of materialOrders) {
+    const list = materialOrderDeliveriesByProject.get(order.project_id) ?? [];
+    for (const item of order.material_order_items) list.push({ item, orderStatus: order.status });
+    materialOrderDeliveriesByProject.set(order.project_id, list);
+  }
+  const allTrackedLineIds = [...trackedLinesByProject.values()].flat().map((l) => l.id);
+  const { data: allUsageLogs = [] } = useQuery({
+    queryKey: ["materials-usage-logs", allTrackedLineIds],
+    queryFn: () => listUsageLogsForItems(allTrackedLineIds),
+    enabled: allTrackedLineIds.length > 0,
+  });
+  const trackedItemToProject = new Map<string, string>();
+  for (const [projectId, lines] of trackedLinesByProject) for (const l of lines) trackedItemToProject.set(l.id, projectId);
+  const usageLogsByProject = new Map<string, typeof allUsageLogs>();
+  for (const log of allUsageLogs) {
+    const projectId = trackedItemToProject.get(log.materials_item_id);
+    if (!projectId) continue;
+    const list = usageLogsByProject.get(projectId) ?? [];
+    list.push(log);
+    usageLogsByProject.set(projectId, list);
+  }
+
   const allCards = buildOngoingJobCards({
     projects,
     quotesByProject,
@@ -93,6 +135,12 @@ export function OngoingJobsCard({ className }: { className?: string }) {
     deliveries,
     appointmentRows,
     rainDates,
+    trackedLinesByProject,
+    materialOrderDeliveriesByProject,
+    usageLogsByProject,
+    materialAlertSettings: profile
+      ? { overOrderMarginPct: profile.material_over_order_margin_pct, notOrderedAlertDays: profile.material_not_ordered_alert_days }
+      : undefined,
   });
   const shown = allCards.slice(0, MAX_ITEMS);
   const remaining = allCards.length - shown.length;
@@ -169,6 +217,7 @@ const ALERT_BADGE_CLASS: Record<OngoingJobCard["alerts"][number]["key"], string>
   co_awaiting: "badge-status badge-pending",
   rain: "badge-status badge-overdue",
   deposit_not_received: "badge-status badge-overdue",
+  material_alert: "badge-status badge-overdue",
 };
 
 function JobSnapshotCard({ card, coverUrl }: { card: OngoingJobCard; coverUrl: string | null }) {

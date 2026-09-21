@@ -28,31 +28,39 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { SupplierCombobox } from "@/components/common/SupplierCombobox";
+import { MaterialsLinePicker } from "@/components/common/MaterialsLinePicker";
 import { useToast } from "@/hooks/use-toast";
-import { pluralize } from "@/lib/utils";
+import { cn, pluralize, formatCurrency } from "@/lib/utils";
 import {
   getProject,
   listMaterialOrders,
   createMaterialOrder,
   updateMaterialOrder,
+  updateMaterialOrderItem,
   deleteMaterialOrder,
   addMaterialOrderImage,
   touchSupplierUsage,
+  listMaterials,
   MATERIAL_ORDER_UNITS,
   materialOrderUnitLabel,
   type MaterialOrder,
+  type MaterialOrderItem,
   type MaterialOrderStatus,
   type MaterialOrderUnit,
+  type MaterialsSection,
 } from "@/lib/api";
 import { materialOrderStatusMeta } from "@/lib/statusMeta";
+import { suggestMaterialsItemMatches, effectiveDeliveryStatus } from "@/lib/materialTracking";
 
 interface DraftItem {
   description: string;
   quantity: string;
   unit: MaterialOrderUnit;
+  materialsItemId: string | null;
+  unitPrice: string;
 }
 
-const emptyItem = (): DraftItem => ({ description: "", quantity: "", unit: "each" });
+const emptyItem = (): DraftItem => ({ description: "", quantity: "", unit: "each", materialsItemId: null, unitPrice: "" });
 
 export function ProjectMaterialOrdersView() {
   const { id = "" } = useParams();
@@ -69,6 +77,14 @@ export function ProjectMaterialOrdersView() {
     queryKey: ["material-orders", { project: id }],
     queryFn: () => listMaterialOrders(id),
   });
+  // Every sheet line on the project (not just tracked ones) — a delivery
+  // can be logged before a project is even Won, so the match picker isn't
+  // gated on tracking the way the sheet's own live rollups are.
+  const { data: sections = [] } = useQuery({
+    queryKey: ["materials", { project: id }],
+    queryFn: () => listMaterials(id),
+  });
+  const allSheetLines = sections.flatMap((s) => s.materials_items);
 
   const [supplier, setSupplier] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
@@ -96,7 +112,13 @@ export function ProjectMaterialOrdersView() {
         notes: notes.trim() || null,
         items: items
           .filter((it) => it.description.trim())
-          .map((it) => ({ description: it.description.trim(), quantity: parseFloat(it.quantity) || 0, unit: it.unit })),
+          .map((it) => ({
+            description: it.description.trim(),
+            quantity: parseFloat(it.quantity) || 0,
+            unit: it.unit,
+            materials_item_id: it.materialsItemId,
+            unit_price: it.unitPrice.trim() ? parseFloat(it.unitPrice) : null,
+          })),
       });
       for (let i = 0; i < stagedPhotos.length; i++) {
         await addMaterialOrderImage(order.id, stagedPhotos[i].file, { sort_order: i });
@@ -125,6 +147,18 @@ export function ProjectMaterialOrdersView() {
 
   const deleteMut = useMutation({
     mutationFn: (orderId: string) => deleteMaterialOrder(orderId),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const matchMut = useMutation({
+    mutationFn: ({
+      itemId,
+      patch,
+    }: {
+      itemId: string;
+      patch: { materials_item_id?: string | null; unit_price?: number | null; status?: MaterialOrderStatus | null };
+    }) => updateMaterialOrderItem(itemId, patch),
     onSuccess: invalidate,
     onError,
   });
@@ -163,46 +197,71 @@ export function ProjectMaterialOrdersView() {
           </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           <Label>Line items</Label>
           {items.map((item, i) => (
-            <div key={i} className="flex flex-wrap items-center gap-2">
-              <Input
-                value={item.description}
-                onChange={(e) => setItem(i, { description: e.target.value })}
-                placeholder="e.g. Techo-Bloc Blu 60mm"
-                className="min-w-[180px] flex-1"
-              />
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={item.quantity}
-                onChange={(e) => setItem(i, { quantity: e.target.value })}
-                placeholder="Qty"
-                className="w-24"
-              />
-              <Select value={item.unit} onValueChange={(v) => setItem(i, { unit: v as MaterialOrderUnit })}>
-                <SelectTrigger className="w-40" aria-label="Unit">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MATERIAL_ORDER_UNITS.map((u) => (
-                    <SelectItem key={u.value} value={u.value}>
-                      {u.plural}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <button
-                type="button"
-                onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}
-                disabled={items.length === 1}
-                className="text-muted-subtle transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30"
-                aria-label="Remove item"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+            <div key={i} className="space-y-1.5 rounded-lg border border-hairline p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={item.description}
+                  onChange={(e) => setItem(i, { description: e.target.value })}
+                  onBlur={() => {
+                    if (item.materialsItemId || !item.description.trim()) return;
+                    const [top] = suggestMaterialsItemMatches(item.description, allSheetLines);
+                    if (top) setItem(i, { materialsItemId: top.id });
+                  }}
+                  placeholder="e.g. Techo-Bloc Blu 60mm"
+                  className="min-w-[180px] flex-1"
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.quantity}
+                  onChange={(e) => setItem(i, { quantity: e.target.value })}
+                  placeholder="Qty"
+                  className="w-24"
+                />
+                <Select value={item.unit} onValueChange={(v) => setItem(i, { unit: v as MaterialOrderUnit })}>
+                  <SelectTrigger className="w-40" aria-label="Unit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MATERIAL_ORDER_UNITS.map((u) => (
+                      <SelectItem key={u.value} value={u.value}>
+                        {u.plural}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.unitPrice}
+                  onChange={(e) => setItem(i, { unitPrice: e.target.value })}
+                  placeholder="$/unit (optional)"
+                  className="w-36"
+                />
+                <button
+                  type="button"
+                  onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}
+                  disabled={items.length === 1}
+                  className="text-muted-subtle transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30"
+                  aria-label="Remove item"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+              {allSheetLines.length > 0 && (
+                <MaterialsLinePicker
+                  sections={sections}
+                  value={item.materialsItemId}
+                  onChange={(v) => setItem(i, { materialsItemId: v })}
+                  suggested={item.description.trim() ? suggestMaterialsItemMatches(item.description, allSheetLines) : []}
+                  className="h-8 text-xs"
+                />
+              )}
             </div>
           ))}
           <button
@@ -286,8 +345,10 @@ export function ProjectMaterialOrdersView() {
             <MaterialOrderCard
               key={order.id}
               order={order}
+              sections={sections}
               onStatusChange={(status) => statusMut.mutate({ orderId: order.id, status })}
               onDelete={() => deleteMut.mutate(order.id)}
+              onLineChange={(itemId, patch) => matchMut.mutate({ itemId, patch })}
             />
           ))}
         </div>
@@ -298,12 +359,16 @@ export function ProjectMaterialOrdersView() {
 
 function MaterialOrderCard({
   order,
+  sections,
   onStatusChange,
   onDelete,
+  onLineChange,
 }: {
   order: MaterialOrder;
+  sections: MaterialsSection[];
   onStatusChange: (status: MaterialOrderStatus) => void;
   onDelete: () => void;
+  onLineChange: (itemId: string, patch: { materials_item_id?: string | null; unit_price?: number | null; status?: MaterialOrderStatus | null }) => void;
 }) {
   const meta = materialOrderStatusMeta(order.status);
   const dateLabel = order.expected_delivery_date
@@ -364,13 +429,17 @@ function MaterialOrderCard({
       </div>
 
       {order.material_order_items.length > 0 && (
-        <ul className="mt-3 space-y-1 border-t border-hairline pt-3 text-sm text-foreground/80">
+        <div className="mt-3 space-y-2 border-t border-hairline pt-3">
           {order.material_order_items.map((item) => (
-            <li key={item.id}>
-              {item.quantity} {materialOrderUnitLabel(item.unit, item.quantity)} — {item.description}
-            </li>
+            <DeliveryLineRow
+              key={item.id}
+              item={item}
+              sections={sections}
+              orderStatus={order.status}
+              onChange={(patch) => onLineChange(item.id, patch)}
+            />
           ))}
-        </ul>
+        </div>
       )}
       {order.notes && <p className="mt-2 text-xs text-muted-foreground">{order.notes}</p>}
       <p className="mt-2 text-[11px] text-muted-subtle">
@@ -386,5 +455,88 @@ function MaterialOrderCard({
         />
       </div>
     </section>
+  );
+}
+
+/** One delivery line — read-only by default, click "Match" / the matched
+ * line's name to open the picker + an actual-price field. Unmatched lines
+ * read "Unplanned" (never hidden — Phase 2's "never drop them" rule; they
+ * still count in actual cost via unplannedActualCost). */
+function DeliveryLineRow({
+  item,
+  sections,
+  orderStatus,
+  onChange,
+}: {
+  item: MaterialOrderItem;
+  sections: MaterialsSection[];
+  orderStatus: MaterialOrderStatus;
+  onChange: (patch: { materials_item_id?: string | null; unit_price?: number | null; status?: MaterialOrderStatus | null }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [priceStr, setPriceStr] = useState(item.unit_price != null ? String(item.unit_price) : "");
+  const matched = sections.flatMap((s) => s.materials_items).find((mi) => mi.id === item.materials_item_id);
+  const effectiveStatus = effectiveDeliveryStatus(item, orderStatus);
+
+  return (
+    <div className="rounded-lg bg-muted/40 p-2.5 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-foreground/80">
+          {item.quantity} {materialOrderUnitLabel(item.unit, item.quantity)} — {item.description}
+        </span>
+        <div className="flex items-center gap-2">
+          {item.unit_price != null && <span className="text-xs font-semibold text-muted-foreground">{formatCurrency(item.unit_price)}/unit</span>}
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+              matched ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+            )}
+          >
+            {matched ? matched.name : "Unplanned"}
+          </button>
+        </div>
+      </div>
+      {editing && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <MaterialsLinePicker
+            sections={sections}
+            value={item.materials_item_id}
+            onChange={(v) => onChange({ materials_item_id: v })}
+            className="h-8 min-w-[200px] flex-1 text-xs"
+          />
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            value={priceStr}
+            onChange={(e) => setPriceStr(e.target.value)}
+            onBlur={() => onChange({ unit_price: priceStr.trim() ? parseFloat(priceStr) : null })}
+            placeholder="Actual $/unit"
+            className="h-8 w-36 text-xs"
+          />
+          <Select
+            value={item.status ?? "__inherit__"}
+            onValueChange={(v) => onChange({ status: v === "__inherit__" ? null : (v as MaterialOrderStatus) })}
+          >
+            <SelectTrigger className="h-8 w-44 text-xs" aria-label="This line's status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__inherit__">Same as order ({materialOrderStatusMeta(orderStatus).label})</SelectItem>
+              <SelectItem value="ordered">Ordered</SelectItem>
+              <SelectItem value="delivered">Delivered</SelectItem>
+              <SelectItem value="delayed">Delayed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {item.status != null && item.status !== orderStatus && (
+        <p className="mt-1 text-[11px] font-semibold text-muted-foreground">
+          This line: {materialOrderStatusMeta(effectiveStatus).label} (partial delivery)
+        </p>
+      )}
+    </div>
   );
 }

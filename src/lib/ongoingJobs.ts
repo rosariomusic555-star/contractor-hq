@@ -1,4 +1,4 @@
-import type { ChangeOrder, Invoice, Project, ProjectStatus, Quote } from "./api";
+import type { ChangeOrder, Invoice, MaterialsItem, MaterialsUsageLog, Project, ProjectStatus, Quote } from "./api";
 import { pickHeadlineQuote, projectContractValue, isDepositOverdue } from "./api";
 import { quoteScopeSummary } from "./jobSize";
 import { projectDurationStatus } from "./projectDuration";
@@ -6,11 +6,12 @@ import { invoiceDaysLate, isProjectClosed, ALL_TIME_RANGE, collectedTotal } from
 import type { UpcomingDelivery } from "./materialOrders";
 import type { UpcomingAppointmentRow } from "./upcomingAppointments";
 import { APPOINTMENT_TYPE_LABEL } from "./api";
+import { materialAlerts, type DeliveryLineWithOrderStatus } from "./materialTracking";
 
 const parseLocal = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`);
 
 export interface OngoingJobAlert {
-  key: "overdue_invoice" | "over_duration" | "co_awaiting" | "rain" | "deposit_not_received";
+  key: "overdue_invoice" | "over_duration" | "co_awaiting" | "rain" | "deposit_not_received" | "material_alert";
   label: string;
 }
 
@@ -58,6 +59,7 @@ function buildAlerts(input: {
   durationOver: boolean;
   hasRain: boolean;
   depositOverdue: boolean;
+  materialAlertCount: number;
 }): OngoingJobAlert[] {
   const alerts: OngoingJobAlert[] = [];
 
@@ -74,6 +76,16 @@ function buildAlerts(input: {
   if (input.hasRain) alerts.push({ key: "rain", label: "Rain forecast on a work day" });
 
   if (input.depositOverdue) alerts.push({ key: "deposit_not_received", label: "Deposit not received" });
+
+  // One coalesced chip regardless of how many material lines are flagged
+  // (burn-rate/over-order/not-ordered) — keeps the card compact; the full
+  // breakdown lives on the project page itself.
+  if (input.materialAlertCount > 0) {
+    alerts.push({
+      key: "material_alert",
+      label: input.materialAlertCount === 1 ? "Material budget alert" : `${input.materialAlertCount} material budget alerts`,
+    });
+  }
 
   return alerts;
 }
@@ -130,6 +142,18 @@ export function buildOngoingJobCards(input: {
    * the exact same derivation UpcomingAppointmentsCard already does, so
    * this card never fetches weather a second time. */
   rainDates: Set<string>;
+  /** Material budget tracking (0080) — all optional so callers that don't
+   * fetch this data yet (or predate it) keep working unchanged, just
+   * without the material_alert chip. trackedLinesByProject is already
+   * filtered to each project's tracked sheet(s) (see trackedSheetIds) —
+   * this function doesn't have enough context (no section->sheet map) to
+   * do that filtering itself. materialOrderDeliveriesByProject pairs each
+   * order item with its parent order's status, same shape
+   * materialTracking.ts's sheetCostSummary/materialAlerts expect. */
+  trackedLinesByProject?: Map<string, MaterialsItem[]>;
+  materialOrderDeliveriesByProject?: Map<string, DeliveryLineWithOrderStatus[]>;
+  usageLogsByProject?: Map<string, MaterialsUsageLog[]>;
+  materialAlertSettings?: { overOrderMarginPct: number; notOrderedAlertDays: number };
 }): OngoingJobCard[] {
   const deliveriesByProject = groupByProject(input.deliveries);
   const appointmentsByProject = groupByProject(
@@ -171,6 +195,18 @@ export function buildOngoingJobCards(input: {
       const pendingChangeOrder = changeOrders.some((co) => co.status === "sent");
       const depositOverdue = isDepositOverdue(pickHeadlineQuote(quotes), contractTotal, paidTotal);
 
+      let materialAlertCount = 0;
+      const trackedLines = input.trackedLinesByProject?.get(project.id) ?? [];
+      if (trackedLines.length > 0 && input.materialOrderDeliveriesByProject && input.usageLogsByProject && input.materialAlertSettings) {
+        materialAlertCount = materialAlerts(
+          project,
+          trackedLines,
+          input.materialOrderDeliveriesByProject.get(project.id) ?? [],
+          input.usageLogsByProject.get(project.id) ?? [],
+          input.materialAlertSettings,
+        ).length;
+      }
+
       return {
         project,
         scopeLabel: quoteScopeSummary(pickHeadlineQuote(quotes)),
@@ -182,7 +218,7 @@ export function buildOngoingJobCards(input: {
         durationLabel,
         durationOver,
         upNext: buildUpNext(delivery, appointment, pendingChangeOrder),
-        alerts: buildAlerts({ invoices, changeOrders, durationOver, hasRain, depositOverdue }),
+        alerts: buildAlerts({ invoices, changeOrders, durationOver, hasRain, depositOverdue, materialAlertCount }),
         _durationState: durationStatus.state,
         _closed: closed,
       };

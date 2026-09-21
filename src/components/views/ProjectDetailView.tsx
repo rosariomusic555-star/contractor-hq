@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -62,7 +63,13 @@ import {
   getSignedImageUrls,
   setProjectCategories,
   projectCategoryIds,
+  listUsageLogsForItems,
+  getBusinessProfile,
+  reconcileMaterialsItem,
+  recordMaterialLearningSnapshot,
   type ProjectStatus,
+  type MaterialsItem,
+  type MaterialsUsageLog,
 } from "@/lib/api";
 import { inviteClientToHub } from "@/lib/portalApi";
 import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost, projectBillingBadge } from "@/lib/financials";
@@ -73,6 +80,19 @@ import {
   projectBillingStatusMeta,
   quoteStatusMeta,
 } from "@/lib/statusMeta";
+import {
+  trackedSheetIds,
+  projectTracksMaterials,
+  sheetCostSummary,
+  materialAlerts,
+  needsReconciliation,
+  leftoverQuantity,
+  deliveredQuantity,
+  usedQuantity,
+  currentBaseline,
+  type DeliveryLineWithOrderStatus,
+} from "@/lib/materialTracking";
+import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { demoJobMeta } from "@/lib/demoData";
 
 const expenseDate = (iso: string | null) =>
@@ -86,6 +106,8 @@ export function ProjectDetailView() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [estimateDraft, setEstimateDraft] = useState("");
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [logUsageLine, setLogUsageLine] = useState<MaterialsItem | null>(null);
 
   const { data: project, isLoading, isError, error } = useQuery({
     queryKey: ["projects", id],
@@ -108,6 +130,17 @@ export function ProjectDetailView() {
     queryFn: () => listMaterialOrders(id),
   });
   const { data: events = [] } = useQuery({ queryKey: ["project-events", id], queryFn: () => listProjectEvents(id) });
+  const trackedIds = project && projectTracksMaterials(project.status) ? trackedSheetIds(quotes, changeOrders) : new Set<string>();
+  const trackedLines: MaterialsItem[] = materials
+    .filter((s) => trackedIds.has(s.sheet_id))
+    .flatMap((s) => s.materials_items);
+  const trackedLineIds = trackedLines.map((l) => l.id);
+  const { data: usageLogs = [] } = useQuery({
+    queryKey: ["materials-usage-logs", trackedLineIds],
+    queryFn: () => listUsageLogsForItems(trackedLineIds),
+    enabled: trackedLineIds.length > 0,
+  });
+  const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
 
   const statusMutation = useMutation({
     mutationFn: (status: ProjectStatus) => updateProject(id, { status }),
@@ -191,10 +224,34 @@ export function ProjectDetailView() {
   const wonDepositInvoice = invoices.find((i) => i.status === "draft" && i.notes === "Deposit");
   const showWonBanner = project.status === "scheduled" && !!wonDepositInvoice;
 
+  // Material budget tracking (0080) — deliveries paired with their parent
+  // order's status (see materialTracking.ts's DeliveryLineWithOrderStatus),
+  // and the tracked-sheet cost summary that overrides the Profit Summary's
+  // own cost figure once the project is Complete AND every tracked line is
+  // reconciled (see materialActualCost's doc comment, financials.ts, for
+  // why this deliberately isn't blended in any earlier).
+  const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
+    o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
+  );
+  const materialCostSummary = trackedLines.length > 0 ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
+  const unreconciledLines = trackedLines.length > 0 ? needsReconciliation(trackedLines, deliveries, usageLogs) : [];
+  const materialsFullyReconciled = trackedLines.length > 0 && unreconciledLines.length === 0;
+  const materialAlertList = businessProfile
+    ? materialAlerts(project, trackedLines, deliveries, usageLogs, {
+        overOrderMarginPct: businessProfile.material_over_order_margin_pct,
+        notOrderedAlertDays: businessProfile.material_not_ordered_alert_days,
+      })
+    : [];
+
   const totalMaterialsItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
-  const predictedCost = totalMaterialsItems > 0 ? materialsCogs(materials) : null;
+  const predictedCost = materialCostSummary ? materialCostSummary.estimatedCost : totalMaterialsItems > 0 ? materialsCogs(materials) : null;
   const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
-  const actualCost = expenses.length > 0 ? expensesTotal : null;
+  const actualCost =
+    project.status === "complete" && materialsFullyReconciled
+      ? materialCostSummary!.actualCost + expensesTotal
+      : expenses.length > 0
+        ? expensesTotal
+        : null;
   const realCost = resolveCost(actualCost, predictedCost);
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
   const marginProfit = realCost != null ? contract - realCost : null;
@@ -315,9 +372,43 @@ export function ProjectDetailView() {
         </div>
       )}
 
+      {materialAlertList.length > 0 && (
+        <div className="rounded-card border border-warning-strong/30 bg-warning/10 p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-warning-strong">Material budget alerts</p>
+          <ul className="mt-1.5 space-y-1">
+            {materialAlertList.map((a, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-strong" />
+                {a.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {project.status === "complete" && unreconciledLines.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-warning-strong/30 bg-warning/10 p-4">
+          <p className="text-sm font-bold text-foreground">
+            Reconcile materials — {pluralize(unreconciledLines.length, "line")} still need a leftover disposition.
+          </p>
+          <Button size="sm" className="font-bold" onClick={() => setReconcileOpen(true)}>
+            Reconcile materials
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
+          {materialCostSummary && (
+            <MaterialsTrackingCard
+              summary={materialCostSummary}
+              trackedLines={trackedLines}
+              onOpen={() => navigate(`/projects/${id}/materials`)}
+              onLogUsage={(line) => setLogUsageLine(line)}
+            />
+          )}
+
           {/* Section nav */}
           <div className="grid gap-3 sm:grid-cols-2">
             <HubCard title="Materials sheet" summary={materialsSummary} onOpen={() => navigate(`/projects/${id}/materials`)} />
@@ -685,6 +776,19 @@ export function ProjectDetailView() {
       />
       <ProjectMessagesCard projectId={id} clientId={project.client_id} />
       <FieldUpdatesCard projectId={id} />
+
+      {logUsageLine && (
+        <LogUsageDialog open={!!logUsageLine} onOpenChange={(open) => !open && setLogUsageLine(null)} line={logUsageLine} />
+      )}
+
+      <ReconcileMaterialsDialog
+        open={reconcileOpen}
+        onOpenChange={setReconcileOpen}
+        projectId={id}
+        lines={unreconciledLines}
+        deliveries={deliveries}
+        usageLogs={usageLogs}
+      />
     </div>
   );
 }
@@ -748,6 +852,181 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
       <p className="text-muted-foreground">{label}</p>
       <p className="font-bold text-foreground">{value}</p>
     </div>
+  );
+}
+
+/** Phase 4's compact project-page Materials card — same cost-summary shape
+ * as the sheet's own header card (sheetCostSummary), just condensed, with a
+ * link through to the full sheet. Only rendered when at least one sheet
+ * actually tracks (see materialCostSummary in ProjectDetailView). */
+function MaterialsTrackingCard({
+  summary,
+  trackedLines,
+  onOpen,
+  onLogUsage,
+}: {
+  summary: ReturnType<typeof sheetCostSummary>;
+  trackedLines: MaterialsItem[];
+  onOpen: () => void;
+  onLogUsage: (line: MaterialsItem) => void;
+}) {
+  return (
+    <div className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-foreground">Materials</h3>
+        <div className="flex items-center gap-3">
+          {trackedLines.length > 0 && (
+            <Select onValueChange={(v) => onLogUsage(trackedLines.find((l) => l.id === v)!)}>
+              <SelectTrigger className="h-7 w-auto gap-1 border-none bg-transparent px-0 text-xs font-semibold text-primary shadow-none [&>svg]:hidden">
+                <span>+ Log usage</span>
+              </SelectTrigger>
+              <SelectContent>
+                {trackedLines.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <button type="button" onClick={onOpen} className="text-xs font-semibold text-primary">
+            Open sheet →
+          </button>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+        <div>
+          <p className="text-muted-foreground">Estimated</p>
+          <p className="font-bold text-foreground">{formatCurrency(summary.estimatedCost)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Actual</p>
+          <p className="font-bold text-foreground">{formatCurrency(summary.actualCost)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Variance</p>
+          <p className={cn("font-bold", summary.varianceDollars > 0 ? "text-warning-strong" : "text-foreground")}>
+            {summary.varianceDollars >= 0 ? "+" : ""}
+            {formatCurrency(summary.varianceDollars)}
+          </p>
+        </div>
+      </div>
+      {(summary.notOrderedCount > 0 || summary.overEstimateCount > 0 || summary.unplannedCount > 0) && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {summary.notOrderedCount > 0 && <span className="badge-status badge-pending">{pluralize(summary.notOrderedCount, "line")} not ordered</span>}
+          {summary.overEstimateCount > 0 && <span className="badge-status badge-overdue">{pluralize(summary.overEstimateCount, "line")} over estimate</span>}
+          {summary.unplannedCount > 0 && <span className="badge-status badge-pending">{pluralize(summary.unplannedCount, "unplanned item")}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReconcileMaterialsDialog({
+  open,
+  onOpenChange,
+  projectId,
+  lines,
+  deliveries,
+  usageLogs,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectId: string;
+  lines: MaterialsItem[];
+  deliveries: DeliveryLineWithOrderStatus[];
+  usageLogs: MaterialsUsageLog[];
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [choices, setChoices] = useState<Record<string, { disposition: "returned" | "kept" | "waste"; credit: string }>>({});
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      for (const line of lines) {
+        const choice = choices[line.id];
+        if (!choice) continue;
+        await reconcileMaterialsItem(line.id, {
+          disposition: choice.disposition,
+          return_credit: choice.disposition === "returned" ? parseFloat(choice.credit) || 0 : null,
+        });
+        const baseline = currentBaseline(line);
+        if (baseline) {
+          await recordMaterialLearningSnapshot({
+            project_id: projectId,
+            catalog_product_id: line.catalog_product_id,
+            material_name: line.name,
+            baseline_quantity: baseline.quantity,
+            final_used: usedQuantity(line, usageLogs),
+            unit: line.unit,
+          });
+        }
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials"] });
+      toast({ title: "Materials reconciled" });
+      onOpenChange(false);
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[80vh] max-w-lg gap-4 overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Reconcile materials</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          These lines have leftover delivered material — say what happened to it. Returned quantities can carry a credit
+          that reduces actual material cost.
+        </p>
+        <div className="space-y-3">
+          {lines.map((line) => {
+            const delivered = deliveredQuantity(line, deliveries);
+            const used = usedQuantity(line, usageLogs);
+            const leftover = leftoverQuantity(delivered, used);
+            const choice = choices[line.id] ?? { disposition: "kept" as const, credit: "" };
+            return (
+              <div key={line.id} className="rounded-lg border border-hairline p-3">
+                <p className="text-sm font-bold text-foreground">
+                  {line.name} — {leftover} {line.unit ?? ""} leftover
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Select
+                    value={choice.disposition}
+                    onValueChange={(v) => setChoices((c) => ({ ...c, [line.id]: { ...choice, disposition: v as "returned" | "kept" | "waste" } }))}
+                  >
+                    <SelectTrigger className="h-9 w-40 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="returned">Returned to supplier</SelectItem>
+                      <SelectItem value="kept">Kept in stock</SelectItem>
+                      <SelectItem value="waste">Waste</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {choice.disposition === "returned" && (
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={choice.credit}
+                      onChange={(e) => setChoices((c) => ({ ...c, [line.id]: { ...choice, credit: e.target.value } }))}
+                      placeholder="Credit $"
+                      className="h-9 w-32"
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <Button className="w-full font-bold" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
+          {saveMut.isPending ? "Saving…" : "Save reconciliation"}
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }
 

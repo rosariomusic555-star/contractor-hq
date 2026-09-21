@@ -204,6 +204,47 @@ export function SettingsBusinessProfileView() {
         </div>
       </div>
 
+      <div className="overflow-hidden rounded-card border border-border">
+        <div className="bg-muted/50 px-5 py-3">
+          <span className="text-[15px] font-bold text-foreground">Material budget alerts</span>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Thresholds for the early-warning chips on a tracked project's Materials card.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-5 bg-card p-5 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <div className={FIELD_LABEL}>Over-order margin</div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={draft.material_over_order_margin_pct}
+                onChange={(e) => edit({ material_over_order_margin_pct: parseFloat(e.target.value) || 0 })}
+                className={FIELD_INPUT}
+              />
+              <span className="text-sm text-muted-foreground">%</span>
+            </div>
+            <p className="text-[11px] text-muted-subtle">Flag a line once Ordered exceeds Estimated by more than this.</p>
+          </div>
+          <div className="space-y-1.5">
+            <div className={FIELD_LABEL}>Not-ordered warning</div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={draft.material_not_ordered_alert_days}
+                onChange={(e) => edit({ material_not_ordered_alert_days: parseFloat(e.target.value) || 0 })}
+                className={FIELD_INPUT}
+              />
+              <span className="text-sm text-muted-foreground">days</span>
+            </div>
+            <p className="text-[11px] text-muted-subtle">Flag an unordered line within this many days of the scheduled start.</p>
+          </div>
+        </div>
+      </div>
+
       <div className="flex justify-end">
         <Button
           className="h-11 rounded-xl font-bold"

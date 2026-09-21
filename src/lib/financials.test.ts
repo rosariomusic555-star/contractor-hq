@@ -99,6 +99,7 @@ function makeChangeOrder(overrides: Partial<ChangeOrder> = {}): ChangeOrder {
     share_token: null,
     signed_at: null,
     signed_by: null,
+    material_sheet_id: null,
     created_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
@@ -366,7 +367,7 @@ describe("Cost / profit / margin", () => {
       sort_order: 0,
       smart_section_build_type: null,
       materials_items: [
-        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0 },
+        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0, conversion_unit: null, conversion_factor: null, reconciled_at: null, disposition: null, return_credit: null },
       ],
     };
 
@@ -408,7 +409,7 @@ describe("Cost / profit / margin", () => {
       sort_order: 0,
       smart_section_build_type: null,
       materials_items: [
-        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0 },
+        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0, conversion_unit: null, conversion_factor: null, reconciled_at: null, disposition: null, return_credit: null },
       ],
     };
     // Actual expenses ($8,000) logged, different from the $6,000 predicted.

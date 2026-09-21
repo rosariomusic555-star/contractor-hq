@@ -357,6 +357,40 @@ export interface MaterialsItem {
   /** Reference-only, every line regardless of source — not part of the
    * quantity*unit_cost math. */
   waste_percent: number;
+  /** Unit conversion (0080): "1 conversion_unit = conversion_factor x
+   * unit" — e.g. unit "sf", conversion_unit "pallet", factor 108. Lets a
+   * delivery line logged in a different (but equivalent) unit than this
+   * line still roll into Ordered/Delivered. Either both set or both null. */
+  conversion_unit: string | null;
+  conversion_factor: number | null;
+  /** Close-out reconciliation (Phase 6, 0080) — set when Delivered != Used
+   * is resolved at project Complete. Null until reconciled. */
+  reconciled_at: string | null;
+  disposition: "returned" | "kept" | "waste" | null;
+  /** Credit for a returned quantity — reduces actual material cost. Only
+   * meaningful when disposition = 'returned'. */
+  return_credit: number | null;
+  /** Only populated where the select asks for it (tracked-sheet reads) —
+   * every baseline ever snapshotted for this line, newest first. The
+   * CURRENT baseline is materials_item_baselines[0]; empty = never
+   * snapshotted (an untracked line, or a tracked one whose baseline
+   * trigger hasn't fired yet). */
+  materials_item_baselines?: MaterialsItemBaseline[];
+}
+
+/** An append-only estimate snapshot (0080) — see snapshot_sheet_baselines()/
+ * revise_material_baseline() in the DB. Never updated or deleted; a
+ * "revision" is just a new row. */
+export interface MaterialsItemBaseline {
+  id: string;
+  materials_item_id: string;
+  quantity: number;
+  unit_cost: number;
+  unit: string | null;
+  /** Null for the automatic first snapshot (Won / change order approval);
+   * set for every explicit "Revise estimate". */
+  reason: string | null;
+  created_at: string;
 }
 
 export interface MaterialsSection {
@@ -398,6 +432,164 @@ export interface MaterialsSheet {
   // Only populated where the select asks for it (the global Material
   // Sheets list) — project-scoped callers already know their own project.
   project?: ProjectRef | null;
+}
+
+// ---------------------------------------------------------------------------
+// Materials usage logs (0080) — what actually got used against a tracked
+// sheet line. See src/lib/materialTracking.ts for how these roll up into
+// a line's "Used" quantity.
+// ---------------------------------------------------------------------------
+
+export interface MaterialsUsageLog {
+  id: string;
+  materials_item_id: string;
+  quantity: number;
+  logged_at: string;
+  note: string | null;
+  /** Free-text — who logged it (a crew member's name), not a real user
+   * reference. Null reads as the owner. */
+  logged_by: string | null;
+  photo_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listUsageLogsForItem(materialsItemId: string): Promise<MaterialsUsageLog[]> {
+  const { data, error } = await supabase
+    .from("materials_usage_logs")
+    .select("*")
+    .eq("materials_item_id", materialsItemId)
+    .order("logged_at", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** For a whole sheet's worth of lines in one query — the Live Sheet View
+ * needs every tracked line's Used total at once, not one query per row. */
+export async function listUsageLogsForItems(materialsItemIds: string[]): Promise<MaterialsUsageLog[]> {
+  if (materialsItemIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("materials_usage_logs")
+    .select("*")
+    .in("materials_item_id", materialsItemIds)
+    .order("logged_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** materials_item_id is the audit row's permanent anchor (0081) — a
+ * 'deleted' event's own log row won't exist anymore, so it can't be the
+ * thing RLS/lookups key off. */
+async function logUsageEvent(
+  usageLogId: string,
+  materialsItemId: string,
+  kind: "created" | "edited" | "deleted",
+  before: { quantity: number; note: string | null } | null,
+  after: { quantity: number; note: string | null } | null,
+): Promise<void> {
+  const { error } = await supabase.from("materials_usage_log_events").insert({
+    materials_usage_log_id: usageLogId,
+    materials_item_id: materialsItemId,
+    kind,
+    before_quantity: before?.quantity ?? null,
+    before_note: before?.note ?? null,
+    after_quantity: after?.quantity ?? null,
+    after_note: after?.note ?? null,
+  });
+  if (error) throw error;
+}
+
+export async function addUsageLog(input: {
+  materials_item_id: string;
+  quantity: number;
+  logged_at?: string;
+  note?: string | null;
+  logged_by?: string | null;
+  photo_path?: string | null;
+}): Promise<MaterialsUsageLog> {
+  const { data, error } = await supabase
+    .from("materials_usage_logs")
+    .insert({
+      materials_item_id: input.materials_item_id,
+      quantity: input.quantity,
+      logged_at: input.logged_at ?? new Date().toISOString().slice(0, 10),
+      note: input.note ?? null,
+      logged_by: input.logged_by ?? null,
+      photo_path: input.photo_path ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  await logUsageEvent(data.id, data.materials_item_id, "created", null, { quantity: data.quantity, note: data.note });
+  return data;
+}
+
+export async function updateUsageLog(
+  id: string,
+  patch: Partial<Pick<MaterialsUsageLog, "quantity" | "logged_at" | "note" | "photo_path">>,
+): Promise<void> {
+  const { data: before, error: readError } = await supabase
+    .from("materials_usage_logs")
+    .select("materials_item_id, quantity, note")
+    .eq("id", id)
+    .single();
+  if (readError) throw readError;
+  const { data: after, error } = await supabase
+    .from("materials_usage_logs")
+    .update(patch)
+    .eq("id", id)
+    .select("quantity, note")
+    .single();
+  if (error) throw error;
+  await logUsageEvent(id, before.materials_item_id, "edited", before, after);
+}
+
+export async function deleteUsageLog(id: string): Promise<void> {
+  const { data: before, error: readError } = await supabase
+    .from("materials_usage_logs")
+    .select("materials_item_id, quantity, note")
+    .eq("id", id)
+    .single();
+  if (readError) throw readError;
+  await logUsageEvent(id, before.materials_item_id, "deleted", before, null);
+  const { error } = await supabase.from("materials_usage_logs").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function listUsageLogEventsForItem(materialsItemId: string): Promise<
+  {
+    id: string;
+    kind: "created" | "edited" | "deleted";
+    before_quantity: number | null;
+    before_note: string | null;
+    after_quantity: number | null;
+    after_note: string | null;
+    created_at: string;
+  }[]
+> {
+  const { data, error } = await supabase
+    .from("materials_usage_log_events")
+    .select("id, kind, before_quantity, before_note, after_quantity, after_note, created_at")
+    .eq("materials_item_id", materialsItemId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Compresses and uploads a usage log's optional photo, returning the
+ * storage path to pass into addUsageLog()/updateUsageLog() — scoped under
+ * the materials_item (not the usage log itself, which doesn't exist yet
+ * on the first-log path) so this can run before the log row is created.
+ * Storage RLS for the "materials-usage/" prefix is 0082. */
+export async function uploadUsageLogPhoto(materialsItemId: string, file: File): Promise<string> {
+  const compressed = await compressImageFile(file);
+  const path = `materials-usage/${materialsItemId}/${randomImageFilename(file.name)}`;
+  const { error } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (error) throw error;
+  return path;
 }
 
 export interface Expense {
@@ -473,6 +665,10 @@ export interface ChangeOrder {
   signed_at: string | null;
   signed_by: string | null;
   created_at: string;
+  /** Material budget tracking (0080) — one-to-one, same shape as
+   * quotes.material_sheet_id. Once this change order is approved, its
+   * linked sheet starts tracking (baseline snapshotted automatically). */
+  material_sheet_id: string | null;
   // Only populated by getChangeOrder() (the builder's own fetch) — list
   // reads (listChangeOrders) stay flat/lightweight, same split as
   // getQuote() vs. the rest of the app's lighter quote reads.
@@ -937,6 +1133,13 @@ export interface BusinessProfile {
    * outside rather than the full 24h day. */
   crew_start_time: string;
   crew_end_time: string;
+  /** Material budget tracking alert thresholds (0080). Over-order: a
+   * tracked line's Ordered quantity is flagged once it exceeds Estimated
+   * by more than this %. Not-ordered: a tracked line with nothing ordered
+   * yet is flagged once the project's scheduled start is within this many
+   * days (or has passed) — see src/lib/materialTracking.ts. */
+  material_over_order_margin_pct: number;
+  material_not_ordered_alert_days: number;
 }
 
 export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
@@ -948,6 +1151,8 @@ export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
   logo_url: null,
   crew_start_time: "07:00",
   crew_end_time: "17:00",
+  material_over_order_margin_pct: 10,
+  material_not_ordered_alert_days: 5,
 };
 
 export async function getBusinessProfile(): Promise<BusinessProfile> {
@@ -968,6 +1173,10 @@ export async function getBusinessProfile(): Promise<BusinessProfile> {
     logo_url: data.logo_url ?? null,
     crew_start_time: data.crew_start_time ?? BUSINESS_PROFILE_FALLBACK.crew_start_time,
     crew_end_time: data.crew_end_time ?? BUSINESS_PROFILE_FALLBACK.crew_end_time,
+    material_over_order_margin_pct:
+      data.material_over_order_margin_pct ?? BUSINESS_PROFILE_FALLBACK.material_over_order_margin_pct,
+    material_not_ordered_alert_days:
+      data.material_not_ordered_alert_days ?? BUSINESS_PROFILE_FALLBACK.material_not_ordered_alert_days,
   };
 }
 
@@ -984,6 +1193,8 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
       logo_url: merged.logo_url,
       crew_start_time: merged.crew_start_time,
       crew_end_time: merged.crew_end_time,
+      material_over_order_margin_pct: merged.material_over_order_margin_pct,
+      material_not_ordered_alert_days: merged.material_not_ordered_alert_days,
     })
     .select()
     .single();
@@ -997,6 +1208,10 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
     logo_url: data.logo_url ?? null,
     crew_start_time: data.crew_start_time ?? BUSINESS_PROFILE_FALLBACK.crew_start_time,
     crew_end_time: data.crew_end_time ?? BUSINESS_PROFILE_FALLBACK.crew_end_time,
+    material_over_order_margin_pct:
+      data.material_over_order_margin_pct ?? BUSINESS_PROFILE_FALLBACK.material_over_order_margin_pct,
+    material_not_ordered_alert_days:
+      data.material_not_ordered_alert_days ?? BUSINESS_PROFILE_FALLBACK.material_not_ordered_alert_days,
   };
 }
 
@@ -1414,16 +1629,26 @@ export async function listMaterialsSheets(projectId?: string): Promise<Materials
 /** The top-level `.order("sort_order")` only orders the sections
  * themselves — PostgREST doesn't guarantee a nested embed's (materials_items
  * here) row order, so each section's own items need their own client-side
- * sort. Mirrors sortQuote() below for quote_sections/quote_items. */
+ * sort. Mirrors sortQuote() below for quote_sections/quote_items. Also
+ * sorts each item's baselines newest-first, so materials_item_baselines[0]
+ * is always "the current baseline" without a fragile multi-level PostgREST
+ * embedded-order clause. */
 function sortMaterialsSections(sections: MaterialsSection[]): MaterialsSection[] {
-  for (const s of sections) s.materials_items?.sort((a, b) => a.sort_order - b.sort_order);
+  for (const s of sections) {
+    s.materials_items?.sort((a, b) => a.sort_order - b.sort_order);
+    for (const item of s.materials_items ?? []) {
+      item.materials_item_baselines?.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+    }
+  }
   return sections;
 }
 
 export async function listAllMaterialsSections(): Promise<MaterialsSection[]> {
   const { data, error } = await supabase
     .from("materials_sections")
-    .select("*, materials_items(*)")
+    .select(`*, materials_items(${MATERIALS_ITEM_WITH_BASELINES})`)
     .order("sort_order");
   if (error) {
     if (error.code === "PGRST205") return [];
@@ -1466,10 +1691,12 @@ export async function deleteMaterialsSheet(id: string): Promise<void> {
   if (error) throw error;
 }
 
+const MATERIALS_ITEM_WITH_BASELINES = "*, materials_item_baselines(*)";
+
 export async function listMaterials(projectId: string): Promise<MaterialsSection[]> {
   const { data, error } = await supabase
     .from("materials_sections")
-    .select("*, materials_items(*)")
+    .select(`*, materials_items(${MATERIALS_ITEM_WITH_BASELINES})`)
     .eq("project_id", projectId)
     .order("sort_order");
   if (error) throw error;
@@ -1479,7 +1706,7 @@ export async function listMaterials(projectId: string): Promise<MaterialsSection
 export async function listMaterialsBySheet(sheetId: string): Promise<MaterialsSection[]> {
   const { data, error } = await supabase
     .from("materials_sections")
-    .select("*, materials_items(*)")
+    .select(`*, materials_items(${MATERIALS_ITEM_WITH_BASELINES})`)
     .eq("sheet_id", sheetId)
     .order("sort_order");
   if (error) throw error;
@@ -1531,6 +1758,8 @@ export async function addMaterialsItem(
     price_book_item_id?: string | null;
     catalog_product_id?: string | null;
     waste_percent?: number;
+    conversion_unit?: string | null;
+    conversion_factor?: number | null;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -1546,6 +1775,8 @@ export async function addMaterialsItem(
       price_book_item_id: input.price_book_item_id ?? null,
       catalog_product_id: input.catalog_product_id ?? null,
       waste_percent: input.waste_percent ?? 0,
+      conversion_unit: input.conversion_unit ?? null,
+      conversion_factor: input.conversion_factor ?? null,
     })
     .select()
     .single();
@@ -1567,6 +1798,8 @@ export async function updateMaterialsItem(
       | "price_book_item_id"
       | "catalog_product_id"
       | "waste_percent"
+      | "conversion_unit"
+      | "conversion_factor"
     >
   >,
 ): Promise<void> {
@@ -1577,6 +1810,55 @@ export async function updateMaterialsItem(
 export async function deleteMaterialsItem(id: string): Promise<void> {
   const { error } = await supabase.from("materials_items").delete().eq("id", id);
   if (error) throw error;
+}
+
+/** Explicit "Revise estimate" (0080) — records a NEW baseline for this
+ * line with a reason, keeping every earlier one in history. Does not touch
+ * the live editable quantity/unit_cost on the sheet (those already changed;
+ * this just makes the change official for estimate-vs-actual tracking). */
+export async function reviseMaterialBaseline(materialsItemId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc("revise_material_baseline", {
+    p_materials_item_id: materialsItemId,
+    p_reason: reason,
+  });
+  if (error) throw error;
+}
+
+/** Close-out reconciliation (Phase 6, 0080) — records what happened to a
+ * tracked line's leftover (Delivered - Used), once at project Complete.
+ * return_credit only meaningful with disposition 'returned'; cleared
+ * otherwise so a stale credit can't linger under the wrong disposition. */
+export async function reconcileMaterialsItem(
+  id: string,
+  input: { disposition: "returned" | "kept" | "waste"; return_credit?: number | null },
+): Promise<void> {
+  const { error } = await supabase
+    .from("materials_items")
+    .update({
+      disposition: input.disposition,
+      return_credit: input.disposition === "returned" ? (input.return_credit ?? 0) : null,
+      reconciled_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/** Design-for-what's-next (0080) — one row per completed line, baseline vs.
+ * final used. Nothing reads this yet; it's populated so waste-rate
+ * learning can plug in later without a schema change. Never blocks or
+ * surfaces an error to the reconciliation flow it's called from — losing
+ * a learning data point is not worth failing the actual reconciliation
+ * over. */
+export async function recordMaterialLearningSnapshot(input: {
+  project_id: string;
+  catalog_product_id: string | null;
+  material_name: string;
+  baseline_quantity: number;
+  final_used: number;
+  unit: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from("materials_learning_snapshots").insert(input);
+  if (error) console.warn("Failed to record material learning snapshot:", error);
 }
 
 // ---------------------------------------------------------------------------
@@ -2358,6 +2640,23 @@ export async function updateChangeOrder(
   if (error) throw error;
 }
 
+/** Same one-to-one "linking steals the sheet from whoever holds it" shape
+ * as linkQuoteToMaterialSheet (0042) — a sheet feeds at most one change
+ * order's cost, enforced by the partial unique index (0080). Approving a
+ * linked change order is what starts it tracking (see the DB trigger). */
+export async function linkMaterialSheetToChangeOrder(changeOrderId: string, sheetId: string | null): Promise<void> {
+  if (sheetId) {
+    const { error: stealError } = await supabase
+      .from("change_orders")
+      .update({ material_sheet_id: null })
+      .eq("material_sheet_id", sheetId)
+      .neq("id", changeOrderId);
+    if (stealError) throw stealError;
+  }
+  const { error } = await supabase.from("change_orders").update({ material_sheet_id: sheetId }).eq("id", changeOrderId);
+  if (error) throw error;
+}
+
 /** Deleting a change order cascades its sections/items/images at the DB
  * level, but never touches the actual files in Storage — best-effort clean
  * those up first, same pattern as deleteQuoteSection. */
@@ -2721,6 +3020,22 @@ export interface MaterialOrderItem {
   quantity: number;
   unit: MaterialOrderUnit;
   sort_order: number;
+  /** Material budget tracking (0080) — which sheet line this delivery line
+   * is against. Null = "Unplanned": not on any sheet, still counted in
+   * actual cost, shown in its own group. Set via matchMaterialOrderItem(). */
+  materials_item_id: string | null;
+  /** Actual price paid, for actual cost — null falls back to the sheet
+   * line's own unit_cost (see materialTracking.ts). */
+  unit_price: number | null;
+  /** Null = inherits the parent order's status (today's exact behavior);
+   * set only to override for a partial delivery ("half the pallets
+   * arrived"). */
+  status: MaterialOrderStatus | null;
+  /** 'manual' (today) vs 'ticket' — reserved for a future OCR'd-photo
+   * source; nothing sets 'ticket' yet. */
+  source: "manual" | "ticket";
+  /** Reserved for a future attached scale-ticket photo. */
+  ticket_photo_path: string | null;
 }
 
 export interface MaterialOrder {
@@ -2761,7 +3076,13 @@ export async function createMaterialOrder(input: {
   expected_delivery_date?: string | null;
   status?: MaterialOrderStatus;
   notes?: string | null;
-  items: { description: string; quantity: number; unit: MaterialOrderUnit }[];
+  items: {
+    description: string;
+    quantity: number;
+    unit: MaterialOrderUnit;
+    materials_item_id?: string | null;
+    unit_price?: number | null;
+  }[];
 }): Promise<MaterialOrder> {
   const { data: order, error } = await supabase
     .from("material_orders")
@@ -2784,6 +3105,8 @@ export async function createMaterialOrder(input: {
         quantity: item.quantity,
         unit: item.unit,
         sort_order: i,
+        materials_item_id: item.materials_item_id ?? null,
+        unit_price: item.unit_price ?? null,
       })),
     );
     if (itemsError) throw itemsError;
@@ -2826,7 +3149,14 @@ export async function deleteMaterialOrder(id: string): Promise<void> {
 
 export async function addMaterialOrderItem(
   materialOrderId: string,
-  input: { description: string; quantity: number; unit: MaterialOrderUnit; sort_order?: number },
+  input: {
+    description: string;
+    quantity: number;
+    unit: MaterialOrderUnit;
+    sort_order?: number;
+    materials_item_id?: string | null;
+    unit_price?: number | null;
+  },
 ): Promise<MaterialOrderItem> {
   const { data, error } = await supabase
     .from("material_order_items")
@@ -2836,6 +3166,8 @@ export async function addMaterialOrderItem(
       quantity: input.quantity,
       unit: input.unit,
       sort_order: input.sort_order ?? 0,
+      materials_item_id: input.materials_item_id ?? null,
+      unit_price: input.unit_price ?? null,
     })
     .select()
     .single();
@@ -2845,9 +3177,23 @@ export async function addMaterialOrderItem(
 
 export async function updateMaterialOrderItem(
   id: string,
-  patch: Partial<Pick<MaterialOrderItem, "description" | "quantity" | "unit" | "sort_order">>,
+  patch: Partial<
+    Pick<MaterialOrderItem, "description" | "quantity" | "unit" | "sort_order" | "materials_item_id" | "unit_price" | "status">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("material_order_items").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** Matches (or un-matches, with null) a delivery line to a sheet line —
+ * the one place this happens, so the Delivery form's auto-suggest and the
+ * Materials Sheet's own "Unplanned" section both go through the same
+ * write. */
+export async function matchMaterialOrderItem(id: string, materialsItemId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("material_order_items")
+    .update({ materials_item_id: materialsItemId })
+    .eq("id", id);
   if (error) throw error;
 }
 

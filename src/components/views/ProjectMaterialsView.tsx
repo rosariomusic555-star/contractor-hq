@@ -14,6 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -72,9 +74,19 @@ import {
   updateMaterialsItem,
   deleteMaterialsItem,
   materialsCogs,
+  listChangeOrders,
+  listMaterialOrders,
+  listUsageLogsForItems,
+  addUsageLog,
+  reviseMaterialBaseline,
+  matchMaterialOrderItem,
+  materialOrderUnitLabel,
   type MaterialsSection,
   type MaterialsSheet,
+  type MaterialsItem,
   type Quote,
+  type ChangeOrder,
+  type MaterialOrderItem,
   type ExpenseCategory,
   type PriceBookItem,
   type ProductCatalogItem,
@@ -83,8 +95,24 @@ import {
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
 import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectionCalculatorDialog";
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
+import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
+import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
+import { MaterialsLinePicker } from "@/components/common/MaterialsLinePicker";
 import { findSmartSectionTemplate, type CalculatedLine } from "@/lib/smartSections";
 import { nextOrderableQuantity } from "@/lib/catalogOrdering";
+import {
+  trackedSheetIds,
+  projectTracksMaterials,
+  orderedQuantity,
+  deliveredQuantity,
+  usedQuantity,
+  currentBaseline,
+  lineStatus,
+  sheetCostSummary,
+  LINE_STATUS_LABEL,
+  type LineStatus,
+  type DeliveryLineWithOrderStatus,
+} from "@/lib/materialTracking";
 
 const NONE = "__none__";
 
@@ -376,6 +404,82 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const { data: priceOverrides = [] } = useQuery({
     queryKey: ["catalog-price-overrides"],
     queryFn: listCatalogPriceOverrides,
+  });
+
+  // Material budget tracking (0080) — whether THIS sheet tracks at all
+  // (linked to the signed quote or an approved change order, project past
+  // Estimating), and if so, the live deliveries/usage feeding its rollups.
+  const { data: project } = useQuery({ queryKey: ["projects", projectId], queryFn: () => getProject(projectId) });
+  const { data: projectChangeOrders = [] } = useQuery({
+    queryKey: ["change-orders", { project: projectId }],
+    queryFn: () => listChangeOrders(projectId),
+  });
+  const isTracked =
+    !!sheetId &&
+    !!project &&
+    projectTracksMaterials(project.status) &&
+    trackedSheetIds(projectQuotes, projectChangeOrders).has(sheetId);
+  const { data: materialOrders = [] } = useQuery({
+    queryKey: ["material-orders", { project: projectId }],
+    queryFn: () => listMaterialOrders(projectId),
+    enabled: isTracked,
+  });
+  const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
+    o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
+  );
+  const trackedLines: MaterialsItem[] = sections.flatMap((s) => s.materials_items);
+  const trackedLineIds = trackedLines.map((l) => l.id);
+  const { data: usageLogs = [] } = useQuery({
+    queryKey: ["materials-usage-logs", trackedLineIds],
+    queryFn: () => listUsageLogsForItems(trackedLineIds),
+    enabled: isTracked && trackedLineIds.length > 0,
+  });
+  const costSummary = isTracked ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
+
+  const trackingByItemId = useMemo(() => {
+    const map = new Map<
+      string,
+      { estimated: number; ordered: number; delivered: number; used: number; status: LineStatus; unit: string | null }
+    >();
+    if (!isTracked) return map;
+    for (const line of trackedLines) {
+      const baseline = currentBaseline(line);
+      const estimated = baseline?.quantity ?? 0;
+      const ordered = orderedQuantity(line, deliveries);
+      const delivered = deliveredQuantity(line, deliveries);
+      const used = usedQuantity(line, usageLogs);
+      map.set(line.id, { estimated, ordered, delivered, used, status: lineStatus(estimated, ordered, delivered, used), unit: line.unit });
+    }
+    return map;
+  }, [isTracked, trackedLines, deliveries, usageLogs]);
+
+  const [logUsageLine, setLogUsageLine] = useState<MaterialsItem | null>(null);
+
+  const markFullyUsedMut = useMutation({
+    mutationFn: (line: MaterialsItem) => {
+      const delivered = deliveredQuantity(line, deliveries);
+      const used = usedQuantity(line, usageLogs);
+      const remaining = Math.max(0, delivered - used);
+      return addUsageLog({ materials_item_id: line.id, quantity: remaining, note: "Marked fully used" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials-usage-logs"] });
+      qc.invalidateQueries({ queryKey: ["materials"] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const [reviseTarget, setReviseTarget] = useState<MaterialsItem | null>(null);
+  const [reviseReason, setReviseReason] = useState("");
+  const reviseMut = useMutation({
+    mutationFn: () => reviseMaterialBaseline(reviseTarget!.id, reviseReason.trim()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials"] });
+      toast({ title: "Estimate revised" });
+      setReviseTarget(null);
+      setReviseReason("");
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
   const [draft, setDraft] = useState<DraftSection[]>([]);
@@ -782,6 +886,43 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         )}
       </div>
 
+      {costSummary && (
+        <div className="card-surface grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
+          <div>
+            <div className={ITEM_FIELD_LABEL}>Estimated</div>
+            <div className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatCurrency(costSummary.estimatedCost)}</div>
+          </div>
+          <div>
+            <div className={ITEM_FIELD_LABEL}>Actual to date</div>
+            <div className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatCurrency(costSummary.actualCost)}</div>
+          </div>
+          <div>
+            <div className={ITEM_FIELD_LABEL}>Variance</div>
+            <div className={cn("mt-1 text-lg font-bold tabular-nums", costSummary.varianceDollars > 0 ? "text-warning-strong" : "text-foreground")}>
+              {costSummary.varianceDollars >= 0 ? "+" : ""}
+              {formatCurrency(costSummary.varianceDollars)}
+              {costSummary.variancePct != null && (
+                <span className="ml-1 text-sm font-semibold">
+                  ({costSummary.variancePct >= 0 ? "+" : ""}
+                  {Math.round(costSummary.variancePct)}%)
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {costSummary.notOrderedCount > 0 && (
+              <span className="badge-status badge-pending">{pluralize(costSummary.notOrderedCount, "line")} not ordered</span>
+            )}
+            {costSummary.overEstimateCount > 0 && (
+              <span className="badge-status badge-overdue">{pluralize(costSummary.overEstimateCount, "line")} over estimate</span>
+            )}
+            {costSummary.unplannedCount > 0 && (
+              <span className="badge-status badge-pending">{pluralize(costSummary.unplannedCount, "unplanned item")}</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {isLoading && <p className="text-muted-foreground">Loading materials sheet…</p>}
       {isError && <p className="text-destructive">Failed to load materials: {(error as Error).message}</p>}
 
@@ -831,6 +972,21 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         priceBookItems={priceBookItems}
                         catalogItems={catalogItems}
                         priceOverrides={priceOverrides}
+                        tracking={{
+                          byItemId: trackingByItemId,
+                          onLogUsage: (itemId) => {
+                            const line = trackedLines.find((l) => l.id === itemId);
+                            if (line) setLogUsageLine(line);
+                          },
+                          onMarkFullyUsed: (itemId) => {
+                            const line = trackedLines.find((l) => l.id === itemId);
+                            if (line) markFullyUsedMut.mutate(line);
+                          },
+                          onReviseEstimate: (itemId) => {
+                            const line = trackedLines.find((l) => l.id === itemId);
+                            if (line) setReviseTarget(line);
+                          },
+                        }}
                         onRename={(name) => renameSection(section.id, name)}
                         onDelete={() => deleteSection(section.id)}
                         onAddItem={() => addItem(section.id)}
@@ -858,6 +1014,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           )}
         </Droppable>
       </DragDropContext>
+
+      {isTracked && deliveries.some((d) => d.item.materials_item_id == null) && (
+        <UnplannedMaterialsCard sections={sections} deliveries={deliveries} />
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <button
@@ -899,7 +1059,97 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           onSelect={(quoteId) => linkQuoteMut.mutate(quoteId)}
         />
       )}
+
+      {logUsageLine && (
+        <LogUsageDialog
+          open={!!logUsageLine}
+          onOpenChange={(open) => !open && setLogUsageLine(null)}
+          line={logUsageLine}
+        />
+      )}
+
+      <Dialog open={!!reviseTarget} onOpenChange={(open) => !open && setReviseTarget(null)}>
+        <DialogContent className="max-w-sm gap-4">
+          <DialogHeader>
+            <DialogTitle>Revise estimate — {reviseTarget?.name}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Records a new baseline for this line and keeps the original in history — estimate-vs-actual tracking always
+            measures against the current one.
+          </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Why is this changing?</Label>
+            <Textarea
+              value={reviseReason}
+              onChange={(e) => setReviseReason(e.target.value)}
+              rows={2}
+              placeholder="e.g. Site remeasure found more patio area than quoted"
+              autoFocus
+            />
+          </div>
+          <Button
+            className="w-full font-bold"
+            disabled={!reviseReason.trim() || reviseMut.isPending}
+            onClick={() => reviseMut.mutate()}
+          >
+            {reviseMut.isPending ? "Saving…" : "Save new baseline"}
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+/** Phase 2's "never drop them" group — delivered/ordered lines that don't
+ * match any sheet line, shown on their own (not just counted) with a way
+ * to retroactively match one to a line. Reuses MaterialsLinePicker, same
+ * component the delivery-logging form uses. */
+function UnplannedMaterialsCard({
+  sections,
+  deliveries,
+}: {
+  sections: MaterialsSection[];
+  deliveries: DeliveryLineWithOrderStatus[];
+}) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const unplanned = deliveries.filter((d) => d.item.materials_item_id == null);
+
+  const matchMut = useMutation({
+    mutationFn: ({ itemId, materialsItemId }: { itemId: string; materialsItemId: string | null }) =>
+      matchMaterialOrderItem(itemId, materialsItemId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["material-orders"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <section className="card-surface space-y-3 p-5">
+      <div>
+        <h3 className="text-base font-bold text-foreground">Unplanned materials</h3>
+        <p className="text-xs text-muted-foreground">Delivered, but not on this sheet — still counted in actual cost.</p>
+      </div>
+      <div className="space-y-2">
+        {unplanned.map(({ item }) => (
+          <div key={item.id} className="rounded-lg border border-hairline p-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-foreground/80">
+                {item.quantity} {materialOrderUnitLabel(item.unit, item.quantity)} — {item.description}
+              </span>
+              {item.unit_price != null && <span className="text-xs font-semibold text-muted-foreground">{formatCurrency(item.unit_price)}/unit</span>}
+            </div>
+            <div className="mt-2">
+              <MaterialsLinePicker
+                sections={sections}
+                value={null}
+                onChange={(v) => matchMut.mutate({ itemId: item.id, materialsItemId: v })}
+                placeholder="Match to a sheet line…"
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -954,12 +1204,24 @@ function LinkQuoteDialog({
 
 // ---------------------------------------------------------------------------
 
+/** Material budget tracking (0080) — bundled so it's one new prop at every
+ * layer instead of five. byItemId is empty (not present at all) for an
+ * untracked sheet, so every row below just checks `tracking.byItemId.get
+ * (item.id)` and renders nothing extra when it's undefined. */
+interface TrackingContext {
+  byItemId: Map<string, { estimated: number; ordered: number; delivered: number; used: number; status: LineStatus; unit: string | null }>;
+  onLogUsage: (itemId: string) => void;
+  onMarkFullyUsed: (itemId: string) => void;
+  onReviseEstimate: (itemId: string) => void;
+}
+
 interface SectionCardProps {
   section: DraftSection;
   expenseCategories: ExpenseCategory[];
   priceBookItems: PriceBookItem[];
   catalogItems: ProductCatalogItem[];
   priceOverrides: CatalogPriceOverride[];
+  tracking: TrackingContext;
   onRename: (name: string) => void;
   onDelete: () => void;
   onAddItem: () => void;
@@ -986,6 +1248,7 @@ function MaterialsSectionCard({
   priceBookItems,
   catalogItems,
   priceOverrides,
+  tracking,
   onRename,
   onDelete,
   onAddItem,
@@ -1081,6 +1344,7 @@ function MaterialsSectionCard({
                       priceBookItems={priceBookItems}
                       catalogItems={catalogItems}
                       priceOverrides={priceOverrides}
+                      tracking={tracking}
                       onEdit={(patch) => onEditItem(item.id, patch)}
                       onDelete={() => onDeleteItem(item.id)}
                       dragHandleProps={dragProvided.dragHandleProps}
@@ -1128,6 +1392,7 @@ interface ItemRowProps {
   priceBookItems: PriceBookItem[];
   catalogItems: ProductCatalogItem[];
   priceOverrides: CatalogPriceOverride[];
+  tracking: TrackingContext;
   onEdit: (patch: Partial<DraftItem>) => void;
   onDelete: () => void;
   dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
@@ -1144,6 +1409,7 @@ function ItemRow({
   priceBookItems,
   catalogItems,
   priceOverrides,
+  tracking,
   onEdit,
   onDelete,
   dragHandleProps,
@@ -1153,6 +1419,7 @@ function ItemRow({
   onMoveUp,
   onMoveDown,
 }: ItemRowProps) {
+  const track = tracking.byItemId.get(item.id);
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
@@ -1400,6 +1667,8 @@ function ItemRow({
         </div>
       </div>
 
+      {track && <MaterialTrackingRow itemId={item.id} itemName={item.name} unit={item.unit} track={track} tracking={tracking} />}
+
       <MaterialPickerDialog
         open={pickerOpen}
         onOpenChange={setPickerOpen}
@@ -1409,6 +1678,83 @@ function ItemRow({
         onSelectPriceBook={applyPick}
         onSelectCatalog={applyCatalogPick}
       />
+    </div>
+  );
+}
+
+const LINE_STATUS_BADGE: Record<LineStatus, string> = {
+  not_ordered: "badge-status badge-pending",
+  ordered: "badge-status badge-info",
+  delivered: "badge-status badge-info",
+  in_use: "badge-status badge-scheduled",
+  used_up: "badge-status badge-paid",
+  over_estimate: "badge-status badge-overdue",
+};
+
+/** Phase 4's live tracking row — Est/Ordered/Delivered/Used, a segmented
+ * progress bar (used within delivered within estimated), the status chip,
+ * and the three tracking actions. Only rendered for a tracked sheet's
+ * saved lines (a brand-new "tmp-" row has no baseline yet). */
+function MaterialTrackingRow({
+  itemId,
+  itemName,
+  unit,
+  track,
+  tracking,
+}: {
+  itemId: string;
+  itemName: string;
+  unit: string;
+  track: { estimated: number; ordered: number; delivered: number; used: number; status: LineStatus };
+  tracking: TrackingContext;
+}) {
+  const { estimated, ordered, delivered, used, status } = track;
+  const denom = Math.max(estimated, ordered, delivered, used, 1);
+  const u = unit || "units";
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  return (
+    <div className="mt-1 space-y-2 rounded-xl border border-hairline bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-foreground/80">
+          Est. {estimated} {u} · Ordered {ordered} · Delivered {delivered} · Used {used}
+        </span>
+        <span className={LINE_STATUS_BADGE[status]}>{LINE_STATUS_LABEL[status]}</span>
+      </div>
+
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-border">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-info/40" style={{ width: `${Math.min(100, (delivered / denom) * 100)}%` }} />
+        <div className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: `${Math.min(100, (used / denom) * 100)}%` }} />
+      </div>
+
+      {status === "over_estimate" && (
+        <p className="text-[11px] font-semibold text-warning-strong">
+          {(used - estimated).toFixed(2)} {u} over the {estimated} {u} estimate
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => tracking.onLogUsage(itemId)}>
+          Log usage
+        </Button>
+        {delivered > used && (
+          <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => tracking.onMarkFullyUsed(itemId)}>
+            Mark fully used
+          </Button>
+        )}
+        <Button type="button" size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground" onClick={() => tracking.onReviseEstimate(itemId)}>
+          Revise estimate
+        </Button>
+        {used > 0 && (
+          <Button type="button" size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground" onClick={() => setHistoryOpen(true)}>
+            View usage log
+          </Button>
+        )}
+      </div>
+
+      {historyOpen && (
+        <UsageLogHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} line={{ id: itemId, name: itemName, unit }} />
+      )}
     </div>
   );
 }

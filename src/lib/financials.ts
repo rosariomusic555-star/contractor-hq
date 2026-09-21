@@ -40,13 +40,34 @@ import type {
   ChangeOrder,
   Client,
   Invoice,
+  MaterialsItem,
   MaterialsSection,
   MaterialsSheet,
+  MaterialsUsageLog,
   Project,
   Quote,
 } from "./api";
 import { materialsCogs, pickHeadlineQuote, projectContractValue, quoteItemIncluded, quoteLineTotal } from "./api";
 import type { ProjectBillingStatus } from "./statusMeta";
+import { sheetCostSummary, type DeliveryLineWithOrderStatus, type SheetCostSummary } from "./materialTracking";
+
+/** Actual material cost for a project's tracked sheet(s) (0080) — "flows
+ * into project margin via the shared financials module" per spec. A thin
+ * pass-through to materialTracking.ts's sheetCostSummary (which owns the
+ * unit-conversion/rollup math) rather than a duplicate implementation;
+ * this module is just where the rest of the app already looks for money
+ * figures. See ProjectDetailView for how this overrides the Profit
+ * Summary's cost figure once a project is Complete and reconciled —
+ * deliberately NOT folded into buildProjectFinancials' own cost/profit
+ * fields below, so a contractor who's also hand-logging material Expenses
+ * during the same transition period never gets silently double-counted. */
+export function materialActualCost(
+  trackedLines: MaterialsItem[],
+  deliveries: DeliveryLineWithOrderStatus[],
+  usageLogs: MaterialsUsageLog[],
+): SheetCostSummary {
+  return sheetCostSummary(trackedLines, deliveries, usageLogs);
+}
 
 // ---------------------------------------------------------------------------
 // Date ranges — the one selector every Revenue-page card/detail page shares.
