@@ -1,12 +1,12 @@
 import { cn, formatCurrencyWhole, pluralize } from "@/lib/utils";
-import type { BacklogJob } from "@/lib/backlog";
+import type { BookingJob } from "@/lib/bookings";
 import { TONE_SOLID_CLASS, projectStatusMeta } from "@/lib/statusMeta";
-import { jobsOnDate, daysInMonth, sameDay } from "@/lib/backlogSchedule";
+import { jobsOnDate, daysInMonth, sameDay } from "@/lib/bookingsSchedule";
 import { DayTooltip } from "./DayTooltip";
 
 /**
  * Square glanceable heat-map thumbnail for one month — the Dashboard
- * Seasonal backlog card's mini months. Unlike MiniMonth (the /backlog year
+ * Bookings card's mini months. Unlike MiniMonth (the /bookings year
  * page's calendar, which keeps day numbers/weekday header/per-day drag +
  * click), this drops all of that for plain status-colored dots so a busy
  * vs. empty month reads at a glance; the whole square is one click/hover
@@ -27,7 +27,7 @@ export function MonthThumbnail({
   monthLabel: string;
   committedDollars: number;
   jobCount: number;
-  jobs: BacklogJob[];
+  jobs: BookingJob[];
   /** Omit to suppress the today-ring — the Dashboard card only passes this
    * when the calendar year being viewed is the current one. */
   today?: Date;

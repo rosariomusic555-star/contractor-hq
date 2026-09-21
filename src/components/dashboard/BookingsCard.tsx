@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { listProjects, listQuotes, listChangeOrders, listOpportunities, type ChangeOrder, type Opportunity, type Quote } from "@/lib/api";
-import { seasonalBacklog } from "@/lib/backlog";
-import { MonthThumbnail } from "@/components/backlog/MonthThumbnail";
+import { seasonalBookings } from "@/lib/bookings";
+import { MonthThumbnail } from "@/components/bookings/MonthThumbnail";
 
 function groupById<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -24,8 +24,8 @@ const CURRENT_YEAR = new Date().getFullYear();
  * "How much of a season is already sold" — the hardscape contractor's core
  * seasonal question. Groups committed jobs (approved/invoiced/paid with a
  * scheduled_start_date) by month, across one calendar year (Jan-Dec) at a
- * time — same year-boundary + seasonalBacklog() call the /backlog page's
- * year nav uses (BacklogScheduleView), so the two never disagree on what
+ * time — same year-boundary + seasonalBookings() call the /bookings page's
+ * year nav uses (BookingsView), so the two never disagree on what
  * "2026" means. Lives where the Revenue chart used to sit on the Dashboard
  * (see RevenueChart's new spot lower down).
  *
@@ -33,15 +33,15 @@ const CURRENT_YEAR = new Date().getFullYear();
  * (against Settings > Seasonal capacity) — removed as not useful. That
  * setting still exists but nothing reads it anymore. Also used to have a
  * rolling 6/12-months-forward range toggle (backed by
- * backlog_settings.default_range_months) — replaced by this year view;
- * that column is likewise now dormant.
+ * backlog_settings.default_range_months — DB table name unchanged) —
+ * replaced by this year view; that column is likewise now dormant.
  *
  * Months render as square <MonthThumbnail> heat-map recaps — day-numbered,
- * draggable mini calendars are the /backlog year page's MiniMonth; this
+ * draggable mini calendars are the /bookings year page's MiniMonth; this
  * card only needs a glanceable busy/empty read, so each square is one
  * click/hover target instead of 42 of them.
  */
-export function SeasonalBacklogCard({ className }: { className?: string }) {
+export function BookingsCard({ className }: { className?: string }) {
   const navigate = useNavigate();
   const { data: projects = [], isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
@@ -59,10 +59,10 @@ export function SeasonalBacklogCard({ className }: { className?: string }) {
   }
 
   // projects/quotes/change-orders/opportunities are already fully cached by
-  // react-query regardless of year — seasonalBacklog() just re-aggregates
+  // react-query regardless of year — seasonalBookings() just re-aggregates
   // that same cached data over a different Jan-Dec window, so flipping
   // years never triggers a refetch.
-  const { months, seasonTotalDollars, seasonTotalJobs } = seasonalBacklog(
+  const { months, seasonTotalDollars, seasonTotalJobs } = seasonalBookings(
     projects,
     quotesByProject,
     changeOrdersByProject,
@@ -74,9 +74,9 @@ export function SeasonalBacklogCard({ className }: { className?: string }) {
   return (
     <section className={cn("card-surface flex flex-col p-5 md:p-6", className)}>
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <Link to="/backlog" className="group flex items-start gap-1 rounded-lg -m-1 p-1 hover:bg-muted/50">
+        <Link to="/bookings" className="group flex items-start gap-1 rounded-lg -m-1 p-1 hover:bg-muted/50">
           <div>
-            <h3 className="text-base font-bold text-foreground">Seasonal backlog</h3>
+            <h3 className="text-base font-bold text-foreground">Bookings</h3>
             <p className="mt-0.5 text-sm text-muted-foreground">Committed work · {year}</p>
           </div>
           <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
@@ -111,7 +111,7 @@ export function SeasonalBacklogCard({ className }: { className?: string }) {
             </button>
           </div>
           {seasonTotalJobs > 0 && (
-            <Link to="/backlog" className="text-right hover:opacity-80">
+            <Link to="/bookings" className="text-right hover:opacity-80">
               <p className="text-2xl font-extrabold tracking-tight tabular-nums text-foreground">
                 {formatCurrency(seasonTotalDollars)}
               </p>
@@ -152,7 +152,7 @@ export function SeasonalBacklogCard({ className }: { className?: string }) {
                 jobCount={m.jobCount}
                 jobs={m.jobs}
                 today={isCurrentYear ? today : undefined}
-                onOpen={() => navigate(`/backlog?month=${m.key}`)}
+                onOpen={() => navigate(`/bookings?month=${m.key}`)}
               />
             );
           })}

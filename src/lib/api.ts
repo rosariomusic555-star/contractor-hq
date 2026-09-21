@@ -72,11 +72,11 @@ export interface Project {
   name: string;
   status: ProjectStatus;
   /** Legacy month-precision field (0053) — superseded by
-   * scheduled_start_date/scheduled_end_date (0058) as of the Backlog
-   * Schedule calendar. Nothing new reads or writes this; left in place
+   * scheduled_start_date/scheduled_end_date (0058) as of the Bookings
+   * calendar. Nothing new reads or writes this; left in place
    * (never dropped) since old rows were backfilled from it. */
   target_install_month: string | null;
-  /** Day-precision scheduling (0058) — the Backlog Schedule calendar's
+  /** Day-precision scheduling (0058) — the Bookings calendar's
    * source of truth. Both nullable: a start with no end renders as a
    * single-day bar; neither means the job sits in the Unscheduled rail. */
   scheduled_start_date: string | null;
@@ -504,7 +504,7 @@ export function quoteLineTotal(item: { price: number; quantity?: number | null }
 /** Quote total = every line item, required or optional (quotes have no
  * stored amount) — the quote's full all-in value, the same number shown
  * everywhere a quote's total appears (the Quote builder's headline, quote
- * list, project rollups/contract value, dashboard, backlog). This is
+ * list, project rollups/contract value, dashboard, bookings). This is
  * deliberately NOT gated by quoteItemIncluded()/client_selected — that's a
  * narrower "what's actually committed" concept used only for invoicing and
  * revenue recognition (see quoteItemIncluded's own doc comment), which
@@ -893,50 +893,53 @@ export async function uploadBusinessLogo(userId: string, file: File): Promise<st
 }
 
 // ---------------------------------------------------------------------------
-// Backlog settings (0054) — one row per user, same shape as QuoteDefaults.
-// Backs Settings > Seasonal capacity and the Dashboard Seasonal Backlog card.
+// Bookings settings (0054) — one row per user, same shape as QuoteDefaults.
+// Backs Settings > Seasonal capacity and the Dashboard Bookings card.
+// Table is still named backlog_settings in the DB — not renamed (see the
+// "renaming Seasonal backlog to Bookings" task: DB objects only get renamed
+// when literally named "backlog", and this one isn't).
 // ---------------------------------------------------------------------------
 
-export type BacklogRangeMonths = 6 | 12;
-export type BacklogCalendarView = "month" | "quarter" | "timeline";
+export type BookingsRangeMonths = 6 | 12;
+export type BookingsCalendarView = "month" | "quarter" | "timeline";
 
-export interface BacklogSettings {
+export interface BookingsSettings {
   capacity_dollars_per_month: number;
-  /** Last-selected range on the Dashboard Seasonal Backlog card (0057) —
+  /** Last-selected range on the Dashboard Bookings card (0057) —
    * persisted so it doesn't reset to 6 months on every load. */
-  default_range_months: BacklogRangeMonths;
-  /** Legacy (0058) — the Backlog Schedule page was briefly Month/Quarter/
+  default_range_months: BookingsRangeMonths;
+  /** Legacy (0058) — the Bookings page was briefly Month/Quarter/
    * Timeline before simplifying to Month-only; the view switcher is gone,
    * so nothing writes this anymore. Column kept (never dropped) rather
    * than backed out. */
-  default_calendar_view: BacklogCalendarView;
+  default_calendar_view: BookingsCalendarView;
 }
 
-export const BACKLOG_SETTINGS_FALLBACK: BacklogSettings = {
+export const BOOKINGS_SETTINGS_FALLBACK: BookingsSettings = {
   capacity_dollars_per_month: 50000,
   default_range_months: 6,
   default_calendar_view: "month",
 };
 
-export async function getBacklogSettings(): Promise<BacklogSettings> {
+export async function getBookingsSettings(): Promise<BookingsSettings> {
   const { data, error } = await supabase.from("backlog_settings").select("*").maybeSingle();
   if (error) {
     // PGRST205 = migration 0054 hasn't been run yet — degrade to the fallback
     // instead of breaking the Dashboard.
-    if (error.code === "PGRST205") return BACKLOG_SETTINGS_FALLBACK;
+    if (error.code === "PGRST205") return BOOKINGS_SETTINGS_FALLBACK;
     throw error;
   }
-  if (!data) return BACKLOG_SETTINGS_FALLBACK;
+  if (!data) return BOOKINGS_SETTINGS_FALLBACK;
   return {
     capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
     // Columns added in 0057/0058 — degrade to the default on a not-yet-migrated row.
-    default_range_months: (data.default_range_months as BacklogRangeMonths | undefined) ?? 6,
-    default_calendar_view: (data.default_calendar_view as BacklogCalendarView | undefined) ?? "month",
+    default_range_months: (data.default_range_months as BookingsRangeMonths | undefined) ?? 6,
+    default_calendar_view: (data.default_calendar_view as BookingsCalendarView | undefined) ?? "month",
   };
 }
 
-export async function saveBacklogSettings(patch: Partial<BacklogSettings>): Promise<BacklogSettings> {
-  const merged = { ...(await getBacklogSettings()), ...patch };
+export async function saveBookingsSettings(patch: Partial<BookingsSettings>): Promise<BookingsSettings> {
+  const merged = { ...(await getBookingsSettings()), ...patch };
   const { data, error } = await supabase
     .from("backlog_settings")
     .upsert({
@@ -949,8 +952,8 @@ export async function saveBacklogSettings(patch: Partial<BacklogSettings>): Prom
   if (error) throw error;
   return {
     capacity_dollars_per_month: Number(data.capacity_dollars_per_month),
-    default_range_months: (data.default_range_months as BacklogRangeMonths | undefined) ?? 6,
-    default_calendar_view: (data.default_calendar_view as BacklogCalendarView | undefined) ?? "month",
+    default_range_months: (data.default_range_months as BookingsRangeMonths | undefined) ?? 6,
+    default_calendar_view: (data.default_calendar_view as BookingsCalendarView | undefined) ?? "month",
   };
 }
 

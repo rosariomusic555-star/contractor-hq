@@ -40,7 +40,7 @@ const TONE: Record<Tone, Pick<StatusMeta, "badge" | "border">> = {
 
 const meta = (label: string, tone: Tone): StatusMeta => ({ label, tone, ...TONE[tone] });
 
-/** Solid tone classes for the Backlog Schedule calendar's status dots and
+/** Solid tone classes for the Bookings calendar's status dots and
  * the legend swatches — same tone tokens as TONE above (badge/border),
  * just a solid fill instead of a tinted pill. */
 export const TONE_SOLID_CLASS: Record<Tone, string> = {

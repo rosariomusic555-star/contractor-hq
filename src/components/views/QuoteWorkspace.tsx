@@ -699,7 +699,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const optionalTotalWithTax = optionalTotal + finOptional.taxAmount;
   // The headline figure — required + optional + tax, matching quoteTotal()
   // (api.ts) everywhere else a quote's total is shown (quote list, project
-  // rollups, dashboard, backlog) — a quote's total means the same thing
+  // rollups, dashboard, bookings) — a quote's total means the same thing
   // everywhere now.
   const grandTotal = baseTotalWithTax + optionalTotalWithTax;
   // Deposit, cost, and margin all compare against the same all-in headline

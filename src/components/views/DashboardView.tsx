@@ -8,7 +8,7 @@ import { RecentQuotes } from "@/components/dashboard/RecentQuotes";
 import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { WeatherStrip } from "@/components/dashboard/WeatherStrip";
-import { SeasonalBacklogCard } from "@/components/dashboard/SeasonalBacklogCard";
+import { BookingsCard } from "@/components/dashboard/BookingsCard";
 import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliveriesCard";
 import { UpcomingAppointmentsCard } from "@/components/dashboard/UpcomingAppointmentsCard";
 import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
@@ -238,9 +238,9 @@ export function DashboardView() {
         </section>
       </Link>
 
-      {/* ---- Seasonal backlog + ongoing jobs ---- */}
+      {/* ---- Bookings + ongoing jobs ---- */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <SeasonalBacklogCard className="lg:col-span-2" />
+        <BookingsCard className="lg:col-span-2" />
         <OngoingJobsCard />
       </div>
 
@@ -265,7 +265,7 @@ export function DashboardView() {
         <RecentInvoices />
       </div>
 
-      {/* ---- Revenue overview — secondary now that Seasonal backlog owns the
+      {/* ---- Revenue overview — secondary now that Bookings owns the
            top slot; still useful once invoice history builds up. Desktop
            only, same as before (mobile already has the sparkline card up top). ---- */}
       <div className="hidden md:block">

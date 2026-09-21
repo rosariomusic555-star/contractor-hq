@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCurrency } from "@/lib/utils";
 import { projectStatusMeta } from "@/lib/statusMeta";
-import type { BacklogJob } from "@/lib/backlog";
+import type { BookingJob } from "@/lib/bookings";
 
 function dateLabel(iso: string | null): string {
   if (!iso) return "";
@@ -11,7 +11,7 @@ function dateLabel(iso: string | null): string {
 
 /** Hover tooltip for a job bar — project, client, scope, amount, status,
  * date range. Shared by Month/Quarter/Timeline. */
-export function JobTooltip({ job, children }: { job: BacklogJob; children: ReactNode }) {
+export function JobTooltip({ job, children }: { job: BookingJob; children: ReactNode }) {
   const meta = projectStatusMeta(job.status);
   const range = job.endDate && job.endDate !== job.startDate
     ? `${dateLabel(job.startDate)} – ${dateLabel(job.endDate)}`

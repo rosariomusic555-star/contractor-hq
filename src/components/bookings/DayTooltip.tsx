@@ -2,12 +2,12 @@ import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCurrency } from "@/lib/utils";
 import { projectStatusMeta } from "@/lib/statusMeta";
-import type { BacklogJob } from "@/lib/backlog";
+import type { BookingJob } from "@/lib/bookings";
 
 /** Hover a day cell (year page) or a whole month thumbnail (dashboard) —
  * lists every job in `jobs` (project, client, amount, status). No-ops (just
  * renders children) when `jobs` is empty, same as not wrapping it at all. */
-export function DayTooltip({ jobs, children }: { jobs: BacklogJob[]; children: ReactNode }) {
+export function DayTooltip({ jobs, children }: { jobs: BookingJob[]; children: ReactNode }) {
   if (jobs.length === 0) return <>{children}</>;
 
   return (

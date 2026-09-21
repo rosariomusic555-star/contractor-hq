@@ -7,7 +7,7 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { formatCurrency } from "@/lib/utils";
 import { listQuotes, listMaterialsSheets, pickHeadlineQuote } from "@/lib/api";
 import { projectStatusMeta } from "@/lib/statusMeta";
-import type { BacklogJob } from "@/lib/backlog";
+import type { BookingJob } from "@/lib/bookings";
 
 /**
  * One job's full detail, as a card — the unit the Year view's side panel
@@ -21,9 +21,9 @@ export function JobDetailCard({
   onDatesChange,
   onUnschedule,
 }: {
-  job: BacklogJob;
-  onDatesChange: (job: BacklogJob, start: string | null, end: string | null) => void;
-  onUnschedule: (job: BacklogJob) => void;
+  job: BookingJob;
+  onDatesChange: (job: BookingJob, start: string | null, end: string | null) => void;
+  onUnschedule: (job: BookingJob) => void;
 }) {
   const navigate = useNavigate();
   const { data: quotes = [] } = useQuery({

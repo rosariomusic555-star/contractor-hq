@@ -13,7 +13,7 @@ export function formatCurrency(n: number): string {
 }
 
 /** Whole-dollar currency, no cents — "$73,000" not "$73,000.00". For dense
- * summary tiles (e.g. the Seasonal Backlog card's month tiles) where the
+ * summary tiles (e.g. the Bookings card's month tiles) where the
  * decimals never mattered and were pushing larger amounts past the tile's
  * width. Rounds to the nearest dollar. */
 export function formatCurrencyWhole(n: number): string {

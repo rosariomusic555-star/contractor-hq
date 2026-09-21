@@ -15,7 +15,7 @@ function patchProjectsCache(qc: ReturnType<typeof useQueryClient>, projectId: st
 }
 
 /**
- * Drag/resize on the Backlog Schedule calendar (Month/Quarter day-drop,
+ * Drag/resize on the Bookings calendar (Month/Quarter day-drop,
  * Timeline drag-to-move/resize-to-a-day) all funnel through this one
  * mutation: optimistic cache update first (feels instant), persisted via
  * updateProject(), rolled back on failure, confirmed via an undo-able toast

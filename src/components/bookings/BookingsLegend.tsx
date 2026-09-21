@@ -3,12 +3,12 @@ import { PROJECT_STATUS_META, TONE_SOLID_CLASS } from "@/lib/statusMeta";
 import type { ProjectStatus } from "@/lib/api";
 
 // Only the statuses that can actually land on the calendar — draft/quote_sent
-// jobs never reach seasonalBacklog()'s COMMITTED_STATUSES filter.
+// jobs never reach seasonalBookings()'s COMMITTED_STATUSES filter.
 const CALENDAR_STATUSES: ProjectStatus[] = ["approved", "invoiced", "paid"];
 
 /** Status color key for the job bars — same tone tokens as everywhere else
  * in the app (StatusPill etc.), just as solid swatches. */
-export function BacklogLegend({ className }: { className?: string }) {
+export function BookingsLegend({ className }: { className?: string }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-1.5", className)}>
       {CALENDAR_STATUSES.map((status) => {

@@ -382,7 +382,7 @@ export function ProjectDetailView() {
               </div>
             </div>
             <p className="mt-2 text-[11px] text-muted-subtle">
-              Feeds the Dashboard Seasonal Backlog card and the Backlog Schedule calendar once this job is
+              Feeds the Dashboard Bookings card and the Bookings calendar once this job is
               approved.
             </p>
           </section>

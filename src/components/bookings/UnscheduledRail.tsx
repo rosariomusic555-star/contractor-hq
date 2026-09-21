@@ -1,6 +1,6 @@
 import { formatCurrency, pluralize, cn } from "@/lib/utils";
-import { JOB_DRAG_MIME } from "@/lib/backlogSchedule";
-import type { BacklogJob } from "@/lib/backlog";
+import { JOB_DRAG_MIME } from "@/lib/bookingsSchedule";
+import type { BookingJob } from "@/lib/bookings";
 import { JobTooltip } from "./JobTooltip";
 
 /** Left rail — committed jobs with no scheduled_start_date, draggable
@@ -8,14 +8,14 @@ import { JobTooltip } from "./JobTooltip";
  * onDrop handlers read) as an alternative to the day popover's picker.
  * Header and footer hint stay put; the job list scrolls on its own once it
  * outgrows the rail's height (matched to the calendar via the parent's
- * items-stretch — see BacklogScheduleView). */
+ * items-stretch — see BookingsView). */
 export function UnscheduledRail({
   jobs,
   onOpen,
   className,
 }: {
-  jobs: BacklogJob[];
-  onOpen: (job: BacklogJob) => void;
+  jobs: BookingJob[];
+  onOpen: (job: BookingJob) => void;
   className?: string;
 }) {
   return (

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { cn, formatCurrencyWhole, pluralize } from "@/lib/utils";
-import type { BacklogJob } from "@/lib/backlog";
+import type { BookingJob } from "@/lib/bookings";
 import { TONE_SOLID_CLASS, TONE_TINT_CLASS, projectStatusMeta } from "@/lib/statusMeta";
-import { monthGridDays, jobsOnDate, JOB_DRAG_MIME, MAX_VISIBLE_DOTS } from "@/lib/backlogSchedule";
+import { monthGridDays, jobsOnDate, JOB_DRAG_MIME, MAX_VISIBLE_DOTS } from "@/lib/bookingsSchedule";
 import { DayTooltip } from "./DayTooltip";
 
 const WEEKDAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -31,13 +31,13 @@ export function MiniMonth({
   monthLabel: string;
   committedDollars: number;
   jobCount: number;
-  jobs: BacklogJob[];
+  jobs: BookingJob[];
   today: Date;
   onOpenMonth: () => void;
   onOpenDay: (date: Date) => void;
   onMoveJob?: (projectId: string, date: Date) => void;
   /** Off for the read-only Dashboard card — scheduling only happens on the
-   * full Backlog Schedule page. */
+   * full Bookings page. */
   enableDragDrop?: boolean;
 }) {
   const days = monthGridDays(year, month, today);

@@ -7,22 +7,22 @@ import { Input } from "@/components/ui/input";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
 import {
-  getBacklogSettings,
-  saveBacklogSettings,
-  BACKLOG_SETTINGS_FALLBACK,
-  type BacklogSettings,
+  getBookingsSettings,
+  saveBookingsSettings,
+  BOOKINGS_SETTINGS_FALLBACK,
+  type BookingsSettings,
 } from "@/lib/api";
 
-/** Real, persisted (0054) — backs the Dashboard Seasonal Backlog card's
+/** Real, persisted (0054) — backs the Dashboard Bookings card's
  * per-month capacity figure. */
 export function SettingsCapacityView() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery({ queryKey: ["backlog-settings"], queryFn: getBacklogSettings });
+  const { data, isLoading } = useQuery({ queryKey: ["bookings-settings"], queryFn: getBookingsSettings });
 
-  const seed = (): BacklogSettings => data ?? BACKLOG_SETTINGS_FALLBACK;
-  const [draft, setDraft] = useState<BacklogSettings>(seed);
+  const seed = (): BookingsSettings => data ?? BOOKINGS_SETTINGS_FALLBACK;
+  const [draft, setDraft] = useState<BookingsSettings>(seed);
   const dirty = useRef(false);
 
   useEffect(() => {
@@ -31,7 +31,7 @@ export function SettingsCapacityView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  const edit = (patch: Partial<BacklogSettings>) => {
+  const edit = (patch: Partial<BookingsSettings>) => {
     dirty.current = true;
     setDraft((d) => ({ ...d, ...patch }));
   };
@@ -41,10 +41,10 @@ export function SettingsCapacityView() {
   };
 
   const saveMut = useMutation({
-    mutationFn: () => saveBacklogSettings(draft),
+    mutationFn: () => saveBookingsSettings(draft),
     onSuccess: () => {
       dirty.current = false;
-      qc.invalidateQueries({ queryKey: ["backlog-settings"] });
+      qc.invalidateQueries({ queryKey: ["bookings-settings"] });
       toast({ title: "Seasonal capacity saved" });
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
@@ -70,13 +70,13 @@ export function SettingsCapacityView() {
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
             <CalendarRange className="h-4 w-4" />
           </span>
-          <span className="text-[15px] font-bold text-background">Drives the Dashboard backlog card</span>
+          <span className="text-[15px] font-bold text-background">Drives the Dashboard bookings card</span>
         </div>
 
         <div className="space-y-5 bg-card p-5">
           <p className="text-sm text-muted-foreground">
             How much committed work (approved/invoiced/paid jobs) you can take on in a single calendar
-            month, in dollars. The Seasonal Backlog card compares each month's committed contract value
+            month, in dollars. The Bookings card compares each month's committed contract value
             against this to show "Full" / "Room for N" / "Open."
           </p>
 

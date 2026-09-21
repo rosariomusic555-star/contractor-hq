@@ -14,13 +14,13 @@ import {
   type Opportunity,
   type Quote,
 } from "@/lib/api";
-import { seasonalBacklog, type BacklogJob } from "@/lib/backlog";
-import { dateKey, jobsOnDate } from "@/lib/backlogSchedule";
+import { seasonalBookings, type BookingJob } from "@/lib/bookings";
+import { dateKey, jobsOnDate } from "@/lib/bookingsSchedule";
 import { useRescheduleJob } from "@/hooks/use-reschedule-job";
-import { MiniMonth } from "@/components/backlog/MiniMonth";
-import { UnscheduledRail } from "@/components/backlog/UnscheduledRail";
-import { BacklogLegend } from "@/components/backlog/BacklogLegend";
-import { DaySidePanel } from "@/components/backlog/DaySidePanel";
+import { MiniMonth } from "@/components/bookings/MiniMonth";
+import { UnscheduledRail } from "@/components/bookings/UnscheduledRail";
+import { BookingsLegend } from "@/components/bookings/BookingsLegend";
+import { DaySidePanel } from "@/components/bookings/DaySidePanel";
 
 function groupById<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -41,20 +41,20 @@ const parseMonthParam = (s: string | null): { year: number; key: string } | null
 type PanelState =
   | { mode: "day"; date: Date }
   | { mode: "month"; monthIndex: number }
-  | { mode: "job"; job: BacklogJob }
+  | { mode: "job"; job: BookingJob }
   | null;
 
 /**
- * Full Backlog Schedule (/backlog) — a year-at-a-glance grid of 12 mini
- * months. Every dollar/count/job comes from the exact same seasonalBacklog()
+ * Full Bookings page (/bookings) — a year-at-a-glance grid of 12 mini
+ * months. Every dollar/count/job comes from the exact same seasonalBookings()
  * the Dashboard card calls (single source of truth); this only adds
- * calendar layout (backlogSchedule.ts) and interaction (drag + the day/
+ * calendar layout (bookingsSchedule.ts) and interaction (drag + the day/
  * month side panel via useRescheduleJob) on top of it. Previously a single
  * full-screen month with bars/lanes/resize handles; simplified to a denser
  * year view with status dots instead of bars (no room for bars at this
  * scale) — date edits now happen in the side panel instead of by resizing.
  */
-export function BacklogScheduleView() {
+export function BookingsView() {
   const [searchParams] = useSearchParams();
   const focusMonth = parseMonthParam(searchParams.get("month"));
 
@@ -78,7 +78,7 @@ export function BacklogScheduleView() {
   // Dec of the previous year through Jan of the next — one month of padding
   // on each side so a job that starts in late December still tints into
   // January's mini month's leading days, and vice versa.
-  const { months: fetchedMonths, unscheduledJobs } = seasonalBacklog(
+  const { months: fetchedMonths, unscheduledJobs } = seasonalBookings(
     projects,
     quotesByProject,
     changeOrdersByProject,
@@ -89,7 +89,7 @@ export function BacklogScheduleView() {
   const displayMonths = fetchedMonths.slice(1, 13);
   const nearbyJobs = fetchedMonths.flatMap((m) => m.jobs);
 
-  const jobsById = new Map<string, BacklogJob>();
+  const jobsById = new Map<string, BookingJob>();
   for (const j of [...nearbyJobs, ...unscheduledJobs]) jobsById.set(j.projectId, j);
 
   const yearDollars = displayMonths.reduce((s, m) => s + m.committedDollars, 0);
@@ -118,7 +118,7 @@ export function BacklogScheduleView() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const handleScheduleJob = (job: BacklogJob, date: Date) => {
+  const handleScheduleJob = (job: BookingJob, date: Date) => {
     reschedule(
       job.projectId,
       job.projectName,
@@ -146,7 +146,7 @@ export function BacklogScheduleView() {
     );
   };
 
-  const handleDatesChange = (job: BacklogJob, start: string | null, end: string | null) => {
+  const handleDatesChange = (job: BookingJob, start: string | null, end: string | null) => {
     const newStart = start;
     let newEnd = end;
     if (newStart && newEnd && newEnd < newStart) newEnd = newStart;
@@ -158,7 +158,7 @@ export function BacklogScheduleView() {
     );
   };
 
-  const handleUnschedule = (job: BacklogJob) => {
+  const handleUnschedule = (job: BookingJob) => {
     reschedule(
       job.projectId,
       job.projectName,
@@ -186,7 +186,7 @@ export function BacklogScheduleView() {
 
   return (
     <div className="mx-auto w-full max-w-[1500px] animate-fade-in space-y-4">
-      <MobilePageHeader title="Backlog schedule" subtitle={String(year)} back={{ to: "/dashboard", label: "Dashboard" }} />
+      <MobilePageHeader title="Bookings" subtitle={String(year)} back={{ to: "/dashboard", label: "Dashboard" }} />
 
       <div className="hidden md:block">
         <Link
@@ -200,7 +200,7 @@ export function BacklogScheduleView() {
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Backlog schedule</h1>
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Bookings</h1>
           <p className="mt-1 text-sm text-muted-foreground">{year}</p>
         </div>
         <div className="flex items-center gap-4">
@@ -227,7 +227,7 @@ export function BacklogScheduleView() {
         </div>
       </div>
 
-      <BacklogLegend />
+      <BookingsLegend />
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>

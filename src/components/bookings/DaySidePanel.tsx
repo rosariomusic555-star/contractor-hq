@@ -1,6 +1,6 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatCurrency } from "@/lib/utils";
-import type { BacklogJob } from "@/lib/backlog";
+import type { BookingJob } from "@/lib/bookings";
 import { JobDetailCard } from "./JobDetailCard";
 
 /**
@@ -24,14 +24,14 @@ export function DaySidePanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  jobs: BacklogJob[];
+  jobs: BookingJob[];
   /** Present (even if empty) only in "empty day" mode — its presence is
    * what tells this panel to show the scheduling picker instead of "no
    * jobs" when `jobs` is empty. */
-  unscheduledJobs?: BacklogJob[];
-  onScheduleJob?: (job: BacklogJob) => void;
-  onDatesChange: (job: BacklogJob, start: string | null, end: string | null) => void;
-  onUnschedule: (job: BacklogJob) => void;
+  unscheduledJobs?: BookingJob[];
+  onScheduleJob?: (job: BookingJob) => void;
+  onDatesChange: (job: BookingJob, start: string | null, end: string | null) => void;
+  onUnschedule: (job: BookingJob) => void;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

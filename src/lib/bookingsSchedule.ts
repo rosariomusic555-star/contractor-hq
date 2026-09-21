@@ -1,8 +1,8 @@
-import type { BacklogJob } from "./backlog";
+import type { BookingJob } from "./bookings";
 
 /** Drag payload MIME for dragging a job (Unscheduled rail, or an existing
  * single-job day cell) onto a calendar day — value is just the project id. */
-export const JOB_DRAG_MIME = "application/x-backlog-job";
+export const JOB_DRAG_MIME = "application/x-booking-job";
 
 /** Up to this many status dots render per day cell before collapsing to
  * a "+" indicator (Year view's mini months — see YearGrid/MiniMonth). */
@@ -25,14 +25,14 @@ export function addDays(d: Date, n: number): Date {
 }
 
 /** A job's effective [start, end] — an end-less job is a single-day span. */
-export function jobRange(job: BacklogJob): { start: Date; end: Date } | null {
+export function jobRange(job: BookingJob): { start: Date; end: Date } | null {
   if (!job.startDate) return null;
   const start = toLocalDate(job.startDate);
   const end = job.endDate ? toLocalDate(job.endDate) : start;
   return end < start ? { start, end: start } : { start, end };
 }
 
-export function jobOverlapsRange(job: BacklogJob, rangeStart: Date, rangeEnd: Date): boolean {
+export function jobOverlapsRange(job: BookingJob, rangeStart: Date, rangeEnd: Date): boolean {
   const r = jobRange(job);
   if (!r) return false;
   return r.start <= rangeEnd && r.end >= rangeStart;
@@ -62,7 +62,7 @@ export function monthGridDays(year: number, month: number, today: Date = new Dat
 
 /** Every job covering a given date — drives a mini month day cell's dots/
  * tint, the day side panel's job list, and the hover tooltip. */
-export function jobsOnDate(jobs: BacklogJob[], date: Date): BacklogJob[] {
+export function jobsOnDate(jobs: BookingJob[], date: Date): BookingJob[] {
   return jobs.filter((j) => jobOverlapsRange(j, date, date));
 }
 

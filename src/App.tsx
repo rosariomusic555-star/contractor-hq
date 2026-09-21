@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { PortalAuthProvider } from "@/lib/portalAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -13,7 +13,7 @@ import { PortalDocumentView } from "@/components/portal/PortalDocumentView";
 import { ScrollToTop } from "@/components/layout/ScrollToTop";
 import { DashboardView } from "@/components/views/DashboardView";
 import { NeedsYouView } from "@/components/views/NeedsYouView";
-import { BacklogScheduleView } from "@/components/views/BacklogScheduleView";
+import { BookingsView } from "@/components/views/BookingsView";
 import { ProjectsView } from "@/components/views/ProjectsView";
 import { NewProjectView } from "@/components/views/NewProjectView";
 import { ProjectDetailView } from "@/components/views/ProjectDetailView";
@@ -73,6 +73,14 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+/** /backlog was renamed to /bookings — old saved links (including the
+ * ?month= query param the Dashboard card's month thumbnails use) keep
+ * working via this redirect rather than 404ing. */
+function BacklogRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/bookings${location.search}`} replace />;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -109,7 +117,8 @@ const App = () => (
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardView />} />
               <Route path="/needs-you" element={<NeedsYouView />} />
-              <Route path="/backlog" element={<BacklogScheduleView />} />
+              <Route path="/bookings" element={<BookingsView />} />
+              <Route path="/backlog" element={<BacklogRedirect />} />
               <Route path="/projects" element={<ProjectsView />} />
               <Route path="/projects/new" element={<NewProjectView />} />
               <Route path="/projects/:id" element={<ProjectDetailView />} />

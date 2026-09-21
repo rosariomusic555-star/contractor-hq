@@ -2,17 +2,17 @@ import type { ChangeOrder, Opportunity, Project, ProjectStatus, Quote } from "./
 import { projectContractValue } from "./api";
 import { jobSizeLabel } from "./jobSize";
 
-/** A job counts as "committed" backlog once it's past the quoting stage.
- * There's no real deposit-received tracking in the schema yet (flagged as a
- * gap) — this is the stated fallback: approved/invoiced/paid all mean a
- * signed contract, regardless of billing progress. */
+/** A job counts as "committed" booked work once it's past the quoting
+ * stage. There's no real deposit-received tracking in the schema yet
+ * (flagged as a gap) — this is the stated fallback: approved/invoiced/paid
+ * all mean a signed contract, regardless of billing progress. */
 const COMMITTED_STATUSES: ProjectStatus[] = ["approved", "invoiced", "paid"];
 
-/** One committed job, as it appears inside a BacklogMonth or in
+/** One committed job, as it appears inside a BookingMonth or in
  * unscheduledJobs. Single source of truth for both the Dashboard card
- * (which only reads the month aggregates) and the full Backlog Schedule
- * page (/backlog, which renders these rows) — see seasonalBacklog(). */
-export interface BacklogJob {
+ * (which only reads the month aggregates) and the full Bookings page
+ * (/bookings, which renders these rows) — see seasonalBookings(). */
+export interface BookingJob {
   projectId: string;
   projectName: string;
   clientName: string | null;
@@ -23,39 +23,39 @@ export interface BacklogJob {
   /** "1 ea Paver Patio" — see jobSizeLabel(). Null falls back to just the
    * project name, same as the Ongoing Jobs card. */
   scopeLabel: string | null;
-  /** Day-precision scheduling (0058) — the Backlog Schedule calendar's bar
+  /** Day-precision scheduling (0058) — the Bookings calendar's bar
    * span. startDate is always set for anything other than unscheduledJobs;
    * endDate may be null (renders as a single-day bar). */
   startDate: string | null;
   endDate: string | null;
 }
 
-export interface BacklogMonth {
+export interface BookingMonth {
   /** "2026-10" */
   key: string;
   /** "Oct 2026" */
   label: string;
   committedDollars: number;
   jobCount: number;
-  jobs: BacklogJob[];
+  jobs: BookingJob[];
 }
 
-export interface SeasonalBacklog {
-  months: BacklogMonth[];
+export interface SeasonalBookings {
+  months: BookingMonth[];
   seasonTotalDollars: number;
   seasonTotalJobs: number;
   /** Committed jobs (see COMMITTED_STATUSES) with no scheduled_start_date
    * set — can't be placed on the calendar. Not scoped to monthsForward
    * (there's no month to fall in/out of range), always the full set. */
-  unscheduledJobs: BacklogJob[];
+  unscheduledJobs: BookingJob[];
 }
 
-function toBacklogJob(
+function toBookingJob(
   project: Project,
   quotesByProject: Map<string, Quote[]>,
   changeOrdersByProject: Map<string, ChangeOrder[]>,
   opportunitiesByProjectId: Map<string, Opportunity>,
-): BacklogJob {
+): BookingJob {
   return {
     projectId: project.id,
     projectName: project.name,
@@ -88,15 +88,15 @@ function toBacklogJob(
  * that setting still exists (Settings > Seasonal capacity) but nothing
  * reads it anymore.
  */
-export function seasonalBacklog(
+export function seasonalBookings(
   projects: Project[],
   quotesByProject: Map<string, Quote[]>,
   changeOrdersByProject: Map<string, ChangeOrder[]>,
   opportunitiesByProjectId: Map<string, Opportunity>,
   monthsForward = 6,
   from: Date = new Date(),
-): SeasonalBacklog {
-  const months: BacklogMonth[] = [];
+): SeasonalBookings {
+  const months: BookingMonth[] = [];
   for (let i = 0; i < monthsForward; i++) {
     const d = new Date(from.getFullYear(), from.getMonth() + i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -109,11 +109,11 @@ export function seasonalBacklog(
     });
   }
   const byKey = new Map(months.map((m) => [m.key, m]));
-  const unscheduledJobs: BacklogJob[] = [];
+  const unscheduledJobs: BookingJob[] = [];
 
   for (const p of projects) {
     if (!COMMITTED_STATUSES.includes(p.status)) continue;
-    const job = toBacklogJob(p, quotesByProject, changeOrdersByProject, opportunitiesByProjectId);
+    const job = toBookingJob(p, quotesByProject, changeOrdersByProject, opportunitiesByProjectId);
 
     if (!p.scheduled_start_date) {
       unscheduledJobs.push(job);
