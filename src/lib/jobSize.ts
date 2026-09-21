@@ -53,3 +53,25 @@ function largestLineItemLabel(quote: Quote): string | null {
   }
   return bestLabel;
 }
+
+/**
+ * "600 sf Paver Patio · Seat wall" — the redesigned Ongoing Jobs card's scope
+ * line. Unlike jobSizeLabel() (which prefers Pipeline opportunity data over
+ * the quote), this reads only the project's headline quote, per spec: its
+ * single largest line item in full ("qty unit name"), plus a second line
+ * item's name only (no qty/unit — keeps the line short) when there is one,
+ * so a two-scope job doesn't read as a single flat total.
+ */
+export function quoteScopeSummary(quote: Quote | undefined): string | null {
+  if (!quote) return null;
+  const items = quote.quote_sections
+    .flatMap((s) => s.quote_items)
+    .filter((i) => i.name?.trim())
+    .sort((a, b) => quoteLineTotal(b) - quoteLineTotal(a));
+  if (items.length === 0) return null;
+
+  const top = items[0];
+  const primary = top.quantity && top.unit?.trim() ? `${top.quantity} ${top.unit} ${top.name}` : top.name;
+  const second = items[1]?.name?.trim();
+  return second && second !== top.name ? `${primary} · ${second}` : primary;
+}

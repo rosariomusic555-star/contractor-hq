@@ -979,6 +979,24 @@ export async function listProjectImages(projectId: string): Promise<ProjectImage
   return data ?? [];
 }
 
+/** Every image across several projects, most-recent first, in ONE request —
+ * the redesigned Ongoing Jobs card's cover-photo source. Callers pick the
+ * first row per project_id (already sorted) rather than issuing a
+ * listProjectImages() call per card. */
+export async function listProjectImagesForProjects(projectIds: string[]): Promise<ProjectImage[]> {
+  if (projectIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("project_images")
+    .select("*")
+    .in("project_id", projectIds)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
 /** Compresses, uploads, and records the row — same order/rollback as
  * uploadQuoteItemImage. `uploadedByEmployeeId` (0043) is set when an
  * employee is the one uploading from the field — omit for an owner
