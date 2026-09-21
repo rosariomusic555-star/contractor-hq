@@ -24,7 +24,7 @@ export function ShareLinkDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   url: string;
-  kind: "quote" | "invoice";
+  kind: "quote" | "invoice" | "change order";
 }) {
   const { toast } = useToast();
 

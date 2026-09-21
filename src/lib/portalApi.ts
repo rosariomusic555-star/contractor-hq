@@ -108,18 +108,38 @@ export interface PortalQuote {
   sections: PortalQuoteSection[];
 }
 
+export interface PortalChangeOrderItem {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  quantity: number;
+  unit: string | null;
+}
+
+export interface PortalChangeOrderSection {
+  id: string;
+  name: string;
+  sort_order: number;
+  items: PortalChangeOrderItem[];
+}
+
 export interface PortalChangeOrder {
   id: string;
   title: string;
   description: string | null;
   reason: string | null;
   amount: number;
-  status: "pending" | "approved" | "rejected";
+  /** Never "draft" — get_portal_project() excludes un-sent change orders
+   * from the client's view entirely, same rule quotes already follow. */
+  status: "sent" | "approved" | "declined";
+  schedule_impact_days: number | null;
   approved_at: string | null;
   approved_by: string | null;
   declined_at: string | null;
   decline_comment: string | null;
   created_at: string;
+  sections: PortalChangeOrderSection[];
 }
 
 export interface PortalInvoice {

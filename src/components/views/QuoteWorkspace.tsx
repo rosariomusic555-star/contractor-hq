@@ -1,26 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  Trash2,
   Share2,
   Briefcase,
   Copy,
-  ImagePlus,
-  Loader2,
   Sparkles,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -43,7 +38,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
@@ -55,7 +49,8 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { ReorderControls } from "@/components/common/ReorderControls";
-import { SectionCard } from "@/components/common/SectionCard";
+import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
+import { revokeLocalImageUrls, type DraftLineImage } from "@/lib/draftLineItem";
 import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
@@ -110,22 +105,10 @@ const NONE = "__none__";
 // and Link-to-project selects are NOT part of the draft — they save on change.
 // ---------------------------------------------------------------------------
 
-/**
- * A photo on a draft line item — either not yet uploaded (`file` set, a
- * pre-compressed blob held only in memory + `previewUrl`, a local
- * `URL.createObjectURL`) or already persisted (`storage_path` set, `file`
- * null, resolved to a signed URL for display same as everywhere else).
- * Nothing in Storage exists for a `file`-backed image until Save uploads
- * it — that's what makes Discard/navigating-away-without-saving safe: there
- * is never anything to orphan, because nothing was ever written.
- */
-interface DraftImage {
-  id: string;
-  storage_path: string | null;
-  file: Blob | null;
-  previewUrl: string | null;
-  sort_order: number;
-}
+// DraftImage's shape (and the discard-safety invariant it exists for) now
+// lives in LineItemRow.tsx as DraftLineImage, shared with the Change Order
+// builder — aliased locally so the rest of this file doesn't need renaming.
+type DraftImage = DraftLineImage;
 interface DraftItem {
   id: string;
   name: string;
@@ -157,14 +140,6 @@ interface QuoteDraft {
 
 const tmpId = () => `tmp-${crypto.randomUUID()}`;
 const isTmp = (id: string) => id.startsWith("tmp-");
-
-/** Revokes preview URLs for any not-yet-uploaded images on an item — call
- * whenever a draft item is discarded or removed so it doesn't leak. */
-const revokeLocalImageUrls = (item: DraftItem) => {
-  for (const img of item.images) {
-    if (img.file && img.previewUrl) URL.revokeObjectURL(img.previewUrl);
-  }
-};
 
 const seed = (quote: Quote): QuoteDraft => ({
   sections: quote.quote_sections.map((s) => ({
@@ -933,12 +908,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                     <Draggable key={section.id} draggableId={section.id} index={index}>
                       {(dragProvided, dragSnapshot) => (
                         <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
-                          <QuoteSectionCard
+                          <LineItemSectionCard
                             section={section}
                             subtotal={sectionSubtotal(section)}
                             categories={categories}
                             onRename={(name) => renameSection(section.id, name)}
-                            onToggleOptional={(checked) => toggleSectionOptional(section.id, checked)}
                             onDeleteSection={() => removeSection(section.id)}
                             onAddItem={() => addItem(section.id)}
                             onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
@@ -954,6 +928,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             onToggleCollapse={() => toggleCollapse(section.id)}
                             isDraggingItem={isDraggingItem}
                             onAutoExpand={() => expandSection(section.id)}
+                            optionalSection={{
+                              checked: section.is_optional,
+                              onChange: (checked) => toggleSectionOptional(section.id, checked),
+                              isItemOptional: (itemId) =>
+                                section.items.find((i) => i.id === itemId)?.is_optional ?? false,
+                              onToggleItem: (itemId, checked) =>
+                                editItem(section.id, itemId, { is_optional: checked }),
+                            }}
                           />
                         </div>
                       )}
@@ -1703,480 +1685,6 @@ function QuoteTermsCard({ terms }: { terms: DemoQuoteTerms }) {
         {row("Warranty", terms.warranty)}
         {row("Crew window", terms.crewWindow)}
       </div>
-    </div>
-  );
-}
-
-interface QuoteSectionCardProps {
-  section: DraftSection;
-  subtotal: number;
-  categories: Category[];
-  onRename: (name: string) => void;
-  onToggleOptional: (checked: boolean) => void;
-  onDeleteSection: () => void;
-  onAddItem: () => void;
-  onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
-  onDeleteItem: (itemId: string) => void;
-  dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
-  dragging: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  /** Moves the item at `itemIndex` (within this section) up/down one spot. */
-  onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
-  isDraggingItem: boolean;
-  onAutoExpand: () => void;
-}
-
-function QuoteSectionCard({
-  section,
-  subtotal,
-  categories,
-  onRename,
-  onToggleOptional,
-  onDeleteSection,
-  onAddItem,
-  onEditItem,
-  onDeleteItem,
-  dragHandleProps,
-  dragging,
-  canMoveUp,
-  canMoveDown,
-  onMoveUp,
-  onMoveDown,
-  onMoveItem,
-  collapsed,
-  onToggleCollapse,
-  isDraggingItem,
-  onAutoExpand,
-}: QuoteSectionCardProps) {
-  const items = section.items;
-
-  return (
-    <SectionCard
-      name={section.name}
-      onRename={onRename}
-      subtotal={subtotal}
-      itemNames={items.map((i) => i.name)}
-      collapsed={collapsed}
-      onToggleCollapse={onToggleCollapse}
-      isDraggingItem={isDraggingItem}
-      onAutoExpand={onAutoExpand}
-      dragHandleProps={dragHandleProps}
-      dragging={dragging}
-      canMoveUp={canMoveUp}
-      canMoveDown={canMoveDown}
-      onMoveUp={onMoveUp}
-      onMoveDown={onMoveDown}
-      secondRow={
-        <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
-          <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Switch
-              checked={section.is_optional}
-              onCheckedChange={onToggleOptional}
-              aria-label="Optional section"
-            />
-            Optional section — client can add or drop it
-          </label>
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                className="shrink-0 text-muted-foreground hover:text-destructive"
-                aria-label="Delete section"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {items.length > 0
-                    ? `Removes ${items.length} item${items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)}. Nothing is saved until you press Save changes.`
-                    : "This section is empty."}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  onClick={onDeleteSection}
-                >
-                  Remove
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      }
-    >
-      <Droppable droppableId={section.id} type="item">
-        {(provided) => (
-          <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
-            {items.map((item, index) => (
-              <Draggable key={item.id} draggableId={item.id} index={index}>
-                {(dragProvided, dragSnapshot) => (
-                  <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
-                    <QuoteItemRow
-                      item={item}
-                      categories={categories}
-                      onEdit={(patch) => onEditItem(item.id, patch)}
-                      onDelete={() => onDeleteItem(item.id)}
-                      dragHandleProps={dragProvided.dragHandleProps}
-                      dragging={dragSnapshot.isDragging}
-                      canMoveUp={index > 0}
-                      canMoveDown={index < items.length - 1}
-                      onMoveUp={() => onMoveItem(index, -1)}
-                      onMoveDown={() => onMoveItem(index, 1)}
-                    />
-                  </div>
-                )}
-              </Draggable>
-            ))}
-            {provided.placeholder}
-          </div>
-        )}
-      </Droppable>
-      <button
-        type="button"
-        onClick={onAddItem}
-        className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
-      >
-        <Plus className="h-4 w-4" />
-        Add item to this section
-      </button>
-    </SectionCard>
-  );
-}
-
-interface QuoteItemRowProps {
-  item: DraftItem;
-  categories: Category[];
-  onEdit: (patch: Partial<DraftItem>) => void;
-  onDelete: () => void;
-  dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
-  dragging: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-}
-
-const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
-
-function QuoteItemRow({
-  item,
-  categories,
-  onEdit,
-  onDelete,
-  dragHandleProps,
-  dragging,
-  canMoveUp,
-  canMoveDown,
-  onMoveUp,
-  onMoveDown,
-}: QuoteItemRowProps) {
-  // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
-  // out from under the cursor. Re-synced when the draft is reseeded.
-  const [qtyStr, setQtyStr] = useState(String(item.quantity));
-  const [priceStr, setPriceStr] = useState(String(item.price));
-  useEffect(() => setQtyStr(String(item.quantity)), [item.quantity]);
-  useEffect(() => setPriceStr(String(item.price)), [item.price]);
-
-  const total = item.quantity * item.price;
-
-  return (
-    <div
-      className={cn(
-        "group flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover",
-        dragging && "border-primary/40 opacity-90 shadow-card-hover",
-      )}
-    >
-      {/* Item name + handle/arrows + delete — the label sits on its own
-          line above; the input, reorder group, and trash share one row so
-          the controls center on the input itself (not the label+input
-          block), independent of everything below (description, category,
-          photos). Textarea so long names wrap and it auto-grows. */}
-      <div>
-        <div className={ITEM_FIELD_LABEL}>Item</div>
-        <div className="mt-1 flex items-center gap-3">
-          <AutoGrowTextarea
-            value={item.name}
-            onChange={(e) => onEdit({ name: e.target.value })}
-            placeholder="Item name"
-            className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
-          />
-          <ReorderControls
-            dragHandleProps={dragHandleProps}
-            onMoveUp={onMoveUp}
-            onMoveDown={onMoveDown}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-            label={item.name || "item"}
-            className="mr-2"
-          />
-          <button
-            type="button"
-            onClick={onDelete}
-            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
-            aria-label="Remove item"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Description */}
-      <div>
-        <div className={ITEM_FIELD_LABEL}>Description</div>
-        <AutoGrowTextarea
-          value={item.description}
-          onChange={(e) => onEdit({ description: e.target.value })}
-          placeholder="Short description"
-          className="mt-1 min-h-[44px] rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground hover:border-input focus-visible:border-primary"
-        />
-      </div>
-
-      {/* Category — optional, its own full-width row so the picked name is
-          never truncated/clipped on mobile. */}
-      <div>
-        <div className={ITEM_FIELD_LABEL}>Category</div>
-        <Select
-          value={item.category_id ?? NONE}
-          onValueChange={(v) => onEdit({ category_id: v === NONE ? null : v })}
-        >
-          <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
-            <SelectValue placeholder="Uncategorized" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Uncategorized</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Photos — optional, multiple. Part of the draft like every other
-          field here: picking a file compresses + previews it locally, and
-          it's only uploaded when the whole quote is saved. */}
-      <QuoteItemPhotos item={item} onEdit={onEdit} />
-
-      {/* Qty · Unit · Rate · Line total — two-up on mobile, four-up from sm. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <label className="block">
-          <div className={ITEM_FIELD_LABEL}>Qty</div>
-          <Input
-            type="number"
-            step="any"
-            inputMode="decimal"
-            value={qtyStr}
-            onChange={(e) => {
-              setQtyStr(e.target.value);
-              onEdit({ quantity: parseFloat(e.target.value) || 0 });
-            }}
-            className="mt-1 h-[42px] tabular-nums"
-            aria-label="Quantity"
-          />
-        </label>
-        <label className="block">
-          <div className={ITEM_FIELD_LABEL}>Unit</div>
-          <Input
-            value={item.unit}
-            onChange={(e) => onEdit({ unit: e.target.value })}
-            placeholder="ea"
-            className="mt-1 h-[42px]"
-            aria-label="Unit"
-          />
-        </label>
-        <label className="block">
-          <div className={ITEM_FIELD_LABEL}>Rate ($)</div>
-          <Input
-            type="number"
-            step="0.01"
-            inputMode="decimal"
-            value={priceStr}
-            onChange={(e) => {
-              setPriceStr(e.target.value);
-              onEdit({ price: parseFloat(e.target.value) || 0 });
-            }}
-            className="mt-1 h-[42px] tabular-nums"
-            aria-label="Unit price"
-          />
-        </label>
-        <div>
-          <div className={ITEM_FIELD_LABEL}>Line total</div>
-          <div className="mt-1 flex h-[42px] items-center justify-end rounded-md bg-primary/10 px-3 text-base font-extrabold tabular-nums text-success">
-            {formatCurrency(total)}
-          </div>
-        </div>
-      </div>
-
-      {/* Optional add-on */}
-      <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <Checkbox
-          checked={item.is_optional}
-          onCheckedChange={(c) => onEdit({ is_optional: c === true })}
-        />
-        Optional add-on — client chooses whether to include this line
-      </label>
-    </div>
-  );
-}
-
-const THUMB_CLASS = "h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-muted";
-
-interface QuoteItemPhotosProps {
-  item: DraftItem;
-  onEdit: (patch: Partial<DraftItem>) => void;
-}
-
-/**
- * Fully draft-driven, like every other field on this row — picking a file
- * compresses it immediately (so the preview matches exactly what will be
- * uploaded) and adds it to `item.images` via `onEdit`, same as typing into
- * any other field. Nothing touches Storage until "Save changes" runs (see
- * QuoteWorkspace's saveMut), so this works identically on a brand-new,
- * never-saved line item — there's no server item to attach to yet, and none
- * is needed until save time.
- */
-function QuoteItemPhotos({ item, onEdit }: QuoteItemPhotosProps) {
-  const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [lightboxImageId, setLightboxImageId] = useState<string | null>(null);
-  const [compressing, setCompressing] = useState(false);
-
-  const images = item.images;
-  const lightboxImage = images.find((img) => img.id === lightboxImageId) ?? null;
-
-  // Only persisted images need a signed URL — local ones already have their
-  // own preview URL (see DraftImage).
-  const persistedImages = images.filter((img) => img.storage_path && !img.file);
-  const paths = persistedImages.map((img) => img.storage_path!);
-  const { data: signedUrls = {} } = useQuery({
-    queryKey: ["quote-item-image-urls", item.id, persistedImages.map((i) => i.id).join(",")],
-    queryFn: () => getSignedImageUrls(paths),
-    enabled: paths.length > 0,
-    staleTime: 30 * 60 * 1000,
-  });
-  const srcFor = (img: DraftImage) => img.previewUrl ?? (img.storage_path ? signedUrls[img.storage_path] : undefined);
-
-  const addFiles = async (files: File[]) => {
-    setCompressing(true);
-    try {
-      const added: DraftImage[] = [];
-      for (const file of files) {
-        const compressed = await compressImageFile(file);
-        added.push({
-          id: tmpId(),
-          storage_path: null,
-          file: compressed,
-          previewUrl: URL.createObjectURL(compressed),
-          sort_order: images.length + added.length,
-        });
-      }
-      onEdit({ images: [...images, ...added] });
-    } catch (err) {
-      toast({ title: (err as Error).message, variant: "destructive" });
-    } finally {
-      setCompressing(false);
-    }
-  };
-
-  const removeImage = (imageId: string) => {
-    const img = images.find((i) => i.id === imageId);
-    if (img?.file && img.previewUrl) URL.revokeObjectURL(img.previewUrl);
-    onEdit({ images: images.filter((i) => i.id !== imageId) });
-    setLightboxImageId(null);
-  };
-
-  return (
-    <div>
-      <div className={ITEM_FIELD_LABEL}>Photos</div>
-      <div className="mt-1 flex flex-wrap gap-2">
-        {images.map((img) => (
-          <button
-            key={img.id}
-            type="button"
-            onClick={() => setLightboxImageId(img.id)}
-            className={cn(THUMB_CLASS, "relative")}
-            aria-label="View photo"
-          >
-            {srcFor(img) ? (
-              <img src={srcFor(img)} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
-              </div>
-            )}
-          </button>
-        ))}
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={compressing}
-          className={cn(
-            THUMB_CLASS,
-            "flex items-center justify-center border-[1.5px] border-dashed border-border text-muted-subtle transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:text-muted-subtle",
-          )}
-          aria-label="Add photo"
-        >
-          {compressing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ImagePlus className="h-4 w-4" />
-          )}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = "";
-            if (files.length) void addFiles(files);
-          }}
-        />
-      </div>
-
-      <Dialog open={!!lightboxImage} onOpenChange={(open) => !open && setLightboxImageId(null)}>
-        <DialogContent className="max-w-lg gap-3 p-4">
-          <DialogTitle className="text-sm font-bold text-foreground">Photo</DialogTitle>
-          {lightboxImage && (
-            <>
-              {srcFor(lightboxImage) ? (
-                <img
-                  src={srcFor(lightboxImage)}
-                  alt=""
-                  className="max-h-[70vh] w-full rounded-xl object-contain"
-                />
-              ) : (
-                <div className="flex h-64 items-center justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-subtle" />
-                </div>
-              )}
-              <Button
-                variant="outline"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => removeImage(lightboxImage.id)}
-              >
-                <X className="h-4 w-4" />
-                Remove photo
-              </Button>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

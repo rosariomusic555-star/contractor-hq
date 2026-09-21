@@ -123,9 +123,10 @@ export function projectStatusMeta(status: string): StatusMeta {
 // ---------------------------------------------------------------------------
 
 const CHANGE_ORDER_META: Record<ChangeOrderStatus, StatusMeta> = {
-  pending: meta("Pending", "amber"),
+  draft: meta("Draft", "grey"),
+  sent: meta("Sent", "blue"),
   approved: meta("Approved", "green"),
-  rejected: meta("Rejected", "red"),
+  declined: meta("Declined", "red"),
 };
 
 export function changeOrderStatusMeta(status: string): StatusMeta {

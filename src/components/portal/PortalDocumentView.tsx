@@ -138,13 +138,39 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
       <div className="flex items-center justify-between border-b border-hairline pb-3">
         <h2 className="text-lg font-bold text-foreground">Change order</h2>
         <span className="text-sm font-bold text-foreground">
-          {changeOrder.status === "approved" ? "Approved" : changeOrder.status === "rejected" ? "Declined" : "Pending"}
+          {changeOrder.status === "approved" ? "Approved" : changeOrder.status === "declined" ? "Declined" : "Sent"}
         </span>
       </div>
       <div>
         <p className="text-base font-bold text-foreground">{changeOrder.title}</p>
         {changeOrder.description && <p className="mt-1 text-sm text-muted-foreground">{changeOrder.description}</p>}
       </div>
+      {changeOrder.sections.length > 0 && (
+        <div className="space-y-3">
+          {changeOrder.sections.map((section) => (
+            <div key={section.id}>
+              {section.name && <p className="text-sm font-bold text-foreground">{section.name}</p>}
+              <div className="mt-1.5 space-y-2">
+                {section.items.map((item) => {
+                  const lineTotal = item.price * (item.quantity ?? 1);
+                  return (
+                    <div key={item.id} className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{item.name}</p>
+                        {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                      </div>
+                      <p className="shrink-0 text-sm font-bold tabular-nums text-foreground">
+                        {lineTotal >= 0 ? "+" : "−"}
+                        {money(Math.abs(lineTotal))}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between text-base font-extrabold text-foreground">
         <span>Change to contract</span>
         <span className="tabular-nums">
@@ -152,6 +178,16 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
           {money(Math.abs(changeOrder.amount))}
         </span>
       </div>
+      {!!changeOrder.schedule_impact_days && (
+        <p className="text-sm text-muted-foreground">
+          Schedule impact:{" "}
+          <span className="font-semibold text-foreground">
+            {changeOrder.schedule_impact_days > 0
+              ? `Adds ${changeOrder.schedule_impact_days} working day${changeOrder.schedule_impact_days === 1 ? "" : "s"}`
+              : `Saves ${Math.abs(changeOrder.schedule_impact_days)} working day${Math.abs(changeOrder.schedule_impact_days) === 1 ? "" : "s"}`}
+          </span>
+        </p>
+      )}
       {changeOrder.approved_at && (
         <p className="text-xs text-muted-subtle">
           Approved by {changeOrder.approved_by ?? "client"} on {dateStr(changeOrder.approved_at)}

@@ -205,7 +205,7 @@ export function ProjectDetailView() {
       ? "None yet"
       : `${pluralize(expenses.length, "expense")} · ${formatCurrency(expensesTotal)}`;
   const approvedCOTotal = approvedChangeOrderTotal(changeOrders);
-  const pendingCOCount = changeOrders.filter((co) => co.status === "pending").length;
+  const pendingCOCount = changeOrders.filter((co) => co.status === "sent").length;
   const changeOrdersSummary =
     changeOrders.length === 0
       ? "None yet"

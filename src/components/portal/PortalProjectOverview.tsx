@@ -85,14 +85,14 @@ export function PortalProjectOverview() {
   const phase = portalProjectPhase(detail.project);
   const progress = portalProgressLabel(detail.project);
   const pendingQuotes = detail.quotes.filter((q) => q.status === "sent");
-  const pendingChangeOrders = detail.change_orders.filter((c) => c.status === "pending");
+  const pendingChangeOrders = detail.change_orders.filter((c) => c.status === "sent");
   const approvedQuote = detail.quotes.find((q) => q.status === "approved") ?? null;
   const documents = [
     ...detail.quotes
       .filter((q) => q.status !== "sent")
       .map((q) => ({ kind: "quote" as const, id: q.id, label: "Quote", status: q.status, date: null as string | null })),
     ...detail.change_orders
-      .filter((c) => c.status !== "pending")
+      .filter((c) => c.status !== "sent")
       .map((c) => ({ kind: "change-order" as const, id: c.id, label: c.title, status: c.status, date: c.created_at })),
     ...detail.invoices.map((inv) => ({
       kind: "invoice" as const,
@@ -307,8 +307,6 @@ function statusLabel(status: string): string {
     case "approved":
       return "Approved";
     case "declined":
-      return "Declined";
-    case "rejected":
       return "Declined";
     case "paid":
       return "Paid";
@@ -747,6 +745,41 @@ function ChangeOrderApprovalDialog({
                 <p className="mt-1 text-sm text-muted-foreground">{changeOrder.description}</p>
               )}
             </div>
+
+            {changeOrder.sections.length > 0 && (
+              <div className="space-y-3">
+                {changeOrder.sections.map((section) => (
+                  <div key={section.id}>
+                    {section.name && <p className="text-sm font-bold text-foreground">{section.name}</p>}
+                    <div className="mt-1.5 space-y-2">
+                      {section.items.map((item) => {
+                        const lineTotal = item.price * (item.quantity ?? 1);
+                        return (
+                          <div key={item.id} className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">{item.name}</p>
+                              {item.description && (
+                                <p className="text-xs text-muted-foreground">{item.description}</p>
+                              )}
+                            </div>
+                            <p
+                              className={cn(
+                                "shrink-0 text-sm font-bold tabular-nums",
+                                lineTotal < 0 ? "text-destructive" : "text-foreground",
+                              )}
+                            >
+                              {lineTotal >= 0 ? "+" : "−"}
+                              {money(Math.abs(lineTotal))}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center justify-between text-base font-extrabold text-foreground">
               <span>Change to your contract</span>
               <span className="tabular-nums">
@@ -754,6 +787,17 @@ function ChangeOrderApprovalDialog({
                 {money(Math.abs(changeOrder.amount))}
               </span>
             </div>
+
+            {!!changeOrder.schedule_impact_days && (
+              <p className="text-sm text-muted-foreground">
+                Schedule impact:{" "}
+                <span className="font-semibold text-foreground">
+                  {changeOrder.schedule_impact_days > 0
+                    ? `Adds ${changeOrder.schedule_impact_days} working day${changeOrder.schedule_impact_days === 1 ? "" : "s"}`
+                    : `Saves ${Math.abs(changeOrder.schedule_impact_days)} working day${Math.abs(changeOrder.schedule_impact_days) === 1 ? "" : "s"}`}
+                </span>
+              </p>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="co-sign-name" className="text-xs font-semibold text-muted-foreground">

@@ -203,6 +203,11 @@ export interface Invoice {
   // Nullable — an invoice can stand alone, with no project.
   project_id: string | null;
   quote_id: string | null;
+  /** Change Order Builder (0069) — set when this invoice bills an approved
+   * change order, either on its own (createInvoiceForChangeOrder) or
+   * rolled into a broader project invoice the user links manually. Null
+   * for an ordinary invoice. */
+  change_order_id: string | null;
   user_id: string;
   amount: number;
   status: InvoiceStatus;
@@ -368,7 +373,7 @@ export interface Expense {
   project?: ProjectRef | null;
 }
 
-export type ChangeOrderStatus = "pending" | "approved" | "rejected";
+export type ChangeOrderStatus = "draft" | "sent" | "approved" | "declined";
 export type ChangeOrderReason =
   | "client_request"
   | "site_condition"
@@ -389,7 +394,14 @@ export const CHANGE_ORDER_REASONS: { value: ChangeOrderReason; label: string }[]
  * unlike quotes/invoices, a change order can never stand alone. `amount` is
  * signed: change orders can increase OR decrease the contract. Only
  * `status: "approved"` change orders count toward projectContractValue() —
- * pending/rejected ones never move any number (see below). */
+ * draft/sent/declined ones never move any number (see below).
+ *
+ * `amount` is the persisted, canonical total — same "stored, app keeps it
+ * in sync" convention invoices.amount uses. The Change Order Builder
+ * (0069) always recomputes it from change_order_sections/items on save
+ * (changeOrderTotal()), the same way it always wrote a single amount, just
+ * derived instead of typed in — every existing reader here keeps working
+ * unchanged. */
 export interface ChangeOrder {
   id: string;
   project_id: string;
@@ -399,6 +411,10 @@ export interface ChangeOrder {
   reason: ChangeOrderReason | null;
   amount: number;
   status: ChangeOrderStatus;
+  /** Signed working days this change order adds (positive), saves
+   * (negative), or null/0 for no schedule change. Only applies to the
+   * project's estimated duration once the change order is approved. */
+  schedule_impact_days: number | null;
   approved_at: string | null;
   /** Client Hub (0065) — a client-side approval/decline now captures a
    * signature name (and IP), same as a quote's signed_by/signed_ip; both
@@ -408,7 +424,47 @@ export interface ChangeOrder {
   approved_ip: string | null;
   declined_at: string | null;
   decline_comment: string | null;
+  /** Change Order Builder (0069) — the same public share-token signature
+   * mechanism quotes use (share_token/signed_at/signed_by). */
+  share_token: string | null;
+  signed_at: string | null;
+  signed_by: string | null;
   created_at: string;
+  // Only populated by getChangeOrder() (the builder's own fetch) — list
+  // reads (listChangeOrders) stay flat/lightweight, same split as
+  // getQuote() vs. the rest of the app's lighter quote reads.
+  change_order_sections?: ChangeOrderSection[];
+  project?: ProjectRef | null;
+}
+
+export interface ChangeOrderItemImage {
+  id: string;
+  change_order_item_id: string;
+  storage_path: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface ChangeOrderItem {
+  id: string;
+  section_id: string;
+  name: string;
+  description: string | null;
+  /** Unit price — negative for a credit/removal line. Line total = quantity × price. */
+  price: number;
+  quantity: number;
+  unit: string | null;
+  category_id: string | null;
+  sort_order: number;
+  change_order_item_images: ChangeOrderItemImage[];
+}
+
+export interface ChangeOrderSection {
+  id: string;
+  change_order_id: string;
+  name: string;
+  sort_order: number;
+  change_order_items: ChangeOrderItem[];
 }
 
 /** A photo attached to a change order (0031) — e.g. documenting the site
@@ -2016,6 +2072,7 @@ export async function createInvoice(
     amount?: number;
     due_date?: string | null;
     quote_id?: string | null;
+    change_order_id?: string | null;
     notes?: string | null;
   } = {},
 ): Promise<Invoice> {
@@ -2034,6 +2091,7 @@ export async function createInvoice(
       amount: input.amount ?? 0,
       due_date: input.due_date ?? null,
       quote_id: input.quote_id ?? null,
+      change_order_id: input.change_order_id ?? null,
       notes: input.notes ?? null,
       invoice_number,
     })
@@ -2046,7 +2104,10 @@ export async function createInvoice(
 export async function updateInvoice(
   id: string,
   patch: Partial<
-    Pick<Invoice, "amount" | "status" | "due_date" | "notes" | "paid_at" | "project_id" | "quote_id">
+    Pick<
+      Invoice,
+      "amount" | "status" | "due_date" | "notes" | "paid_at" | "project_id" | "quote_id" | "change_order_id"
+    >
   >,
 ): Promise<void> {
   const { error } = await supabase.from("invoices").update(patch).eq("id", id);
@@ -2143,22 +2204,185 @@ export async function listChangeOrders(projectId?: string): Promise<ChangeOrder[
 }
 
 /** Always created as "pending" — status only ever changes via updateChangeOrder(). */
+const CHANGE_ORDER_SELECT =
+  "*, project:projects(name, client:clients(name)), change_order_sections(*, change_order_items(*, change_order_item_images(*)))";
+
+function sortChangeOrder(co: ChangeOrder): ChangeOrder {
+  co.change_order_sections?.sort((a, b) => a.sort_order - b.sort_order);
+  for (const s of co.change_order_sections ?? []) {
+    s.change_order_items?.sort((a, b) => a.sort_order - b.sort_order);
+    for (const i of s.change_order_items ?? []) {
+      i.change_order_item_images = i.change_order_item_images ?? [];
+      i.change_order_item_images.sort((a, b) => a.sort_order - b.sort_order);
+    }
+  }
+  return co;
+}
+
+/** Creates an empty draft change order and navigates the builder to it —
+ * same "insert blank, then edit" pattern as createQuote(). */
 export async function createChangeOrder(input: {
   project_id: string;
-  title: string;
+  title?: string;
   description?: string | null;
   reason?: ChangeOrderReason | null;
-  amount: number;
 }): Promise<ChangeOrder> {
   const { data, error } = await supabase
     .from("change_orders")
     .insert({
       project_id: input.project_id,
-      title: input.title,
+      title: input.title ?? "",
       description: input.description ?? null,
       reason: input.reason ?? null,
-      amount: input.amount,
-      status: "pending",
+      amount: 0,
+      status: "draft",
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return getChangeOrder(data.id);
+}
+
+export async function getChangeOrder(id: string): Promise<ChangeOrder> {
+  const { data, error } = await supabase.from("change_orders").select(CHANGE_ORDER_SELECT).eq("id", id).single();
+  if (error) throw error;
+  return sortChangeOrder(data);
+}
+
+export async function updateChangeOrder(
+  id: string,
+  patch: Partial<
+    Pick<
+      ChangeOrder,
+      | "title"
+      | "description"
+      | "reason"
+      | "amount"
+      | "status"
+      | "schedule_impact_days"
+      | "approved_at"
+      | "signed_at"
+      | "signed_by"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("change_orders").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** Deleting a change order cascades its sections/items/images at the DB
+ * level, but never touches the actual files in Storage — best-effort clean
+ * those up first, same pattern as deleteQuoteSection. */
+export async function deleteChangeOrder(id: string): Promise<void> {
+  try {
+    const { data: sections } = await supabase
+      .from("change_order_sections")
+      .select("id")
+      .eq("change_order_id", id);
+    const sectionIds = (sections ?? []).map((s) => s.id);
+    if (sectionIds.length) {
+      const { data: items } = await supabase.from("change_order_items").select("id").in("section_id", sectionIds);
+      const itemIds = (items ?? []).map((i) => i.id);
+      if (itemIds.length) {
+        const { data: images } = await supabase
+          .from("change_order_item_images")
+          .select("storage_path")
+          .in("change_order_item_id", itemIds);
+        if (images?.length) {
+          await supabase.storage.from(IMAGES_BUCKET).remove(images.map((i) => i.storage_path));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to clean up change order item images before deleting change order:", err);
+  }
+  const { error } = await supabase.from("change_orders").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Change order sections/items (0069) — mirrors quote_sections/quote_items
+// exactly, minus is_optional (a change order has no client-picks-a-menu
+// concept). `price` is signed: negative = credit/removal.
+// ---------------------------------------------------------------------------
+
+/** Change order total = every line item across every section — mirrors
+ * quoteTotal(). The builder writes this to change_orders.amount on save;
+ * nothing else should ever compute a change order's total independently. */
+export function changeOrderTotal(sections: ChangeOrderSection[] = []): number {
+  let total = 0;
+  for (const section of sections) {
+    for (const item of section.change_order_items ?? []) {
+      total += Number(item.price) * (item.quantity == null ? 1 : Number(item.quantity));
+    }
+  }
+  return total;
+}
+
+export async function addChangeOrderSection(
+  changeOrderId: string,
+  input: { name: string; sort_order?: number },
+): Promise<ChangeOrderSection> {
+  const { data, error } = await supabase
+    .from("change_order_sections")
+    .insert({ change_order_id: changeOrderId, name: input.name, sort_order: input.sort_order ?? 0 })
+    .select("*, change_order_items(*)")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateChangeOrderSection(
+  id: string,
+  patch: Partial<Pick<ChangeOrderSection, "name" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("change_order_sections").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteChangeOrderSection(id: string): Promise<void> {
+  try {
+    const { data: items } = await supabase.from("change_order_items").select("id").eq("section_id", id);
+    const itemIds = (items ?? []).map((i) => i.id);
+    if (itemIds.length) {
+      const { data: images } = await supabase
+        .from("change_order_item_images")
+        .select("storage_path")
+        .in("change_order_item_id", itemIds);
+      if (images?.length) {
+        await supabase.storage.from(IMAGES_BUCKET).remove(images.map((i) => i.storage_path));
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to clean up change order item images before deleting section:", err);
+  }
+  const { error } = await supabase.from("change_order_sections").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function addChangeOrderItem(
+  sectionId: string,
+  input: {
+    name: string;
+    description?: string | null;
+    price: number;
+    quantity?: number;
+    unit?: string | null;
+    sort_order?: number;
+    category_id?: string | null;
+  },
+): Promise<ChangeOrderItem> {
+  const { data, error } = await supabase
+    .from("change_order_items")
+    .insert({
+      section_id: sectionId,
+      name: input.name,
+      description: input.description ?? null,
+      price: input.price,
+      quantity: input.quantity ?? 1,
+      unit: input.unit ?? null,
+      sort_order: input.sort_order ?? 0,
+      category_id: input.category_id ?? null,
     })
     .select()
     .single();
@@ -2166,16 +2390,118 @@ export async function createChangeOrder(input: {
   return data;
 }
 
-export async function updateChangeOrder(
+export async function updateChangeOrderItem(
   id: string,
-  patch: Partial<Pick<ChangeOrder, "title" | "description" | "reason" | "amount" | "status" | "approved_at">>,
+  patch: Partial<
+    Pick<ChangeOrderItem, "name" | "description" | "price" | "quantity" | "unit" | "sort_order" | "category_id">
+  >,
 ): Promise<void> {
-  const { error } = await supabase.from("change_orders").update(patch).eq("id", id);
+  const { error } = await supabase.from("change_order_items").update(patch).eq("id", id);
   if (error) throw error;
 }
 
-export async function deleteChangeOrder(id: string): Promise<void> {
-  const { error } = await supabase.from("change_orders").delete().eq("id", id);
+export async function deleteChangeOrderItem(id: string): Promise<void> {
+  try {
+    const { data: images } = await supabase
+      .from("change_order_item_images")
+      .select("storage_path")
+      .eq("change_order_item_id", id);
+    if (images?.length) {
+      await supabase.storage.from(IMAGES_BUCKET).remove(images.map((i) => i.storage_path));
+    }
+  } catch (err) {
+    console.warn("Failed to clean up change order item images before deleting item:", err);
+  }
+  const { error } = await supabase.from("change_order_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function uploadChangeOrderItemImage(
+  changeOrderItemId: string,
+  blob: Blob,
+  sortOrder = 0,
+): Promise<ChangeOrderItemImage> {
+  const path = `change-order-items/${changeOrderItemId}/${crypto.randomUUID()}.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("change_order_item_images")
+    .insert({ change_order_item_id: changeOrderItemId, storage_path: path, sort_order: sortOrder })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function deleteChangeOrderItemImage(
+  image: Pick<ChangeOrderItemImage, "id" | "storage_path">,
+): Promise<void> {
+  const { error: storageError } = await supabase.storage.from(IMAGES_BUCKET).remove([image.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from("change_order_item_images").delete().eq("id", image.id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Change order public share/signature (0069) — mirrors getSharedQuote/
+// signSharedQuote exactly.
+// ---------------------------------------------------------------------------
+
+export interface SharedChangeOrderItem {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  quantity: number;
+  unit: string | null;
+  images: { id: string; storage_path: string }[];
+}
+
+export interface SharedChangeOrderSection {
+  id: string;
+  name: string;
+  sort_order: number;
+  items: SharedChangeOrderItem[];
+}
+
+export interface SharedChangeOrder {
+  change_order: {
+    id: string;
+    title: string;
+    description: string | null;
+    reason: ChangeOrderReason | null;
+    amount: number;
+    status: ChangeOrderStatus;
+    schedule_impact_days: number | null;
+    signed_at: string | null;
+    signed_by: string | null;
+    created_at: string;
+  };
+  project: { name: string } | null;
+  client: { name: string } | null;
+  sections: SharedChangeOrderSection[];
+}
+
+export async function getSharedChangeOrder(token: string): Promise<SharedChangeOrder | null> {
+  const { data, error } = await supabase.rpc("get_shared_change_order", { p_token: token });
+  if (error) throw error;
+  return (data as SharedChangeOrder | null) ?? null;
+}
+
+export async function signSharedChangeOrder(token: string, signedBy: string): Promise<void> {
+  const { error } = await supabase.rpc("sign_change_order", { p_token: token, p_signed_by: signedBy });
+  if (error) throw error;
+}
+
+export async function declineSharedChangeOrder(token: string, comment: string): Promise<void> {
+  const { error } = await supabase.rpc("decline_shared_change_order", { p_token: token, p_comment: comment });
   if (error) throw error;
 }
 
@@ -2582,6 +2908,7 @@ export type ProjectEventKind =
   | "invoice_paid"
   | "expense_logged"
   | "change_order_created"
+  | "change_order_sent"
   | "change_order_approved"
   | "change_order_rejected"
   | "quote_reverted"
@@ -2630,7 +2957,7 @@ export async function logProjectEvent(
 // ---------------------------------------------------------------------------
 
 export async function generateShareLink(
-  kind: "quotes" | "invoices",
+  kind: "quotes" | "invoices" | "change_orders",
   id: string,
 ): Promise<string> {
   const token = crypto.randomUUID();
@@ -2639,7 +2966,7 @@ export async function generateShareLink(
   return token;
 }
 
-export async function revokeShareLink(kind: "quotes" | "invoices", id: string): Promise<void> {
+export async function revokeShareLink(kind: "quotes" | "invoices" | "change_orders", id: string): Promise<void> {
   const { error } = await supabase.from(kind).update({ share_token: null }).eq("id", id);
   if (error) throw error;
 }

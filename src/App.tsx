@@ -26,6 +26,7 @@ import { ProjectExpensesView } from "@/components/views/ProjectExpensesView";
 import { MaterialSheetsView } from "@/components/views/MaterialSheetsView";
 import { ExpensesView } from "@/components/views/ExpensesView";
 import { ProjectChangeOrdersView } from "@/components/views/ProjectChangeOrdersView";
+import { ProjectChangeOrderDetailView } from "@/components/views/ProjectChangeOrderDetailView";
 import { ProjectMaterialOrdersView } from "@/components/views/ProjectMaterialOrdersView";
 import { QuotesView } from "@/components/views/QuotesView";
 import { QuoteDetailView } from "@/components/views/QuoteDetailView";
@@ -67,6 +68,7 @@ import { EmployeeProjectDetailView } from "@/components/views/EmployeeProjectDet
 import { EmployeeAccountView } from "@/components/views/EmployeeAccountView";
 import SharedQuotePage from "./pages/SharedQuote";
 import SharedInvoicePage from "./pages/SharedInvoice";
+import SharedChangeOrderPage from "./pages/SharedChangeOrder";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -82,6 +84,7 @@ const App = () => (
           <Routes>
             {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
             <Route path="/quote/:token" element={<SharedQuotePage />} />
+            <Route path="/change-order/:token" element={<SharedChangeOrderPage />} />
             <Route path="/invoice/:token" element={<SharedInvoicePage />} />
 
             {/* Client Hub (/portal) — its own auth entirely (PortalAuthProvider,
@@ -124,6 +127,7 @@ const App = () => (
               />
               <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
               <Route path="/projects/:id/change-orders" element={<ProjectChangeOrdersView />} />
+              <Route path="/projects/:id/change-orders/:coId" element={<ProjectChangeOrderDetailView />} />
               <Route path="/projects/:id/material-orders" element={<ProjectMaterialOrdersView />} />
               <Route path="/quotes" element={<QuotesView />} />
               <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
