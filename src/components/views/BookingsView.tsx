@@ -18,6 +18,7 @@ import { seasonalBookings, type BookingJob } from "@/lib/bookings";
 import { dateKey, jobsOnDate } from "@/lib/bookingsSchedule";
 import { useRescheduleJob } from "@/hooks/use-reschedule-job";
 import { MiniMonth } from "@/components/bookings/MiniMonth";
+import { MonthThumbnail } from "@/components/bookings/MonthThumbnail";
 import { UnscheduledRail } from "@/components/bookings/UnscheduledRail";
 import { BookingsLegend } from "@/components/bookings/BookingsLegend";
 import { DaySidePanel } from "@/components/bookings/DaySidePanel";
@@ -42,6 +43,7 @@ type PanelState =
   | { mode: "day"; date: Date }
   | { mode: "month"; monthIndex: number }
   | { mode: "job"; job: BookingJob }
+  | { mode: "unscheduled" }
   | null;
 
 /**
@@ -101,7 +103,15 @@ export function BookingsView() {
 
   useEffect(() => {
     if (!focusMonth || isLoading) return;
-    document.getElementById(`year-month-${focusMonth.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Two matching elements exist (desktop's MiniMonth grid + mobile's
+    // MonthThumbnail grid) — only one is actually visible (display:none on
+    // the other via md:hidden/hidden md:flex), so pick whichever one is.
+    const candidates = [
+      document.getElementById(`year-month-${focusMonth.key}`),
+      document.getElementById(`mobile-year-month-${focusMonth.key}`),
+    ];
+    const visible = candidates.find((el) => el && el.offsetParent !== null);
+    (visible ?? candidates[0])?.scrollIntoView({ behavior: "smooth", block: "start" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]);
 
@@ -174,7 +184,9 @@ export function BookingsView() {
         ? (displayMonths[panel.monthIndex]?.label ?? "")
         : panel?.mode === "job"
           ? panel.job.projectName
-          : "";
+          : panel?.mode === "unscheduled"
+            ? `Unscheduled (${unscheduledJobs.length})`
+            : "";
   const panelJobs =
     panel?.mode === "day"
       ? jobsOnDate(nearbyJobs, panel.date)
@@ -182,7 +194,9 @@ export function BookingsView() {
         ? (displayMonths[panel.monthIndex]?.jobs ?? [])
         : panel?.mode === "job"
           ? [panel.job]
-          : [];
+          : panel?.mode === "unscheduled"
+            ? unscheduledJobs
+            : [];
 
   return (
     <div className="mx-auto w-full max-w-[1500px] animate-fade-in space-y-4">
@@ -232,30 +246,72 @@ export function BookingsView() {
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
-        <div className="flex flex-col items-stretch gap-5 lg:flex-row">
-          <UnscheduledRail jobs={unscheduledJobs} onOpen={(job) => setPanel({ mode: "job", job })} className="lg:w-[280px] lg:shrink-0" />
-          <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {displayMonths.map((m, i) => {
-              const monthDate = new Date(year, i, 1);
-              return (
-                <div key={m.key} id={`year-month-${m.key}`} className="scroll-mt-4">
-                  <MiniMonth
-                    year={year}
-                    month={i}
-                    monthLabel={monthDate.toLocaleDateString("en-US", { month: "long" })}
-                    committedDollars={m.committedDollars}
-                    jobCount={m.jobCount}
-                    jobs={m.jobs}
-                    today={today}
-                    onOpenMonth={() => setPanel({ mode: "month", monthIndex: i })}
-                    onOpenDay={(date) => setPanel({ mode: "day", date })}
-                    onMoveJob={handleMoveJob}
-                  />
-                </div>
-              );
-            })}
+        <>
+          {/* Mobile — a compact 4×3 grid of the same heat-tile
+              (MonthThumbnail) the Dashboard card uses, instead of
+              MiniMonth's detailed per-day calendar (no room for day
+              numbers/drag below md). Tapping a month or "Unscheduled"
+              opens the same DaySidePanel desktop's day/month clicks
+              already use — same component, not a separate mobile view. */}
+          <div className="md:hidden">
+            <button
+              type="button"
+              onClick={() => setPanel({ mode: "unscheduled" })}
+              className="mb-4 flex min-h-[44px] w-full items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
+            >
+              <span className="text-sm font-bold text-foreground">Unscheduled</span>
+              <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-bold text-muted-foreground">
+                {unscheduledJobs.length}
+              </span>
+            </button>
+
+            <div className="grid grid-cols-4 gap-1.5">
+              {displayMonths.map((m, i) => {
+                const [y, mo] = m.key.split("-").map(Number);
+                return (
+                  <div key={m.key} id={`mobile-year-month-${m.key}`} className="scroll-mt-4">
+                    <MonthThumbnail
+                      year={y}
+                      month={mo - 1}
+                      monthLabel={m.label}
+                      committedDollars={m.committedDollars}
+                      jobCount={m.jobCount}
+                      jobs={m.jobs}
+                      today={today}
+                      onOpen={() => setPanel({ mode: "month", monthIndex: i })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+
+          {/* Desktop — unchanged. */}
+          <div className="hidden md:flex md:flex-col md:items-stretch md:gap-5 lg:flex-row">
+            <UnscheduledRail jobs={unscheduledJobs} onOpen={(job) => setPanel({ mode: "job", job })} className="lg:w-[280px] lg:shrink-0" />
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {displayMonths.map((m, i) => {
+                const monthDate = new Date(year, i, 1);
+                return (
+                  <div key={m.key} id={`year-month-${m.key}`} className="scroll-mt-4">
+                    <MiniMonth
+                      year={year}
+                      month={i}
+                      monthLabel={monthDate.toLocaleDateString("en-US", { month: "long" })}
+                      committedDollars={m.committedDollars}
+                      jobCount={m.jobCount}
+                      jobs={m.jobs}
+                      today={today}
+                      onOpenMonth={() => setPanel({ mode: "month", monthIndex: i })}
+                      onOpenDay={(date) => setPanel({ mode: "day", date })}
+                      onMoveJob={handleMoveJob}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
 
       <DaySidePanel

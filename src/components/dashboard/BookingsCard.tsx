@@ -72,8 +72,10 @@ export function BookingsCard({ className }: { className?: string }) {
   );
 
   return (
-    <section className={cn("card-surface flex flex-col p-5 md:p-6", className)}>
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <section className={cn("card-surface flex flex-col p-4 md:p-6", className)}>
+      {/* Mobile: title, then one compact row (year nav + total) below it.
+          Desktop (md:): unchanged — title and nav/total side by side. */}
+      <header className="mb-4 flex flex-col gap-2 md:mb-5 md:flex-row md:flex-wrap md:items-start md:justify-between md:gap-3">
         <Link to="/bookings" className="group flex items-start gap-1 rounded-lg -m-1 p-1 hover:bg-muted/50">
           <div>
             <h3 className="text-base font-bold text-foreground">Bookings</h3>
@@ -81,7 +83,7 @@ export function BookingsCard({ className }: { className?: string }) {
           </div>
           <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
         </Link>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex items-center justify-between gap-3 md:flex-col md:items-end md:gap-2">
           <div className="flex items-center gap-1">
             {!isCurrentYear && (
               <button
@@ -112,10 +114,14 @@ export function BookingsCard({ className }: { className?: string }) {
           </div>
           {seasonTotalJobs > 0 && (
             <Link to="/bookings" className="text-right hover:opacity-80">
-              <p className="text-2xl font-extrabold tracking-tight tabular-nums text-foreground">
+              {/* Mobile: one compact line, smaller than desktop's headline size. */}
+              <p className="text-base font-extrabold tabular-nums text-foreground md:text-2xl md:tracking-tight">
                 {formatCurrency(seasonTotalDollars)}
+                <span className="ml-1 text-xs font-semibold text-muted-foreground md:hidden">
+                  · {pluralize(seasonTotalJobs, "job")}
+                </span>
               </p>
-              <p className="mt-1 text-xs font-semibold text-muted-foreground">
+              <p className="mt-1 hidden text-xs font-semibold text-muted-foreground md:block">
                 {pluralize(seasonTotalJobs, "job")} booked
               </p>
             </Link>
@@ -139,7 +145,7 @@ export function BookingsCard({ className }: { className?: string }) {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+        <div className="grid grid-cols-4 gap-1.5 md:grid-cols-4 md:gap-3 xl:grid-cols-6">
           {months.map((m) => {
             const [y, mo] = m.key.split("-").map(Number);
             return (
