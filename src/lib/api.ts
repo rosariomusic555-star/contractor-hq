@@ -755,6 +755,11 @@ export interface BusinessProfile {
    * ContractorHQ's. A path into the `images` bucket under
    * business-logos/{user_id}/..., resolved via getSignedImageUrls(). */
   logo_url: string | null;
+  /** "07:00"/"17:00" (0068) — the crew's work window, used to scope the
+   * Dashboard Weather Strip's rain-risk % to hours someone's actually
+   * outside rather than the full 24h day. */
+  crew_start_time: string;
+  crew_end_time: string;
 }
 
 export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
@@ -764,6 +769,8 @@ export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
   license: null,
   address: null,
   logo_url: null,
+  crew_start_time: "07:00",
+  crew_end_time: "17:00",
 };
 
 export async function getBusinessProfile(): Promise<BusinessProfile> {
@@ -782,6 +789,8 @@ export async function getBusinessProfile(): Promise<BusinessProfile> {
     license: data.license ?? null,
     address: data.address ?? null,
     logo_url: data.logo_url ?? null,
+    crew_start_time: data.crew_start_time ?? BUSINESS_PROFILE_FALLBACK.crew_start_time,
+    crew_end_time: data.crew_end_time ?? BUSINESS_PROFILE_FALLBACK.crew_end_time,
   };
 }
 
@@ -796,6 +805,8 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
       license: merged.license,
       address: merged.address,
       logo_url: merged.logo_url,
+      crew_start_time: merged.crew_start_time,
+      crew_end_time: merged.crew_end_time,
     })
     .select()
     .single();
@@ -807,6 +818,8 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
     license: data.license ?? null,
     address: data.address ?? null,
     logo_url: data.logo_url ?? null,
+    crew_start_time: data.crew_start_time ?? BUSINESS_PROFILE_FALLBACK.crew_start_time,
+    crew_end_time: data.crew_end_time ?? BUSINESS_PROFILE_FALLBACK.crew_end_time,
   };
 }
 

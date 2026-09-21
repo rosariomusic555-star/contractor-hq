@@ -13,7 +13,7 @@ import {
   type Appointment,
   type AppointmentType,
 } from "@/lib/api";
-import { getWeatherStrip } from "@/lib/weather";
+import { getWeatherStrip, DEFAULT_WORK_WINDOW, type WorkWindow } from "@/lib/weather";
 import { upcomingAppointmentRows } from "@/lib/upcomingAppointments";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
 
@@ -41,13 +41,19 @@ export function UpcomingAppointmentsCard({ className }: { className?: string }) 
   // second network call, once the Weather Strip above it has loaded.
   const { data: profile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const address = profile?.address?.trim() || null;
+  const workWindow: WorkWindow = profile
+    ? { start: profile.crew_start_time, end: profile.crew_end_time }
+    : DEFAULT_WORK_WINDOW;
   const { data: weatherDays } = useQuery({
-    queryKey: ["weather-strip", address],
-    queryFn: () => getWeatherStrip(address as string),
+    queryKey: ["weather-strip", address, workWindow.start, workWindow.end],
+    queryFn: () => getWeatherStrip(address as string, workWindow),
     enabled: !!address,
     staleTime: 60 * 60 * 1000,
     retry: false,
   });
+  // flagReason "rain" is already work-hours-scoped (see weather.ts) — an
+  // appointment during the day only cares about rain that would actually
+  // fall while it's happening, same as the Weather Strip's own icon.
   const rainDays = new Set((weatherDays ?? []).filter((d) => d.flagReason === "rain").map((d) => d.date));
 
   const opportunitiesById = new Map(opportunities.map((o) => [o.id, o]));

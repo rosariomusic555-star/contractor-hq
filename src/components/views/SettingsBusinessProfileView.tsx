@@ -171,6 +171,27 @@ export function SettingsBusinessProfileView() {
             />
             <p className="text-[11px] text-muted-subtle">Used to geocode the Dashboard's 7-day weather strip.</p>
           </div>
+          <div className="space-y-1.5">
+            <div className={FIELD_LABEL}>Crew start time</div>
+            <Input
+              type="time"
+              value={draft.crew_start_time}
+              onChange={(e) => edit({ crew_start_time: e.target.value || "07:00" })}
+              className={FIELD_INPUT}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className={FIELD_LABEL}>Crew end time</div>
+            <Input
+              type="time"
+              value={draft.crew_end_time}
+              onChange={(e) => edit({ crew_end_time: e.target.value || "17:00" })}
+              className={FIELD_INPUT}
+            />
+            <p className="text-[11px] text-muted-subtle md:col-span-2">
+              Scopes the weather strip's rain % to when a crew is actually outside.
+            </p>
+          </div>
           <div className="space-y-1.5 md:col-span-2">
             <div className={FIELD_LABEL}>Account email</div>
             <Input
