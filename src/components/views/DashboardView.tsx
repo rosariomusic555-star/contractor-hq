@@ -10,6 +10,7 @@ import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { WeatherStrip } from "@/components/dashboard/WeatherStrip";
 import { SeasonalBacklogCard } from "@/components/dashboard/SeasonalBacklogCard";
 import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliveriesCard";
+import { UpcomingAppointmentsCard } from "@/components/dashboard/UpcomingAppointmentsCard";
 import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
 import { FollowUpsCard } from "@/components/dashboard/FollowUpsCard";
@@ -243,8 +244,11 @@ export function DashboardView() {
         <OngoingJobsCard />
       </div>
 
-      {/* ---- Material deliveries ---- */}
-      <MaterialDeliveriesCard />
+      {/* ---- Material deliveries + upcoming appointments ---- */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <MaterialDeliveriesCard />
+        <UpcomingAppointmentsCard />
+      </div>
 
       {/* ---- Follow-ups + Needs you ---- */}
       <div className="grid gap-5 lg:grid-cols-2">
