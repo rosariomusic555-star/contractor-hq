@@ -161,7 +161,7 @@ export const TOOLS = [
   {
     name: "get_pipeline_summary",
     description:
-      "A rollup of the sales pipeline: opportunity counts per stage, and per lead_source (leads, won, lost, win rate, estimated open/won value). This is the tool for 'how's my pipeline doing', 'where are my leads coming from', 'what's my win rate' and similar questions — don't try to compute this yourself from list_opportunities.",
+      "A rollup of the sales pipeline: opportunity counts per stage, and per lead_source (leads, won, lost, win rate, open/won value from each lead's linked quote — 0 for a lead with no quote yet). This is the tool for 'how's my pipeline doing', 'where are my leads coming from', 'what's my win rate' and similar questions — don't try to compute this yourself from list_opportunities.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -728,10 +728,23 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
   };
 }
 
+// A lead's dollar value is its linked quote's real total (quote_id), never
+// a manually-typed estimate — the opportunities.estimated_value column is
+// no longer read anywhere in the app. null when there's no quote yet.
+const OPPORTUNITY_QUOTE_SELECT =
+  "quote:quotes(id,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected)))";
+
+// deno-lint-ignore no-explicit-any
+function opportunityQuoteValue(o: any): number | null {
+  return o.quote ? quoteTotal(o.quote.quote_sections) : null;
+}
+
 async function listOpportunitiesTool(input: { stage?: string; search?: string }, sb: SupabaseClient) {
   let q = sb
     .from("opportunities")
-    .select("id,title,stage,estimated_value,lead_source,next_action,next_action_date,updated_at,client:clients(name)")
+    .select(
+      `id,title,stage,lead_source,next_action,next_action_date,updated_at,client:clients(name),${OPPORTUNITY_QUOTE_SELECT}`,
+    )
     .order("updated_at", { ascending: false })
     .limit(100);
   if (input.stage) q = q.eq("stage", input.stage);
@@ -744,7 +757,7 @@ async function listOpportunitiesTool(input: { stage?: string; search?: string },
     title: o.title,
     client_name: o.client?.name ?? null,
     stage: o.stage,
-    estimated_value: o.estimated_value,
+    quote_value: opportunityQuoteValue(o),
     lead_source: o.lead_source,
     next_action: o.next_action,
     next_action_date: o.next_action_date,
@@ -758,7 +771,9 @@ async function listOpportunitiesTool(input: { stage?: string; search?: string },
 }
 
 async function getPipelineSummaryTool(_input: Record<string, never>, sb: SupabaseClient) {
-  const { data, error } = await sb.from("opportunities").select("stage,lead_source,estimated_value");
+  const { data, error } = await sb
+    .from("opportunities")
+    .select(`stage,lead_source,${OPPORTUNITY_QUOTE_SELECT}`);
   if (error) throw error;
 
   const byStage: Record<string, number> = {};
@@ -769,12 +784,13 @@ async function getPipelineSummaryTool(_input: Record<string, never>, sb: Supabas
     byStage[o.stage] = (byStage[o.stage] ?? 0) + 1;
     const key = o.lead_source?.trim() || "Unknown";
     const row = bySource.get(key) ?? { leads: 0, won: 0, lost: 0, open_value: 0, won_value: 0 };
+    const value = opportunityQuoteValue(o) ?? 0;
     row.leads += 1;
     if (o.stage === "won") {
       row.won += 1;
-      row.won_value += o.estimated_value ?? 0;
+      row.won_value += value;
     } else if (o.stage === "lost") row.lost += 1;
-    else row.open_value += o.estimated_value ?? 0;
+    else row.open_value += value;
     bySource.set(key, row);
   }
 

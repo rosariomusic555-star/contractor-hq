@@ -3649,12 +3649,7 @@ export async function createOpportunity(input: {
   address?: string | null;
   project_type?: string | null;
   description?: string | null;
-  estimated_value?: number | null;
-  probability?: number | null;
-  expected_close_date?: string | null;
   lead_source?: string | null;
-  assigned_to?: string | null;
-  priority?: OpportunityPriority;
 }): Promise<Opportunity> {
   const { data, error } = await supabase
     .from("opportunities")
@@ -3664,12 +3659,7 @@ export async function createOpportunity(input: {
       address: input.address ?? null,
       project_type: input.project_type ?? null,
       description: input.description ?? null,
-      estimated_value: input.estimated_value ?? null,
-      probability: input.probability ?? null,
-      expected_close_date: input.expected_close_date ?? null,
       lead_source: input.lead_source ?? null,
-      assigned_to: input.assigned_to ?? null,
-      priority: input.priority ?? "normal",
     })
     .select(OPPORTUNITY_SELECT)
     .single();
@@ -3686,13 +3676,8 @@ export async function updateOpportunity(
       | "address"
       | "project_type"
       | "description"
-      | "estimated_value"
-      | "probability"
-      | "expected_close_date"
       | "lead_source"
-      | "assigned_to"
       | "stage"
-      | "priority"
       | "tags"
       | "measurements"
       | "lost_reason"

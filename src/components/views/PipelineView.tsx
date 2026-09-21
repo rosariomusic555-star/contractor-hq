@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
@@ -18,6 +18,8 @@ import {
   createOpportunity,
   moveOpportunityStage,
   listClients,
+  listQuotes,
+  quoteTotal,
   type Opportunity,
   type OpportunityStage,
 } from "@/lib/api";
@@ -47,6 +49,15 @@ export function PipelineView() {
     queryKey: ["opportunities"],
     queryFn: listOpportunities,
   });
+  // A lead's "value" used to be a manually-typed estimate; now it's the
+  // real total of whatever quote is actually linked to it (opportunity.
+  // quote_id), or nothing at all until one exists — so every dollar figure
+  // on this page is real, never a guess. Keyed by quote id.
+  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
+  const quoteValueById = useMemo(
+    () => new Map(quotes.map((q) => [q.id, quoteTotal(q.quote_sections)])),
+    [quotes],
+  );
   const qc = useQueryClient();
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -113,6 +124,7 @@ export function PipelineView() {
                     stage={stage}
                     opportunities={opportunities.filter((o) => o.stage === stage)}
                     closing={CLOSING_OPPORTUNITY_STAGES.includes(stage)}
+                    quoteValueById={quoteValueById}
                   />
                 ))}
               </div>
@@ -133,7 +145,7 @@ export function PipelineView() {
                   </div>
                   <div className="space-y-2">
                     {items.map((o) => (
-                      <OpportunityCard key={o.id} opportunity={o} />
+                      <OpportunityCard key={o.id} opportunity={o} quoteValueById={quoteValueById} />
                     ))}
                   </div>
                 </div>
@@ -145,7 +157,7 @@ export function PipelineView() {
           </div>
         </>
       ) : (
-        <LeadSourceReport opportunities={opportunities} />
+        <LeadSourceReport opportunities={opportunities} quoteValueById={quoteValueById} />
       )}
 
       <CreateOpportunityDialog open={createOpen} onOpenChange={setCreateOpen} />
@@ -157,6 +169,7 @@ function PipelineColumn({
   stage,
   opportunities,
   closing,
+  quoteValueById,
 }: {
   stage: OpportunityStage;
   opportunities: Opportunity[];
@@ -164,6 +177,7 @@ function PipelineColumn({
    * outcome and set off from the active stages with a left gap/divider,
    * rather than blending in as just two more columns. */
   closing?: boolean;
+  quoteValueById: Map<string, number>;
 }) {
   const meta = opportunityStageMeta(stage);
   const isWon = stage === "won";
@@ -193,7 +207,7 @@ function PipelineColumn({
               <Draggable key={o.id} draggableId={o.id} index={index}>
                 {(provided, snapshot) => (
                   <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                    <OpportunityCard opportunity={o} dragging={snapshot.isDragging} />
+                    <OpportunityCard opportunity={o} dragging={snapshot.isDragging} quoteValueById={quoteValueById} />
                   </div>
                 )}
               </Draggable>
@@ -206,8 +220,19 @@ function PipelineColumn({
   );
 }
 
-function OpportunityCard({ opportunity, dragging }: { opportunity: Opportunity; dragging?: boolean }) {
+function OpportunityCard({
+  opportunity,
+  dragging,
+  quoteValueById,
+}: {
+  opportunity: Opportunity;
+  dragging?: boolean;
+  quoteValueById: Map<string, number>;
+}) {
   const overdue = !!opportunity.next_action_date && opportunity.next_action_date < today();
+  // A lead's value on this card is its linked quote's real total, never a
+  // manual estimate — nothing shows until a quote actually exists.
+  const quoteValue = opportunity.quote_id ? quoteValueById.get(opportunity.quote_id) : undefined;
   return (
     <Link
       to={`/pipeline/${opportunity.id}`}
@@ -222,9 +247,9 @@ function OpportunityCard({ opportunity, dragging }: { opportunity: Opportunity; 
         </div>
       )}
       <div className="mt-1.5 flex items-center justify-between gap-2">
-        {opportunity.estimated_value != null ? (
+        {quoteValue != null ? (
           <span className="text-sm font-extrabold tabular-nums text-foreground">
-            {formatCurrency(opportunity.estimated_value)}
+            {formatCurrency(quoteValue)}
           </span>
         ) : (
           <span />
@@ -262,7 +287,6 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [projectType, setProjectType] = useState("");
-  const [estimatedValue, setEstimatedValue] = useState("");
   const [leadSource, setLeadSource] = useState("");
 
   const selectedClient = clients.find((c) => c.id === clientId) ?? null;
@@ -272,7 +296,6 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
       setClientId(null);
       setTitle("");
       setProjectType("");
-      setEstimatedValue("");
       setLeadSource("");
     }
   }, [open]);
@@ -283,7 +306,6 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
         client_id: clientId!,
         title: title.trim(),
         project_type: projectType.trim() || null,
-        estimated_value: estimatedValue ? Number(estimatedValue) : null,
         lead_source: leadSource.trim() || null,
       }),
     onSuccess: (opp) => {
@@ -317,12 +339,6 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
             </div>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (e.g. Backyard patio)" />
             <Input value={projectType} onChange={(e) => setProjectType(e.target.value)} placeholder="Project type (optional)" />
-            <Input
-              value={estimatedValue}
-              onChange={(e) => setEstimatedValue(e.target.value)}
-              placeholder="Estimated value (optional)"
-              type="number"
-            />
             <Input value={leadSource} onChange={(e) => setLeadSource(e.target.value)} placeholder="Lead source (optional)" />
           </div>
           <Button
@@ -349,27 +365,31 @@ interface SourceRow {
 }
 
 /**
- * CRM Phase 6 — rolls opportunities up by lead_source. Deliberately
- * labeled "estimated value," not "revenue": estimated_value is real
- * user-entered data, but tying it to actual invoiced revenue would mean
- * an N+1 fetch of every won opportunity's linked project/quote/invoice
- * chain for a summary view — not worth it at this app's scale, and this
- * app never fabricates precision the data doesn't support (see
- * demoData.ts's rules).
+ * CRM Phase 6 — rolls opportunities up by lead_source. Value columns are
+ * the real total of each opportunity's linked quote (quoteValueById, keyed
+ * by quote_id) — a lead with no quote yet contributes nothing, never a
+ * guessed estimate (the old manual "estimated value" field is gone).
  */
-function LeadSourceReport({ opportunities }: { opportunities: Opportunity[] }) {
+function LeadSourceReport({
+  opportunities,
+  quoteValueById,
+}: {
+  opportunities: Opportunity[];
+  quoteValueById: Map<string, number>;
+}) {
   const bySource = new Map<string, SourceRow>();
   for (const o of opportunities) {
     const key = o.lead_source?.trim() || "Unknown";
     const row = bySource.get(key) ?? { source: key, leads: 0, won: 0, lost: 0, openValue: 0, wonValue: 0 };
+    const value = o.quote_id ? (quoteValueById.get(o.quote_id) ?? 0) : 0;
     row.leads += 1;
     if (o.stage === "won") {
       row.won += 1;
-      row.wonValue += o.estimated_value ?? 0;
+      row.wonValue += value;
     } else if (o.stage === "lost") {
       row.lost += 1;
     } else {
-      row.openValue += o.estimated_value ?? 0;
+      row.openValue += value;
     }
     bySource.set(key, row);
   }
@@ -389,8 +409,8 @@ function LeadSourceReport({ opportunities }: { opportunities: Opportunity[] }) {
             <th className="px-4 py-3 text-right">Won</th>
             <th className="px-4 py-3 text-right">Lost</th>
             <th className="px-4 py-3 text-right">Win rate</th>
-            <th className="px-4 py-3 text-right">Est. value (open)</th>
-            <th className="px-4 py-3 text-right">Won value (est.)</th>
+            <th className="px-4 py-3 text-right">Quote value (open)</th>
+            <th className="px-4 py-3 text-right">Quote value (won)</th>
           </tr>
         </thead>
         <tbody>

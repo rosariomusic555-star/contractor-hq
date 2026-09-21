@@ -34,7 +34,6 @@ import {
   createQuoteFromOpportunity,
   type Opportunity,
   type OpportunityStage,
-  type OpportunityPriority,
   type ActivityKind,
 } from "@/lib/api";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
@@ -89,10 +88,10 @@ export function OpportunityDetailView() {
       delete next[key];
       return next;
     });
-  const commitField = (key: keyof Opportunity, current: string | number | null) => {
+  const commitField = (key: keyof Opportunity, current: string | null) => {
     const value = draft[key];
     if (value === undefined) return;
-    if (value === (current == null ? "" : String(current))) {
+    if (value === (current ?? "")) {
       clearDraft(key);
       return;
     }
@@ -100,9 +99,8 @@ export function OpportunityDetailView() {
     // it immediately (before the network round trip resolves) opens a window
     // where a same-gesture click elsewhere (e.g. "Create quote") reads
     // neither the just-typed draft nor the not-yet-updated cached value.
-    const isNumeric = key === "estimated_value" || key === "probability";
     updateMut.mutate(
-      { [key]: value.trim() === "" ? null : isNumeric ? Number(value) : value.trim() },
+      { [key]: value.trim() === "" ? null : value.trim() },
       { onSuccess: () => clearDraft(key) },
     );
   };
@@ -168,65 +166,12 @@ export function OpportunityDetailView() {
                 />
               </div>
               <div className="space-y-1">
-                <div className={FIELD_LABEL}>Estimated value</div>
-                <Input
-                  type="number"
-                  value={field("estimated_value", opportunity.estimated_value)}
-                  onChange={(e) => setField("estimated_value", e.target.value)}
-                  onBlur={() => commitField("estimated_value", opportunity.estimated_value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <div className={FIELD_LABEL}>Probability (%)</div>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={field("probability", opportunity.probability)}
-                  onChange={(e) => setField("probability", e.target.value)}
-                  onBlur={() => commitField("probability", opportunity.probability)}
-                />
-              </div>
-              <div className="space-y-1">
-                <div className={FIELD_LABEL}>Expected close date</div>
-                <Input
-                  type="date"
-                  value={field("expected_close_date", opportunity.expected_close_date)}
-                  onChange={(e) => setField("expected_close_date", e.target.value)}
-                  onBlur={() => commitField("expected_close_date", opportunity.expected_close_date)}
-                />
-              </div>
-              <div className="space-y-1">
                 <div className={FIELD_LABEL}>Lead source</div>
                 <Input
                   value={field("lead_source", opportunity.lead_source)}
                   onChange={(e) => setField("lead_source", e.target.value)}
                   onBlur={() => commitField("lead_source", opportunity.lead_source)}
                 />
-              </div>
-              <div className="space-y-1">
-                <div className={FIELD_LABEL}>Assigned to</div>
-                <Input
-                  value={field("assigned_to", opportunity.assigned_to)}
-                  onChange={(e) => setField("assigned_to", e.target.value)}
-                  onBlur={() => commitField("assigned_to", opportunity.assigned_to)}
-                />
-              </div>
-              <div className="space-y-1">
-                <div className={FIELD_LABEL}>Priority</div>
-                <Select
-                  value={opportunity.priority}
-                  onValueChange={(v) => updateMut.mutate({ priority: v as OpportunityPriority })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
             </div>
             <div className="space-y-1">
