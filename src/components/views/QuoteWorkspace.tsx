@@ -87,11 +87,10 @@ import {
   listProductCatalog,
   listQuickQuoteRates,
   getOpportunityByQuoteId,
-  moveOpportunityStage,
+  advanceStageOnQuoteSent,
   type Quote,
   type Category,
 } from "@/lib/api";
-import { ToastAction } from "@/components/ui/toast";
 import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
 import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
@@ -580,27 +579,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
       setShareUrl(`${window.location.origin}/quote/${token}`);
 
-      // CRM Phase 5 — sending a proposal *offers* to advance the linked
-      // opportunity's stage (never silently), per the ask.
+      // Pipeline auto-advance — sending a quote (first send or a
+      // revision) moves the linked opportunity to Proposal Sent, the one
+      // "the data already exists" trigger that lives client-side (the
+      // other one, Won on signature, has to live in the sign_quote/
+      // portal_approve_quote SQL — see migration 0072 — since neither
+      // signing path runs with an owner session).
       const opportunity = await getOpportunityByQuoteId(quote.id);
-      if (opportunity && opportunity.stage !== "proposal_sent" && opportunity.stage !== "won" && opportunity.stage !== "lost") {
-        toast({
-          title: "Quote shared",
-          description: `Advance "${opportunity.title}" to Proposal Sent?`,
-          action: (
-            <ToastAction
-              altText="Advance stage"
-              onClick={() => {
-                moveOpportunityStage(opportunity, "proposal_sent").then(() => {
-                  qc.invalidateQueries({ queryKey: ["opportunity", opportunity.id] });
-                  qc.invalidateQueries({ queryKey: ["opportunities"] });
-                });
-              }}
-            >
-              Advance
-            </ToastAction>
-          ),
-        });
+      if (opportunity) {
+        await advanceStageOnQuoteSent(opportunity);
+        qc.invalidateQueries({ queryKey: ["opportunity", opportunity.id] });
+        qc.invalidateQueries({ queryKey: ["opportunities"] });
       }
     },
     onError,

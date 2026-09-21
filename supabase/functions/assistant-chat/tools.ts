@@ -148,8 +148,8 @@ export const TOOLS = [
         stage: {
           type: "string",
           enum: [
-            "new_lead", "attempting_contact", "contacted", "qualified", "site_visit_scheduled",
-            "site_visit_completed", "estimate_in_progress", "proposal_sent", "follow_up", "won", "lost",
+            "new_lead", "contacted", "site_visit_scheduled", "site_visit_done",
+            "proposal_sent", "revisions", "won", "lost",
           ],
         },
         search: { type: "string", description: "Case-insensitive substring match on the opportunity title or client name." },
@@ -689,7 +689,7 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
     // deno-lint-ignore no-explicit-any
     .map((t: any) => ({ title: t.title, task_type: t.task_type, client_name: t.client?.name ?? null, due_date: t.due_at.slice(0, 10) }));
 
-  const STALE_LEAD_STAGES = ["new_lead", "attempting_contact", "contacted", "qualified"];
+  const STALE_LEAD_STAGES = ["new_lead", "contacted"];
   const { data: opportunities, error: oErr } = await sb
     .from("opportunities")
     .select("title,stage,next_action_date,updated_at,client:clients(name)")

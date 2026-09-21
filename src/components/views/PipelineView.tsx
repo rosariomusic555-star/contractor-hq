@@ -12,7 +12,7 @@ import { FilterSegment, type FilterOption } from "@/components/common/FilterCont
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
-import { OPPORTUNITY_STAGES, opportunityStageMeta } from "@/lib/statusMeta";
+import { OPPORTUNITY_STAGES, CLOSING_OPPORTUNITY_STAGES, opportunityStageMeta } from "@/lib/statusMeta";
 import {
   listOpportunities,
   createOpportunity,
@@ -27,14 +27,20 @@ const today = () => new Date().toISOString().slice(0, 10);
 type PipelineTab = "board" | "sources";
 
 /**
- * The sales pipeline — a Kanban board on desktop (drag between the 11
+ * The sales pipeline — a Kanban board on desktop (drag between the 8
  * default stages, see statusMeta.ts's OPPORTUNITY_STAGES), a stage-
  * grouped list with a "Move" picker on mobile (drag-and-drop doesn't
- * work well on touch for this many columns). Every stage change goes
+ * work well on touch for this many columns). Won/Lost (statusMeta.ts's
+ * CLOSING_OPPORTUNITY_STAGES) render as visually distinct end columns —
+ * see PipelineColumn's `closing` styling. Every stage change goes
  * through moveOpportunityStage() so it's recorded in the activity
- * timeline, never a silent overwrite. A "By source" tab (CRM Phase 6)
- * rolls the same opportunities up by lead_source for a quick read on
- * where the pipeline is coming from.
+ * timeline, never a silent overwrite — manual moves (drag, or the Select
+ * on the detail page) always take precedence over the pipeline's own
+ * auto-advance triggers (site visit scheduled/done, quote sent, quote
+ * signed — see api.ts's autoAdvanceStage/advanceStageOnQuoteSent and
+ * migration 0072's sign_quote/portal_approve_quote). A "By source" tab
+ * (CRM Phase 6) rolls the same opportunities up by lead_source for a
+ * quick read on where the pipeline is coming from.
  */
 export function PipelineView() {
   const { data: opportunities = [], isLoading } = useQuery({
@@ -100,9 +106,14 @@ export function PipelineView() {
           {/* Desktop: drag-and-drop board */}
           <div className="hidden overflow-x-auto pb-4 lg:block">
             <DragDropContext onDragEnd={onDragEnd}>
-              <div className="flex gap-3" style={{ minWidth: OPPORTUNITY_STAGES.length * 272 }}>
+              <div className="flex gap-3" style={{ minWidth: OPPORTUNITY_STAGES.length * 272 + 16 }}>
                 {OPPORTUNITY_STAGES.map((stage) => (
-                  <PipelineColumn key={stage} stage={stage} opportunities={opportunities.filter((o) => o.stage === stage)} />
+                  <PipelineColumn
+                    key={stage}
+                    stage={stage}
+                    opportunities={opportunities.filter((o) => o.stage === stage)}
+                    closing={CLOSING_OPPORTUNITY_STAGES.includes(stage)}
+                  />
                 ))}
               </div>
             </DragDropContext>
@@ -142,10 +153,31 @@ export function PipelineView() {
   );
 }
 
-function PipelineColumn({ stage, opportunities }: { stage: OpportunityStage; opportunities: Opportunity[] }) {
+function PipelineColumn({
+  stage,
+  opportunities,
+  closing,
+}: {
+  stage: OpportunityStage;
+  opportunities: Opportunity[];
+  /** Won/Lost — rendered as visually distinct end columns: tinted by
+   * outcome and set off from the active stages with a left gap/divider,
+   * rather than blending in as just two more columns. */
+  closing?: boolean;
+}) {
   const meta = opportunityStageMeta(stage);
+  const isWon = stage === "won";
   return (
-    <div className="flex w-64 shrink-0 flex-col rounded-card bg-muted/40 p-2.5">
+    <div
+      className={cn(
+        "flex w-64 shrink-0 flex-col rounded-card p-2.5",
+        closing
+          ? isWon
+            ? "ml-3 border border-success/30 bg-success/10"
+            : "border border-destructive/20 bg-destructive/5"
+          : "bg-muted/40",
+      )}
+    >
       <div className="flex items-center justify-between px-1.5 pb-2">
         <span className="text-xs font-bold text-foreground">{meta.label}</span>
         <span className="text-xs font-semibold text-muted-foreground">{opportunities.length}</span>

@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, pluralize } from "@/lib/utils";
+import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import { OPPORTUNITY_STAGES, opportunityStageMeta, quoteStatusMeta } from "@/lib/statusMeta";
 import {
@@ -133,7 +133,7 @@ export function OpportunityDetailView() {
           </p>
         </div>
         <Select value={opportunity.stage} onValueChange={(v) => moveStageMut.mutate(v as OpportunityStage)}>
-          <SelectTrigger className={`w-56 ${meta.badge}`}>
+          <SelectTrigger className={cn("w-56", meta.badge, meta.tone === "greenSolid" && "!bg-success")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -318,11 +318,12 @@ export function OpportunityDetailView() {
  * CRM Phase 5 (Quote/Proposal Integration) — no quote yet: a "Create
  * quote" button that carries the opportunity's customer/address/
  * description/measurements forward via createQuoteFromOpportunity()
- * (no retyping). A linked quote: its live status + total, and once
- * that quote is approved, a "Create project" nudge that marks this
- * opportunity Won and hands off to the exact same createProject/
- * updateQuote flow the standalone-quote "Create project" nudge already
- * uses — never a second client or project record.
+ * (no retyping). A linked quote: its live status + total. Signing the
+ * quote already moves this opportunity to Won automatically (migration
+ * 0072); once it's approved and there's still no project, a "Create
+ * project" nudge hands off to the exact same createProject/updateQuote
+ * flow the standalone-quote "Create project" nudge already uses — never
+ * a second client or project record.
  */
 function OpportunityQuoteCard({ opportunity }: { opportunity: Opportunity }) {
   const navigate = useNavigate();
@@ -346,8 +347,12 @@ function OpportunityQuoteCard({ opportunity }: { opportunity: Opportunity }) {
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
+  // Signing already moves the opportunity to Won automatically (see
+  // migration 0072's sign_quote/portal_approve_quote) — by the time a
+  // quote reads "approved" here, the stage is already there. This nudge
+  // is really "there's a signed quote and no project yet."
   const approved = quote?.status === "approved";
-  const showWonNudge = approved && opportunity.stage !== "won" && opportunity.stage !== "lost";
+  const showWonNudge = approved && !opportunity.project_id;
 
   return (
     <section className="card-surface space-y-3 p-5">

@@ -166,6 +166,7 @@ const ALERT_BADGE_CLASS: Record<OngoingJobCard["alerts"][number]["key"], string>
   over_duration: "badge-status badge-overdue",
   co_awaiting: "badge-status badge-pending",
   rain: "badge-status badge-overdue",
+  deposit_not_received: "badge-status badge-overdue",
 };
 
 function JobSnapshotCard({ card, coverUrl }: { card: OngoingJobCard; coverUrl: string | null }) {

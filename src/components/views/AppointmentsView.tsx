@@ -218,7 +218,13 @@ function CompleteAppointmentDialog({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["appointments"] });
       qc.invalidateQueries({ queryKey: ["client-appointments", appointment.client_id] });
-      if (appointment.opportunity_id) qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
+      if (appointment.opportunity_id) {
+        qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
+        // Completing a site visit can auto-advance the opportunity's
+        // stage (see setAppointmentStatus in api.ts) — refresh it too.
+        qc.invalidateQueries({ queryKey: ["opportunity", appointment.opportunity_id] });
+        qc.invalidateQueries({ queryKey: ["opportunities"] });
+      }
       qc.invalidateQueries({ queryKey: ["activities", appointment.client_id] });
       onOpenChange(false);
     },
@@ -295,7 +301,13 @@ export function CreateAppointmentDialog({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["appointments"] });
       if (defaultClientId) qc.invalidateQueries({ queryKey: ["client-appointments", defaultClientId] });
-      if (defaultOpportunityId) qc.invalidateQueries({ queryKey: ["opportunity-appointments", defaultOpportunityId] });
+      if (defaultOpportunityId) {
+        qc.invalidateQueries({ queryKey: ["opportunity-appointments", defaultOpportunityId] });
+        // Scheduling a site visit can auto-advance the opportunity's
+        // stage (see createAppointment in api.ts) — refresh it too.
+        qc.invalidateQueries({ queryKey: ["opportunity", defaultOpportunityId] });
+        qc.invalidateQueries({ queryKey: ["opportunities"] });
+      }
       qc.invalidateQueries({ queryKey: ["activities"] });
       onOpenChange(false);
     },

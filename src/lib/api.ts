@@ -558,6 +558,32 @@ export function projectContractValue(quotes: Quote[], changeOrders: ChangeOrder[
   return base + approvedChangeOrderTotal(changeOrders);
 }
 
+/** Won means signed (see the Pipeline's stage meanings) — deposit is
+ * tracked separately, here, not as part of the pipeline. A project's
+ * deposit counts as received once paid invoices cover the headline
+ * quote's deposit_percentage of the contract total; there's no dedicated
+ * "deposit invoice" concept in the schema, so this is derived, live, from
+ * the same figures every other money screen already shows (no second
+ * calculation path) — never a stored flag, so it clears the moment enough
+ * gets paid, with no extra bookkeeping. Only flags true once
+ * DEPOSIT_GRACE_DAYS have passed since signing, so a job that signed
+ * yesterday doesn't immediately read as overdue. */
+export const DEPOSIT_GRACE_DAYS = 3;
+
+export function isDepositOverdue(
+  headlineQuote: Quote | undefined,
+  contractTotal: number,
+  paidTotal: number,
+  now: Date = new Date(),
+): boolean {
+  if (!headlineQuote?.signed_at) return false;
+  const daysSinceSigned = (now.getTime() - new Date(headlineQuote.signed_at).getTime()) / 86_400_000;
+  if (daysSinceSigned < DEPOSIT_GRACE_DAYS) return false;
+  const depositAmount = contractTotal * (headlineQuote.deposit_percentage / 100);
+  if (depositAmount <= 0) return false;
+  return paidTotal < depositAmount;
+}
+
 /** Materials cost of goods = sum of quantity * unit_cost across all items. */
 export function materialsCogs(sections: MaterialsSection[] = []): number {
   let total = 0;
@@ -3529,14 +3555,11 @@ export async function logActivity(
 
 export type OpportunityStage =
   | "new_lead"
-  | "attempting_contact"
   | "contacted"
-  | "qualified"
   | "site_visit_scheduled"
-  | "site_visit_completed"
-  | "estimate_in_progress"
+  | "site_visit_done"
   | "proposal_sent"
-  | "follow_up"
+  | "revisions"
   | "won"
   | "lost";
 
@@ -3718,26 +3741,62 @@ function opportunityStageLabel(stage: OpportunityStage): string {
     .join(" ");
 }
 
-// Stages that come before real estimate work starts — createQuoteFromOpportunity
-// only auto-advances out of these, never regressing an opportunity that's
-// already further along (e.g. re-quoting a "proposal_sent" opportunity
-// shouldn't knock it back a stage).
-const PRE_ESTIMATE_STAGES: OpportunityStage[] = [
+// The active (non-closing) pipeline order, ranked — every "the data
+// already exists" auto-advance trigger (site visit scheduled/done, quote
+// sent) checks its move against this before calling moveOpportunityStage,
+// so none of them can ever knock a lead backward or reopen a closed one.
+// won/lost are deliberately excluded (rank -1, see autoAdvanceStage) —
+// they're terminal, never part of "forward progress" comparisons.
+const ACTIVE_STAGE_ORDER: OpportunityStage[] = [
   "new_lead",
-  "attempting_contact",
   "contacted",
-  "qualified",
   "site_visit_scheduled",
-  "site_visit_completed",
+  "site_visit_done",
+  "proposal_sent",
+  "revisions",
 ];
+
+/**
+ * Shared guard behind every auto-advance trigger except the one
+ * deliberate exception to "never move backward" (Revisions -> Proposal
+ * Sent on resend — see advanceStageOnQuoteSent, which special-cases that
+ * before falling back to this). Only moves forward, and never touches an
+ * opportunity that's already won/lost.
+ */
+async function autoAdvanceStage(
+  opportunity: Pick<Opportunity, "id" | "client_id" | "stage">,
+  toStage: OpportunityStage,
+): Promise<void> {
+  const fromRank = ACTIVE_STAGE_ORDER.indexOf(opportunity.stage);
+  const toRank = ACTIVE_STAGE_ORDER.indexOf(toStage);
+  if (fromRank === -1 || toRank === -1 || fromRank >= toRank) return;
+  await moveOpportunityStage(opportunity, toStage);
+}
+
+/**
+ * Sending a quote — first send or a revision — advances the linked
+ * opportunity to Proposal Sent. This is the one place "never move
+ * backward" has a deliberate exception: an opportunity sitting in
+ * Revisions (client asked for changes, a revised quote is owed) moves
+ * back to Proposal Sent the instant that revised quote goes out. Called
+ * from QuoteWorkspace's "Send for signature" action.
+ */
+export async function advanceStageOnQuoteSent(
+  opportunity: Pick<Opportunity, "id" | "client_id" | "stage">,
+): Promise<void> {
+  if (opportunity.stage === "revisions") {
+    await moveOpportunityStage(opportunity, "proposal_sent");
+    return;
+  }
+  await autoAdvanceStage(opportunity, "proposal_sent");
+}
 
 /**
  * CRM Phase 5 (Quote/Proposal Integration) — creates a quote carrying the
  * opportunity's customer, address, description and measurements forward
- * (no retyping), links it back via opportunities.quote_id, advances the
- * stage to "estimate_in_progress" (only if still earlier in the pipeline),
- * and logs it — same combined update+log shape as moveOpportunityStage()
- * and setAppointmentStatus(), so this is never a silent side effect.
+ * (no retyping) and links it back via opportunities.quote_id. Creating a
+ * quote is not itself a pipeline trigger (only *sending* one is, via
+ * advanceStageOnQuoteSent) — stage is left untouched here.
  * Never creates a second client or project record; an opportunity that
  * already has a quote_id should route to that existing quote instead of
  * calling this again.
@@ -3760,9 +3819,6 @@ export async function createQuoteFromOpportunity(
     opportunity_id: opportunity.id,
     quote_id: quote.id,
   });
-  if (PRE_ESTIMATE_STAGES.includes(opportunity.stage)) {
-    await moveOpportunityStage(opportunity, "estimate_in_progress");
-  }
   return quote;
 }
 
@@ -4105,6 +4161,13 @@ export async function createAppointment(input: {
     opportunity_id: input.opportunity_id ?? null,
     meta: { appointment_id: data.id, date_time: input.date_time },
   });
+  // CRM auto-advance: scheduling a site visit for a lead moves it to Site
+  // Visit Scheduled (see autoAdvanceStage — never backward, never a
+  // closed lead).
+  if ((input.type ?? "site_visit") === "site_visit" && input.opportunity_id) {
+    const opportunity = await getOpportunity(input.opportunity_id);
+    await autoAdvanceStage(opportunity, "site_visit_scheduled");
+  }
   return data;
 }
 
@@ -4151,6 +4214,12 @@ export async function setAppointmentStatus(
       `Appointment completed: ${APPOINTMENT_TYPE_LABEL[appointment.type]}${outcome ? ` — ${outcome}` : ""}`,
       { opportunity_id: appointment.opportunity_id, meta: { appointment_id: appointment.id } },
     );
+    // CRM auto-advance: completing a site visit moves the lead to Site
+    // Visit Done (same forward-only guard as scheduling it).
+    if (appointment.type === "site_visit" && appointment.opportunity_id) {
+      const opportunity = await getOpportunity(appointment.opportunity_id);
+      await autoAdvanceStage(opportunity, "site_visit_done");
+    }
   }
 }
 

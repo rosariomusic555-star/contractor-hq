@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   ImagePlus,
@@ -48,6 +49,7 @@ import {
   pickHeadlineQuote,
   projectContractValue,
   approvedChangeOrderTotal,
+  isDepositOverdue,
   materialsCogs,
   listProjectNotes,
   deleteProjectNote,
@@ -162,6 +164,7 @@ export function ProjectDetailView() {
   const invoicedTotal = invoices.reduce((s, i) => s + Number(i.amount), 0);
   const paidTotal = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + Number(i.amount), 0);
   const leftToBill = Math.max(0, contract - invoicedTotal);
+  const depositOverdue = isDepositOverdue(headlineQuote, contract, paidTotal);
 
   const totalMaterialsItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
   const predictedCost = totalMaterialsItems > 0 ? materialsCogs(materials) : null;
@@ -336,6 +339,12 @@ export function ProjectDetailView() {
               <MoneyRow label="Paid" value={formatCurrency(paidTotal)} />
               <MoneyRow label="Left to bill" value={formatCurrency(leftToBill)} strong />
             </div>
+            {depositOverdue && (
+              <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Deposit not received
+              </div>
+            )}
             {marginProfit != null && (
               <div className="mt-3 rounded-xl bg-primary/10 p-3">
                 <div className="text-xs font-semibold text-success">

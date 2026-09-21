@@ -22,10 +22,11 @@ import { listClients, createProject, updateQuote, logProjectEvent, getOpportunit
  *
  * Also reachable from an approved opportunity's quote (CRM Phase 5) with
  * `state: { linkQuoteId, linkOpportunityId }` — pre-fills name/client from
- * the opportunity (no retyping) and, on create, marks the opportunity Won
- * and links its project_id, via the same combined update+log helper the
- * pipeline itself uses (moveOpportunityStage), so this is never a silent
- * stage change. */
+ * the opportunity (no retyping) and, on create, links its project_id.
+ * Signing the quote already moved the opportunity to Won automatically
+ * (migration 0072), so moveOpportunityStage here is just a safety net for
+ * the (now rare) case it isn't already — same combined update+log helper
+ * the pipeline itself uses, so it's never a silent stage change. */
 export function NewProjectView() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -64,7 +65,7 @@ export function NewProjectView() {
       if (linkQuoteId) await updateQuote(linkQuoteId, { project_id: project.id });
       if (linkedOpportunity) {
         await updateOpportunity(linkedOpportunity.id, { project_id: project.id });
-        await moveOpportunityStage(linkedOpportunity, "won");
+        if (linkedOpportunity.stage !== "won") await moveOpportunityStage(linkedOpportunity, "won");
       }
       return project;
     },

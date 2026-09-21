@@ -175,19 +175,21 @@ export function clientStatusMeta(status: string): StatusMeta {
 
 export const OPPORTUNITY_STAGE_META: Record<OpportunityStage, StatusMeta> = {
   new_lead: meta("New Lead", "grey"),
-  attempting_contact: meta("Attempting Contact", "amber"),
   contacted: meta("Contacted", "blue"),
-  qualified: meta("Qualified", "blue"),
   site_visit_scheduled: meta("Site Visit Scheduled", "blue"),
-  site_visit_completed: meta("Site Visit Completed", "blue"),
-  estimate_in_progress: meta("Estimate in Progress", "amber"),
+  site_visit_done: meta("Site Visit Done", "blue"),
   proposal_sent: meta("Proposal Sent", "amber"),
-  follow_up: meta("Follow-Up / Decision", "amber"),
+  revisions: meta("Revisions", "amber"),
   won: meta("Won", "greenSolid"),
   lost: meta("Lost", "red"),
 };
 
 export const OPPORTUNITY_STAGES = Object.keys(OPPORTUNITY_STAGE_META) as OpportunityStage[];
+
+/** The two closing stages — rendered as visually distinct end columns on
+ * the Kanban board (PipelineView.tsx), never mixed in with the active
+ * stages. */
+export const CLOSING_OPPORTUNITY_STAGES: OpportunityStage[] = ["won", "lost"];
 
 export function opportunityStageMeta(stage: string): StatusMeta {
   return OPPORTUNITY_STAGE_META[stage as OpportunityStage] ?? meta(titleCase(stage), "grey");

@@ -1,5 +1,5 @@
 import type { ChangeOrder, Invoice, Project, ProjectStatus, Quote } from "./api";
-import { pickHeadlineQuote, projectContractValue } from "./api";
+import { pickHeadlineQuote, projectContractValue, isDepositOverdue } from "./api";
 import { quoteScopeSummary } from "./jobSize";
 import { projectDurationStatus } from "./projectDuration";
 import { invoiceDaysLate } from "./aging";
@@ -10,7 +10,7 @@ import { APPOINTMENT_TYPE_LABEL } from "./api";
 const parseLocal = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`);
 
 export interface OngoingJobAlert {
-  key: "overdue_invoice" | "over_duration" | "co_awaiting" | "rain";
+  key: "overdue_invoice" | "over_duration" | "co_awaiting" | "rain" | "deposit_not_received";
   label: string;
 }
 
@@ -54,6 +54,7 @@ function buildAlerts(input: {
   changeOrders: ChangeOrder[];
   durationOver: boolean;
   hasRain: boolean;
+  depositOverdue: boolean;
 }): OngoingJobAlert[] {
   const alerts: OngoingJobAlert[] = [];
 
@@ -68,6 +69,8 @@ function buildAlerts(input: {
   if (coAwaiting) alerts.push({ key: "co_awaiting", label: "Change order awaiting client" });
 
   if (input.hasRain) alerts.push({ key: "rain", label: "Rain forecast on a work day" });
+
+  if (input.depositOverdue) alerts.push({ key: "deposit_not_received", label: "Deposit not received" });
 
   return alerts;
 }
@@ -162,6 +165,7 @@ export function buildOngoingJobCards(input: {
       const delivery = deliveriesByProject.get(project.id)?.[0];
       const appointment = appointmentsByProject.get(project.id)?.[0];
       const pendingChangeOrder = changeOrders.some((co) => co.status === "sent");
+      const depositOverdue = isDepositOverdue(pickHeadlineQuote(quotes), contractTotal, paidTotal);
 
       return {
         project,
@@ -174,7 +178,7 @@ export function buildOngoingJobCards(input: {
         durationLabel,
         durationOver,
         upNext: buildUpNext(delivery, appointment, pendingChangeOrder),
-        alerts: buildAlerts({ invoices, changeOrders, durationOver, hasRain }),
+        alerts: buildAlerts({ invoices, changeOrders, durationOver, hasRain, depositOverdue }),
         _durationState: durationStatus.state,
       };
     });
