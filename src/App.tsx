@@ -32,6 +32,13 @@ import { QuoteDetailView } from "@/components/views/QuoteDetailView";
 import { InvoicesView } from "@/components/views/InvoicesView";
 import { InvoiceDetailView } from "@/components/views/InvoiceDetailView";
 import { RevenueView } from "@/components/views/RevenueView";
+import { RevenueInvoicedView } from "@/components/views/RevenueInvoicedView";
+import { RevenueCollectedView } from "@/components/views/RevenueCollectedView";
+import { RevenueMarginView } from "@/components/views/RevenueMarginView";
+import { RevenueJobsView } from "@/components/views/RevenueJobsView";
+import { RevenueMonthlyView } from "@/components/views/RevenueMonthlyView";
+import { RevenueCategoriesView } from "@/components/views/RevenueCategoriesView";
+import { RevenueClientsView } from "@/components/views/RevenueClientsView";
 import { ClientsView } from "@/components/views/ClientsView";
 import { ClientDetailView } from "@/components/views/ClientDetailView";
 import { PipelineView } from "@/components/views/PipelineView";
@@ -125,6 +132,13 @@ const App = () => (
               <Route path="/materials" element={<MaterialSheetsView />} />
               <Route path="/expenses" element={<ExpensesView />} />
               <Route path="/revenue" element={<RevenueView />} />
+              <Route path="/revenue/invoiced" element={<RevenueInvoicedView />} />
+              <Route path="/revenue/collected" element={<RevenueCollectedView />} />
+              <Route path="/revenue/margin" element={<RevenueMarginView />} />
+              <Route path="/revenue/jobs" element={<RevenueJobsView />} />
+              <Route path="/revenue/monthly" element={<RevenueMonthlyView />} />
+              <Route path="/revenue/categories" element={<RevenueCategoriesView />} />
+              <Route path="/revenue/clients" element={<RevenueClientsView />} />
               <Route path="/clients" element={<ClientsView />} />
               <Route path="/clients/new" element={<ClientFormView />} />
               <Route path="/clients/:clientId" element={<ClientDetailView />} />
