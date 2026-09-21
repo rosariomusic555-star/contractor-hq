@@ -68,7 +68,6 @@ import {
   listQuotes,
   linkQuoteToMaterialSheet,
   listCategories,
-  updateProject,
   updateQuote,
   addQuoteSection,
   updateQuoteSection,
@@ -567,7 +566,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     mutationFn: async () => {
       const token = quote.share_token ?? (await generateShareLink("quotes", quote.id));
       await updateQuote(quote.id, { status: "sent" });
-      if (projectId) await updateProject(projectId, { status: "quote_sent" });
       return token;
     },
     onSuccess: async (token) => {

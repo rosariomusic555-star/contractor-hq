@@ -22,7 +22,7 @@ export function InvoiceDetailView() {
     enabled: invoiceId.length > 0,
   });
 
-  const { data: project, isLoading: isProjectLoading } = useQuery({
+  const { isLoading: isProjectLoading } = useQuery({
     queryKey: ["projects", invoice?.project_id],
     queryFn: () => getProject(invoice!.project_id!),
     enabled: !!invoice?.project_id,
@@ -39,7 +39,6 @@ export function InvoiceDetailView() {
     <InvoiceWorkspace
       invoice={invoice}
       projectId={invoice.project_id}
-      projectStatus={project?.status ?? null}
       backHref="/invoices"
       backLabel="Back to invoices"
     />

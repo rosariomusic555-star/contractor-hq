@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { useToast } from "@/hooks/use-toast";
-import { listClients, createProject, updateQuote, logProjectEvent, getOpportunity, updateOpportunity, moveOpportunityStage } from "@/lib/api";
+import { listClients, createProject, updateQuote, logProjectEvent } from "@/lib/api";
 
-/** Dedicated "New project" screen (/projects/new) — replaces the old modal.
- * Project name + client (pick existing, or create one inline via the
- * shared ClientPickerDialog — see src/components/common/ClientPicker.tsx).
+/** Dedicated "New project" screen (/projects/new) — the walk-in / repeat-
+ * client path: a project with no opportunity behind it at all. Project
+ * name + client (pick existing, or create one inline via the shared
+ * ClientPickerDialog — see src/components/common/ClientPicker.tsx).
  *
  * Reachable from a standalone quote's "Create project" nudge (Estimated
  * Cost card), which navigates here with `state: { linkQuoteId }`. In that
@@ -20,22 +21,18 @@ import { listClients, createProject, updateQuote, logProjectEvent, getOpportunit
  * standalone quote — landing the user back on the quote, now
  * project-linked, rather than on the new project's own page.
  *
- * Also reachable from an approved opportunity's quote (CRM Phase 5) with
- * `state: { linkQuoteId, linkOpportunityId }` — pre-fills name/client from
- * the opportunity (no retyping) and, on create, links its project_id.
- * Signing the quote already moved the opportunity to Won automatically
- * (migration 0072), so moveOpportunityStage here is just a safety net for
- * the (now rare) case it isn't already — same combined update+log helper
- * the pipeline itself uses, so it's never a silent stage change. */
+ * NOT reachable from an opportunity anymore — that path is
+ * getOrCreateOpportunityProject() (lazy, on the first photo/sheet/quote)
+ * and markOpportunityWon() (on Won), both automatic. There is exactly one
+ * way a project is created from an opportunity now, and this isn't it. */
 export function NewProjectView() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const state = location.state as { linkQuoteId?: string; linkOpportunityId?: string } | null;
+  const state = location.state as { linkQuoteId?: string } | null;
   const linkQuoteId = state?.linkQuoteId ?? null;
-  const linkOpportunityId = state?.linkOpportunityId ?? null;
 
   const [name, setName] = useState("");
   const [clientId, setClientId] = useState<string | null>(null);
@@ -44,43 +41,22 @@ export function NewProjectView() {
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
   const selectedClient = clients.find((c) => c.id === clientId) ?? null;
 
-  const { data: linkedOpportunity } = useQuery({
-    queryKey: ["opportunity", linkOpportunityId],
-    queryFn: () => getOpportunity(linkOpportunityId!),
-    enabled: !!linkOpportunityId,
-  });
-
-  useEffect(() => {
-    if (linkedOpportunity) {
-      setName(linkedOpportunity.title);
-      setClientId(linkedOpportunity.client_id);
-    }
-  }, [linkedOpportunity]);
-
   const canSave = name.trim().length > 0;
 
   const createMut = useMutation({
     mutationFn: async () => {
-      const project = await createProject({ name: name.trim(), client_id: clientId, status: "draft" });
+      const project = await createProject({ name: name.trim(), client_id: clientId, status: "estimating" });
       if (linkQuoteId) await updateQuote(linkQuoteId, { project_id: project.id });
-      if (linkedOpportunity) {
-        await updateOpportunity(linkedOpportunity.id, { project_id: project.id });
-        if (linkedOpportunity.stage !== "won") await moveOpportunityStage(linkedOpportunity, "won");
-      }
       return project;
     },
     onSuccess: (project) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
       void logProjectEvent(project.id, "project_created", "Project created");
-      if (linkedOpportunity) {
-        qc.invalidateQueries({ queryKey: ["opportunity", linkedOpportunity.id] });
-        qc.invalidateQueries({ queryKey: ["opportunities"] });
-      }
       if (linkQuoteId) {
         qc.invalidateQueries({ queryKey: ["quote", linkQuoteId] });
         qc.invalidateQueries({ queryKey: ["quotes"] });
-        toast({ title: linkedOpportunity ? "Opportunity won — quote moved into new project" : "Quote moved into new project" });
+        toast({ title: "Quote moved into new project" });
         navigate(`/quotes/${linkQuoteId}`);
       } else {
         navigate(`/projects/${project.id}`);
@@ -101,11 +77,6 @@ export function NewProjectView() {
       </Link>
 
       <h1 className="text-[28px] font-bold tracking-tight text-foreground">New project</h1>
-      {linkedOpportunity && (
-        <p className="text-sm text-muted-foreground">
-          Converting the won opportunity <span className="font-semibold text-foreground">{linkedOpportunity.title}</span> — customer and quote carry over automatically.
-        </p>
-      )}
 
       <div className="card-surface space-y-5 p-5">
         <div className="space-y-2">

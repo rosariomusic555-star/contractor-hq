@@ -10,9 +10,11 @@ import {
   collectedByClient,
   collectedTotal,
   invoicedTotal,
+  isExcludedFromFinancials,
   isProjectClosed,
   marginRowsInRange,
   outstandingTotal,
+  projectBillingBadge,
   resolveCost,
 } from "./financials";
 
@@ -128,7 +130,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     user_id: "user-1",
     client_id: "client-1",
     name: "Test project",
-    status: "invoiced",
+    address: null,
+    status: "scheduled",
     target_install_month: null,
     scheduled_start_date: null,
     scheduled_end_date: null,
@@ -440,10 +443,12 @@ describe("Closed jobs are derived from collected vs. contract value", () => {
     expect(isProjectClosed(0, 0)).toBe(false); // no contract at all is never "closed"
   });
 
-  it("closedJobRows ignores the manual project.status field entirely", () => {
-    // Project status still says "approved" — nobody flipped the dropdown —
-    // but it's been fully paid, so it must still show up as closed.
-    const project = makeProject({ id: "priced", client_id: "client-1", status: "approved", actual_end_date: "2026-03-01" });
+  it("closedJobRows ignores the project.status lifecycle field entirely", () => {
+    // Job-lifecycle status still says "scheduled" (nobody's marked the
+    // physical work complete) — but it's been fully paid, so it must
+    // still show up as closed. Closed is a billing concept, derived from
+    // money, independent of where the job physically is.
+    const project = makeProject({ id: "priced", client_id: "client-1", status: "scheduled" });
     const quote = makeQuote({
       project_id: "priced",
       quote_sections: [makeQuoteSection({ quote_items: [makeQuoteItem({ price: 5_000 })] })],
@@ -513,5 +518,54 @@ describe("marginRowsInRange", () => {
       [],
     );
     expect(marginRowsInRange(rows, ALL_TIME_RANGE)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Opportunity/Project restructure (migrations 0073-0078) — the pure,
+// client-side pieces of the new model. Lazy project creation's race-safety
+// (the DB row lock in get_or_create_opportunity_project), the Won
+// transaction's atomicity, and Lost/un-Lost's project sync are all
+// enforced by triggers/functions in Postgres, not application code — this
+// repo has no SQL test harness (migrations are applied by hand, per
+// CLAUDE.md), so those are verified live against the real database instead
+// of here. What IS pure TS and testable: which statuses a project's
+// billing badge and financial-total exclusion resolve to.
+// ---------------------------------------------------------------------------
+
+describe("isExcludedFromFinancials", () => {
+  it("excludes estimating and lost, nothing else", () => {
+    expect(isExcludedFromFinancials("estimating")).toBe(true);
+    expect(isExcludedFromFinancials("lost")).toBe(true);
+    expect(isExcludedFromFinancials("scheduled")).toBe(false);
+    expect(isExcludedFromFinancials("in_progress")).toBe(false);
+    expect(isExcludedFromFinancials("complete")).toBe(false);
+  });
+});
+
+describe("projectBillingBadge", () => {
+  it("shows nothing when there's no contract value yet", () => {
+    expect(projectBillingBadge(0, 0, 0, 0)).toBeNull();
+  });
+
+  it("shows paid once collected reaches the contract value", () => {
+    expect(projectBillingBadge(10_000, 10_000, 10_000, 3_000)).toBe("paid");
+    expect(projectBillingBadge(10_000, 10_000, 12_000, 3_000)).toBe("paid"); // overpaid
+  });
+
+  it("shows partially paid once something's collected but not everything", () => {
+    expect(projectBillingBadge(10_000, 10_000, 4_000, 3_000)).toBe("partially_paid");
+  });
+
+  it("shows deposit due before the deposit itself is covered", () => {
+    expect(projectBillingBadge(10_000, 3_000, 0, 3_000)).toBe("deposit_due");
+  });
+
+  it("shows invoiced when something's billed but there's no deposit to speak of", () => {
+    expect(projectBillingBadge(10_000, 5_000, 0, 0)).toBe("invoiced");
+  });
+
+  it("shows nothing when nothing's been invoiced and there's no deposit set", () => {
+    expect(projectBillingBadge(10_000, 0, 0, 0)).toBeNull();
   });
 });

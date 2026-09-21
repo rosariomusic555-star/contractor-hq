@@ -9,8 +9,21 @@ const IMAGES_BUCKET = "images";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ProjectStatus = "draft" | "quote_sent" | "approved" | "invoiced" | "paid";
-export type QuoteStatus = "draft" | "sent" | "approved" | "declined";
+/** Pure job-lifecycle — sales stage lives on the opportunity, billing
+ * state is derived live from invoices (see financials.ts's billing
+ * badge). estimating -> scheduled -> in_progress -> complete, or -> lost
+ * from any pre-complete state. Kept in sync with actual_start_date/
+ * actual_end_date by a DB trigger (migration 0073) — moving to
+ * in_progress/complete stamps the matching date if it's still null, and
+ * setting a date bumps the status forward the same way; never backward. */
+export type ProjectStatus = "estimating" | "scheduled" | "in_progress" | "complete" | "lost";
+/** "not_selected" (migration 0073) — a sibling quote option that lost
+ * once a different option on the same project was signed. Distinct from
+ * "declined" (the client explicitly rejected it); a not-selected quote
+ * was never up for a decision on its own. Excluded from every total the
+ * same way declined already is. Set only by the Won transaction
+ * (apply_quote_signed/mark_opportunity_won), never directly by the UI. */
+export type QuoteStatus = "draft" | "sent" | "approved" | "declined" | "not_selected";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 
 export type ClientStatus = "lead" | "active" | "past" | "inactive";
@@ -52,6 +65,18 @@ export interface Category {
   created_at: string;
 }
 
+/** A user's own editable list of lead sources (Settings > Lead sources,
+ * migration 0077) — same "denormalized text, not a hard FK" shape as
+ * Suppliers: opportunities.lead_source stays a plain text column, this
+ * table is purely the dropdown's source of truth. */
+export interface LeadSource {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
 interface ClientRef {
   name: string;
   // Only populated where the select asks for them (e.g. PROJECT_SELECT).
@@ -70,6 +95,10 @@ export interface Project {
   user_id: string;
   client_id: string | null;
   name: string;
+  /** Site address — copied once from the opportunity at lazy-creation
+   * time (migration 0074), if this project came from one. Null for a
+   * walk-in project created directly, same as everything else about it. */
+  address: string | null;
   status: ProjectStatus;
   /** Legacy month-precision field (0053) — superseded by
    * scheduled_start_date/scheduled_end_date (0058) as of the Bookings
@@ -721,6 +750,42 @@ export async function deleteCategory(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Lead sources (Settings > Lead sources, 0077)
+// ---------------------------------------------------------------------------
+
+export async function listLeadSources(): Promise<LeadSource[]> {
+  const { data, error } = await supabase.from("lead_sources").select("*").order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createLeadSource(input: { name: string; sort_order?: number }): Promise<LeadSource> {
+  const { data, error } = await supabase
+    .from("lead_sources")
+    .insert({ name: input.name, sort_order: input.sort_order ?? 0 })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateLeadSource(
+  id: string,
+  patch: Partial<Pick<LeadSource, "name" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("lead_sources").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteLeadSource(id: string): Promise<void> {
+  const { error } = await supabase.from("lead_sources").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
 
@@ -760,6 +825,7 @@ export async function listProjectsForClient(clientId: string): Promise<Project[]
 export async function createProject(input: {
   name: string;
   client_id: string | null;
+  address?: string | null;
   status?: ProjectStatus;
 }): Promise<Project> {
   const { data, error } = await supabase
@@ -767,7 +833,8 @@ export async function createProject(input: {
     .insert({
       name: input.name,
       client_id: input.client_id,
-      status: input.status ?? "draft",
+      address: input.address ?? null,
+      status: input.status ?? "estimating",
     })
     .select(PROJECT_SELECT)
     .single();
@@ -782,6 +849,7 @@ export async function updateProject(
       Project,
       | "name"
       | "client_id"
+      | "address"
       | "status"
       | "target_install_month"
       | "scheduled_start_date"
@@ -3667,6 +3735,17 @@ export async function createOpportunity(input: {
   return data;
 }
 
+/**
+ * project_id is deliberately NOT writable here — the only way an
+ * opportunity ever gets one is getOrCreateOpportunityProject() (lazy, on
+ * the first photo/sheet/quote) or markOpportunityWon()'s own fallback to
+ * it. One creation path, enforced at the type level, not just by
+ * convention. quote_id, next_action/next_action_date, and
+ * last_contact_date are gone too — quotes now live on the project (there
+ * can be several), the "next step" is derived from the soonest open task,
+ * and last contact is stamped automatically by an activities trigger
+ * (migration 0078) whenever a call/text/email/note is logged.
+ */
 export async function updateOpportunity(
   id: string,
   patch: Partial<
@@ -3681,11 +3760,6 @@ export async function updateOpportunity(
       | "tags"
       | "measurements"
       | "lost_reason"
-      | "next_action"
-      | "next_action_date"
-      | "last_contact_date"
-      | "quote_id"
-      | "project_id"
     >
   >,
 ): Promise<void> {
@@ -3702,6 +3776,11 @@ export async function deleteOpportunity(id: string): Promise<void> {
  * The Kanban board's drag handler — moves the stage AND records it in the
  * activity timeline in one call, so a stage change is never a silent
  * overwrite (section 3 of the CRM ask).
+ *
+ * Never call this with toStage: "won" — use markOpportunityWon() instead,
+ * which runs the full Won transaction (quote lock, sibling options marked
+ * not-selected, project scheduled, deposit invoice) and moves the stage
+ * itself as part of it. This function alone would only move the stage.
  */
 export async function moveOpportunityStage(
   opportunity: Pick<Opportunity, "id" | "client_id" | "stage">,
@@ -3777,91 +3856,59 @@ export async function advanceStageOnQuoteSent(
 }
 
 /**
- * CRM Phase 5 (Quote/Proposal Integration) — creates a quote carrying the
- * opportunity's customer, address, description and measurements forward
- * (no retyping) and links it back via opportunities.quote_id. Creating a
- * quote is not itself a pipeline trigger (only *sending* one is, via
- * advanceStageOnQuoteSent) — stage is left untouched here.
- * Never creates a second client or project record; an opportunity that
- * already has a quote_id should route to that existing quote instead of
- * calling this again.
+ * The ONE path a project is ever created from an opportunity (migration
+ * 0074's get_or_create_opportunity_project) — called the first time the
+ * user does anything job-related from the opportunity page: first photo,
+ * first materials sheet, first quote. Never called just for logging a
+ * lead. Race-safe at the DB level (the RPC locks the opportunity row for
+ * its duration), so two triggers firing at once still only ever create
+ * one project — this wrapper doesn't need its own guard.
+ */
+export async function getOrCreateOpportunityProject(opportunityId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("get_or_create_opportunity_project", {
+    p_opportunity_id: opportunityId,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/**
+ * The manual pipeline-drag Won entry point (migration 0075's
+ * mark_opportunity_won) — the same transaction a client's signature
+ * triggers (sign_quote/portal_approve_quote), for when the contractor
+ * drags the card to Won themselves. Finds whichever quote on the
+ * project is signed (if any), marks its sibling options "not selected",
+ * flips the project to Scheduled, drafts a deposit invoice when there's a
+ * real signed quote to size it from, and moves the opportunity's own
+ * stage to Won — all in one DB transaction, so a failure anywhere never
+ * leaves a half-won project. Call this INSTEAD OF moveOpportunityStage
+ * when the destination stage is "won" — it handles the stage move itself.
+ */
+export async function markOpportunityWon(opportunityId: string): Promise<void> {
+  const { error } = await supabase.rpc("mark_opportunity_won", { p_opportunity_id: opportunityId });
+  if (error) throw error;
+}
+
+/**
+ * Creates a quote for this opportunity's job — lazily creating the
+ * project first if this is the first job-related thing done from the
+ * opportunity page (see getOrCreateOpportunityProject). The quote is
+ * always project-linked, never standalone, so multiple quote options
+ * (e.g. basic patio vs. patio + fire pit) all live on the same project
+ * and show up together in ProjectQuotesView / the project's Estimate
+ * card. Creating a quote is not itself a pipeline trigger (only *sending*
+ * one is, via advanceStageOnQuoteSent) — stage is left untouched here.
  */
 export async function createQuoteFromOpportunity(
-  opportunity: Pick<Opportunity, "id" | "client_id" | "stage" | "address" | "description" | "measurements">,
+  opportunity: Pick<Opportunity, "id" | "client_id" | "title">,
 ): Promise<Quote> {
-  const notes =
-    [
-      opportunity.address ? `Address: ${opportunity.address}` : null,
-      opportunity.description,
-      opportunity.measurements ? `Measurements: ${opportunity.measurements}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n") || null;
-
-  const quote = await createQuote({ client_id: opportunity.client_id, notes });
-  await updateOpportunity(opportunity.id, { quote_id: quote.id });
+  const projectId = await getOrCreateOpportunityProject(opportunity.id);
+  const quote = await createQuote({ client_id: opportunity.client_id, project_id: projectId });
   await logActivity(opportunity.client_id, "quote_created", "Quote created from opportunity", {
     opportunity_id: opportunity.id,
     quote_id: quote.id,
   });
   return quote;
-}
-
-// ---------------------------------------------------------------------------
-
-export interface OpportunityPhoto {
-  id: string;
-  opportunity_id: string;
-  storage_path: string;
-  sort_order: number;
-  created_at: string;
-}
-
-export async function listOpportunityPhotos(opportunityId: string): Promise<OpportunityPhoto[]> {
-  const { data, error } = await supabase
-    .from("opportunity_photos")
-    .select("*")
-    .eq("opportunity_id", opportunityId)
-    .order("sort_order");
-  if (error) {
-    if (error.code === "PGRST205") return [];
-    throw error;
-  }
-  return data ?? [];
-}
-
-export async function addOpportunityPhoto(
-  opportunityId: string,
-  file: File,
-  input: { sort_order?: number } = {},
-): Promise<OpportunityPhoto> {
-  const compressed = await compressImageFile(file);
-  const path = `opportunities/${opportunityId}/${randomImageFilename(file.name)}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(IMAGES_BUCKET)
-    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-  if (uploadError) throw uploadError;
-
-  const { data, error } = await supabase
-    .from("opportunity_photos")
-    .insert({ opportunity_id: opportunityId, storage_path: path, sort_order: input.sort_order ?? 0 })
-    .select()
-    .single();
-  if (error) {
-    await supabase.storage.from(IMAGES_BUCKET).remove([path]);
-    throw error;
-  }
-  return data;
-}
-
-export async function deleteOpportunityPhoto(
-  photo: Pick<OpportunityPhoto, "id" | "storage_path">,
-): Promise<void> {
-  const { error: storageError } = await supabase.storage.from(IMAGES_BUCKET).remove([photo.storage_path]);
-  if (storageError) throw storageError;
-  const { error } = await supabase.from("opportunity_photos").delete().eq("id", photo.id);
-  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------------

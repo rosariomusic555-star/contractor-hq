@@ -1,22 +1,28 @@
 import { countWorkingDays } from "./projectDuration";
 import type { PortalProjectDetail } from "./portalApi";
 
-export type PortalProjectPhase = "planning" | "scheduled" | "in_progress" | "complete";
+export type PortalProjectPhase = "estimating" | "scheduled" | "in_progress" | "complete";
 
-/** Plain-language project phase for the hub — deliberately NOT the same as
- * the internal ProjectStatus (draft/quote_sent/approved/invoiced/paid,
- * which is a sales-pipeline stage, not a "where's my job" answer). Derived
- * from the same actual_start_date/actual_end_date the Estimated Duration
- * card uses, but never shows the estimate itself — that's contractor-only. */
+/** Plain-language project phase for the hub — now a direct 1:1 read of the
+ * internal ProjectStatus (migration 0073: estimating/scheduled/in_progress/
+ * complete/lost — a job-lifecycle field, not a sales-pipeline stage
+ * anymore) rather than its own separate date-derived guess. The contractor
+ * and client views can never disagree now — they read the same field. Lost
+ * never reaches here at all (get_portal_project excludes it, migration
+ * 0076); "estimating" is the fallback for anything unexpected too. */
 export function portalProjectPhase(project: PortalProjectDetail["project"]): PortalProjectPhase {
-  if (project.actual_end_date) return "complete";
-  if (project.actual_start_date) return "in_progress";
-  if (project.scheduled_start_date) return "scheduled";
-  return "planning";
+  switch (project.status) {
+    case "scheduled":
+    case "in_progress":
+    case "complete":
+      return project.status;
+    default:
+      return "estimating";
+  }
 }
 
 export const PORTAL_PHASE_LABEL: Record<PortalProjectPhase, string> = {
-  planning: "Getting started",
+  estimating: "Reviewing your quote",
   scheduled: "Scheduled",
   in_progress: "In progress",
   complete: "Complete",

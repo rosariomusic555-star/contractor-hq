@@ -9,12 +9,16 @@ const STATUS_ICON: Record<Quote["status"], typeof CheckCircle2> = {
   draft: Clock,
   sent: Clock,
   approved: CheckCircle2,
+  declined: Clock,
+  not_selected: Clock,
 };
 
 const STATUS_ICON_CLASS: Record<Quote["status"], string> = {
   draft: "text-muted-foreground",
   sent: "text-warning",
   approved: "text-success",
+  declined: "text-destructive",
+  not_selected: "text-muted-foreground",
 };
 
 const clientOf = (q: Quote) => q.client?.name ?? q.project?.client?.name ?? "—";

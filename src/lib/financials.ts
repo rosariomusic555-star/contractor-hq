@@ -46,6 +46,7 @@ import type {
   Quote,
 } from "./api";
 import { materialsCogs, pickHeadlineQuote, projectContractValue, quoteItemIncluded, quoteLineTotal } from "./api";
+import type { ProjectBillingStatus } from "./statusMeta";
 
 // ---------------------------------------------------------------------------
 // Date ranges — the one selector every Revenue-page card/detail page shares.
@@ -238,6 +239,44 @@ export function isProjectClosed(contractValue: number, collected: number): boole
   return contractValue > 0 && collected >= contractValue;
 }
 
+/** Projects the pipeline restructure (migration 0073) keeps out of every
+ * revenue/financial total — an Estimating project isn't a real job yet
+ * (it's still being sold), and a Lost one never became one. Their quotes
+ * still count toward the CRM side's own pipeline value (PipelineView's
+ * quoteValueByProjectId, unaffected by this — that's deliberately quote-
+ * level, not project-status-gated), just never here. */
+export function isExcludedFromFinancials(status: Project["status"]): boolean {
+  return status === "estimating" || status === "lost";
+}
+
+/**
+ * The billing badge — separate from and shown alongside the project's own
+ * status pill (statusMeta.ts's PROJECT_STATUS_META says where the job is;
+ * this says where the money is). Precedence, most specific first:
+ *   1. nothing to bill yet (no contract value)      -> null
+ *   2. collected >= contract                         -> "paid"
+ *   3. something collected, less than the full amount -> "partially_paid"
+ *   4. collected hasn't covered the deposit yet       -> "deposit_due"
+ *   5. something's been invoiced beyond that           -> "invoiced"
+ *   6. otherwise (nothing invoiced, no deposit set)    -> null
+ * In practice (4) fires almost every time before anything's paid, since
+ * quotes default to a real deposit percentage — "invoiced" mainly shows
+ * for a quote with no deposit configured at all.
+ */
+export function projectBillingBadge(
+  contractValue: number,
+  invoiced: number,
+  collected: number,
+  depositRequired: number,
+): ProjectBillingStatus | null {
+  if (contractValue <= 0) return null;
+  if (collected >= contractValue) return "paid";
+  if (collected > 0) return "partially_paid";
+  if (depositRequired > 0 && collected < depositRequired) return "deposit_due";
+  if (invoiced > 0) return "invoiced";
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Per-project financials — the shared building block behind Avg. margin,
 // Avg. job, "closed", and Revenue by category/client's job counts.
@@ -296,6 +335,12 @@ export function jobDateOf(project: Project): string {
   return project.actual_end_date ?? project.scheduled_end_date ?? project.created_at;
 }
 
+/**
+ * Estimating and Lost projects (migration 0073) never enter a revenue/
+ * financial total (see isExcludedFromFinancials) — filtered out here,
+ * upstream of every function that consumes this array (avg margin, avg
+ * job, revenue by category/client), so no caller can forget the rule.
+ */
 export function buildProjectFinancials(
   projects: Project[],
   quotesByProject: Map<string, Quote[]>,
@@ -306,6 +351,7 @@ export function buildProjectFinancials(
   expensesByProject: Map<string, { amount: number }[]>,
   categories: Category[],
 ): ProjectFinancials[] {
+  const eligibleProjects = projects.filter((p) => !isExcludedFromFinancials(p.status));
   const sheetsByProject = new Map<string, MaterialsSheet[]>();
   for (const sheet of materialsSheets) {
     const list = sheetsByProject.get(sheet.project_id);
@@ -319,7 +365,7 @@ export function buildProjectFinancials(
     else sectionsByProject.set(section.project_id, [section]);
   }
 
-  return projects.map((project) => {
+  return eligibleProjects.map((project) => {
     const quotes = quotesByProject.get(project.id) ?? [];
     const changeOrders = changeOrdersByProject.get(project.id) ?? [];
     const invoices = invoicesByProject.get(project.id) ?? [];

@@ -2,9 +2,9 @@ import { cn } from "@/lib/utils";
 import { PROJECT_STATUS_META, TONE_SOLID_CLASS } from "@/lib/statusMeta";
 import type { ProjectStatus } from "@/lib/api";
 
-// Only the statuses that can actually land on the calendar — draft/quote_sent
+// Only the statuses that can actually land on the calendar — Estimating/Lost
 // jobs never reach seasonalBookings()'s COMMITTED_STATUSES filter.
-const CALENDAR_STATUSES: ProjectStatus[] = ["approved", "invoiced", "paid"];
+const CALENDAR_STATUSES: ProjectStatus[] = ["scheduled", "in_progress", "complete"];
 
 /** Status color key for the job bars — same tone tokens as everywhere else
  * in the app (StatusPill etc.), just as solid swatches. */

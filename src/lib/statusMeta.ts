@@ -77,6 +77,10 @@ const QUOTE_META: Record<QuoteVisualStatus, StatusMeta> = {
   sent: meta("Shared", "blue"),
   approved: meta("Approved", "green"),
   declined: meta("Declined", "red"),
+  // A sibling option that lost once a different quote on the same project
+  // was signed (migration 0073/0075) — never chosen by the client, not
+  // rejected either, just never in the running once its sibling won.
+  not_selected: meta("Not selected", "grey"),
   expired: meta("Expired", "red"),
 };
 
@@ -103,12 +107,14 @@ export function invoiceStatusMeta(status: string): StatusMeta {
 // Projects
 // ---------------------------------------------------------------------------
 
+/** Pure job-lifecycle now (migration 0073) — billing state is a separate
+ * concept, see PROJECT_BILLING_META below, never mixed into this pill. */
 export const PROJECT_STATUS_META: Record<ProjectStatus, StatusMeta> = {
-  draft: meta("Draft", "grey"),
-  quote_sent: meta("Quote shared", "blue"),
-  approved: meta("Approved", "green"),
-  invoiced: meta("Invoiced", "amber"),
-  paid: meta("Paid", "greenSolid"),
+  estimating: meta("Estimating", "grey"),
+  scheduled: meta("Scheduled", "blue"),
+  in_progress: meta("In progress", "amber"),
+  complete: meta("Complete", "greenSolid"),
+  lost: meta("Lost", "red"),
 };
 
 export const PROJECT_STATUSES = Object.keys(PROJECT_STATUS_META) as ProjectStatus[];
@@ -116,6 +122,26 @@ export const PROJECT_STATUSES = Object.keys(PROJECT_STATUS_META) as ProjectStatu
 /** Tolerates legacy / unexpected status strings without throwing. */
 export function projectStatusMeta(status: string): StatusMeta {
   return PROJECT_STATUS_META[status as ProjectStatus] ?? meta(titleCase(status), "grey");
+}
+
+// ---------------------------------------------------------------------------
+// Project billing badge — derived from invoices (src/lib/financials.ts's
+// projectBillingBadge()), never stored. Shown ALONGSIDE the status pill
+// above, never instead of it — status says where the job is, this says
+// where the money is. Null (no badge) when there's nothing to bill yet.
+// ---------------------------------------------------------------------------
+
+export type ProjectBillingStatus = "deposit_due" | "invoiced" | "partially_paid" | "paid";
+
+export const PROJECT_BILLING_META: Record<ProjectBillingStatus, StatusMeta> = {
+  deposit_due: meta("Deposit due", "amber"),
+  invoiced: meta("Invoiced", "blue"),
+  partially_paid: meta("Partially paid", "amber"),
+  paid: meta("Paid", "greenSolid"),
+};
+
+export function projectBillingStatusMeta(status: ProjectBillingStatus): StatusMeta {
+  return PROJECT_BILLING_META[status];
 }
 
 // ---------------------------------------------------------------------------

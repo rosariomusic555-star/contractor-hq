@@ -17,6 +17,7 @@ import {
   type ProjectStatus,
 } from "@/lib/api";
 import { PROJECT_STATUSES, projectStatusMeta, VISUAL_STATUS_META } from "@/lib/statusMeta";
+import { isExcludedFromFinancials } from "@/lib/financials";
 import { demoJobMeta, DEMO_WEEKS_BOOKED } from "@/lib/demoData";
 
 type Filter = "all" | ProjectStatus;
@@ -44,20 +45,28 @@ export function ProjectsView() {
     return byProject;
   }, [projects, quotes, changeOrders]);
 
-  const underContract = [...contractOf.values()].reduce((a, b) => a + b, 0);
+  // "All" means real jobs only — Scheduled/In progress/Complete. Estimating
+  // (still being sold, not a confirmed job yet) and Lost each get their own
+  // tab instead of diluting the default view — see the pipeline restructure.
+  // Same exclusion financials.ts applies to every revenue/financial total.
+  const isRealJob = (p: (typeof projects)[number]) => !isExcludedFromFinancials(p.status);
+  const underContract = projects
+    .filter(isRealJob)
+    .reduce((a, p) => a + (contractOf.get(p.id) ?? 0), 0);
   const countByStatus = (s: ProjectStatus) => projects.filter((p) => p.status === s).length;
 
   const options: FilterOption<Filter>[] = [
-    { value: "all", label: "All", count: projects.length },
-    ...PROJECT_STATUSES.map((s) => ({
+    { value: "all", label: "All", count: projects.filter(isRealJob).length },
+    ...PROJECT_STATUSES.filter((s) => s !== "lost").map((s) => ({
       value: s as Filter,
       label: projectStatusMeta(s).label,
       count: countByStatus(s),
     })),
+    { value: "lost" as Filter, label: "Archived", count: countByStatus("lost") },
   ];
 
   const filtered = projects.filter((p) => {
-    if (filter !== "all" && p.status !== filter) return false;
+    if (filter === "all" ? !isRealJob(p) : p.status !== filter) return false;
     const term = search.toLowerCase();
     return !term || p.name.toLowerCase().includes(term) || (p.client?.name ?? "").toLowerCase().includes(term);
   });

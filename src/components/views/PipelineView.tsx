@@ -17,11 +17,14 @@ import {
   listOpportunities,
   createOpportunity,
   moveOpportunityStage,
+  markOpportunityWon,
   listClients,
   listQuotes,
   quoteTotal,
+  pickHeadlineQuote,
   type Opportunity,
   type OpportunityStage,
+  type Quote,
 } from "@/lib/api";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -36,13 +39,15 @@ type PipelineTab = "board" | "sources";
  * CLOSING_OPPORTUNITY_STAGES) render as visually distinct end columns —
  * see PipelineColumn's `closing` styling. Every stage change goes
  * through moveOpportunityStage() so it's recorded in the activity
- * timeline, never a silent overwrite — manual moves (drag, or the Select
- * on the detail page) always take precedence over the pipeline's own
- * auto-advance triggers (site visit scheduled/done, quote sent, quote
- * signed — see api.ts's autoAdvanceStage/advanceStageOnQuoteSent and
- * migration 0072's sign_quote/portal_approve_quote). A "By source" tab
- * (CRM Phase 6) rolls the same opportunities up by lead_source for a
- * quick read on where the pipeline is coming from.
+ * timeline, never a silent overwrite — EXCEPT a move to Won, which goes
+ * through markOpportunityWon() instead (the same DB transaction a
+ * client's signature triggers — migration 0075's mark_opportunity_won/
+ * apply_opportunity_won/sign_quote/portal_approve_quote). Manual moves
+ * always take precedence over the pipeline's own auto-advance triggers
+ * (site visit scheduled/done, quote sent — see api.ts's
+ * autoAdvanceStage/advanceStageOnQuoteSent). A "By source" tab (CRM Phase
+ * 6) rolls the same opportunities up by lead_source for a quick read on
+ * where the pipeline is coming from.
  */
 export function PipelineView() {
   const { data: opportunities = [], isLoading } = useQuery({
@@ -50,22 +55,42 @@ export function PipelineView() {
     queryFn: listOpportunities,
   });
   // A lead's "value" used to be a manually-typed estimate; now it's the
-  // real total of whatever quote is actually linked to it (opportunity.
-  // quote_id), or nothing at all until one exists — so every dollar figure
-  // on this page is real, never a guess. Keyed by quote id.
+  // real total of its linked project's headline quote (pickHeadlineQuote —
+  // same "most-recently approved, else sent, else draft" pick every other
+  // screen uses; not_selected/declined quotes are never eligible), or
+  // nothing at all until one exists — so every dollar figure on this page
+  // is real, never a guess. Keyed by opportunity's project_id, not by
+  // opportunity.quote_id — an opportunity can have several quote options
+  // once it has a project, all living there, not on the opportunity itself.
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
-  const quoteValueById = useMemo(
-    () => new Map(quotes.map((q) => [q.id, quoteTotal(q.quote_sections)])),
-    [quotes],
-  );
+  const quoteValueByProjectId = useMemo(() => {
+    const byProject = new Map<string, Quote[]>();
+    for (const q of quotes) {
+      if (!q.project_id) continue;
+      const list = byProject.get(q.project_id);
+      if (list) list.push(q);
+      else byProject.set(q.project_id, [q]);
+    }
+    const values = new Map<string, number>();
+    for (const [projectId, projectQuotes] of byProject) {
+      const headline = pickHeadlineQuote(projectQuotes);
+      if (headline) values.set(projectId, quoteTotal(headline.quote_sections));
+    }
+    return values;
+  }, [quotes]);
   const qc = useQueryClient();
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [tab, setTab] = useState<PipelineTab>("board");
 
   const moveMut = useMutation({
+    // "won" always goes through the full Won transaction (quote lock,
+    // sibling options marked not-selected, project scheduled, deposit
+    // invoice drafted) — never a plain stage move. Every other stage
+    // (including "lost", which the DB's own trigger syncs to the linked
+    // project) still goes through the plain move.
     mutationFn: ({ opp, toStage }: { opp: Opportunity; toStage: OpportunityStage }) =>
-      moveOpportunityStage(opp, toStage),
+      toStage === "won" ? markOpportunityWon(opp.id) : moveOpportunityStage(opp, toStage),
     onMutate: async ({ opp, toStage }) => {
       await qc.cancelQueries({ queryKey: ["opportunities"] });
       const previous = qc.getQueryData<Opportunity[]>(["opportunities"]);
@@ -78,7 +103,14 @@ export function PipelineView() {
       if (context?.previous) qc.setQueryData(["opportunities"], context.previous);
       toast({ title: err.message, variant: "destructive" });
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["opportunities"] }),
+    onSettled: (_data, _err, { toStage }) => {
+      qc.invalidateQueries({ queryKey: ["opportunities"] });
+      if (toStage === "won") {
+        qc.invalidateQueries({ queryKey: ["projects"] });
+        qc.invalidateQueries({ queryKey: ["quotes"] });
+        qc.invalidateQueries({ queryKey: ["invoices"] });
+      }
+    },
   });
 
   const onDragEnd = (result: DropResult) => {
@@ -124,7 +156,7 @@ export function PipelineView() {
                     stage={stage}
                     opportunities={opportunities.filter((o) => o.stage === stage)}
                     closing={CLOSING_OPPORTUNITY_STAGES.includes(stage)}
-                    quoteValueById={quoteValueById}
+                    quoteValueByProjectId={quoteValueByProjectId}
                   />
                 ))}
               </div>
@@ -145,7 +177,7 @@ export function PipelineView() {
                   </div>
                   <div className="space-y-2">
                     {items.map((o) => (
-                      <OpportunityCard key={o.id} opportunity={o} quoteValueById={quoteValueById} />
+                      <OpportunityCard key={o.id} opportunity={o} quoteValueByProjectId={quoteValueByProjectId} />
                     ))}
                   </div>
                 </div>
@@ -157,7 +189,7 @@ export function PipelineView() {
           </div>
         </>
       ) : (
-        <LeadSourceReport opportunities={opportunities} quoteValueById={quoteValueById} />
+        <LeadSourceReport opportunities={opportunities} quoteValueByProjectId={quoteValueByProjectId} />
       )}
 
       <CreateOpportunityDialog open={createOpen} onOpenChange={setCreateOpen} />
@@ -169,7 +201,7 @@ function PipelineColumn({
   stage,
   opportunities,
   closing,
-  quoteValueById,
+  quoteValueByProjectId,
 }: {
   stage: OpportunityStage;
   opportunities: Opportunity[];
@@ -177,7 +209,7 @@ function PipelineColumn({
    * outcome and set off from the active stages with a left gap/divider,
    * rather than blending in as just two more columns. */
   closing?: boolean;
-  quoteValueById: Map<string, number>;
+  quoteValueByProjectId: Map<string, number>;
 }) {
   const meta = opportunityStageMeta(stage);
   const isWon = stage === "won";
@@ -207,7 +239,7 @@ function PipelineColumn({
               <Draggable key={o.id} draggableId={o.id} index={index}>
                 {(provided, snapshot) => (
                   <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                    <OpportunityCard opportunity={o} dragging={snapshot.isDragging} quoteValueById={quoteValueById} />
+                    <OpportunityCard opportunity={o} dragging={snapshot.isDragging} quoteValueByProjectId={quoteValueByProjectId} />
                   </div>
                 )}
               </Draggable>
@@ -223,16 +255,16 @@ function PipelineColumn({
 function OpportunityCard({
   opportunity,
   dragging,
-  quoteValueById,
+  quoteValueByProjectId,
 }: {
   opportunity: Opportunity;
   dragging?: boolean;
-  quoteValueById: Map<string, number>;
+  quoteValueByProjectId: Map<string, number>;
 }) {
   const overdue = !!opportunity.next_action_date && opportunity.next_action_date < today();
   // A lead's value on this card is its linked quote's real total, never a
   // manual estimate — nothing shows until a quote actually exists.
-  const quoteValue = opportunity.quote_id ? quoteValueById.get(opportunity.quote_id) : undefined;
+  const quoteValue = opportunity.project_id ? quoteValueByProjectId.get(opportunity.project_id) : undefined;
   return (
     <Link
       to={`/pipeline/${opportunity.id}`}
@@ -366,22 +398,23 @@ interface SourceRow {
 
 /**
  * CRM Phase 6 — rolls opportunities up by lead_source. Value columns are
- * the real total of each opportunity's linked quote (quoteValueById, keyed
- * by quote_id) — a lead with no quote yet contributes nothing, never a
- * guessed estimate (the old manual "estimated value" field is gone).
+ * the real total of each opportunity's linked project's headline quote
+ * (quoteValueByProjectId, keyed by project_id) — a lead with no project/
+ * quote yet contributes nothing, never a guessed estimate (the old manual
+ * "estimated value" field is gone).
  */
 function LeadSourceReport({
   opportunities,
-  quoteValueById,
+  quoteValueByProjectId,
 }: {
   opportunities: Opportunity[];
-  quoteValueById: Map<string, number>;
+  quoteValueByProjectId: Map<string, number>;
 }) {
   const bySource = new Map<string, SourceRow>();
   for (const o of opportunities) {
     const key = o.lead_source?.trim() || "Unknown";
     const row = bySource.get(key) ?? { source: key, leads: 0, won: 0, lost: 0, openValue: 0, wonValue: 0 };
-    const value = o.quote_id ? (quoteValueById.get(o.quote_id) ?? 0) : 0;
+    const value = o.project_id ? (quoteValueByProjectId.get(o.project_id) ?? 0) : 0;
     row.leads += 1;
     if (o.stage === "won") {
       row.won += 1;

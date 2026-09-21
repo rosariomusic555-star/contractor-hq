@@ -17,6 +17,7 @@ import { ListCard } from "@/components/common/ListCard";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { listClients, deleteClient, listInvoices, listProjects } from "@/lib/api";
+import { ONGOING_PROJECT_STATUSES } from "@/lib/ongoingJobs";
 
 type Kind = "active" | "repeat" | "lead" | "client";
 type Filter = "all" | "active" | "repeat" | "lead";
@@ -64,7 +65,7 @@ export function ClientsView() {
       if (p.client_id) {
         const s = ensure(p.client_id);
         s.projects += 1;
-        if (p.status !== "paid") s.active += 1;
+        if (ONGOING_PROJECT_STATUSES.includes(p.status)) s.active += 1;
       }
     }
     for (const inv of invoices) {

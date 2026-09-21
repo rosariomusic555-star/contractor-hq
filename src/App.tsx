@@ -52,6 +52,7 @@ import { SettingsView } from "@/components/views/SettingsView";
 import { SettingsBusinessProfileView } from "@/components/views/SettingsBusinessProfileView";
 import { SettingsQuoteDefaultsView } from "@/components/views/SettingsQuoteDefaultsView";
 import { SettingsCategoriesView } from "@/components/views/SettingsCategoriesView";
+import { SettingsLeadSourcesView } from "@/components/views/SettingsLeadSourcesView";
 import { SettingsExpenseCategoriesView } from "@/components/views/SettingsExpenseCategoriesView";
 import { SettingsSuppliersView } from "@/components/views/SettingsSuppliersView";
 import { SettingsInvoicingView } from "@/components/views/SettingsInvoicingView";
@@ -164,6 +165,7 @@ const App = () => (
               <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
               <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
               <Route path="/settings/categories" element={<SettingsCategoriesView />} />
+              <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
               <Route
                 path="/settings/expense-categories"
                 element={<SettingsExpenseCategoriesView />}

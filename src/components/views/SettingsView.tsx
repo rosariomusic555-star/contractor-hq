@@ -8,6 +8,7 @@ const SECTIONS = [
   { label: "Business profile", to: "/settings/business-profile" },
   { label: "Quote defaults", to: "/settings/quote-defaults" },
   { label: "Categories", to: "/settings/categories" },
+  { label: "Lead sources", to: "/settings/lead-sources" },
   { label: "Expense categories", to: "/settings/expense-categories" },
   { label: "Suppliers", to: "/settings/suppliers" },
   { label: "Invoicing & payments", to: "/settings/invoicing" },

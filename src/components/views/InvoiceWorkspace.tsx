@@ -23,7 +23,6 @@ import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import {
   getQuote,
-  listInvoices,
   listProjects,
   listQuotes,
   listChangeOrders,
@@ -35,10 +34,8 @@ import {
   quoteLineTotal,
   quoteTotal,
   updateInvoice,
-  updateProject,
   generateShareLink,
   type Invoice,
-  type ProjectStatus,
   type Quote,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
@@ -51,7 +48,6 @@ const NONE = "__none__";
 interface InvoiceWorkspaceProps {
   invoice: Invoice;
   projectId: string | null;
-  projectStatus: ProjectStatus | null;
   backHref: string;
   backLabel: string;
 }
@@ -59,7 +55,6 @@ interface InvoiceWorkspaceProps {
 export function InvoiceWorkspace({
   invoice,
   projectId,
-  projectStatus,
   backHref,
   backLabel,
 }: InvoiceWorkspaceProps) {
@@ -164,9 +159,6 @@ export function InvoiceWorkspace({
     mutationFn: async () => {
       const token = invoice.share_token ?? (await generateShareLink("invoices", invoice.id));
       await updateInvoice(invoice.id, { status: "sent" });
-      if (projectId && projectStatus !== "paid") {
-        await updateProject(projectId, { status: "invoiced" });
-      }
       return token;
     },
     onSuccess: (token) => {
@@ -183,11 +175,6 @@ export function InvoiceWorkspace({
   const markPaidMut = useMutation({
     mutationFn: async () => {
       await updateInvoice(invoice.id, { status: "paid", paid_at: new Date().toISOString() });
-      if (projectId) {
-        const all = await listInvoices(projectId);
-        const allPaid = all.every((i) => i.id === invoice.id || i.status === "paid");
-        if (allPaid) await updateProject(projectId, { status: "paid" });
-      }
     },
     onSuccess: () => {
       void logProjectEvent(

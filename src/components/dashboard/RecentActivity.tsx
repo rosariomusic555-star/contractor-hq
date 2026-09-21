@@ -41,12 +41,16 @@ const quoteTitle: Record<Quote["status"], string> = {
   draft: "Quote drafted",
   sent: "Quote shared",
   approved: "Quote approved",
+  declined: "Quote declined",
+  not_selected: "Quote option not selected",
 };
 
 const quoteStatus: Record<Quote["status"], ActivityStatus> = {
   draft: "pending",
   sent: "pending",
   approved: "completed",
+  declined: "overdue",
+  not_selected: "completed",
 };
 
 const invoiceTitle: Record<Invoice["status"], string> = {

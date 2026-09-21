@@ -22,7 +22,6 @@ export function ProjectInvoiceDetailView() {
     <InvoiceWorkspace
       invoice={invoice}
       projectId={id}
-      projectStatus={project.status}
       backHref={`/projects/${id}/invoices`}
       backLabel="Back to invoices"
     />

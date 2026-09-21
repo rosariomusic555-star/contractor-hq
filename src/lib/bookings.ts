@@ -2,11 +2,11 @@ import type { ChangeOrder, Opportunity, Project, ProjectStatus, Quote } from "./
 import { projectContractValue } from "./api";
 import { jobSizeLabel } from "./jobSize";
 
-/** A job counts as "committed" booked work once it's past the quoting
- * stage. There's no real deposit-received tracking in the schema yet
- * (flagged as a gap) — this is the stated fallback: approved/invoiced/paid
- * all mean a signed contract, regardless of billing progress. */
-const COMMITTED_STATUSES: ProjectStatus[] = ["approved", "invoiced", "paid"];
+/** A job counts as "committed" booked work once it's past Estimating
+ * (migration 0073) — scheduled/in_progress/complete all mean a signed,
+ * won contract, regardless of billing progress (see financials.ts's
+ * separate billing badge for that). */
+const COMMITTED_STATUSES: ProjectStatus[] = ["scheduled", "in_progress", "complete"];
 
 /** One committed job, as it appears inside a BookingMonth or in
  * unscheduledJobs. Single source of truth for both the Dashboard card

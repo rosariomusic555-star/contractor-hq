@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import {
@@ -209,16 +209,42 @@ export function ProjectMaterialsView() {
  * sheet list above when a project has more than one sheet. */
 export function ProjectMaterialsSheetDetailView() {
   const { id = "", sheetId = "" } = useParams();
+  const location = useLocation();
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
 
+  // Carried over, once, from the opportunity page's "Create material
+  // sheet" action (OpportunityDetailView) — a reference only, never
+  // persisted or parsed into real line items, so the contractor doesn't
+  // have to flip back and forth to re-read what the lead's own
+  // Measurements field said while pricing the job.
+  const measurementsReference = (location.state as { measurementsReference?: string } | null)?.measurementsReference;
+  const [showReference, setShowReference] = useState(!!measurementsReference);
+
   return (
-    <MaterialsSheetBuilder
-      projectId={id}
-      projectName={project?.name}
-      sheetId={sheetId}
-      backHref={`/projects/${id}/materials`}
-      backLabel="Back to materials sheets"
-    />
+    <div className="space-y-4">
+      {showReference && measurementsReference && (
+        <div className="mx-auto flex max-w-4xl items-start justify-between gap-3 rounded-card border border-primary/30 bg-primary/5 p-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-subtle">From the lead's measurements</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{measurementsReference}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowReference(false)}
+            className="shrink-0 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      <MaterialsSheetBuilder
+        projectId={id}
+        projectName={project?.name}
+        sheetId={sheetId}
+        backHref={`/projects/${id}/materials`}
+        backLabel="Back to materials sheets"
+      />
+    </div>
   );
 }
 

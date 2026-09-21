@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   ImagePlus,
@@ -10,6 +11,7 @@ import {
   Mail,
   Phone,
   MapPin,
+  PartyPopper,
   Send,
   Trash2,
   X,
@@ -60,11 +62,12 @@ import {
   type ProjectStatus,
 } from "@/lib/api";
 import { inviteClientToHub } from "@/lib/portalApi";
-import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost } from "@/lib/financials";
+import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost, projectBillingBadge } from "@/lib/financials";
 import {
   PROJECT_STATUS_META,
   PROJECT_STATUSES,
   projectStatusMeta,
+  projectBillingStatusMeta,
   quoteStatusMeta,
 } from "@/lib/statusMeta";
 import { demoJobMeta } from "@/lib/demoData";
@@ -166,6 +169,14 @@ export function ProjectDetailView() {
   const paidTotal = collectedTotal(invoices, ALL_TIME_RANGE);
   const leftToBill = Math.max(0, contract - projectInvoicedTotal);
   const depositOverdue = isDepositOverdue(headlineQuote, contract, paidTotal);
+  const depositRequired = headlineQuote ? contract * (headlineQuote.deposit_percentage / 100) : 0;
+  const billing = projectBillingBadge(contract, projectInvoicedTotal, paidTotal, depositRequired);
+  // Won's own deposit invoice (migration 0075's apply_opportunity_won) —
+  // still a draft, never sent yet. Its presence + a freshly-Scheduled
+  // status is exactly "just won" — the banner naturally stops showing once
+  // either changes (the invoice gets sent, or the job moves past Scheduled).
+  const wonDepositInvoice = invoices.find((i) => i.status === "draft" && i.notes === "Deposit");
+  const showWonBanner = project.status === "scheduled" && !!wonDepositInvoice;
 
   const totalMaterialsItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
   const predictedCost = totalMaterialsItems > 0 ? materialsCogs(materials) : null;
@@ -260,6 +271,29 @@ export function ProjectDetailView() {
       </div>
       <div className="md:hidden">{statusSelect}</div>
 
+      {showWonBanner && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-success/30 bg-success/10 p-4">
+          <div className="flex items-center gap-2.5">
+            <PartyPopper className="h-5 w-5 shrink-0 text-success" />
+            <p className="text-sm font-bold text-foreground">Won — project ready</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline" className="font-semibold">
+              <Link to="/bookings">
+                <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                Schedule this job
+              </Link>
+            </Button>
+            <Button asChild size="sm" className="font-bold">
+              <Link to={`/projects/${id}/invoices/${wonDepositInvoice!.id}`}>
+                <Send className="mr-1.5 h-3.5 w-3.5" />
+                Send deposit invoice
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
@@ -333,7 +367,10 @@ export function ProjectDetailView() {
         {/* Right rail */}
         <div className="space-y-5">
           <section className="card-surface p-5">
-            <h3 className="text-base font-bold text-foreground">Money</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold text-foreground">Money</h3>
+              {billing && <span className={projectBillingStatusMeta(billing).badge}>{projectBillingStatusMeta(billing).label}</span>}
+            </div>
             <div className="mt-2">
               <MoneyRow label="Contract" value={contract > 0 ? formatCurrency(contract) : "—"} />
               <MoneyRow label="Invoiced" value={formatCurrency(projectInvoicedTotal)} />

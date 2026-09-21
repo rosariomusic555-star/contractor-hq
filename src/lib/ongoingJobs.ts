@@ -37,12 +37,13 @@ export interface OngoingJobCard {
   alerts: OngoingJobAlert[];
 }
 
-/** Statuses that count as an active job — signed off and either in progress
- * or being billed. Excludes draft/quote_sent (no confirmed job yet). A job
- * that's actually been fully collected is excluded too, regardless of
- * status — see the isProjectClosed() filter in buildOngoingJobCards()
- * below, since "paid" is a manual field nobody reliably sets. */
-export const ONGOING_PROJECT_STATUSES: ProjectStatus[] = ["approved", "invoiced"];
+/** Statuses that count as an active job (migration 0073) — signed off and
+ * either scheduled or in progress. Excludes estimating (no confirmed job
+ * yet) and lost. Complete is excluded too — that job is done, not ongoing
+ * — with isProjectClosed() in buildOngoingJobCards() below as a belt-and-
+ * suspenders check for the rare case billing completed before the status
+ * itself caught up. */
+export const ONGOING_PROJECT_STATUSES: ProjectStatus[] = ["scheduled", "in_progress"];
 
 const dateRangeLabel = (startISO: string | null, endISO: string | null): string | null => {
   if (!startISO) return null;
