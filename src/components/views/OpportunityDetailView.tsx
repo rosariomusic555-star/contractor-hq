@@ -1,11 +1,23 @@
 import { useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Trash2, ImagePlus, Loader2, FileText, ArrowRight, Layers, ExternalLink } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
+  ImagePlus,
+  Loader2,
+  FileText,
+  ArrowRight,
+  Layers,
+  ExternalLink,
+  Link2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -24,6 +36,10 @@ import {
   moveOpportunityStage,
   markOpportunityWon,
   getOrCreateOpportunityProject,
+  linkOpportunityToProject,
+  unlinkOpportunityProject,
+  listProjectsForClient,
+  listOpportunitiesForClient,
   listCategories,
   listLeadSources,
   listMaterialsSheets,
@@ -51,6 +67,7 @@ import {
   type ActivityKind,
   type Task,
   type Appointment,
+  type Project,
 } from "@/lib/api";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
@@ -194,6 +211,47 @@ export function OpportunityDetailView() {
     onError,
   });
 
+  const [linkProjectDialogOpen, setLinkProjectDialogOpen] = useState(false);
+  // Both scoped to this opportunity's client, and only fetched once the
+  // picker actually opens — this dialog is the rare path (most jobs still
+  // go through the automatic lazy-create), no reason to pay for it on
+  // every page load.
+  const { data: clientProjects = [] } = useQuery({
+    queryKey: ["client-projects", opportunity?.client_id],
+    queryFn: () => listProjectsForClient(opportunity!.client_id),
+    enabled: linkProjectDialogOpen && !!opportunity?.client_id,
+  });
+  const { data: clientOpportunities = [] } = useQuery({
+    queryKey: ["client-opportunities", opportunity?.client_id],
+    queryFn: () => listOpportunitiesForClient(opportunity!.client_id),
+    enabled: linkProjectDialogOpen && !!opportunity?.client_id,
+  });
+  // Projects already claimed by a different opportunity for this client —
+  // hidden from the picker so the unique-index rejection almost never
+  // actually gets hit; it's still the real backstop, just not the UX.
+  const alreadyLinkedProjectIds = new Set(
+    clientOpportunities.filter((o) => o.id !== id && o.project_id).map((o) => o.project_id!),
+  );
+  const linkCandidates = clientProjects.filter((p) => !alreadyLinkedProjectIds.has(p.id));
+
+  const linkProjectMut = useMutation({
+    mutationFn: (projectId: string) => linkOpportunityToProject(id, projectId),
+    onSuccess: () => {
+      invalidateProjectLink();
+      setLinkProjectDialogOpen(false);
+      toast({ title: "Project linked" });
+    },
+    onError,
+  });
+  const unlinkProjectMut = useMutation({
+    mutationFn: () => unlinkOpportunityProject(id),
+    onSuccess: () => {
+      invalidateProjectLink();
+      toast({ title: "Project unlinked" });
+    },
+    onError,
+  });
+
   const [draft, setDraft] = useState<Record<string, string>>({});
   const field = (key: keyof Opportunity, value: string | number | null) =>
     draft[key] ?? (value == null ? "" : String(value));
@@ -245,13 +303,31 @@ export function OpportunityDetailView() {
             className="h-auto border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0"
           />
           <p className="mt-1 text-sm text-muted-foreground">{opportunity.client?.name ?? "No client"}</p>
-          {opportunity.project_id && (
-            <Link
-              to={`/projects/${opportunity.project_id}`}
+          {opportunity.project_id ? (
+            <div className="mt-1 flex items-center gap-3">
+              <Link
+                to={`/projects/${opportunity.project_id}`}
+                className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+              >
+                Open project <ExternalLink className="h-3 w-3" />
+              </Link>
+              <button
+                type="button"
+                onClick={() => unlinkProjectMut.mutate()}
+                disabled={unlinkProjectMut.isPending}
+                className="text-xs font-semibold text-muted-foreground hover:text-destructive hover:underline"
+              >
+                Unlink
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setLinkProjectDialogOpen(true)}
               className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"
             >
-              Open project <ExternalLink className="h-3 w-3" />
-            </Link>
+              <Link2 className="h-3 w-3" /> Link existing project
+            </button>
           )}
         </div>
         <Select
@@ -369,7 +445,67 @@ export function OpportunityDetailView() {
           <OpportunityActivityCard opportunityId={id} clientId={opportunity.client_id} inputRef={activityInputRef} />
         </div>
       </div>
+
+      <LinkProjectDialog
+        open={linkProjectDialogOpen}
+        onOpenChange={setLinkProjectDialogOpen}
+        hasOtherProjects={clientProjects.length > 0}
+        candidates={linkCandidates}
+        onSelect={(projectId) => linkProjectMut.mutate(projectId)}
+      />
     </div>
+  );
+}
+
+/** The opportunity page's "Link existing project" picker — same row-button
+ * shape as QuoteWorkspace's LinkMaterialsSheetDialog, scoped to this
+ * opportunity's client and pre-filtered to exclude projects already linked
+ * to a different opportunity (see alreadyLinkedProjectIds above). */
+function LinkProjectDialog({
+  open,
+  onOpenChange,
+  hasOtherProjects,
+  candidates,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  hasOtherProjects: boolean;
+  candidates: Project[];
+  onSelect: (projectId: string) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm gap-4">
+        <DialogHeader>
+          <DialogTitle>Link an existing project</DialogTitle>
+        </DialogHeader>
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          {candidates.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {hasOtherProjects
+                ? "Every project for this client is already linked to a different opportunity."
+                : "This client has no other projects yet."}
+            </p>
+          ) : (
+            candidates.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onSelect(p.id)}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 pl-3.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-foreground">{p.name}</span>
+                  {p.address && <span className="block truncate text-xs text-muted-foreground">{p.address}</span>}
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ImagePlus,
+  Link2,
   Loader2,
   Mail,
   Phone,
@@ -67,6 +68,7 @@ import {
   getBusinessProfile,
   reconcileMaterialsItem,
   recordMaterialLearningSnapshot,
+  getOpportunityByProjectId,
   type ProjectStatus,
   type MaterialsItem,
   type MaterialsUsageLog,
@@ -78,6 +80,7 @@ import {
   PROJECT_STATUSES,
   projectStatusMeta,
   projectBillingStatusMeta,
+  opportunityStageMeta,
   quoteStatusMeta,
 } from "@/lib/statusMeta";
 import {
@@ -141,6 +144,10 @@ export function ProjectDetailView() {
     enabled: trackedLineIds.length > 0,
   });
   const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
+  const { data: linkedOpportunity } = useQuery({
+    queryKey: ["opportunity-by-project", id],
+    queryFn: () => getOpportunityByProjectId(id),
+  });
 
   const statusMutation = useMutation({
     mutationFn: (status: ProjectStatus) => updateProject(id, { status }),
@@ -348,6 +355,17 @@ export function ProjectDetailView() {
           placeholder="Project types…"
         />
       </div>
+
+      {linkedOpportunity && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="font-semibold text-muted-foreground">From pipeline:</span>
+          <Link to={`/pipeline/${linkedOpportunity.id}`} className="font-bold text-primary hover:underline">
+            {linkedOpportunity.title}
+          </Link>
+          <StatusPill meta={opportunityStageMeta(linkedOpportunity.stage)} />
+        </div>
+      )}
 
       {showWonBanner && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-success/30 bg-success/10 p-4">

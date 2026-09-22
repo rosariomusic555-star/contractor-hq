@@ -4103,6 +4103,26 @@ export async function getOpportunityByQuoteId(quoteId: string): Promise<Opportun
   return data;
 }
 
+/** Reverse lookup for the project page — "which pipeline opportunity (if
+ * any) points at this project?" There's no reverse FK column on projects
+ * (a project can exist with zero opportunities, e.g. a walk-in job), so
+ * this is a plain query rather than an embed. Null for a standalone
+ * project, or one only ever reached via getOrCreateOpportunityProject /
+ * markOpportunityWon's automatic link (those still show up here too, once
+ * linked — this doesn't distinguish automatic from manual). */
+export async function getOpportunityByProjectId(projectId: string): Promise<Opportunity | null> {
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(OPPORTUNITY_SELECT)
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205") return null;
+    throw error;
+  }
+  return data;
+}
+
 export async function createOpportunity(input: {
   client_id: string;
   title: string;
@@ -4144,11 +4164,14 @@ export async function setOpportunityCategories(opportunityId: string, categoryId
 }
 
 /**
- * project_id is deliberately NOT writable here — the only way an
- * opportunity ever gets one is getOrCreateOpportunityProject() (lazy, on
- * the first photo/sheet/quote) or markOpportunityWon()'s own fallback to
- * it. One creation path, enforced at the type level, not just by
- * convention. quote_id, next_action/next_action_date, and
+ * project_id is deliberately NOT writable here — there are exactly two
+ * legitimate ways an opportunity ever gets one: automatically, via
+ * getOrCreateOpportunityProject() (lazy, on the first photo/sheet/quote)
+ * or markOpportunityWon()'s own fallback to it; or manually, via
+ * linkOpportunityToProject() (the opportunity page's "Link existing
+ * project" action) / unlinkOpportunityProject(). Both are dedicated,
+ * narrow functions rather than a widened Pick here, so the write surface
+ * stays enumerable. quote_id, next_action/next_action_date, and
  * last_contact_date are gone too — quotes now live on the project (there
  * can be several), the "next step" is derived from the soonest open task,
  * and last contact is stamped automatically by an activities trigger
@@ -4293,6 +4316,31 @@ export async function getOrCreateOpportunityProject(opportunityId: string): Prom
  */
 export async function markOpportunityWon(opportunityId: string): Promise<void> {
   const { error } = await supabase.rpc("mark_opportunity_won", { p_opportunity_id: opportunityId });
+  if (error) throw error;
+}
+
+/**
+ * The manual counterpart to getOrCreateOpportunityProject — "this
+ * opportunity and that already-existing project are the same job."
+ * Callers should only offer projects from listProjectsForClient(this
+ * opportunity's client_id) that aren't already linked to a different
+ * opportunity; the unique partial index on opportunities.project_id
+ * (migration 0074) is the actual backstop, so a race still fails loudly
+ * (unique_violation) rather than silently double-linking a project.
+ * Doesn't touch categories/quotes/sheets on either side — once linked,
+ * opportunityCategoryIds() and the opportunity page's Estimate card
+ * switch to reading the project's own data, same as the automatic path.
+ */
+export async function linkOpportunityToProject(opportunityId: string, projectId: string): Promise<void> {
+  const { error } = await supabase.from("opportunities").update({ project_id: projectId }).eq("id", opportunityId);
+  if (error) throw error;
+}
+
+/** Clears the link without deleting either record — the opportunity goes
+ * back to its own pre-project data (categories, "create" actions) and the
+ * project is untouched. */
+export async function unlinkOpportunityProject(opportunityId: string): Promise<void> {
+  const { error } = await supabase.from("opportunities").update({ project_id: null }).eq("id", opportunityId);
   if (error) throw error;
 }
 
