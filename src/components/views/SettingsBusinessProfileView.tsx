@@ -245,6 +245,33 @@ export function SettingsBusinessProfileView() {
         </div>
       </div>
 
+      <div className="overflow-hidden rounded-card border border-border">
+        <div className="bg-muted/50 px-5 py-3">
+          <span className="text-[15px] font-bold text-foreground">Labor rates</span>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Prefills a Labor Plan or labor log entry when the worker isn't an employee with their own rate
+            (Settings &gt; Employees).
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-5 bg-card p-5 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <div className={FIELD_LABEL}>Default hourly rate</div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">$</span>
+              <Input
+                type="number"
+                min="0"
+                step="0.5"
+                value={draft.default_labor_rate}
+                onChange={(e) => edit({ default_labor_rate: parseFloat(e.target.value) || 0 })}
+                className={FIELD_INPUT}
+              />
+              <span className="text-sm text-muted-foreground">/ hr</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="flex justify-end">
         <Button
           className="h-11 rounded-xl font-bold"

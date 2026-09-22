@@ -118,6 +118,12 @@ export interface Project {
   estimated_duration_days: number | null;
   actual_start_date: string | null;
   actual_end_date: string | null;
+  /** Cost Plan / Labor productivity metrics (migration 0085) — square
+   * footage of the job (paver patio, retaining wall face, …). Nullable;
+   * per-sqft labor metrics simply don't show until this is filled in. Not
+   * split by scope — a single whole-job number, same granularity as
+   * jobSizeLabel()'s free-text reading of the quote. */
+  size_sqft: number | null;
   created_at: string;
   updated_at: string;
   client?: ClientRef | null;
@@ -370,6 +376,13 @@ export interface MaterialsItem {
   /** Credit for a returned quantity — reduces actual material cost. Only
    * meaningful when disposition = 'returned'. */
   return_credit: number | null;
+  /** Track / Don't Track (0086) — whether this line shows up in the live
+   * Material Tracker (Ordered/Delivered/Used, status, alerts) on a tracked
+   * sheet. Execution-tracking only: never affects estimated/actual cost,
+   * which always includes every line regardless of this flag — see
+   * executionTrackedLines() in materialTracking.ts. Defaults true so every
+   * existing line keeps tracking exactly as it did before this flag existed. */
+  tracked: boolean;
   /** Only populated where the select asks for it (tracked-sheet reads) —
    * every baseline ever snapshotted for this line, newest first. The
    * CURRENT baseline is materials_item_baselines[0]; empty = never
@@ -1067,6 +1080,7 @@ export async function updateProject(
       | "estimated_duration_days"
       | "actual_start_date"
       | "actual_end_date"
+      | "size_sqft"
     >
   >,
 ): Promise<void> {
@@ -1140,6 +1154,10 @@ export interface BusinessProfile {
    * days (or has passed) — see src/lib/materialTracking.ts. */
   material_over_order_margin_pct: number;
   material_not_ordered_alert_days: number;
+  /** Labor Plan / Tracking (0085) — the shared fallback hourly rate used to
+   * prefill a labor entry when the worker isn't an employee with their own
+   * default_hourly_rate (or is, but hasn't had one set). */
+  default_labor_rate: number;
 }
 
 export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
@@ -1153,6 +1171,7 @@ export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
   crew_end_time: "17:00",
   material_over_order_margin_pct: 10,
   material_not_ordered_alert_days: 5,
+  default_labor_rate: 45,
 };
 
 export async function getBusinessProfile(): Promise<BusinessProfile> {
@@ -1177,6 +1196,7 @@ export async function getBusinessProfile(): Promise<BusinessProfile> {
       data.material_over_order_margin_pct ?? BUSINESS_PROFILE_FALLBACK.material_over_order_margin_pct,
     material_not_ordered_alert_days:
       data.material_not_ordered_alert_days ?? BUSINESS_PROFILE_FALLBACK.material_not_ordered_alert_days,
+    default_labor_rate: data.default_labor_rate ?? BUSINESS_PROFILE_FALLBACK.default_labor_rate,
   };
 }
 
@@ -1195,6 +1215,7 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
       crew_end_time: merged.crew_end_time,
       material_over_order_margin_pct: merged.material_over_order_margin_pct,
       material_not_ordered_alert_days: merged.material_not_ordered_alert_days,
+      default_labor_rate: merged.default_labor_rate,
     })
     .select()
     .single();
@@ -1212,6 +1233,7 @@ export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Prom
       data.material_over_order_margin_pct ?? BUSINESS_PROFILE_FALLBACK.material_over_order_margin_pct,
     material_not_ordered_alert_days:
       data.material_not_ordered_alert_days ?? BUSINESS_PROFILE_FALLBACK.material_not_ordered_alert_days,
+    default_labor_rate: data.default_labor_rate ?? BUSINESS_PROFILE_FALLBACK.default_labor_rate,
   };
 }
 
@@ -1760,6 +1782,7 @@ export async function addMaterialsItem(
     waste_percent?: number;
     conversion_unit?: string | null;
     conversion_factor?: number | null;
+    tracked?: boolean;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -1777,6 +1800,7 @@ export async function addMaterialsItem(
       waste_percent: input.waste_percent ?? 0,
       conversion_unit: input.conversion_unit ?? null,
       conversion_factor: input.conversion_factor ?? null,
+      tracked: input.tracked ?? true,
     })
     .select()
     .single();
@@ -1800,6 +1824,7 @@ export async function updateMaterialsItem(
       | "waste_percent"
       | "conversion_unit"
       | "conversion_factor"
+      | "tracked"
     >
   >,
 ): Promise<void> {
@@ -3346,7 +3371,8 @@ export type ProjectEventKind =
   | "change_order_approved"
   | "change_order_rejected"
   | "quote_reverted"
-  | "project_started";
+  | "project_started"
+  | "labor_logged";
 
 export interface ProjectEvent {
   id: string;
@@ -3519,6 +3545,10 @@ export interface Employee {
   name: string;
   email: string;
   status: EmployeeStatus;
+  /** Labor Plan / Tracking (migration 0085) — prefills a labor entry's
+   * hourly_rate the moment this employee is picked. Null falls back to
+   * business_profile.default_labor_rate. */
+  default_hourly_rate: number | null;
   created_at: string;
 }
 
@@ -3578,7 +3608,10 @@ export async function createEmployeeAccount(input: {
 /** Deactivating (not deleting) is the primary "remove" action — every
  * employee-scoped RLS policy checks status = 'active', so this takes
  * effect immediately with no need to touch the underlying Auth login. */
-export async function updateEmployee(id: string, patch: { status: EmployeeStatus }): Promise<void> {
+export async function updateEmployee(
+  id: string,
+  patch: Partial<Pick<Employee, "status" | "default_hourly_rate">>,
+): Promise<void> {
   const { error } = await supabase.from("employees").update(patch).eq("id", id);
   if (error) throw error;
 }
@@ -4753,4 +4786,239 @@ export function findPossibleDuplicates(
     }
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Cost Plan (0085) — the project's predicted job cost. Materials and Labor
+// are never stored here (see the migration's header comment) — this table
+// only ever holds the three manual groups. See src/lib/costPlan.ts for the
+// pure math that rolls this up alongside the live Materials/Labor figures
+// into one Cost Plan summary.
+// ---------------------------------------------------------------------------
+
+export type CostPlanGroup = "subcontractor" | "equipment" | "other";
+
+export interface CostPlanItem {
+  id: string;
+  project_id: string;
+  group: CostPlanGroup;
+  name: string;
+  planned_cost: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listCostPlanItems(projectId: string): Promise<CostPlanItem[]> {
+  const { data, error } = await supabase
+    .from("cost_plan_items")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("sort_order")
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []).map((row) => ({ ...row, group: row.group as CostPlanGroup }));
+}
+
+export async function createCostPlanItem(input: {
+  project_id: string;
+  group: CostPlanGroup;
+  name: string;
+  planned_cost: number;
+}): Promise<CostPlanItem> {
+  const { data, error } = await supabase
+    .from("cost_plan_items")
+    .insert({
+      project_id: input.project_id,
+      group: input.group,
+      name: input.name,
+      planned_cost: input.planned_cost,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return { ...data, group: data.group as CostPlanGroup };
+}
+
+export async function updateCostPlanItem(
+  id: string,
+  patch: Partial<Pick<CostPlanItem, "name" | "planned_cost">>,
+): Promise<void> {
+  const { error } = await supabase.from("cost_plan_items").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteCostPlanItem(id: string): Promise<void> {
+  const { error } = await supabase.from("cost_plan_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Labor Plan + Labor Tracking (0085) — planned hours/cost per job category
+// ("scope"), and the actual hours logged against it once the job runs. See
+// src/lib/laborPlan.ts for the planned-vs-actual and productivity math.
+// ---------------------------------------------------------------------------
+
+/** One row per (project, scope) — category_id null = "General" (whole-job
+ * labor not tied to a single job category). planned_hours/hourly_rate are
+ * optional helpers; planned_cost is always the number every other screen
+ * reads (see the migration's header comment). */
+export interface LaborPlanEntry {
+  id: string;
+  project_id: string;
+  category_id: string | null;
+  planned_hours: number | null;
+  hourly_rate: number | null;
+  planned_cost: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listLaborPlanEntries(projectId: string): Promise<LaborPlanEntry[]> {
+  const { data, error } = await supabase
+    .from("labor_plan_entries")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** At most one plan row per scope per project (see the migration's unique
+ * indexes) — select-then-write rather than a DB-level upsert so this works
+ * uniformly whether category_id is a real id or null ("General"), which
+ * `.upsert()`'s single-column conflict target can't express cleanly. A
+ * planned_hours/hourly_rate/planned_cost of 0 with empty notes still
+ * writes an explicit zero row (the caller — the Labor Plan draft save —
+ * decides whether a blank row is worth persisting at all). */
+export async function upsertLaborPlanEntry(input: {
+  project_id: string;
+  category_id: string | null;
+  planned_hours: number | null;
+  hourly_rate: number | null;
+  planned_cost: number;
+  notes: string | null;
+}): Promise<LaborPlanEntry> {
+  let existing = supabase
+    .from("labor_plan_entries")
+    .select("id")
+    .eq("project_id", input.project_id);
+  existing = input.category_id ? existing.eq("category_id", input.category_id) : existing.is("category_id", null);
+  const { data: existingRow, error: findError } = await existing.maybeSingle();
+  if (findError) throw findError;
+
+  const values = {
+    planned_hours: input.planned_hours,
+    hourly_rate: input.hourly_rate,
+    planned_cost: input.planned_cost,
+    notes: input.notes,
+  };
+
+  if (existingRow) {
+    const { data, error } = await supabase
+      .from("labor_plan_entries")
+      .update(values)
+      .eq("id", existingRow.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from("labor_plan_entries")
+    .insert({ project_id: input.project_id, category_id: input.category_id, ...values })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteLaborPlanEntry(id: string): Promise<void> {
+  const { error } = await supabase.from("labor_plan_entries").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Actual labor logged in the field. `employee_id` links a real
+ * Employee-Only Mode login; `worker_name` is free text for a crew member
+ * who isn't one (or a snapshot if the employee is later removed) — same
+ * "denormalized text, not a hard FK" shape as Suppliers / usage logs'
+ * logged_by. */
+export interface LaborEntry {
+  id: string;
+  project_id: string;
+  category_id: string | null;
+  employee_id: string | null;
+  worker_name: string | null;
+  entry_date: string;
+  hours: number;
+  hourly_rate: number | null;
+  cost: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listLaborEntries(projectId: string): Promise<LaborEntry[]> {
+  const { data, error } = await supabase
+    .from("labor_entries")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("entry_date", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createLaborEntry(input: {
+  project_id: string;
+  category_id: string | null;
+  employee_id: string | null;
+  worker_name: string | null;
+  entry_date: string;
+  hours: number;
+  hourly_rate: number | null;
+  cost: number;
+  note?: string | null;
+}): Promise<LaborEntry> {
+  const { data, error } = await supabase
+    .from("labor_entries")
+    .insert({
+      project_id: input.project_id,
+      category_id: input.category_id,
+      employee_id: input.employee_id,
+      worker_name: input.worker_name,
+      entry_date: input.entry_date,
+      hours: input.hours,
+      hourly_rate: input.hourly_rate,
+      cost: input.cost,
+      note: input.note ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateLaborEntry(
+  id: string,
+  patch: Partial<Pick<LaborEntry, "category_id" | "employee_id" | "worker_name" | "entry_date" | "hours" | "hourly_rate" | "cost" | "note">>,
+): Promise<void> {
+  const { error } = await supabase.from("labor_entries").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteLaborEntry(id: string): Promise<void> {
+  const { error } = await supabase.from("labor_entries").delete().eq("id", id);
+  if (error) throw error;
 }

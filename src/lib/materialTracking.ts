@@ -21,6 +21,7 @@ import type {
   Project,
   Quote,
 } from "./api";
+import { materialsCogs } from "./api";
 import { projectDurationStatus } from "./projectDuration";
 
 // ---------------------------------------------------------------------------
@@ -47,6 +48,50 @@ export function trackedSheetIds(quotes: Quote[], changeOrders: ChangeOrder[]): S
  * of what's linked. */
 export function projectTracksMaterials(status: Project["status"]): boolean {
   return status !== "estimating" && status !== "lost";
+}
+
+/** Track / Don't Track (0086) — the per-line flag that narrows a tracked
+ * sheet's ALL lines down to just the ones the contractor wants to monitor
+ * during execution (Ordered/Delivered/Used, status, alerts, the "Log
+ * usage" action, reconciliation). Every money figure (estimated/actual
+ * cost, Cost Plan) stays on the full, unfiltered line set — see
+ * sheetCostSummary()'s own doc comment for exactly which fields do and
+ * don't apply this filter. */
+export function executionTrackedLines(lines: MaterialsItem[]): MaterialsItem[] {
+  return lines.filter((l) => l.tracked);
+}
+
+export interface TrackingSummary {
+  trackedCount: number;
+  totalCount: number;
+}
+
+/** "Tracking 3 of 6 materials" — the sheet-level count the Material
+ * Tracker header shows. `lines` should be every line on the sheet
+ * (unfiltered); this does the filtering itself so callers never have to
+ * compute the denominator separately. Takes just `tracked` so the
+ * Materials Sheet builder's draft rows (not full MaterialsItem records)
+ * can feed it directly, live as the contractor toggles items pre-Save. */
+export function trackingSummary(lines: Pick<MaterialsItem, "tracked">[]): TrackingSummary {
+  return { trackedCount: lines.filter((l) => l.tracked).length, totalCount: lines.length };
+}
+
+/** The one figure "planned material cost" means anywhere in the app —
+ * ProjectDetailView's Profit Summary card and the Cost Plan's Materials
+ * group both read this same function, so they can never disagree. Once a
+ * sheet is tracked, its baseline (the snapshot taken at Won/change-order
+ * approval) is the estimate of record; before that (still Estimating, or a
+ * project with no tracked sheet yet), it falls back to the live sheet
+ * numbers so a Cost Plan can show a materials figure before there's
+ * anything to snapshot. Null only when the project has no materials sheet
+ * at all — "not started," never zero. */
+export function predictedMaterialCost(
+  materials: MaterialsSection[],
+  materialCostSummary: SheetCostSummary | null,
+): number | null {
+  if (materialCostSummary) return materialCostSummary.estimatedCost;
+  const totalItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
+  return totalItems > 0 ? materialsCogs(materials) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,15 +347,22 @@ export function unplannedActualCost(deliveries: DeliveryLineWithOrderStatus[]): 
 }
 
 export interface SheetCostSummary {
-  /** Sum of every tracked line's baseline quantity x baseline unit_cost. */
+  /** Sum of every tracked line's baseline quantity x baseline unit_cost —
+   * EVERY line on the sheet, regardless of its own Track/Don't Track flag
+   * (0086). Planned/actual cost is a financial figure the per-line
+   * tracking toggle never touches — see executionTrackedLines(). */
   estimatedCost: number;
   /** Every tracked line's actual cost + Unplanned deliveries' cost, minus
-   * any reconciled return credits. */
+   * any reconciled return credits. Same "every line counts" rule as
+   * estimatedCost above. */
   actualCost: number;
   varianceDollars: number;
   /** Positive = over budget. Null when estimatedCost is 0 (nothing to
    * compare a percentage against). */
   variancePct: number | null;
+  /** Counts only lines with tracking ON (0086) — these drive the Material
+   * Tracker's own alert chips, so a line the contractor deliberately
+   * excluded from tracking never nags "not ordered" or "over estimate". */
   notOrderedCount: number;
   overEstimateCount: number;
   /** Distinct delivery lines with no sheet match. */
@@ -320,9 +372,12 @@ export interface SheetCostSummary {
 /** The sheet-level summary card (Phase 4) and the project page's compact
  * Materials card both read this same function, so they can never disagree.
  * `trackedLines` = every materials_items row across the sheet's sections
- * (already the tracked sheet — caller filters by trackedSheetIds first).
- * `deliveries` = every material_order_item on the project, each paired
- * with its parent order's status (see DeliveryLineWithOrderStatus). */
+ * (already the tracked sheet — caller filters by trackedSheetIds first;
+ * NOT pre-filtered by the per-line tracked flag — see the estimatedCost/
+ * notOrderedCount doc comments above for why each field treats that flag
+ * differently). `deliveries` = every material_order_item on the project,
+ * each paired with its parent order's status (see
+ * DeliveryLineWithOrderStatus). */
 export function sheetCostSummary(
   trackedLines: MaterialsItem[],
   deliveries: DeliveryLineWithOrderStatus[],
@@ -339,17 +394,19 @@ export function sheetCostSummary(
     const estCost = baseline?.unit_cost ?? 0;
     estimatedCost += estQty * estCost;
 
+    actualCost += lineActualCost(line, deliveries);
+    if (line.reconciled_at && line.disposition === "returned" && line.return_credit) {
+      actualCost -= Number(line.return_credit);
+    }
+
+    if (!line.tracked) continue; // execution-tracking noise only — never skips the cost math above
+
     const ordered = orderedQuantity(line, deliveries);
     const delivered = deliveredQuantity(line, deliveries);
     const used = usedQuantity(line, usageLogs);
     const status = lineStatus(estQty, ordered, delivered, used);
     if (status === "not_ordered") notOrderedCount++;
     if (status === "over_estimate") overEstimateCount++;
-
-    actualCost += lineActualCost(line, deliveries);
-    if (line.reconciled_at && line.disposition === "returned" && line.return_credit) {
-      actualCost -= Number(line.return_credit);
-    }
   }
 
   const unplannedCount = new Set(
@@ -401,7 +458,7 @@ export function materialAlerts(
     ? Math.round((new Date(`${project.scheduled_start_date}T00:00:00`).getTime() - new Date(`${todayISO}T00:00:00`).getTime()) / 86_400_000)
     : null;
 
-  for (const line of trackedLines) {
+  for (const line of executionTrackedLines(trackedLines)) {
     const baseline = currentBaseline(line);
     const estimated = baseline?.quantity ?? 0;
     const ordered = orderedQuantity(line, deliveries);
@@ -458,7 +515,7 @@ export function needsReconciliation(
   deliveries: DeliveryLineWithOrderStatus[],
   usageLogs: MaterialsUsageLog[],
 ): MaterialsItem[] {
-  return trackedLines.filter((line) => {
+  return executionTrackedLines(trackedLines).filter((line) => {
     if (line.reconciled_at) return false;
     const delivered = deliveredQuantity(line, deliveries);
     const used = usedQuantity(line, usageLogs);

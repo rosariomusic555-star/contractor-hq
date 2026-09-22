@@ -1,0 +1,21 @@
+-- ContractorHQ — per-line Track / Don't Track on the Materials Sheet
+-- (0080's Material budget tracking made every line on a tracked sheet
+-- show up in the live Ordered/Delivered/Used view; this narrows that down
+-- to only the lines a contractor actually wants to monitor). Run AFTER
+-- 0085.
+--
+-- `tracked` gates EXECUTION tracking only (whether a line's live
+-- Ordered/Delivered/Used rollup, status chip, and alerts show up) — never
+-- the money math. A line's cost always counts toward the sheet's
+-- estimated/actual cost (materialsCogs, sheetCostSummary's estimatedCost/
+-- actualCost, Cost Plan) regardless of this flag. See
+-- src/lib/materialTracking.ts's executionTrackedLines().
+--
+-- `not null default true` — every existing line (and every line created
+-- before the app UI catches up) keeps today's exact behavior: everything
+-- on a tracked sheet shows up in the tracker, same as before this
+-- migration. The default only matters going forward for how the app
+-- chooses to seed a *new* line; the column itself never silently changes
+-- what an existing project's tracker shows.
+alter table public.materials_items
+  add column if not exists tracked boolean not null default true;

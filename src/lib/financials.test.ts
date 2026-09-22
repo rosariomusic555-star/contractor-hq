@@ -139,6 +139,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     estimated_duration_days: null,
     actual_start_date: null,
     actual_end_date: null,
+    size_sqft: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -367,7 +368,7 @@ describe("Cost / profit / margin", () => {
       sort_order: 0,
       smart_section_build_type: null,
       materials_items: [
-        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0, conversion_unit: null, conversion_factor: null, reconciled_at: null, disposition: null, return_credit: null },
+        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0, conversion_unit: null, conversion_factor: null, reconciled_at: null, disposition: null, return_credit: null, tracked: true },
       ],
     };
 
@@ -409,7 +410,7 @@ describe("Cost / profit / margin", () => {
       sort_order: 0,
       smart_section_build_type: null,
       materials_items: [
-        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0, conversion_unit: null, conversion_factor: null, reconciled_at: null, disposition: null, return_credit: null },
+        { id: "mi-1", section_id: "ms-1", name: "Pavers", quantity: 100, unit_cost: 60, sort_order: 0, expense_category_id: null, unit: null, price_book_item_id: null, catalog_product_id: null, waste_percent: 0, conversion_unit: null, conversion_factor: null, reconciled_at: null, disposition: null, return_credit: null, tracked: true },
       ],
     };
     // Actual expenses ($8,000) logged, different from the $6,000 predicted.

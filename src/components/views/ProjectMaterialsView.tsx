@@ -12,6 +12,8 @@ import {
   Wand2,
   Calculator,
   X,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
@@ -109,6 +112,8 @@ import {
   currentBaseline,
   lineStatus,
   sheetCostSummary,
+  executionTrackedLines,
+  trackingSummary,
   LINE_STATUS_LABEL,
   type LineStatus,
   type DeliveryLineWithOrderStatus,
@@ -141,6 +146,11 @@ interface DraftItem {
   /** Reference-only, every line regardless of source — not part of the
    * quantity*unit_cost math. */
   waste_percent: number;
+  /** Track / Don't Track (0086) — whether this line shows up in the live
+   * Material Tracker once the sheet itself is tracked. Never affects the
+   * quantity*unit_cost math (estimated/actual cost, Cost Plan) — see
+   * materialTracking.ts's executionTrackedLines(). */
+  tracked: boolean;
   /** Draft-only UI state, never persisted itself — when true, saving this
    * item also upserts its unit_cost into catalog_price_overrides. Reset to
    * false after every save. */
@@ -174,6 +184,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       price_book_item_id: i.price_book_item_id ?? null,
       catalog_product_id: i.catalog_product_id ?? null,
       waste_percent: Number(i.waste_percent ?? 0),
+      tracked: i.tracked ?? true,
       rememberPrice: false,
     })),
   }));
@@ -189,6 +200,7 @@ const itemChanged = (
     price_book_item_id: string | null;
     catalog_product_id: string | null;
     waste_percent: number;
+    tracked: boolean;
   },
 ) =>
   a.name !== b.name ||
@@ -198,7 +210,8 @@ const itemChanged = (
   a.unit !== b.unit ||
   a.price_book_item_id !== b.price_book_item_id ||
   a.catalog_product_id !== b.catalog_product_id ||
-  a.waste_percent !== b.waste_percent;
+  a.waste_percent !== b.waste_percent ||
+  a.tracked !== b.tracked;
 
 /**
  * Route entry for /projects/:id/materials. Most projects have exactly one
@@ -442,7 +455,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       { estimated: number; ordered: number; delivered: number; used: number; status: LineStatus; unit: string | null }
     >();
     if (!isTracked) return map;
-    for (const line of trackedLines) {
+    for (const line of executionTrackedLines(trackedLines)) {
       const baseline = currentBaseline(line);
       const estimated = baseline?.quantity ?? 0;
       const ordered = orderedQuantity(line, deliveries);
@@ -546,6 +559,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           price_book_item_id: null,
           catalog_product_id: null,
           waste_percent: 0,
+          tracked: true,
           rememberPrice: false,
         })),
       },
@@ -601,6 +615,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                   price_book_item_id: null,
                   catalog_product_id: null,
                   waste_percent: 0,
+                  tracked: true,
                   rememberPrice: false,
                 },
               ],
@@ -680,6 +695,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
               waste_percent: di.waste_percent,
+              tracked: di.tracked,
             });
           } else if (
             itemChanged(di, {
@@ -691,6 +707,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: srv.price_book_item_id ?? null,
               catalog_product_id: srv.catalog_product_id ?? null,
               waste_percent: Number(srv.waste_percent ?? 0),
+              tracked: srv.tracked ?? true,
             }) ||
             srv.sort_order !== ii
           ) {
@@ -703,6 +720,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
               waste_percent: di.waste_percent,
+              tracked: di.tracked,
               sort_order: ii,
             });
           }
@@ -785,6 +803,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       ),
     [draft],
   );
+
+  // Track / Don't Track (0086) — live off the draft (not the server rows)
+  // so the count updates the instant the contractor toggles an item, same
+  // as every other field on this page.
+  const draftItems = useMemo(() => draft.flatMap((s) => s.items), [draft]);
+  const itemTrackingSummary = useMemo(() => trackingSummary(draftItems), [draftItems]);
+  const setAllTracked = (tracked: boolean) =>
+    edit((d) => d.map((s) => ({ ...s, items: s.items.map((i) => ({ ...i, tracked })) })));
 
   const isDirty = dirty.current;
 
@@ -920,6 +946,35 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               <span className="badge-status badge-pending">{pluralize(costSummary.unplannedCount, "unplanned item")}</span>
             )}
           </div>
+        </div>
+      )}
+
+      {itemTrackingSummary.totalCount > 0 && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">
+            Tracking <span className="font-bold text-foreground">{itemTrackingSummary.trackedCount}</span> of{" "}
+            {itemTrackingSummary.totalCount} materials
+          </span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" className="text-xs font-bold text-primary hover:underline">
+                Manage tracking
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 space-y-2 p-3">
+              <p className="text-xs text-muted-foreground">
+                Choose which materials show up in the Material Tracker. Toggle individual items below, or:
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => setAllTracked(true)}>
+                  Track all
+                </Button>
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => setAllTracked(false)}>
+                  Track none
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       )}
 
@@ -1502,6 +1557,25 @@ function ItemRow({
             aria-label="Pick from Price Book or Catalog"
           >
             <BookOpen className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onEdit({ tracked: !item.tracked })}
+            className={cn(
+              "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg transition-colors",
+              item.tracked
+                ? "bg-primary/15 text-primary hover:bg-primary/25"
+                : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
+            )}
+            aria-pressed={item.tracked}
+            aria-label={
+              item.tracked
+                ? "Tracked in the Material Tracker — click to stop tracking"
+                : "Not tracked — click to track in the Material Tracker"
+            }
+            title={item.tracked ? "Tracked in Material Tracker" : "Not tracked"}
+          >
+            {item.tracked ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
           </button>
           <ReorderControls
             dragHandleProps={dragHandleProps}

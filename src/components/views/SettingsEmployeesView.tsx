@@ -146,6 +146,12 @@ function EmployeeRow({
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
+  const rateMut = useMutation({
+    mutationFn: (default_hourly_rate: number | null) => updateEmployee(employee.id, { default_hourly_rate }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
   return (
     <div className="card-surface p-4">
       <button type="button" onClick={onToggleExpand} className="flex w-full items-center justify-between gap-3 text-left">
@@ -163,6 +169,29 @@ function EmployeeRow({
 
       {expanded && (
         <div className="mt-4 space-y-3 border-t border-hairline pt-4">
+          <div className="space-y-1.5">
+            <Label htmlFor={`rate-${employee.id}`} className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+              Default hourly rate
+            </Label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">$</span>
+              <Input
+                id={`rate-${employee.id}`}
+                type="number"
+                min="0"
+                step="0.5"
+                defaultValue={employee.default_hourly_rate ?? ""}
+                onBlur={(e) => {
+                  const value = e.target.value ? parseFloat(e.target.value) : null;
+                  if (value !== employee.default_hourly_rate) rateMut.mutate(value);
+                }}
+                placeholder="Uses the business default"
+                className="h-9 w-40"
+              />
+              <span className="text-sm text-muted-foreground">/ hr</span>
+            </div>
+          </div>
+
           <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">Assigned projects</div>
           {projects.length === 0 ? (
             <p className="text-sm text-muted-foreground">No projects yet.</p>

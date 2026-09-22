@@ -5,6 +5,7 @@ import {
   currentBaseline,
   deliveredQuantity,
   effectiveDeliveryStatus,
+  executionTrackedLines,
   leftoverQuantity,
   lineActualCost,
   lineStatus,
@@ -15,6 +16,7 @@ import {
   sheetCostSummary,
   suggestMaterialsItemMatches,
   trackedSheetIds,
+  trackingSummary,
   unitsMatch,
   unplannedActualCost,
   usedQuantity,
@@ -42,6 +44,7 @@ function makeItem(overrides: Partial<MaterialsItem> = {}): MaterialsItem {
     reconciled_at: null,
     disposition: null,
     return_credit: null,
+    tracked: true,
     materials_item_baselines: [],
     ...overrides,
   };
@@ -300,6 +303,50 @@ describe("actual cost, including Unplanned items", () => {
     const summary = sheetCostSummary([line], deliveries, []);
     expect(summary.actualCost).toBe(1100); // 24 x 50 - 100 credit
   });
+
+  it("still counts an untracked (Don't Track) line's cost in estimated/actual — the toggle is execution-only", () => {
+    const tracked = makeItem({
+      id: "mi-1",
+      tracked: true,
+      unit_cost: 50,
+      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 10, unit_cost: 50, unit: "ton", reason: null, created_at: "2026-01-01" }],
+    });
+    const untracked = makeItem({
+      id: "mi-2",
+      tracked: false,
+      unit_cost: 20,
+      materials_item_baselines: [{ id: "b2", materials_item_id: "mi-2", quantity: 5, unit_cost: 20, unit: "bag", reason: null, created_at: "2026-01-01" }],
+    });
+    const deliveries = [
+      delivery(makeOrderItem({ materials_item_id: "mi-1", quantity: 10, unit_price: 50 }), "delivered"),
+      delivery(makeOrderItem({ materials_item_id: "mi-2", quantity: 5, unit_price: 20 }), "delivered"),
+    ];
+    const summary = sheetCostSummary([tracked, untracked], deliveries, []);
+    expect(summary.estimatedCost).toBe(600); // 10x50 + 5x20 — both lines count
+    expect(summary.actualCost).toBe(600);
+  });
+
+  it("excludes an untracked line's status from notOrderedCount/overEstimateCount", () => {
+    const untrackedNotOrdered = makeItem({
+      id: "mi-1",
+      tracked: false,
+      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 24, unit_cost: 1, unit: "ton", reason: null, created_at: "2026-01-01" }],
+    });
+    const summary = sheetCostSummary([untrackedNotOrdered], [], []);
+    expect(summary.notOrderedCount).toBe(0);
+  });
+});
+
+describe("Track / Don't Track (0086)", () => {
+  it("executionTrackedLines keeps only lines with tracked=true", () => {
+    const lines = [makeItem({ id: "mi-1", tracked: true }), makeItem({ id: "mi-2", tracked: false })];
+    expect(executionTrackedLines(lines).map((l) => l.id)).toEqual(["mi-1"]);
+  });
+
+  it("trackingSummary counts tracked vs. total", () => {
+    const lines = [{ tracked: true }, { tracked: true }, { tracked: false }];
+    expect(trackingSummary(lines)).toEqual({ trackedCount: 2, totalCount: 3 });
+  });
 });
 
 describe("burn-rate and other early-warning alerts", () => {
@@ -373,6 +420,17 @@ describe("burn-rate and other early-warning alerts", () => {
     const soonProject = { estimated_duration_days: null, actual_start_date: null, actual_end_date: null, scheduled_start_date: "2026-06-02" };
     expect(materialAlerts(soonProject, [line], deliveries, [], settings, now).some((a) => a.key === "not_ordered")).toBe(false);
   });
+
+  it("never alerts on an untracked (Don't Track) line", () => {
+    const line = makeItem({
+      id: "mi-1",
+      tracked: false,
+      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 24, unit_cost: 1, unit: "ton", reason: null, created_at: "2026-01-01" }],
+    });
+    const now = new Date("2026-06-01T00:00:00");
+    const soonProject = { estimated_duration_days: null, actual_start_date: null, actual_end_date: null, scheduled_start_date: "2026-06-02" };
+    expect(materialAlerts(soonProject, [line], [], [], settings, now)).toEqual([]);
+  });
 });
 
 describe("reconciliation", () => {
@@ -407,5 +465,16 @@ describe("reconciliation", () => {
     ];
     const result = needsReconciliation([settled, leftover, alreadyReconciled], deliveries, logs);
     expect(result.map((l) => l.id)).toEqual(["mi-2"]);
+  });
+
+  it("never nags reconciliation for an untracked (Don't Track) line", () => {
+    const untrackedLeftover = makeItem({
+      id: "mi-1",
+      tracked: false,
+      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 24, unit_cost: 1, unit: "ton", reason: null, created_at: "2026-01-01" }],
+    });
+    const deliveries = [delivery(makeOrderItem({ materials_item_id: "mi-1", quantity: 20, unit: "ton" }), "delivered")];
+    const logs = [makeUsage({ materials_item_id: "mi-1", quantity: 14 })]; // 6 leftover, but untracked
+    expect(needsReconciliation([untrackedLeftover], deliveries, logs)).toEqual([]);
   });
 });

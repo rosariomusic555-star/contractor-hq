@@ -69,6 +69,10 @@ import {
   reconcileMaterialsItem,
   recordMaterialLearningSnapshot,
   getOpportunityByProjectId,
+  listCostPlanItems,
+  listLaborPlanEntries,
+  listLaborEntries,
+  listCategories,
   type ProjectStatus,
   type MaterialsItem,
   type MaterialsUsageLog,
@@ -93,10 +97,13 @@ import {
   deliveredQuantity,
   usedQuantity,
   currentBaseline,
+  predictedMaterialCost,
   type DeliveryLineWithOrderStatus,
 } from "@/lib/materialTracking";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { demoJobMeta } from "@/lib/demoData";
+import { costPlanSummary } from "@/lib/costPlan";
+import { laborRollupsByScope, laborTotals } from "@/lib/laborPlan";
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -148,6 +155,19 @@ export function ProjectDetailView() {
     queryKey: ["opportunity-by-project", id],
     queryFn: () => getOpportunityByProjectId(id),
   });
+  const { data: costPlanItems = [] } = useQuery({
+    queryKey: ["cost-plan-items", { project: id }],
+    queryFn: () => listCostPlanItems(id),
+  });
+  const { data: laborPlanEntries = [] } = useQuery({
+    queryKey: ["labor-plan-entries", { project: id }],
+    queryFn: () => listLaborPlanEntries(id),
+  });
+  const { data: laborEntries = [] } = useQuery({
+    queryKey: ["labor-entries", { project: id }],
+    queryFn: () => listLaborEntries(id),
+  });
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
 
   const statusMutation = useMutation({
     mutationFn: (status: ProjectStatus) => updateProject(id, { status }),
@@ -222,6 +242,16 @@ export function ProjectDetailView() {
       toast({ title: "Couldn't update estimated duration", description: err.message, variant: "destructive" }),
   });
 
+  const sizeMutation = useMutation({
+    mutationFn: (size_sqft: number | null) => updateProject(id, { size_sqft }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", id] });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Couldn't update project size", description: err.message, variant: "destructive" }),
+  });
+
   const inviteToHubMut = useMutation({
     mutationFn: async () => {
       if (!project?.client?.email || !project.client_id) throw new Error("This client has no email on file.");
@@ -270,15 +300,30 @@ export function ProjectDetailView() {
       })
     : [];
 
-  const totalMaterialsItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
-  const predictedCost = materialCostSummary ? materialCostSummary.estimatedCost : totalMaterialsItems > 0 ? materialsCogs(materials) : null;
+  const materialCost = predictedMaterialCost(materials, materialCostSummary);
   const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
-  const actualCost =
-    project.status === "complete" && materialsFullyReconciled
-      ? materialCostSummary!.actualCost + expensesTotal
-      : expenses.length > 0
-        ? expensesTotal
-        : null;
+  const laborActualTotal = laborEntries.reduce((s, e) => s + Number(e.cost), 0);
+
+  // Cost Plan (0085) — the source of truth for predicted cost. Materials
+  // (above) and Labor (laborTotalsResult.plannedCost) are read live, never
+  // re-entered; costPlanItems only ever holds Subcontractor/Equipment/Other.
+  const laborRollups = laborRollupsByScope(laborPlanEntries, laborEntries, categories);
+  const laborTotalsResult = laborTotals(laborRollups);
+  const costPlan = costPlanSummary(quotes, changeOrders, materialCost, laborTotalsResult.plannedCost, costPlanItems);
+
+  // "Actual" folds in every actual-cost source that's been logged so far —
+  // reconciled material cost only once Complete (see materialActualCost's
+  // doc comment above for why that one stays gated), expenses and actual
+  // labor as soon as either has at least one entry. Null only when NOTHING
+  // has been logged yet ("unknown," never a silent $0 — same convention
+  // resolveCost() already documents).
+  const hasActualCostData = (project.status === "complete" && materialsFullyReconciled) || expenses.length > 0 || laborEntries.length > 0;
+  const actualCost = hasActualCostData
+    ? (project.status === "complete" && materialsFullyReconciled ? materialCostSummary!.actualCost : 0) +
+      expensesTotal +
+      laborActualTotal
+    : null;
+  const predictedCost = costPlan.totalPlannedCost > 0 ? costPlan.totalPlannedCost : null;
   const realCost = resolveCost(actualCost, predictedCost);
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
   const marginProfit = realCost != null ? contract - realCost : null;
@@ -325,6 +370,14 @@ export function ProjectDetailView() {
   const pendingDeliveryCount = materialOrders.filter((mo) => mo.status !== "delivered").length;
   const materialOrdersSummary =
     materialOrders.length === 0 ? "None yet" : `${pluralize(materialOrders.length, "order")} · ${pendingDeliveryCount} pending`;
+  const costPlanSummaryLine =
+    costPlan.totalPlannedCost === 0
+      ? "Not started"
+      : `${formatCurrency(costPlan.totalPlannedCost)} planned${costPlan.projectedMarginPct != null ? ` · ${costPlan.projectedMarginPct.toFixed(0)}% margin` : ""}`;
+  const laborSummary =
+    laborTotalsResult.plannedHours === 0 && laborTotalsResult.actualHours === 0
+      ? "Not started"
+      : `${pluralize(Math.round(laborTotalsResult.plannedHours), "hr")} planned${laborTotalsResult.actualHours > 0 ? ` · ${Math.round(laborTotalsResult.actualHours)} actual` : ""}`;
 
   const statusSelect = (
     <Select value={project.status} onValueChange={(v) => statusMutation.mutate(v as ProjectStatus)}>
@@ -449,6 +502,8 @@ export function ProjectDetailView() {
 
           {/* Section nav */}
           <div className="grid gap-3 sm:grid-cols-2">
+            <HubCard title="Cost Plan" summary={costPlanSummaryLine} onOpen={() => navigate(`/projects/${id}/cost-plan`)} />
+            <HubCard title="Labor" summary={laborSummary} onOpen={() => navigate(`/projects/${id}/labor`)} />
             <HubCard title="Materials sheet" summary={materialsSummary} onOpen={() => navigate(`/projects/${id}/materials`)} />
             <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
             <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
@@ -465,7 +520,10 @@ export function ProjectDetailView() {
             />
           </div>
 
-          {/* Profit summary (real) */}
+          {/* Profit summary (real) — predicted cost is now the Cost Plan's
+              full total (materials + labor + subs + equipment + other), not
+              materials alone; actual cost folds in actual labor the moment
+              any is logged. See the Cost Plan/Labor pages for the breakdown. */}
           <ProfitSummaryCard
             quoted={contract || null}
             predictedCost={predictedCost}
@@ -713,6 +771,30 @@ export function ProjectDetailView() {
                 {windowNote && <p className="mt-3 text-[11px] text-warning">{windowNote}</p>}
               </>
             )}
+          </section>
+
+          <section className="card-surface p-5">
+            <h3 className="text-base font-bold text-foreground">Project size</h3>
+            <div className="mt-2 flex items-baseline gap-2">
+              <Input
+                key={project.size_sqft ?? "empty"}
+                type="number"
+                min="0"
+                step="1"
+                placeholder="e.g. 800"
+                defaultValue={project.size_sqft ?? ""}
+                onBlur={(e) => {
+                  const sqft = e.target.value ? Number(e.target.value) : null;
+                  if (sqft !== project.size_sqft) sizeMutation.mutate(sqft && sqft > 0 ? sqft : null);
+                }}
+                className="h-10 w-28"
+                aria-label="Project size in square feet"
+              />
+              <span className="text-sm text-muted-foreground">sq ft</span>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-subtle">
+              Drives the Labor page's productivity metrics (hours/100sf, cost/sf).
+            </p>
           </section>
 
           {project.client && (
