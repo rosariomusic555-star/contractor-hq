@@ -76,11 +76,11 @@ interface ProjectLike {
 }
 
 const STAGE_BY_STATUS: Record<string, VisualOnlyStatus> = {
-  draft: "quoting",
-  quote_sent: "quoting",
-  approved: "scheduled",
-  invoiced: "in_progress",
-  paid: "complete",
+  estimating: "quoting",
+  scheduled: "scheduled",
+  in_progress: "in_progress",
+  complete: "complete",
+  lost: "quoting",
 };
 
 const NEXT_ACTION = [
@@ -102,10 +102,7 @@ export interface DemoJobMeta {
 }
 
 export function demoJobMeta(project: ProjectLike): DemoJobMeta {
-  const stage: VisualOnlyStatus =
-    project.status === "approved" && hash(project.id) % 2 === 0
-      ? "in_progress"
-      : STAGE_BY_STATUS[project.status] ?? "quoting";
+  const stage: VisualOnlyStatus = STAGE_BY_STATUS[project.status] ?? "quoting";
 
   const crew = seededPick(DEMO_CREWS, project.id).name;
   const total = seededInt(project.id + "t", 4, 8);

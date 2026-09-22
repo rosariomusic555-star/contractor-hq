@@ -40,7 +40,7 @@ export const TOOLS = [
     input_schema: {
       type: "object",
       properties: {
-        status: { type: "string", enum: ["draft", "quote_sent", "approved", "invoiced", "paid"] },
+        status: { type: "string", enum: ["estimating", "scheduled", "in_progress", "complete", "lost"] },
         search: { type: "string", description: "Case-insensitive substring match on the project name." },
       },
     },

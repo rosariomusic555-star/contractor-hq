@@ -28,14 +28,14 @@ describe("demoData isolation", () => {
 
 describe("demoData helpers are deterministic and consistent", () => {
   it("returns identical output for identical input", () => {
-    const a = demoJobMeta({ id: "abc-123", status: "approved" });
-    const b = demoJobMeta({ id: "abc-123", status: "approved" });
+    const a = demoJobMeta({ id: "abc-123", status: "in_progress" });
+    const b = demoJobMeta({ id: "abc-123", status: "in_progress" });
     expect(a).toEqual(b);
   });
 
   it("varies output by id", () => {
-    const a = demoJobMeta({ id: "abc-123", status: "approved" });
-    const b = demoJobMeta({ id: "zzz-999", status: "approved" });
+    const a = demoJobMeta({ id: "abc-123", status: "in_progress" });
+    const b = demoJobMeta({ id: "zzz-999", status: "in_progress" });
     expect(a).not.toEqual(b);
   });
 });
@@ -52,7 +52,7 @@ describe("statusMeta covers every real status", () => {
     }
   });
   it("projects", () => {
-    for (const s of ["draft", "quote_sent", "approved", "invoiced", "paid"]) {
+    for (const s of ["estimating", "scheduled", "in_progress", "complete", "lost"]) {
       expect(projectStatusMeta(s).badge).toContain("badge-status");
     }
   });

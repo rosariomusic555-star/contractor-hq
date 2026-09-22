@@ -171,6 +171,26 @@ export function ProjectDetailView() {
       toast({ title: "Couldn't update schedule", description: err.message, variant: "destructive" }),
   });
 
+  // End can't be before start in either direction — changing Start past an
+  // already-set End (not just changing End past Start) is blocked too,
+  // same DB constraint this mirrors client-side (migration 0083).
+  const setScheduledStart = (value: string) => {
+    const start = value || null;
+    if (start && project?.scheduled_end_date && project.scheduled_end_date < start) {
+      toast({ title: "Start date must be on or before the end date", variant: "destructive" });
+      return;
+    }
+    scheduleMutation.mutate({ scheduled_start_date: start });
+  };
+  const setScheduledEnd = (value: string) => {
+    const end = value || null;
+    if (end && project?.scheduled_start_date && end < project.scheduled_start_date) {
+      toast({ title: "End date can't be before the start date", variant: "destructive" });
+      return;
+    }
+    scheduleMutation.mutate({ scheduled_end_date: end });
+  };
+
   const categoriesMutation = useMutation({
     mutationFn: (categoryIds: string[]) => setProjectCategories(id, categoryIds),
     onSuccess: () => {
@@ -536,9 +556,7 @@ export function ProjectDetailView() {
                   id="scheduled-start"
                   type="date"
                   value={project.scheduled_start_date ?? ""}
-                  onChange={(e) =>
-                    scheduleMutation.mutate({ scheduled_start_date: e.target.value || null })
-                  }
+                  onChange={(e) => setScheduledStart(e.target.value)}
                   className="h-10"
                 />
               </div>
@@ -551,16 +569,14 @@ export function ProjectDetailView() {
                   type="date"
                   min={project.scheduled_start_date ?? undefined}
                   value={project.scheduled_end_date ?? ""}
-                  onChange={(e) =>
-                    scheduleMutation.mutate({ scheduled_end_date: e.target.value || null })
-                  }
+                  onChange={(e) => setScheduledEnd(e.target.value)}
                   className="h-10"
                 />
               </div>
             </div>
             <p className="mt-2 text-[11px] text-muted-subtle">
               Feeds the Dashboard Bookings card and the Bookings calendar once this job is
-              approved.
+              scheduled.
             </p>
           </section>
 
