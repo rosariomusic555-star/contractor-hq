@@ -21,7 +21,6 @@ import type {
   Project,
   Quote,
 } from "./api";
-import { materialsCogs } from "./api";
 import { projectDurationStatus } from "./projectDuration";
 
 // ---------------------------------------------------------------------------
@@ -78,20 +77,17 @@ export function trackingSummary(lines: Pick<MaterialsItem, "tracked">[]): Tracki
 
 /** The one figure "planned material cost" means anywhere in the app —
  * ProjectDetailView's Profit Summary card and the Cost Plan's Materials
- * group both read this same function, so they can never disagree. Once a
- * sheet is tracked, its baseline (the snapshot taken at Won/change-order
- * approval) is the estimate of record; before that (still Estimating, or a
- * project with no tracked sheet yet), it falls back to the live sheet
- * numbers so a Cost Plan can show a materials figure before there's
- * anything to snapshot. Null only when the project has no materials sheet
- * at all — "not started," never zero. */
-export function predictedMaterialCost(
-  materials: MaterialsSection[],
-  materialCostSummary: SheetCostSummary | null,
-): number | null {
-  if (materialCostSummary) return materialCostSummary.estimatedCost;
+ * group both read this same function, so they can never disagree.
+ * `materialCostSummary` is expected to already be computed (via
+ * sheetCostSummary()) over every materials item on the project, regardless
+ * of quote/CO approval — see effectiveEstimate()'s doc comment for how its
+ * estimatedCost stays a real number (baseline once one exists, else the
+ * line's own live quantity/cost) even before Won. Null only when the
+ * project has no materials sheet at all — "not started," never a
+ * misleading $0. */
+export function predictedMaterialCost(materials: MaterialsSection[], materialCostSummary: SheetCostSummary): number | null {
   const totalItems = materials.reduce((n, s) => n + s.materials_items.length, 0);
-  return totalItems > 0 ? materialsCogs(materials) : null;
+  return totalItems > 0 ? materialCostSummary.estimatedCost : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +289,21 @@ export function currentBaseline(line: Pick<MaterialsItem, "materials_item_baseli
   return { quantity: Number(latest.quantity), unit_cost: Number(latest.unit_cost), unit: latest.unit };
 }
 
+/** The number every tracking calculation treats as "planned" for a line —
+ * the locked baseline once one's been snapshotted (post-Won, or once a
+ * change order approves), else the sheet line's own live quantity/cost.
+ * The Material Tracker shows on every project regardless of quote/status
+ * (not just signed, Won ones) — before a baseline ever gets snapshotted,
+ * this is what keeps "Estimated" a real number instead of $0. Once a real
+ * baseline exists it always wins, so a signed job's tracker still measures
+ * against the locked-in plan, never silently drifting if the sheet is
+ * edited afterward. */
+export function effectiveEstimate(
+  line: Pick<MaterialsItem, "quantity" | "unit_cost" | "unit" | "materials_item_baselines">,
+): { quantity: number; unit_cost: number; unit: string | null } {
+  return currentBaseline(line) ?? { quantity: Number(line.quantity), unit_cost: Number(line.unit_cost), unit: line.unit };
+}
+
 export type LineStatus = "not_ordered" | "ordered" | "delivered" | "in_use" | "used_up" | "over_estimate";
 
 export const LINE_STATUS_LABEL: Record<LineStatus, string> = {
@@ -389,9 +400,7 @@ export function sheetCostSummary(
   let overEstimateCount = 0;
 
   for (const line of trackedLines) {
-    const baseline = currentBaseline(line);
-    const estQty = baseline?.quantity ?? 0;
-    const estCost = baseline?.unit_cost ?? 0;
+    const { quantity: estQty, unit_cost: estCost } = effectiveEstimate(line);
     estimatedCost += estQty * estCost;
 
     actualCost += lineActualCost(line, deliveries);
@@ -459,8 +468,7 @@ export function materialAlerts(
     : null;
 
   for (const line of executionTrackedLines(trackedLines)) {
-    const baseline = currentBaseline(line);
-    const estimated = baseline?.quantity ?? 0;
+    const estimated = effectiveEstimate(line).quantity;
     const ordered = orderedQuantity(line, deliveries);
     const used = usedQuantity(line, usageLogs);
 

@@ -88,8 +88,6 @@ import {
   quoteStatusMeta,
 } from "@/lib/statusMeta";
 import {
-  trackedSheetIds,
-  projectTracksMaterials,
   sheetCostSummary,
   materialAlerts,
   needsReconciliation,
@@ -140,10 +138,11 @@ export function ProjectDetailView() {
     queryFn: () => listMaterialOrders(id),
   });
   const { data: events = [] } = useQuery({ queryKey: ["project-events", id], queryFn: () => listProjectEvents(id) });
-  const trackedIds = project && projectTracksMaterials(project.status) ? trackedSheetIds(quotes, changeOrders) : new Set<string>();
-  const trackedLines: MaterialsItem[] = materials
-    .filter((s) => trackedIds.has(s.sheet_id))
-    .flatMap((s) => s.materials_items);
+  // The Material Tracker shows on every project regardless of quote/CO
+  // approval or project status — see effectiveEstimate()'s doc comment for
+  // how "Estimated" stays a real number (live sheet values) before a real
+  // baseline ever gets snapshotted at Won.
+  const trackedLines: MaterialsItem[] = materials.flatMap((s) => s.materials_items);
   const trackedLineIds = trackedLines.map((l) => l.id);
   const { data: usageLogs = [] } = useQuery({
     queryKey: ["materials-usage-logs", trackedLineIds],
@@ -290,8 +289,11 @@ export function ProjectDetailView() {
   const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
     o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
   );
-  const materialCostSummary = trackedLines.length > 0 ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
-  const unreconciledLines = trackedLines.length > 0 ? needsReconciliation(trackedLines, deliveries, usageLogs) : [];
+  // Always computed — sheetCostSummary/needsReconciliation both handle an
+  // empty line list fine (all-zero totals), so the Materials card shows
+  // on every project, not just ones with a sheet started yet.
+  const materialCostSummary = sheetCostSummary(trackedLines, deliveries, usageLogs);
+  const unreconciledLines = needsReconciliation(trackedLines, deliveries, usageLogs);
   const materialsFullyReconciled = trackedLines.length > 0 && unreconciledLines.length === 0;
   const materialAlertList = businessProfile
     ? materialAlerts(project, trackedLines, deliveries, usageLogs, {
@@ -319,7 +321,7 @@ export function ProjectDetailView() {
   // resolveCost() already documents).
   const hasActualCostData = (project.status === "complete" && materialsFullyReconciled) || expenses.length > 0 || laborEntries.length > 0;
   const actualCost = hasActualCostData
-    ? (project.status === "complete" && materialsFullyReconciled ? materialCostSummary!.actualCost : 0) +
+    ? (project.status === "complete" && materialsFullyReconciled ? materialCostSummary.actualCost : 0) +
       expensesTotal +
       laborActualTotal
     : null;
@@ -491,14 +493,12 @@ export function ProjectDetailView() {
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
-          {materialCostSummary && (
-            <MaterialsTrackingCard
-              summary={materialCostSummary}
-              trackedLines={trackedLines}
-              onOpen={() => navigate(`/projects/${id}/materials`)}
-              onLogUsage={(line) => setLogUsageLine(line)}
-            />
-          )}
+          <MaterialsTrackingCard
+            summary={materialCostSummary}
+            trackedLines={trackedLines}
+            onOpen={() => navigate(`/projects/${id}/materials`)}
+            onLogUsage={(line) => setLogUsageLine(line)}
+          />
 
           {/* Section nav */}
           <div className="grid gap-3 sm:grid-cols-2">
@@ -971,10 +971,12 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-/** Phase 4's compact project-page Materials card — same cost-summary shape
- * as the sheet's own header card (sheetCostSummary), just condensed, with a
- * link through to the full sheet. Only rendered when at least one sheet
- * actually tracks (see materialCostSummary in ProjectDetailView). */
+/** The compact project-page Materials card — same cost-summary shape as
+ * the sheet's own header card (sheetCostSummary), just condensed, with a
+ * link through to the full sheet. Always rendered, even for a project
+ * with no materials sheet started yet — sheetCostSummary()'s all-zero
+ * output on an empty line list reads fine as "nothing planned yet" rather
+ * than needing a separate empty state. */
 function MaterialsTrackingCard({
   summary,
   trackedLines,

@@ -35,7 +35,7 @@ import {
   type CostPlanItem,
   type MaterialsItem,
 } from "@/lib/api";
-import { trackedSheetIds, projectTracksMaterials, sheetCostSummary, predictedMaterialCost, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
+import { sheetCostSummary, predictedMaterialCost, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
 import { costPlanSummary, costPlanGroupItems, COST_PLAN_GROUPS, COST_PLAN_GROUP_LABELS } from "@/lib/costPlan";
 import { laborRollupsByScope, laborTotals } from "@/lib/laborPlan";
 
@@ -70,11 +70,11 @@ export function ProjectCostPlanView() {
   });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
 
-  // Same tracked-sheet/baseline computation as ProjectDetailView, so the
-  // materials figure here can never disagree with the project page's own
-  // Profit Summary — see predictedMaterialCost()'s doc comment.
-  const trackedIds = project && projectTracksMaterials(project.status) ? trackedSheetIds(quotes, changeOrders) : new Set<string>();
-  const trackedLines: MaterialsItem[] = materials.filter((s) => trackedIds.has(s.sheet_id)).flatMap((s) => s.materials_items);
+  // Same computation as ProjectDetailView (every line, regardless of
+  // quote/CO approval), so the materials figure here can never disagree
+  // with the project page's own Profit Summary — see
+  // predictedMaterialCost()'s doc comment.
+  const trackedLines: MaterialsItem[] = materials.flatMap((s) => s.materials_items);
   const trackedLineIds = trackedLines.map((l) => l.id);
   const { data: usageLogs = [] } = useQuery({
     queryKey: ["materials-usage-logs", trackedLineIds],
@@ -84,7 +84,7 @@ export function ProjectCostPlanView() {
   const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
     o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
   );
-  const materialCostSummary = trackedLines.length > 0 ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
+  const materialCostSummary = sheetCostSummary(trackedLines, deliveries, usageLogs);
   const materialCost = predictedMaterialCost(materials, materialCostSummary);
 
   const laborRollups = laborRollupsByScope(laborPlanEntries, laborEntries, categories);

@@ -5,6 +5,7 @@ import {
   currentBaseline,
   deliveredQuantity,
   effectiveDeliveryStatus,
+  effectiveEstimate,
   executionTrackedLines,
   leftoverQuantity,
   lineActualCost,
@@ -12,6 +13,7 @@ import {
   materialAlerts,
   needsReconciliation,
   orderedQuantity,
+  predictedMaterialCost,
   prefillConversion,
   sheetCostSummary,
   suggestMaterialsItemMatches,
@@ -218,6 +220,20 @@ describe("computed quantities from deliveries and usage", () => {
     expect(currentBaseline(withBaseline)).toEqual({ quantity: 24, unit_cost: 50, unit: "ton" });
     expect(currentBaseline(makeItem({ materials_item_baselines: [] }))).toBeNull();
   });
+
+  it("effectiveEstimate prefers the real baseline once one exists", () => {
+    const line = makeItem({
+      quantity: 999,
+      unit_cost: 999,
+      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 24, unit_cost: 50, unit: "ton", reason: null, created_at: "2026-01-01" }],
+    });
+    expect(effectiveEstimate(line)).toEqual({ quantity: 24, unit_cost: 50, unit: "ton" });
+  });
+
+  it("effectiveEstimate falls back to the line's own live quantity/cost before any baseline exists — the Material Tracker shows on every project, not just Won ones", () => {
+    const line = makeItem({ quantity: 30, unit_cost: 12, unit: "bag", materials_item_baselines: [] });
+    expect(effectiveEstimate(line)).toEqual({ quantity: 30, unit_cost: 12, unit: "bag" });
+  });
 });
 
 describe("suggestMaterialsItemMatches", () => {
@@ -335,6 +351,37 @@ describe("actual cost, including Unplanned items", () => {
     const summary = sheetCostSummary([untrackedNotOrdered], [], []);
     expect(summary.notOrderedCount).toBe(0);
   });
+
+  it("shows a real estimated cost for a line with no baseline yet — the tracker works before Won, not just after", () => {
+    const line = makeItem({ id: "mi-1", quantity: 40, unit_cost: 75, materials_item_baselines: [] });
+    const summary = sheetCostSummary([line], [], []);
+    expect(summary.estimatedCost).toBe(3000);
+    expect(summary.notOrderedCount).toBe(1); // nothing ordered yet against a real, non-zero estimate
+  });
+});
+
+describe("predictedMaterialCost", () => {
+  const section = (items: MaterialsItem[]) => ({
+    id: "sec-1",
+    project_id: "p-1",
+    sheet_id: "sheet-1",
+    name: "Section",
+    sort_order: 0,
+    smart_section_build_type: null,
+    materials_items: items,
+  });
+
+  it("is null for a project with no materials sheet at all — not started, never $0", () => {
+    const summary = sheetCostSummary([], [], []);
+    expect(predictedMaterialCost([], summary)).toBeNull();
+    expect(predictedMaterialCost([section([])], summary)).toBeNull();
+  });
+
+  it("reads the real number from sheetCostSummary once there's at least one line", () => {
+    const line = makeItem({ id: "mi-1", quantity: 10, unit_cost: 5, materials_item_baselines: [] });
+    const summary = sheetCostSummary([line], [], []);
+    expect(predictedMaterialCost([section([line])], summary)).toBe(50);
+  });
 });
 
 describe("Track / Don't Track (0086)", () => {
@@ -430,6 +477,13 @@ describe("burn-rate and other early-warning alerts", () => {
     const now = new Date("2026-06-01T00:00:00");
     const soonProject = { estimated_duration_days: null, actual_start_date: null, actual_end_date: null, scheduled_start_date: "2026-06-02" };
     expect(materialAlerts(soonProject, [line], [], [], settings, now)).toEqual([]);
+  });
+
+  it("still flags over-order for a line with no baseline yet (still in Estimating, say), using its live quantity as the estimate", () => {
+    const project = { estimated_duration_days: null, actual_start_date: null, actual_end_date: null, scheduled_start_date: null };
+    const line = makeItem({ id: "mi-1", unit: "ton", quantity: 100, materials_item_baselines: [] });
+    const deliveries = [delivery(makeOrderItem({ materials_item_id: "mi-1", quantity: 115, unit: "ton" }), "ordered")];
+    expect(materialAlerts(project, [line], deliveries, [], settings).some((a) => a.key === "over_order")).toBe(true);
   });
 });
 

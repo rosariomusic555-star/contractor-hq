@@ -104,12 +104,10 @@ import { MaterialsLinePicker } from "@/components/common/MaterialsLinePicker";
 import { findSmartSectionTemplate, type CalculatedLine } from "@/lib/smartSections";
 import { nextOrderableQuantity } from "@/lib/catalogOrdering";
 import {
-  trackedSheetIds,
-  projectTracksMaterials,
   orderedQuantity,
   deliveredQuantity,
   usedQuantity,
-  currentBaseline,
+  effectiveEstimate,
   lineStatus,
   sheetCostSummary,
   executionTrackedLines,
@@ -419,33 +417,31 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     queryFn: listCatalogPriceOverrides,
   });
 
-  // Material budget tracking (0080) — whether THIS sheet tracks at all
-  // (linked to the signed quote or an approved change order, project past
-  // Estimating), and if so, the live deliveries/usage feeding its rollups.
+  // Material budget tracking (0080) — the Material Tracker shows on every
+  // sheet with at least one line, regardless of quote/CO approval or
+  // project status. "Estimated" uses effectiveEstimate() (materialTracking.ts):
+  // the locked baseline once one's been snapshotted (post-Won), else the
+  // line's own live quantity/cost, so a project still in Estimating shows
+  // a real number instead of $0.
   const { data: project } = useQuery({ queryKey: ["projects", projectId], queryFn: () => getProject(projectId) });
   const { data: projectChangeOrders = [] } = useQuery({
     queryKey: ["change-orders", { project: projectId }],
     queryFn: () => listChangeOrders(projectId),
   });
-  const isTracked =
-    !!sheetId &&
-    !!project &&
-    projectTracksMaterials(project.status) &&
-    trackedSheetIds(projectQuotes, projectChangeOrders).has(sheetId);
   const { data: materialOrders = [] } = useQuery({
     queryKey: ["material-orders", { project: projectId }],
     queryFn: () => listMaterialOrders(projectId),
-    enabled: isTracked,
   });
   const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
     o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
   );
   const trackedLines: MaterialsItem[] = sections.flatMap((s) => s.materials_items);
+  const isTracked = trackedLines.length > 0;
   const trackedLineIds = trackedLines.map((l) => l.id);
   const { data: usageLogs = [] } = useQuery({
     queryKey: ["materials-usage-logs", trackedLineIds],
     queryFn: () => listUsageLogsForItems(trackedLineIds),
-    enabled: isTracked && trackedLineIds.length > 0,
+    enabled: trackedLineIds.length > 0,
   });
   const costSummary = isTracked ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
 
@@ -454,17 +450,15 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       string,
       { estimated: number; ordered: number; delivered: number; used: number; status: LineStatus; unit: string | null }
     >();
-    if (!isTracked) return map;
     for (const line of executionTrackedLines(trackedLines)) {
-      const baseline = currentBaseline(line);
-      const estimated = baseline?.quantity ?? 0;
+      const estimated = effectiveEstimate(line).quantity;
       const ordered = orderedQuantity(line, deliveries);
       const delivered = deliveredQuantity(line, deliveries);
       const used = usedQuantity(line, usageLogs);
       map.set(line.id, { estimated, ordered, delivered, used, status: lineStatus(estimated, ordered, delivered, used), unit: line.unit });
     }
     return map;
-  }, [isTracked, trackedLines, deliveries, usageLogs]);
+  }, [trackedLines, deliveries, usageLogs]);
 
   const [logUsageLine, setLogUsageLine] = useState<MaterialsItem | null>(null);
 
