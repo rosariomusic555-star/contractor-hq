@@ -315,6 +315,10 @@ export interface PriceBookItem {
    * item still works normally as a plain Materials Sheet / Price Book
    * entry. */
   material_type: string | null;
+  /** Order Sheet material category (0089) — see ORDER_SHEET_CATEGORIES.
+   * Prefills a Materials Sheet line's own `category` the moment this
+   * item is picked; never required, never locked. */
+  category: string | null;
   specs: PriceBookItemSpecs;
   created_at: string;
 }
@@ -339,6 +343,27 @@ export const MATERIAL_TYPES: MaterialTypeOption[] = [
 export const materialTypeLabel = (value: string | null): string =>
   MATERIAL_TYPES.find((t) => t.value === value)?.label ?? value ?? "—";
 
+/** Order Sheet (0089) material category — the same free-text-in-the-DB,
+ * list-can-grow-without-a-migration convention as MATERIAL_TYPES above.
+ * Stored directly as the human-readable string (no separate value/label
+ * split) since Product Catalog's own `category` column already works
+ * that way (0036) — a Materials Sheet line's `category` and a Catalog
+ * product's `category` are meant to be the same plain string either way.
+ * "Other" and an untagged (null) line both group under "Other /
+ * Uncategorized" on the generated order sheet — see src/lib/orderSheet.ts. */
+export const ORDER_SHEET_CATEGORIES: string[] = [
+  "Pavers",
+  "Wall Block",
+  "Caps",
+  "Base Gravel",
+  "Bedding Sand",
+  "Polymeric Sand",
+  "Edging",
+  "Adhesive",
+  "Fabric",
+  "Other",
+];
+
 export interface MaterialsItem {
   id: string;
   section_id: string;
@@ -348,6 +373,11 @@ export interface MaterialsItem {
   sort_order: number;
   /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
   expense_category_id: string | null;
+  /** Order Sheet material category (0089) — see ORDER_SHEET_CATEGORIES.
+   * Prefilled from the source Catalog product / Price Book item at pick
+   * time, but never locked — always a plain editable dropdown. Null
+   * groups under "Other / Uncategorized" on a generated order sheet. */
+  category: string | null;
   /** Free-text unit of measure (sf, cy, bag, lf, ea…). Label only — not in the math. */
   unit: string | null;
   /** Set when this line was picked from the Price Book — the Materials
@@ -1509,6 +1539,7 @@ export async function createPriceBookItem(input: {
   unit_price: number;
   expense_category_id: string | null;
   material_type?: string | null;
+  category?: string | null;
   specs?: PriceBookItemSpecs;
 }): Promise<PriceBookItem> {
   const { data, error } = await supabase
@@ -1519,6 +1550,7 @@ export async function createPriceBookItem(input: {
       unit_price: input.unit_price,
       expense_category_id: input.expense_category_id,
       material_type: input.material_type ?? null,
+      category: input.category ?? null,
       specs: input.specs ?? {},
     })
     .select()
@@ -1530,7 +1562,7 @@ export async function createPriceBookItem(input: {
 export async function updatePriceBookItem(
   id: string,
   patch: Partial<
-    Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "specs">
+    Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "category" | "specs">
   >,
 ): Promise<void> {
   const { error } = await supabase.from("price_book").update(patch).eq("id", id);
@@ -1776,6 +1808,7 @@ export async function addMaterialsItem(
     unit_cost?: number;
     sort_order?: number;
     expense_category_id?: string | null;
+    category?: string | null;
     unit?: string | null;
     price_book_item_id?: string | null;
     catalog_product_id?: string | null;
@@ -1794,6 +1827,7 @@ export async function addMaterialsItem(
       unit_cost: input.unit_cost ?? 0,
       sort_order: input.sort_order ?? 0,
       expense_category_id: input.expense_category_id ?? null,
+      category: input.category ?? null,
       unit: input.unit ?? null,
       price_book_item_id: input.price_book_item_id ?? null,
       catalog_product_id: input.catalog_product_id ?? null,
@@ -1818,6 +1852,7 @@ export async function updateMaterialsItem(
       | "unit_cost"
       | "sort_order"
       | "expense_category_id"
+      | "category"
       | "unit"
       | "price_book_item_id"
       | "catalog_product_id"

@@ -14,6 +14,7 @@ import {
   X,
   Eye,
   EyeOff,
+  FileDown,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,6 +85,7 @@ import {
   reviseMaterialBaseline,
   matchMaterialOrderItem,
   materialOrderUnitLabel,
+  ORDER_SHEET_CATEGORIES,
   type MaterialsSection,
   type MaterialsSheet,
   type MaterialsItem,
@@ -100,6 +102,7 @@ import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectio
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
+import { OrderSheetDialog } from "@/components/materials/OrderSheetDialog";
 import { MaterialsLinePicker } from "@/components/common/MaterialsLinePicker";
 import { findSmartSectionTemplate, type CalculatedLine } from "@/lib/smartSections";
 import { nextOrderableQuantity } from "@/lib/catalogOrdering";
@@ -131,6 +134,9 @@ interface DraftItem {
   unit_cost: number;
   /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
   expense_category_id: string | null;
+  /** Order Sheet material category (0089/0090) — see ORDER_SHEET_CATEGORIES.
+   * Prefilled from the Catalog/Price Book source at pick time, never locked. */
+  category: string | null;
   /** Free-text unit of measure (sf, cy, bag, lf, ea…). Not part of the math. */
   unit: string;
   /** Set when this line was picked from the Price Book — locks
@@ -178,6 +184,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       quantity: Number(i.quantity),
       unit_cost: Number(i.unit_cost),
       expense_category_id: i.expense_category_id ?? null,
+      category: i.category ?? null,
       unit: i.unit ?? "",
       price_book_item_id: i.price_book_item_id ?? null,
       catalog_product_id: i.catalog_product_id ?? null,
@@ -194,6 +201,7 @@ const itemChanged = (
     quantity: number;
     unit_cost: number;
     expense_category_id: string | null;
+    category: string | null;
     unit: string;
     price_book_item_id: string | null;
     catalog_product_id: string | null;
@@ -205,6 +213,7 @@ const itemChanged = (
   a.quantity !== b.quantity ||
   a.unit_cost !== b.unit_cost ||
   a.expense_category_id !== b.expense_category_id ||
+  a.category !== b.category ||
   a.unit !== b.unit ||
   a.price_book_item_id !== b.price_book_item_id ||
   a.catalog_product_id !== b.catalog_product_id ||
@@ -491,6 +500,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
 
   const [draft, setDraft] = useState<DraftSection[]>([]);
   const [smartSectionOpen, setSmartSectionOpen] = useState(false);
+  const [orderSheetOpen, setOrderSheetOpen] = useState(false);
   const dirty = useRef(false);
 
   // Seed the draft from the server — but never clobber unsaved edits.
@@ -549,6 +559,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           quantity: 0,
           unit_cost: 0,
           expense_category_id: null,
+          category: null,
           unit: "",
           price_book_item_id: null,
           catalog_product_id: null,
@@ -585,6 +596,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                 const override = priceOverrides.find((o) => o.catalog_product_id === product.id);
                 if (override) patch.unit_cost = override.price;
               }
+              // Same never-clobber rule for the Order Sheet category —
+              // inherits the Catalog product's category only while unset.
+              if (product && item.category == null) patch.category = product.category;
             }
             return { ...item, ...patch };
           }),
@@ -605,6 +619,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                   quantity: 0,
                   unit_cost: 0,
                   expense_category_id: null,
+                  category: null,
                   unit: "",
                   price_book_item_id: null,
                   catalog_product_id: null,
@@ -685,6 +700,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               unit_cost: di.unit_cost,
               sort_order: ii,
               expense_category_id: di.expense_category_id,
+              category: di.category,
               unit,
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
@@ -697,6 +713,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               quantity: Number(srv.quantity),
               unit_cost: Number(srv.unit_cost),
               expense_category_id: srv.expense_category_id ?? null,
+              category: srv.category ?? null,
               unit: srv.unit ?? "",
               price_book_item_id: srv.price_book_item_id ?? null,
               catalog_product_id: srv.catalog_product_id ?? null,
@@ -710,6 +727,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               quantity: di.quantity,
               unit_cost: di.unit_cost,
               expense_category_id: di.expense_category_id,
+              category: di.category,
               unit,
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
@@ -839,7 +857,18 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           <GoToProjectLink projectId={projectId} isDirty={isDirty} className="mt-1.5" />
         </div>
         {sheetId && (
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setOrderSheetOpen(true)}
+              disabled={sections.every((s) => s.materials_items.length === 0)}
+              className="font-bold"
+            >
+              <FileDown className="mr-1.5 h-3.5 w-3.5" />
+              Generate Order Sheet
+            </Button>
             <button
               type="button"
               onClick={() => addSheetMut.mutate()}
@@ -1098,6 +1127,17 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         open={smartSectionOpen}
         onOpenChange={setSmartSectionOpen}
         onCreate={addSmartSection}
+      />
+
+      <OrderSheetDialog
+        open={orderSheetOpen}
+        onOpenChange={setOrderSheetOpen}
+        projectId={projectId}
+        projectName={projectName ?? ""}
+        deliveryAddress={project?.address ?? null}
+        sections={sections}
+        catalogItems={catalogItems}
+        priceBookItems={priceBookItems}
       />
 
       {needsExplicitLink && sheetId && (
@@ -1494,6 +1534,7 @@ function ItemRow({
       unit: pbi.unit ?? "",
       unit_cost: Number(pbi.unit_price),
       expense_category_id: pbi.expense_category_id,
+      category: pbi.category ?? item.category,
       price_book_item_id: pbi.id,
       catalog_product_id: null,
       rememberPrice: false,
@@ -1507,6 +1548,7 @@ function ItemRow({
       name: product.name,
       unit: product.unit ?? "",
       unit_cost: override?.price ?? 0,
+      category: product.category,
       price_book_item_id: null,
       catalog_product_id: product.id,
       rememberPrice: false,
@@ -1597,7 +1639,7 @@ function ItemRow({
           categorization consistent; unlink to edit it directly again. */}
       <div>
         <div className="flex items-center justify-between">
-          <div className={ITEM_FIELD_LABEL}>Category</div>
+          <div className={ITEM_FIELD_LABEL}>Cost category</div>
           {linked && (
             <button
               type="button"
@@ -1618,7 +1660,7 @@ function ItemRow({
             value={item.expense_category_id ?? NONE}
             onValueChange={(v) => onEdit({ expense_category_id: v === NONE ? null : v })}
           >
-            <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
+            <SelectTrigger className="mt-1 h-[42px]" aria-label="Cost category">
               <SelectValue placeholder="Uncategorized" />
             </SelectTrigger>
             <SelectContent>
@@ -1631,6 +1673,31 @@ function ItemRow({
             </SelectContent>
           </Select>
         )}
+      </div>
+
+      {/* Material category (0089/0090) — feeds the Generate Order Sheet
+          picker's category chips/grouping. Prefilled from the Catalog/
+          Price Book source at pick time (see applyPick/applyCatalogPick)
+          but never locked — always a plain editable dropdown, even for a
+          Catalog-linked line. */}
+      <div>
+        <div className={ITEM_FIELD_LABEL}>Material category</div>
+        <Select
+          value={item.category ?? NONE}
+          onValueChange={(v) => onEdit({ category: v === NONE ? null : v })}
+        >
+          <SelectTrigger className="mt-1 h-[42px]" aria-label="Material category">
+            <SelectValue placeholder="Uncategorized" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>Uncategorized</SelectItem>
+            {ORDER_SHEET_CATEGORIES.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Qty · Unit · Waste % · Unit cost · Total — two-up on mobile, five-up from sm. */}

@@ -41,6 +41,7 @@ import {
   listExpenseCategories,
   MATERIAL_TYPES,
   materialTypeLabel,
+  ORDER_SHEET_CATEGORIES,
   type PriceBookItem,
   type PriceBookItemSpecs,
   type ExpenseCategory,
@@ -80,6 +81,7 @@ export function SettingsPricebookView() {
       unit_price: number;
       expense_category_id: string | null;
       material_type: string | null;
+      category: string | null;
       specs: PriceBookItemSpecs;
     }) => createPriceBookItem(input),
     onSuccess: () => {
@@ -99,7 +101,7 @@ export function SettingsPricebookView() {
       patch: Partial<
         Pick<
           PriceBookItem,
-          "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "specs"
+          "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "category" | "specs"
         >
       >;
     }) => updatePriceBookItem(id, patch),
@@ -253,11 +255,12 @@ function PriceBookItemDialog({
     unit_price: number;
     expense_category_id: string | null;
     material_type: string | null;
+    category: string | null;
     specs: PriceBookItemSpecs;
   }) => void;
   onUpdate: (
     patch: Partial<
-      Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "specs">
+      Pick<PriceBookItem, "name" | "unit" | "unit_price" | "expense_category_id" | "material_type" | "category" | "specs">
     >,
   ) => void;
   onDelete: () => void;
@@ -267,6 +270,7 @@ function PriceBookItemDialog({
   const [priceStr, setPriceStr] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [materialType, setMaterialType] = useState<string | null>(null);
+  const [orderCategory, setOrderCategory] = useState<string | null>(null);
   const [specStr, setSpecStr] = useState<Record<keyof PriceBookItemSpecs, string>>({
     coverage_per_pallet_sqft: "",
     units_per_pallet: "",
@@ -286,6 +290,7 @@ function PriceBookItemDialog({
     setPriceStr(item ? String(item.unit_price) : "");
     setCategoryId(item?.expense_category_id ?? null);
     setMaterialType(item?.material_type ?? null);
+    setOrderCategory(item?.category ?? null);
     setSpecStr({
       coverage_per_pallet_sqft: item?.specs?.coverage_per_pallet_sqft?.toString() ?? "",
       units_per_pallet: item?.specs?.units_per_pallet?.toString() ?? "",
@@ -312,6 +317,7 @@ function PriceBookItemDialog({
       unit_price: parseFloat(priceStr) || 0,
       expense_category_id: categoryId,
       material_type: materialType,
+      category: orderCategory,
       specs,
     };
     if (item) onUpdate(payload);
@@ -407,6 +413,30 @@ function PriceBookItemDialog({
             </Select>
             <p className="text-[11px] text-muted-subtle">
               Lets the Materials Sheet's Smart Calculator find and use this specific product.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="pb-order-category">Material category (optional)</Label>
+            <Select
+              value={orderCategory ?? NONE}
+              onValueChange={(v) => setOrderCategory(v === NONE ? null : v)}
+            >
+              <SelectTrigger id="pb-order-category" aria-label="Material category">
+                <SelectValue placeholder="Uncategorized" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Uncategorized</SelectItem>
+                {ORDER_SHEET_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-subtle">
+              Prefills the category on a Materials Sheet line when this item is picked — used to
+              group a generated Order Sheet.
             </p>
           </div>
 

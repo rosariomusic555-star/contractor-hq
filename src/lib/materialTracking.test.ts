@@ -37,6 +37,7 @@ function makeItem(overrides: Partial<MaterialsItem> = {}): MaterialsItem {
     unit_cost: 50,
     sort_order: 0,
     expense_category_id: null,
+    category: null,
     unit: "ton",
     price_book_item_id: null,
     catalog_product_id: null,

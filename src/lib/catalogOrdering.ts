@@ -44,3 +44,19 @@ export function nextOrderableQuantity(
   if (Math.abs(packages - Math.round(packages)) < 1e-9) return null;
   return Math.ceil(packages) * coverage;
 }
+
+/** The Order Sheet's "how much to actually order" quantity (0090) —
+ * `waste_percent` applied first (a real material line's own reference-only
+ * field, never applied anywhere else in the app — see MaterialsItem's doc
+ * comment), then rounded up to a whole package the same way
+ * roundUpToOrderable() already does everywhere else. Same "always returns a
+ * real number" contract as roundUpToOrderable — falls back to a plain
+ * waste-adjusted ceil when there's no package data to round by. */
+export function wasteAdjustedOrderQuantity(
+  quantity: number,
+  wastePercent: number,
+  specs: ProductCatalogItem["specs"] | undefined,
+): number {
+  const withWaste = quantity * (1 + (wastePercent || 0) / 100);
+  return roundUpToOrderable(withWaste, specs);
+}
