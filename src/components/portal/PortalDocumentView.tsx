@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Loader2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getPortalProjectDetail, type PortalQuote, type PortalChangeOrder, type PortalInvoice } from "@/lib/portalApi";
+import { BackLink } from "@/components/common/BackLink";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateStr = (iso: string | null) =>
@@ -47,13 +48,10 @@ export function PortalDocumentView() {
   return (
     <div className="space-y-4">
       <div className="no-print flex items-center justify-between">
-        <Link
+        <BackLink
           to={`/portal/projects/${projectId}`}
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Back to project
-        </Link>
+        >Back to project</BackLink>
         <Button size="sm" variant="outline" onClick={() => window.print()}>
           <Printer className="h-3.5 w-3.5" />
           Print / Save as PDF

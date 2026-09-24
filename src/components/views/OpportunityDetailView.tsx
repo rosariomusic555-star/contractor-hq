@@ -80,6 +80,7 @@ import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog, EditAppointmentDialog } from "@/components/views/AppointmentsView";
 import { overdueSiteVisit, siteVisitDateLabel } from "@/lib/siteVisitCheck";
 import { invalidateAppointmentQueries } from "@/lib/appointmentQueries";
+import { BackLink } from "@/components/common/BackLink";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
@@ -336,9 +337,7 @@ export function OpportunityDetailView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <Link to="/pipeline" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
-        <ChevronLeft className="h-3.5 w-3.5" /> Pipeline
-      </Link>
+      <BackLink to="/pipeline" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Pipeline</BackLink>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

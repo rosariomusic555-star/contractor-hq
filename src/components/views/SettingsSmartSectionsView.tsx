@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Wand2 } from "lucide-react";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SmartSectionTemplateEditorDialog } from "@/components/materials/SmartSectionTemplateEditorDialog";
 import { SMART_SECTION_TEMPLATES } from "@/lib/smartSections";
+import { BackLink } from "@/components/common/BackLink";
 
 /**
  * The discoverable home for managing Smart Section templates, outside the
@@ -19,13 +20,10 @@ export function SettingsSmartSectionsView() {
       <MobilePageHeader title="Smart Section Templates" back={{ to: "/settings", label: "Settings" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/settings"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Settings
-        </Link>
+        >Settings</BackLink>
         <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">
           Manage Smart Section Templates
         </h1>

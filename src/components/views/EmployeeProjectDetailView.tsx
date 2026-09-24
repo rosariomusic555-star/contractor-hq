@@ -17,6 +17,7 @@ import {
   listProjectNotes,
   addProjectNote,
 } from "@/lib/api";
+import { BackLink } from "@/components/common/BackLink";
 
 /**
  * The whole of an employee's work on one project: upload photos, post a
@@ -99,13 +100,10 @@ export function EmployeeProjectDetailView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <Link
+      <BackLink
         to="/employee"
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        My projects
-      </Link>
+      >My projects</BackLink>
 
       <div className="flex items-center gap-2.5">
         <h1 className="text-[22px] font-bold tracking-tight text-foreground">{project.name}</h1>

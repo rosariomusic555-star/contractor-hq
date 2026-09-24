@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { cn } from "@/lib/utils";
+import { BackLink } from "@/components/common/BackLink";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 const FIELD_INPUT = "h-11 rounded-xl border-transparent bg-muted px-3.5 focus-visible:border-primary focus-visible:bg-card";
@@ -26,13 +27,10 @@ export function SettingsInvoicingView() {
       <MobilePageHeader title="Invoicing & payments" back={{ to: "/settings", label: "Settings" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/settings"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Settings
-        </Link>
+        >Settings</BackLink>
         <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">Invoicing & payments</h1>
       </div>
 

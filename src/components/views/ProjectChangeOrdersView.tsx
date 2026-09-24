@@ -9,6 +9,7 @@ import { formatCurrency, pluralize } from "@/lib/utils";
 import { getProject, listChangeOrders, createChangeOrder, approvedChangeOrderTotal, type ChangeOrder } from "@/lib/api";
 import { changeOrderStatusMeta } from "@/lib/statusMeta";
 import { scheduleImpactLabel } from "@/lib/changeOrderImpact";
+import { BackLink } from "@/components/common/BackLink";
 
 const signedCurrency = (n: number) => (n > 0 ? `+${formatCurrency(n)}` : n < 0 ? `−${formatCurrency(Math.abs(n))}` : formatCurrency(0));
 const amountColor = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "text-foreground");
@@ -54,10 +55,7 @@ export function ProjectChangeOrdersView() {
 
   return (
     <div className="space-y-6 animate-fade-in max-w-4xl">
-      <Link to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
-        <ChevronLeft className="h-3.5 w-3.5" />
-        Back to project
-      </Link>
+      <BackLink to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Back to project</BackLink>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

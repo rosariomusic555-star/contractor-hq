@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Droppable, Draggable, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { Plus, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -41,6 +42,9 @@ interface LineItemSectionCardProps {
   onAutoExpand?: () => void;
   /** Row label passed through to each item (see LineItemRow). */
   priceLabel?: string;
+  /** Optional content under the section name in the dark header (the Quote
+   * builder's project-type + materials chips). */
+  tag?: ReactNode;
   /** Quote-only: the "Optional section" switch + per-item optional-addon
    * toggle. Omitted entirely for a builder with no optional-item concept
    * (the Change Order builder — every line unconditionally counts). */
@@ -82,6 +86,7 @@ export function LineItemSectionCard({
   onAutoExpand,
   priceLabel,
   optionalSection,
+  tag,
 }: LineItemSectionCardProps) {
   const items = section.items;
 
@@ -91,6 +96,7 @@ export function LineItemSectionCard({
       onRename={onRename}
       subtotal={subtotal}
       itemNames={items.map((i) => i.name)}
+      tag={tag}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
       isDraggingItem={isDraggingItem}

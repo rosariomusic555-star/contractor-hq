@@ -16,6 +16,7 @@ import {
   projectContractValue,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
+import { BackLink } from "@/components/common/BackLink";
 
 // Append a local midnight so a date-only string ("2026-09-15") isn't parsed
 // as UTC midnight, which shifts it back a day in negative-offset timezones.
@@ -85,13 +86,10 @@ export function ProjectInvoicesView() {
 
   return (
     <div className="space-y-6 animate-fade-in max-w-4xl">
-      <Link
+      <BackLink
         to={`/projects/${id}`}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        Back to project
-      </Link>
+      >Back to project</BackLink>
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

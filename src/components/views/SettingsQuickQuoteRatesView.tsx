@@ -8,6 +8,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { listQuickQuoteRates, saveQuickQuoteRate, resetQuickQuoteRate } from "@/lib/api";
 import { QUICK_QUOTE_TEMPLATES, resolveQuickQuoteRate } from "@/lib/quickQuote";
+import { BackLink } from "@/components/common/BackLink";
 
 interface DraftRate {
   value: string;
@@ -75,13 +76,10 @@ export function SettingsQuickQuoteRatesView() {
       <MobilePageHeader title="Quick Quote Rates" back={{ to: "/settings", label: "Settings" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/settings"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Settings
-        </Link>
+        >Settings</BackLink>
         <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">Quick Quote Rates</h1>
       </div>
 

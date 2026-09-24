@@ -51,6 +51,7 @@ import {
 } from "@/lib/api";
 import { materialOrderStatusMeta } from "@/lib/statusMeta";
 import { suggestMaterialsItemMatches, effectiveDeliveryStatus } from "@/lib/materialTracking";
+import { BackLink } from "@/components/common/BackLink";
 
 interface DraftItem {
   description: string;
@@ -173,13 +174,10 @@ export function ProjectMaterialOrdersView() {
       <MobilePageHeader title="Material orders" back={{ to: `/projects/${id}`, label: "Project" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to={`/projects/${id}`}
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Back to project
-        </Link>
+        >Back to project</BackLink>
         <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">Material orders</h1>
         <p className="mt-1 text-muted-foreground">{project?.name ?? " "}</p>
       </div>

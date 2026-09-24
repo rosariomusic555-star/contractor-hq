@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +24,10 @@ interface GoToProjectLinkProps {
    * in a plain page header (Materials Sheet / Invoice builders). Same
    * component, same behavior — just matching the surrounding surface. */
   tone?: "light" | "dark";
+  /** "button" = a full, clearly clickable secondary button ("Go to project
+   * →") — the Quote builder's Project card. Default "link" = the small
+   * inline link used in page headers. */
+  variant?: "link" | "button";
   className?: string;
 }
 
@@ -35,7 +39,7 @@ interface GoToProjectLinkProps {
  * href), so cmd/ctrl-click opens the project in a new tab like any other
  * link — only a plain click while the builder is dirty is intercepted.
  */
-export function GoToProjectLink({ projectId, isDirty, tone = "light", className }: GoToProjectLinkProps) {
+export function GoToProjectLink({ projectId, isDirty, tone = "light", variant = "link", className }: GoToProjectLinkProps) {
   const navigate = useNavigate();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const href = `/projects/${projectId}`;
@@ -51,13 +55,22 @@ export function GoToProjectLink({ projectId, isDirty, tone = "light", className 
           }
         }}
         className={cn(
-          "inline-flex items-center gap-1 text-xs font-bold hover:underline",
-          tone === "dark" ? "text-background/70 hover:text-background" : "text-primary hover:text-primary/80",
+          variant === "button"
+            ? cn(
+                "inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-bold transition-colors",
+                tone === "dark"
+                  ? "border border-white/25 text-background hover:bg-white/10"
+                  : "border border-border text-foreground hover:bg-muted",
+              )
+            : cn(
+                "inline-flex items-center gap-1 text-xs font-bold hover:underline",
+                tone === "dark" ? "text-background/70 hover:text-background" : "text-primary hover:text-primary/80",
+              ),
           className,
         )}
       >
         Go to project
-        <ArrowUpRight className="h-3.5 w-3.5" />
+        {variant === "button" ? <ArrowRight className="h-4 w-4" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
       </Link>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

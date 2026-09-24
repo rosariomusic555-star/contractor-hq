@@ -22,6 +22,7 @@ import {
   type EmployeeStatus,
   type Project,
 } from "@/lib/api";
+import { BackLink } from "@/components/common/BackLink";
 
 /**
  * Owner-only: create employee logins directly (no self-signup — see
@@ -68,13 +69,10 @@ export function SettingsEmployeesView() {
 
       <div className="hidden md:flex md:items-center md:justify-between">
         <div>
-          <Link
+          <BackLink
             to="/settings"
             className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            Settings
-          </Link>
+          >Settings</BackLink>
           <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">Manage employees</h1>
         </div>
         <Button className="font-bold" onClick={() => setAddOpen(true)}>

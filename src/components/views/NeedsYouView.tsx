@@ -6,6 +6,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
 import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@/lib/api";
 import { buildNeedsYouItems } from "@/lib/needsYou";
+import { BackLink } from "@/components/common/BackLink";
 
 /** Full, uncapped "Needs you" queue — the Dashboard card (NeedsYou.tsx)
  * shows the 5 most urgent of this same list and links here for the rest.
@@ -23,13 +24,10 @@ export function NeedsYouView() {
       <MobilePageHeader title="Needs you" back={{ to: "/dashboard", label: "Dashboard" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/dashboard"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Dashboard
-        </Link>
+        >Dashboard</BackLink>
       </div>
       <PageHeader title="Needs you" subtitle={`${items.length} ${items.length === 1 ? "item" : "items"} needing attention, most urgent first`} />
 

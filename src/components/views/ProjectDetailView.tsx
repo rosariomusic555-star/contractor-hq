@@ -105,6 +105,7 @@ import { demoJobMeta } from "@/lib/demoData";
 import { costPlanSummary } from "@/lib/costPlan";
 import { laborRollupsByScope, laborTotals } from "@/lib/laborPlan";
 import { materialLineLabel } from "@/lib/materialsMath";
+import { BackLink } from "@/components/common/BackLink";
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -398,9 +399,7 @@ export function ProjectDetailView() {
 
       {/* Desktop header */}
       <div className="hidden md:block">
-        <Link to="/projects" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="h-3.5 w-3.5" /> Projects
-        </Link>
+        <BackLink to="/projects" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Projects</BackLink>
         <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">

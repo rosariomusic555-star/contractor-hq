@@ -24,6 +24,7 @@ import {
   deleteLeadSource,
   type LeadSource,
 } from "@/lib/api";
+import { BackLink } from "@/components/common/BackLink";
 
 /**
  * Real, persisted CRUD list (lead_sources table, 0077) — same shape and
@@ -98,13 +99,10 @@ export function SettingsLeadSourcesView() {
       <MobilePageHeader title="Lead sources" back={{ to: "/settings", label: "Settings" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/settings"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Settings
-        </Link>
+        >Settings</BackLink>
         <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">Lead sources</h1>
       </div>
 

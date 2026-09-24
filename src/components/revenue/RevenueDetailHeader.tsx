@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { DateRangeSelect } from "./DateRangeSelect";
 import type { RangeKey } from "@/lib/financials";
+import { BackLink } from "@/components/common/BackLink";
 
 /** Shared "‹ Revenue" back link + title + date-range selector header for
  * every Revenue detail page. Each page renders its own headline KPI(s)
@@ -24,13 +25,10 @@ export function RevenueDetailHeader({
 }) {
   return (
     <div className="space-y-3">
-      <Link
+      <BackLink
         to="/revenue"
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        Revenue
-      </Link>
+      >Revenue</BackLink>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-[28px] font-bold tracking-tight text-foreground">{title}</h1>
         <DateRangeSelect
