@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { listUsageLogsForItem, updateUsageLog, deleteUsageLog, type MaterialsItem, type MaterialsUsageLog } from "@/lib/api";
+import { materialLineLabel } from "@/lib/materialsMath";
 
 interface UsageLogHistoryDialogProps {
   open: boolean;
@@ -60,7 +61,7 @@ export function UsageLogHistoryDialog({ open, onOpenChange, line }: UsageLogHist
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[75vh] max-w-md gap-3 overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Usage log — {line.name}</DialogTitle>
+          <DialogTitle>Usage log — {materialLineLabel(line)}</DialogTitle>
         </DialogHeader>
         {logs.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">No usage logged yet.</p>

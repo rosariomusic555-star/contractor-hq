@@ -60,7 +60,7 @@ export function LinkedDocumentBar({ targetLabel, linked, onLink, onUnlink, class
           </button>
         )}
         <button type="button" onClick={onLink} className="text-xs font-bold text-primary hover:underline">
-          {linked ? "Change" : `Link a ${targetLabel}`}
+          {linked ? `Change linked ${targetLabel}` : `Link a ${targetLabel}`}
         </button>
       </div>
     </div>

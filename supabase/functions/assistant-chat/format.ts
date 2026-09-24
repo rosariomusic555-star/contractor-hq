@@ -78,17 +78,19 @@ export function approvedChangeOrderTotal(changeOrders: ChangeOrderLike[]): numbe
 export interface MaterialsItemLike {
   quantity: number;
   unit_cost: number;
+  waste_percent?: number | null;
 }
 export interface MaterialsSectionLike {
   materials_items: MaterialsItemLike[];
 }
 
-/** Mirrors materialsCogs() in src/lib/api.ts. */
+/** Mirrors materialsCogs() in src/lib/api.ts — waste-adjusted quantity ×
+ * unit_cost (src/lib/materialsMath.ts materialsLineTotal). */
 export function materialsCogs(sections: MaterialsSectionLike[] = []): number {
   let total = 0;
   for (const section of sections) {
     for (const item of section.materials_items ?? []) {
-      total += Number(item.quantity) * Number(item.unit_cost);
+      total += Number(item.quantity) * (1 + (Number(item.waste_percent) || 0) / 100) * Number(item.unit_cost);
     }
   }
   return total;

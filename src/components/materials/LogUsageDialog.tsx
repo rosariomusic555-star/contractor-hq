@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { addUsageLog, uploadUsageLogPhoto, type MaterialsItem } from "@/lib/api";
+import { materialLineLabel } from "@/lib/materialsMath";
 
 interface LogUsageDialogProps {
   open: boolean;
@@ -61,7 +62,7 @@ export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageD
       qc.invalidateQueries({ queryKey: ["materials-usage-logs"] });
       qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["materials-sections-all"] });
-      toast({ title: `Logged ${quantity} ${line.unit ?? ""} of ${line.name}` });
+      toast({ title: `Logged ${quantity} ${line.unit ?? ""} of ${materialLineLabel(line)}` });
       onOpenChange(false);
       onLogged?.();
     },
@@ -75,7 +76,7 @@ export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageD
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm gap-5">
         <DialogHeader>
-          <DialogTitle>Log usage — {line.name}</DialogTitle>
+          <DialogTitle>Log usage — {materialLineLabel(line)}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-2">

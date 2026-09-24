@@ -4,6 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import type { MaterialsItem, MaterialsSection } from "@/lib/api";
+import { materialLineLabel } from "@/lib/materialsMath";
 
 interface MaterialsLinePickerProps {
   sections: MaterialsSection[];
@@ -32,7 +33,7 @@ export function MaterialsLinePicker({ sections, value, onChange, suggested = [],
   const selected = allItems.find((r) => r.item.id === value);
 
   const term = search.trim().toLowerCase();
-  const filtered = term ? allItems.filter((r) => r.item.name.toLowerCase().includes(term)) : allItems;
+  const filtered = term ? allItems.filter((r) => materialLineLabel(r.item).toLowerCase().includes(term)) : allItems;
   const suggestedIds = new Set(suggested.map((s) => s.id));
   const suggestedRows = filtered.filter((r) => suggestedIds.has(r.item.id));
   const restRows = filtered.filter((r) => !suggestedIds.has(r.item.id));
@@ -55,7 +56,7 @@ export function MaterialsLinePicker({ sections, value, onChange, suggested = [],
             className,
           )}
         >
-          <span className="truncate">{selected ? selected.item.name : (placeholder ?? "Unplanned — no sheet match")}</span>
+          <span className="truncate">{selected ? materialLineLabel(selected.item) : (placeholder ?? "Unplanned — no sheet match")}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
@@ -74,7 +75,7 @@ export function MaterialsLinePicker({ sections, value, onChange, suggested = [],
                 {suggestedRows.map((r) => (
                   <CommandItem key={r.item.id} value={r.item.id} onSelect={() => select(r.item.id)}>
                     <Check className={cn("mr-2 h-4 w-4", value === r.item.id ? "opacity-100" : "opacity-0")} />
-                    <span className="flex-1 truncate">{r.item.name}</span>
+                    <span className="flex-1 truncate">{materialLineLabel(r.item)}</span>
                     <span className="ml-2 shrink-0 text-xs text-muted-subtle">{r.sectionName}</span>
                   </CommandItem>
                 ))}
@@ -85,7 +86,7 @@ export function MaterialsLinePicker({ sections, value, onChange, suggested = [],
                 {restRows.map((r) => (
                   <CommandItem key={r.item.id} value={r.item.id} onSelect={() => select(r.item.id)}>
                     <Check className={cn("mr-2 h-4 w-4", value === r.item.id ? "opacity-100" : "opacity-0")} />
-                    <span className="flex-1 truncate">{r.item.name}</span>
+                    <span className="flex-1 truncate">{materialLineLabel(r.item)}</span>
                     <span className="ml-2 shrink-0 text-xs text-muted-subtle">{r.sectionName}</span>
                   </CommandItem>
                 ))}

@@ -29,6 +29,7 @@ import {
   type ResolvedOrderLine,
 } from "@/lib/orderSheet";
 import { downloadOrderSheetPdf } from "@/lib/orderSheetPdf";
+import { materialLineLabel } from "@/lib/materialsMath";
 
 interface OrderSheetDialogProps {
   open: boolean;
@@ -245,7 +246,7 @@ export function OrderSheetDialog({
                           className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/50"
                         >
                           <Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() => toggleItem(item.id)} />
-                          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{item.name || "Untitled item"}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{materialLineLabel(item) || "Untitled item"}</span>
                           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                             {item.quantity} {item.unit || ""}
                           </span>

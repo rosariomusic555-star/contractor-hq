@@ -104,6 +104,7 @@ import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { demoJobMeta } from "@/lib/demoData";
 import { costPlanSummary } from "@/lib/costPlan";
 import { laborRollupsByScope, laborTotals } from "@/lib/laborPlan";
+import { materialLineLabel } from "@/lib/materialsMath";
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -987,7 +988,7 @@ function MaterialsTrackingCard({
               <SelectContent>
                 {trackedLines.map((l) => (
                   <SelectItem key={l.id} value={l.id}>
-                    {l.name}
+                    {materialLineLabel(l)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1059,7 +1060,7 @@ function ReconcileMaterialsDialog({
           await recordMaterialLearningSnapshot({
             project_id: projectId,
             catalog_product_id: line.catalog_product_id,
-            material_name: line.name,
+            material_name: materialLineLabel(line),
             baseline_quantity: baseline.quantity,
             final_used: usedQuantity(line, usageLogs),
             unit: line.unit,
@@ -1094,7 +1095,7 @@ function ReconcileMaterialsDialog({
             return (
               <div key={line.id} className="rounded-lg border border-hairline p-3">
                 <p className="text-sm font-bold text-foreground">
-                  {line.name} — {leftover} {line.unit ?? ""} leftover
+                  {materialLineLabel(line)} — {leftover} {line.unit ?? ""} leftover
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Select

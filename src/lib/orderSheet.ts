@@ -54,7 +54,7 @@ export interface ResolvedOrderLine {
  * combines — see the module doc comment for why "Mark as ordered" needs
  * one row per real line. */
 export function resolveOrderLine(
-  item: Pick<MaterialsItem, "id" | "name" | "quantity" | "unit" | "waste_percent" | "category" | "catalog_product_id" | "price_book_item_id">,
+  item: Pick<MaterialsItem, "id" | "name" | "quantity" | "unit" | "waste_percent" | "category" | "catalog_product_id" | "price_book_item_id" | "color">,
   catalogById: Map<string, ProductCatalogItem>,
   priceBookById: Map<string, PriceBookItem>,
 ): ResolvedOrderLine {
@@ -74,13 +74,17 @@ export function resolveOrderLine(
     );
     detail = specParts.length > 0 ? specParts.join(" · ") : null;
   }
+  // The line's color goes on the order too — and splits the grouping, so
+  // two colors of the same product are ordered as separate lines.
+  const color = item.color?.trim();
+  if (color) title = `${title} — ${color}`;
 
   const category = orderCategoryGroup(item.category ?? catalogProduct?.category ?? priceBookItem?.category ?? null);
 
   const groupKey = item.catalog_product_id
-    ? `catalog:${item.catalog_product_id}:${unit}`
+    ? `catalog:${item.catalog_product_id}:${color ?? ""}:${unit}`
     : item.price_book_item_id
-      ? `pricebook:${item.price_book_item_id}:${unit}`
+      ? `pricebook:${item.price_book_item_id}:${color ?? ""}:${unit}`
       : `name:${title.trim().toLowerCase()}:${unit}`;
 
   return { materialsItemId: item.id, category, title, detail, quantity, unit, groupKey };

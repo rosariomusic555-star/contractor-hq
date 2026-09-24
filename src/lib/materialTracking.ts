@@ -22,6 +22,7 @@ import type {
   Quote,
 } from "./api";
 import { projectDurationStatus } from "./projectDuration";
+import { materialLineLabel, quantityWithWaste } from "./materialsMath";
 
 // ---------------------------------------------------------------------------
 // Which sheets track
@@ -119,6 +120,15 @@ const UNIT_ALIASES: Record<string, string> = {
   each: "ea",
   ea: "ea",
   pc: "ea",
+  pcs: "ea",
+  piece: "ea",
+  pieces: "ea",
+  roll: "roll",
+  rolls: "roll",
+  tube: "tube",
+  tubes: "tube",
+  layer: "layer",
+  layers: "layer",
   sf: "sf",
   "sq ft": "sf",
   sqft: "sf",
@@ -299,9 +309,14 @@ export function currentBaseline(line: Pick<MaterialsItem, "materials_item_baseli
  * against the locked-in plan, never silently drifting if the sheet is
  * edited afterward. */
 export function effectiveEstimate(
-  line: Pick<MaterialsItem, "quantity" | "unit_cost" | "unit" | "materials_item_baselines">,
+  line: Pick<MaterialsItem, "quantity" | "unit_cost" | "unit" | "materials_item_baselines"> & { waste_percent?: number | null },
 ): { quantity: number; unit_cost: number; unit: string | null } {
-  return currentBaseline(line) ?? { quantity: Number(line.quantity), unit_cost: Number(line.unit_cost), unit: line.unit };
+  // Planned quantity includes the line's waste % — same waste-adjusted
+  // quantity the sheet's line total and materialsCogs() use, so Estimated
+  // here never disagrees with the sheet (baselines snapshot the raw
+  // quantity; waste is applied on top).
+  const base = currentBaseline(line) ?? { quantity: Number(line.quantity), unit_cost: Number(line.unit_cost), unit: line.unit };
+  return { ...base, quantity: quantityWithWaste(base.quantity, line.waste_percent) };
 }
 
 export type LineStatus = "not_ordered" | "ordered" | "delivered" | "in_use" | "used_up" | "over_estimate";
@@ -477,25 +492,25 @@ export function materialAlerts(
       if (usagePct - jobProgressPct > BURN_RATE_ALERT_MARGIN_PP) {
         alerts.push({
           key: "burn_rate",
-          lineName: line.name,
-          label: `${line.name} ${Math.round(usagePct)}% used, job ${Math.round(jobProgressPct)}% through`,
+          lineName: materialLineLabel(line),
+          label: `${materialLineLabel(line)} ${Math.round(usagePct)}% used, job ${Math.round(jobProgressPct)}% through`,
         });
       }
     }
 
     if (estimated > 0 && ordered > estimated * (1 + settings.overOrderMarginPct / 100)) {
       const overPct = Math.round(((ordered - estimated) / estimated) * 100);
-      alerts.push({ key: "over_order", lineName: line.name, label: `${line.name} ordered ${overPct}% over estimate` });
+      alerts.push({ key: "over_order", lineName: materialLineLabel(line), label: `${materialLineLabel(line)} ordered ${overPct}% over estimate` });
     }
 
     if (ordered === 0 && daysUntilStart != null && daysUntilStart <= settings.notOrderedAlertDays) {
       alerts.push({
         key: "not_ordered",
-        lineName: line.name,
+        lineName: materialLineLabel(line),
         label:
           daysUntilStart < 0
-            ? `${line.name} still not ordered — job started ${Math.abs(daysUntilStart)}d ago`
-            : `${line.name} still not ordered — starts in ${daysUntilStart}d`,
+            ? `${materialLineLabel(line)} still not ordered — job started ${Math.abs(daysUntilStart)}d ago`
+            : `${materialLineLabel(line)} still not ordered — starts in ${daysUntilStart}d`,
       });
     }
   }

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
 import type { MeasurementRow } from "./measurements";
 
@@ -397,7 +398,8 @@ export interface MaterialsItem {
    * time, but never locked — always a plain editable dropdown. Null
    * groups under "Other / Uncategorized" on a generated order sheet. */
   category: string | null;
-  /** Free-text unit of measure (sf, cy, bag, lf, ea…). Label only — not in the math. */
+  /** Unit of measure — one of MATERIAL_UNITS (sq ft, piece, layer, pallet,
+   * ton, bag, roll, tube) or a custom one (0093). Label only — not in the math. */
   unit: string | null;
   /** Set when this line was picked from the Price Book — the Materials
    * Sheet locks expense_category_id while this is set. Null = a normal,
@@ -409,9 +411,15 @@ export interface MaterialsItem {
    * NOT lock expense_category_id (the catalog carries no cost-category
    * concept of its own). */
   catalog_product_id: string | null;
-  /** Reference-only, every line regardless of source — not part of the
-   * quantity*unit_cost math. */
+  /** Waste allowance, every line regardless of source. Part of the math:
+   * required quantity = quantity × (1 + waste%), which drives the line
+   * total, materialsCogs() and the suggested order quantity — see
+   * src/lib/materialsMath.ts. */
   waste_percent: number;
+  /** Chosen color (0093) — from the Catalog product's color list or typed
+   * in. Shown with the name everywhere (materialLineLabel). Null = none.
+   * Undefined until migration 0093 has run. */
+  color?: string | null;
   /** Unit conversion (0080): "1 conversion_unit = conversion_factor x
    * unit" — e.g. unit "sf", conversion_unit "pallet", factor 108. Lets a
    * delivery line logged in a different (but equivalent) unit than this
@@ -885,12 +893,13 @@ export function isDepositOverdue(
   return paidTotal < depositAmount;
 }
 
-/** Materials cost of goods = sum of quantity * unit_cost across all items. */
+/** Materials cost of goods = sum of every line's waste-adjusted quantity ×
+ * unit_cost (materialsLineTotal). */
 export function materialsCogs(sections: MaterialsSection[] = []): number {
   let total = 0;
   for (const section of sections) {
     for (const item of section.materials_items ?? []) {
-      total += Number(item.quantity) * Number(item.unit_cost);
+      total += materialsLineTotal(item);
     }
   }
   return total;
@@ -1621,6 +1630,9 @@ export interface ProductCatalogItem {
   sku: string | null;
   unit: string | null;
   specs: ProductCatalogSpecs;
+  /** Color options (0093) for the line item's Color dropdown. Empty when
+   * none are on file — the dropdown then just takes a typed color. */
+  colors?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -1838,6 +1850,7 @@ export async function addMaterialsItem(
     conversion_unit?: string | null;
     conversion_factor?: number | null;
     tracked?: boolean;
+    color?: string | null;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -1857,6 +1870,9 @@ export async function addMaterialsItem(
       conversion_unit: input.conversion_unit ?? null,
       conversion_factor: input.conversion_factor ?? null,
       tracked: input.tracked ?? true,
+      // Only sent when set, so adding a line still works before migration
+      // 0093 (which adds the column) has been run.
+      ...(input.color ? { color: input.color } : {}),
     })
     .select()
     .single();
@@ -1882,6 +1898,7 @@ export async function updateMaterialsItem(
       | "conversion_unit"
       | "conversion_factor"
       | "tracked"
+      | "color"
     >
   >,
 ): Promise<void> {
@@ -4291,8 +4308,23 @@ export async function updateOpportunity(
     >
   >,
 ): Promise<void> {
+  // The linked project copies the opportunity's address once, when it's
+  // lazily created (get_or_create_opportunity_project). Keep it following
+  // later address edits too — but only while the project's own address is
+  // still empty or still the opportunity's old one, so an address someone
+  // set on the project directly is never overwritten.
+  const before =
+    patch.address !== undefined
+      ? (await supabase.from("opportunities").select("address, project_id").eq("id", id).single()).data
+      : null;
   const { error } = await supabase.from("opportunities").update(patch).eq("id", id);
   if (error) throw error;
+  if (before?.project_id && patch.address !== before.address) {
+    const { data: project } = await supabase.from("projects").select("address").eq("id", before.project_id).single();
+    if (project && (project.address == null || project.address === before.address)) {
+      await updateProject(before.project_id, { address: patch.address ?? null });
+    }
+  }
 }
 
 export async function deleteOpportunity(id: string): Promise<void> {

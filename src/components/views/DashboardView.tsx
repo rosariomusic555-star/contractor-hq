@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronRight, Plus } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
@@ -15,6 +16,7 @@ import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
 import { FollowUpsCard } from "@/components/dashboard/FollowUpsCard";
 import { Button } from "@/components/ui/button";
+import { CreateOpportunityDialog } from "@/components/common/CreateOpportunityDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { useGreeting } from "@/hooks/use-greeting";
@@ -40,6 +42,7 @@ export function DashboardView() {
   const { toast } = useToast();
   const { session } = useAuth();
   const { greeting, firstName } = useGreeting();
+  const [newOpportunityOpen, setNewOpportunityOpen] = useState(false);
 
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
@@ -144,6 +147,12 @@ export function DashboardView() {
             <KpiCard label="Open quotes" value={openQuotes.length} sub={`${awaitingResponse} awaiting reply`} />
           </Link>
         </div>
+
+        {/* Primary CTA — new work starts as an opportunity. */}
+        <Button onClick={() => setNewOpportunityOpen(true)} className="mt-3 h-11 w-full font-bold">
+          <Plus className="mr-1.5 h-4 w-4" />
+          New opportunity
+        </Button>
       </div>
 
       {/* ---- Desktop header ---- */}
@@ -161,11 +170,17 @@ export function DashboardView() {
               New invoice
             </Button>
             <Button
+              variant="outline"
               onClick={() => newQuoteMut.mutate()}
               disabled={newQuoteMut.isPending}
-              className="font-bold"
+              className="border-border font-semibold"
             >
               New quote
+            </Button>
+            {/* Primary CTA — new work starts as an opportunity. */}
+            <Button onClick={() => setNewOpportunityOpen(true)} size="lg" className="font-bold">
+              <Plus className="mr-1.5 h-4 w-4" />
+              New opportunity
             </Button>
           </>
         }
@@ -278,6 +293,7 @@ export function DashboardView() {
       <div className="hidden md:block">
         <RevenueChart />
       </div>
+      <CreateOpportunityDialog open={newOpportunityOpen} onOpenChange={setNewOpportunityOpen} />
     </div>
   );
 }

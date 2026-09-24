@@ -148,12 +148,15 @@ export function ProjectCostPlanView() {
           </div>
           <div className="shrink-0 text-right">
             <p className="text-xl font-extrabold tabular-nums text-foreground">{materialCost != null ? formatCurrency(materialCost) : "—"}</p>
-            <button
-              className="text-xs font-semibold text-primary"
+            {/* Primary (solid) until there's something to open. */}
+            <Button
+              size="sm"
+              variant={materialCost != null ? "outline" : "default"}
+              className="mt-1.5 h-8 font-bold"
               onClick={() => navigate(`/projects/${id}/materials`)}
             >
-              {materialCost != null ? "View Material Plan" : "Add materials"}
-            </button>
+              {materialCost != null ? "Open materials sheet" : "Start materials sheet"}
+            </Button>
           </div>
         </div>
 
@@ -169,9 +172,14 @@ export function ProjectCostPlanView() {
           </div>
           <div className="shrink-0 text-right">
             <p className="text-xl font-extrabold tabular-nums text-foreground">{formatCurrency(laborPlannedCost)}</p>
-            <button className="text-xs font-semibold text-primary" onClick={() => navigate(`/projects/${id}/labor`)}>
-              {laborPlannedHours > 0 ? "View Labor Plan" : "Set up labor plan"}
-            </button>
+            <Button
+              size="sm"
+              variant={laborPlannedHours > 0 ? "outline" : "default"}
+              className="mt-1.5 h-8 font-bold"
+              onClick={() => navigate(`/projects/${id}/labor`)}
+            >
+              {laborPlannedHours > 0 ? "Open labor plan" : "Set up labor plan"}
+            </Button>
           </div>
         </div>
 
@@ -189,6 +197,12 @@ export function ProjectCostPlanView() {
     </div>
   );
 }
+
+const ADD_COST_LABEL: Record<CostPlanGroup, string> = {
+  subcontractor: "Add subcontractor cost",
+  equipment: "Add equipment cost",
+  other: "Add other cost",
+};
 
 function CostPlanGroupSection({
   group,
@@ -275,9 +289,9 @@ function CostPlanGroupSection({
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
         </div>
-        <Button size="sm" variant="outline" disabled={!name.trim() || saving} onClick={submit} className={cn("shrink-0")}>
+        <Button size="sm" disabled={!name.trim() || saving} onClick={submit} className={cn("shrink-0 font-bold")}>
           <Plus className="mr-1 h-3.5 w-3.5" />
-          Add
+          {ADD_COST_LABEL[group]}
         </Button>
       </div>
     </div>
