@@ -18,12 +18,14 @@ import {
   type MaterialsSection,
   type PriceBookItem,
   type ProductCatalogItem,
+  listMaterialCategories,
 } from "@/lib/api";
 import {
   combineOrderLines,
   groupByCategory,
   guessMaterialOrderUnit,
   orderCategoryGroup,
+  lineCategoryName,
   resolveOrderLine,
   UNCATEGORIZED_LABEL,
   type ResolvedOrderLine,
@@ -80,6 +82,11 @@ export function OrderSheetDialog({
   const [pendingLines, setPendingLines] = useState<ResolvedOrderLine[]>([]);
 
   const catalogById = useMemo(() => new Map(catalogItems.map((c) => [c.id, c])), [catalogItems]);
+  const { data: materialCategories = [] } = useQuery({ queryKey: ["material-categories"], queryFn: listMaterialCategories });
+  const materialCategoryNameById = useMemo(
+    () => new Map(materialCategories.map((c) => [c.id, c.name])),
+    [materialCategories],
+  );
   const priceBookById = useMemo(() => new Map(priceBookItems.map((p) => [p.id, p])), [priceBookItems]);
 
   const flatItems: FlatItem[] = useMemo(
@@ -88,11 +95,13 @@ export function OrderSheetDialog({
         s.materials_items.map((item) => {
           const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
           const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
-          const category = orderCategoryGroup(item.category ?? catalogProduct?.category ?? priceBookItem?.category ?? null);
+          const category = orderCategoryGroup(
+            lineCategoryName(item, materialCategoryNameById) ?? catalogProduct?.category ?? priceBookItem?.category ?? null,
+          );
           return { item, sectionName: s.name, category };
         }),
       ),
-    [sections, catalogById, priceBookById],
+    [sections, catalogById, priceBookById, materialCategoryNameById],
   );
 
   const categories = useMemo(() => {
@@ -156,7 +165,7 @@ export function OrderSheetDialog({
     mutationFn: async () => {
       const lines = flatItems
         .filter((f) => selectedIds.has(f.item.id))
-        .map((f) => resolveOrderLine(f.item, catalogById, priceBookById));
+        .map((f) => resolveOrderLine(f.item, catalogById, priceBookById, materialCategoryNameById));
       const groups = groupByCategory(combineOrderLines(lines));
       downloadOrderSheetPdf(
         {

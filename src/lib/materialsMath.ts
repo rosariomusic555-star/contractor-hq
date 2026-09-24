@@ -91,3 +91,25 @@ export function normalizeMaterialUnit(unit: string | null | undefined): string {
 export function isStandardMaterialUnit(unit: string | null | undefined): boolean {
   return (MATERIAL_UNITS as readonly string[]).includes(unit ?? "");
 }
+
+// ---------------------------------------------------------------------------
+// Section item sort
+// ---------------------------------------------------------------------------
+
+/** A section's display order — "manual" is the saved drag/arrow order;
+ * the cost sorts are view-only and never rewrite it on their own. */
+export type ItemSortMode = "manual" | "cost_desc" | "cost_asc";
+
+/** Items in display order for a sort mode. Stable (ties keep manual order);
+ * returns the same array for "manual". */
+export function sortItemsByCost<T extends { quantity: number; unit_cost: number; waste_percent?: number | null }>(
+  items: T[],
+  mode: ItemSortMode,
+): T[] {
+  if (mode === "manual") return items;
+  const dir = mode === "cost_desc" ? -1 : 1;
+  return items
+    .map((item, index) => ({ item, index, total: materialsLineTotal(item) }))
+    .sort((a, b) => (a.total - b.total) * dir || a.index - b.index)
+    .map((r) => r.item);
+}

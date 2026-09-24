@@ -25,6 +25,16 @@ import { wasteAdjustedOrderQuantity } from "./catalogOrdering";
  * supplier reading it sees no meaningful difference between the two. */
 export const UNCATEGORIZED_LABEL = "Other / Uncategorized";
 
+/** A line's category name: its material category (0094, by id — so a
+ * rename in Settings shows here), else the old text snapshot. */
+export function lineCategoryName(
+  item: Pick<MaterialsItem, "category" | "material_category_id">,
+  materialCategoryNameById?: Map<string, string>,
+): string | null {
+  const byId = item.material_category_id ? materialCategoryNameById?.get(item.material_category_id) : undefined;
+  return byId ?? item.category ?? null;
+}
+
 export function orderCategoryGroup(category: string | null | undefined): string {
   if (!category || category === "Other") return UNCATEGORIZED_LABEL;
   return category;
@@ -54,9 +64,13 @@ export interface ResolvedOrderLine {
  * combines — see the module doc comment for why "Mark as ordered" needs
  * one row per real line. */
 export function resolveOrderLine(
-  item: Pick<MaterialsItem, "id" | "name" | "quantity" | "unit" | "waste_percent" | "category" | "catalog_product_id" | "price_book_item_id" | "color">,
+  item: Pick<
+    MaterialsItem,
+    "id" | "name" | "quantity" | "unit" | "waste_percent" | "category" | "catalog_product_id" | "price_book_item_id" | "color" | "material_category_id"
+  >,
   catalogById: Map<string, ProductCatalogItem>,
   priceBookById: Map<string, PriceBookItem>,
+  materialCategoryNameById?: Map<string, string>,
 ): ResolvedOrderLine {
   const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
   const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
@@ -79,7 +93,9 @@ export function resolveOrderLine(
   const color = item.color?.trim();
   if (color) title = `${title} — ${color}`;
 
-  const category = orderCategoryGroup(item.category ?? catalogProduct?.category ?? priceBookItem?.category ?? null);
+  const category = orderCategoryGroup(
+    lineCategoryName(item, materialCategoryNameById) ?? catalogProduct?.category ?? priceBookItem?.category ?? null,
+  );
 
   const groupKey = item.catalog_product_id
     ? `catalog:${item.catalog_product_id}:${color ?? ""}:${unit}`

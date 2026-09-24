@@ -10,6 +10,7 @@ const SECTIONS = [
   { label: "Categories", to: "/settings/categories" },
   { label: "Lead sources", to: "/settings/lead-sources" },
   { label: "Expense categories", to: "/settings/expense-categories" },
+  { label: "Material categories", to: "/settings/material-categories" },
   { label: "Suppliers", to: "/settings/suppliers" },
   { label: "Invoicing & payments", to: "/settings/invoicing" },
   { label: "Price Book", to: "/settings/pricebook" },

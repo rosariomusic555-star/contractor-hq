@@ -5,6 +5,7 @@ import {
   normalizeMaterialUnit,
   quantityWithWaste,
   wastePercentToReach,
+  sortItemsByCost,
 } from "./materialsMath";
 import { materialsCogs } from "./api";
 import { nextOrderableQuantity } from "./catalogOrdering";
@@ -54,5 +55,28 @@ describe("materialLineLabel", () => {
   it("adds the color when set", () => {
     expect(materialLineLabel({ name: "Blu 60 Slate", color: "Onyx Black" })).toBe("Blu 60 Slate — Onyx Black");
     expect(materialLineLabel({ name: "Blu 60 Slate", color: " " })).toBe("Blu 60 Slate");
+  });
+});
+
+describe("sortItemsByCost", () => {
+  const items = [
+    { id: "a", quantity: 1, unit_cost: 10, waste_percent: 0 },
+    { id: "b", quantity: 1, unit_cost: 50, waste_percent: 0 },
+    { id: "c", quantity: 10, unit_cost: 1, waste_percent: 0 }, // $10, ties with a
+  ];
+  it("manual keeps the saved order (same array)", () => {
+    expect(sortItemsByCost(items, "manual")).toBe(items);
+  });
+  it("sorts high → low and low → high, ties in manual order, without mutating", () => {
+    expect(sortItemsByCost(items, "cost_desc").map((i) => i.id)).toEqual(["b", "a", "c"]);
+    expect(sortItemsByCost(items, "cost_asc").map((i) => i.id)).toEqual(["a", "c", "b"]);
+    expect(items.map((i) => i.id)).toEqual(["a", "b", "c"]);
+  });
+  it("uses the waste-adjusted total", () => {
+    const withWaste = [
+      { id: "x", quantity: 10, unit_cost: 1, waste_percent: 50 }, // $15
+      { id: "y", quantity: 12, unit_cost: 1, waste_percent: 0 }, // $12
+    ];
+    expect(sortItemsByCost(withWaste, "cost_desc").map((i) => i.id)).toEqual(["x", "y"]);
   });
 });

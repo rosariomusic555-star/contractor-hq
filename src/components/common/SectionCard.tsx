@@ -39,6 +39,9 @@ interface SectionCardProps {
    * builder — plus its "Delete section" control. Differs per builder, hides
    * along with the item list while collapsed. */
   secondRow: ReactNode;
+  /** Optional small tag shown under the name in the header (the
+   * Materials Sheet's section project type). */
+  tag?: ReactNode;
   /** The line item list + "Add item to this section" button. */
   children: ReactNode;
 }
@@ -73,6 +76,7 @@ export function SectionCard({
   onMoveUp,
   onMoveDown,
   secondRow,
+  tag,
   children,
 }: SectionCardProps) {
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -130,6 +134,7 @@ export function SectionCard({
             placeholder="New section"
             className="-ml-2.5 w-full rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
           />
+          {tag && <div className="mt-0.5">{tag}</div>}
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[11px] text-background/55">{pluralize(itemNames.length, "item")}</div>

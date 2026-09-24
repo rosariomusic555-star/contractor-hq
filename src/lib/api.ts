@@ -371,6 +371,61 @@ export const materialTypeLabel = (value: string | null): string =>
  * product's `category` are meant to be the same plain string either way.
  * "Other" and an untagged (null) line both group under "Other /
  * Uncategorized" on the generated order sheet — see src/lib/orderSheet.ts. */
+/** A contractor's own material category (0094) — Settings > Material
+ * categories. The single category on a materials sheet line; groups the
+ * Order Sheet. Seeded with DEFAULT_MATERIAL_CATEGORIES. */
+export interface MaterialCategory {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function listMaterialCategories(): Promise<MaterialCategory[]> {
+  const { data, error } = await supabase.from("material_categories").select("*").order("sort_order").order("name");
+  if (error) {
+    // PGRST205 = migration 0094 not run yet — degrade to empty.
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+export async function createMaterialCategory(input: { name: string; sort_order?: number }): Promise<MaterialCategory> {
+  const { data, error } = await supabase
+    .from("material_categories")
+    .insert({ name: input.name, sort_order: input.sort_order ?? 0 })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMaterialCategory(
+  id: string,
+  patch: Partial<Pick<MaterialCategory, "name" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("material_categories").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** Lines using it fall back to Uncategorized (FK on delete set null). */
+export async function deleteMaterialCategory(id: string): Promise<void> {
+  const { error } = await supabase.from("material_categories").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Name → the contractor's category id (case-insensitive) — how a Catalog
+ * product / Price Book item's text category prefills a line's category. */
+export function materialCategoryIdByName(categories: MaterialCategory[], name: string | null | undefined): string | null {
+  const key = name?.trim().toLowerCase();
+  if (!key) return null;
+  return categories.find((c) => c.name.toLowerCase() === key)?.id ?? null;
+}
+
+/** The original fixed list — now only the seed for material_categories
+ * (0094) and the Price Book's fallback options before 0094 runs. */
 export const ORDER_SHEET_CATEGORIES: string[] = [
   "Pavers",
   "Wall Block",
@@ -420,6 +475,11 @@ export interface MaterialsItem {
    * in. Shown with the name everywhere (materialLineLabel). Null = none.
    * Undefined until migration 0093 has run. */
   color?: string | null;
+  /** The line's one category (0094) — Settings > Material categories.
+   * Null = Uncategorized. Supersedes the old text `category` (kept as a
+   * name snapshot, written alongside) and the old cost category
+   * `expense_category_id` (no longer shown; data kept). */
+  material_category_id?: string | null;
   /** Unit conversion (0080): "1 conversion_unit = conversion_factor x
    * unit" — e.g. unit "sf", conversion_unit "pallet", factor 108. Lets a
    * delivery line logged in a different (but equivalent) unit than this
@@ -481,6 +541,9 @@ export interface MaterialsSection {
    * an ordinary manually-created section. Set once at creation; renaming
    * the section afterward doesn't clear it. */
   smart_section_build_type: string | null;
+  /** Project-type tag (0094) — one of the project's own Job Categories
+   * (Settings > Categories). Null = untagged. Undefined before 0094. */
+  job_category_id?: string | null;
   materials_items: MaterialsItem[];
 }
 
@@ -1804,7 +1867,7 @@ export async function listMaterialsBySheet(sheetId: string): Promise<MaterialsSe
 export async function createMaterialsSection(
   projectId: string,
   sheetId: string,
-  input: { name: string; sort_order?: number; smart_section_build_type?: string | null },
+  input: { name: string; sort_order?: number; smart_section_build_type?: string | null; job_category_id?: string | null },
 ): Promise<MaterialsSection> {
   const { data, error } = await supabase
     .from("materials_sections")
@@ -1814,6 +1877,7 @@ export async function createMaterialsSection(
       name: input.name,
       sort_order: input.sort_order ?? 0,
       smart_section_build_type: input.smart_section_build_type ?? null,
+      ...(input.job_category_id ? { job_category_id: input.job_category_id } : {}),
     })
     .select("*, materials_items(*)")
     .single();
@@ -1823,7 +1887,7 @@ export async function createMaterialsSection(
 
 export async function updateMaterialsSection(
   id: string,
-  patch: Partial<Pick<MaterialsSection, "name" | "sort_order">>,
+  patch: Partial<Pick<MaterialsSection, "name" | "sort_order" | "job_category_id">>,
 ): Promise<void> {
   const { error } = await supabase.from("materials_sections").update(patch).eq("id", id);
   if (error) throw error;
@@ -1851,6 +1915,7 @@ export async function addMaterialsItem(
     conversion_factor?: number | null;
     tracked?: boolean;
     color?: string | null;
+    material_category_id?: string | null;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -1873,6 +1938,7 @@ export async function addMaterialsItem(
       // Only sent when set, so adding a line still works before migration
       // 0093 (which adds the column) has been run.
       ...(input.color ? { color: input.color } : {}),
+      ...(input.material_category_id ? { material_category_id: input.material_category_id } : {}),
     })
     .select()
     .single();
@@ -1899,6 +1965,7 @@ export async function updateMaterialsItem(
       | "conversion_factor"
       | "tracked"
       | "color"
+      | "material_category_id"
     >
   >,
 ): Promise<void> {
