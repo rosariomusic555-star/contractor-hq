@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn, formatCurrencyWhole, pluralize } from "@/lib/utils";
 import type { BookingJob } from "@/lib/bookings";
-import { TONE_SOLID_CLASS, TONE_TINT_CLASS, projectStatusMeta } from "@/lib/statusMeta";
+import { TONE_TINT_CLASS, bookingDisplayStatus, projectStatusMeta, projectStatusSolidClass } from "@/lib/statusMeta";
 import { monthGridDays, jobsOnDate, JOB_DRAG_MIME, MAX_VISIBLE_DOTS } from "@/lib/bookingsSchedule";
 import { DayTooltip } from "./DayTooltip";
 
@@ -68,8 +68,10 @@ export function MiniMonth({
           // (once in its own month, once bleeding into the adjacent one).
           const dayJobs = day.inMonth ? jobsOnDate(jobs, day.date) : [];
           const singleJob = dayJobs.length === 1 ? dayJobs[0] : null;
-          const statuses = new Set(dayJobs.map((j) => j.status));
-          const tintTone = statuses.size === 1 ? projectStatusMeta(dayJobs[0].status).tone : null;
+          // One status per day (In progress > Scheduled > Complete) for the
+          // day circle + cell tint; the tooltip lists every job.
+          const dayStatus = bookingDisplayStatus(dayJobs);
+          const tintTone = dayStatus ? projectStatusMeta(dayStatus).tone : null;
 
           return (
             <DayTooltip key={day.key} jobs={dayJobs}>
@@ -103,14 +105,17 @@ export function MiniMonth({
                   !day.inMonth && "text-muted-subtle/40",
                   day.inMonth && "text-foreground",
                   tintTone && TONE_TINT_CLASS[tintTone],
-                  dayJobs.length > 0 && !tintTone && "bg-muted",
                   dragOverKey === day.key ? "ring-2 ring-inset ring-primary" : "hover:bg-muted/70",
                 )}
               >
+                {/* Job day → filled circle in the legend's status color.
+                    Today is a ring (drawn over any fill) rather than its
+                    old green fill, which would read as a Complete day. */}
                 <span
                   className={cn(
                     "flex h-4 w-4 items-center justify-center rounded-full leading-none",
-                    day.isToday && "bg-primary font-extrabold text-primary-foreground",
+                    dayStatus && cn(projectStatusSolidClass(dayStatus), "font-bold"),
+                    day.isToday && "font-extrabold ring-2 ring-primary ring-offset-1 ring-offset-background",
                   )}
                 >
                   {day.date.getDate()}
@@ -120,7 +125,7 @@ export function MiniMonth({
                     {dayJobs.slice(0, MAX_VISIBLE_DOTS).map((j) => (
                       <span
                         key={j.projectId}
-                        className={cn("h-1 w-1 rounded-full", TONE_SOLID_CLASS[projectStatusMeta(j.status).tone].split(" ")[0])}
+                        className={cn("h-1 w-1 rounded-full", projectStatusSolidClass(j.status).split(" ")[0])}
                       />
                     ))}
                     {dayJobs.length > MAX_VISIBLE_DOTS && (

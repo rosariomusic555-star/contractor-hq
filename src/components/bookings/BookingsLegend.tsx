@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { PROJECT_STATUS_META, TONE_SOLID_CLASS } from "@/lib/statusMeta";
+import { PROJECT_STATUS_META, projectStatusSolidClass } from "@/lib/statusMeta";
 import type { ProjectStatus } from "@/lib/api";
 
 // Only the statuses that can actually land on the calendar — Estimating/Lost
@@ -15,7 +15,7 @@ export function BookingsLegend({ className }: { className?: string }) {
         const meta = PROJECT_STATUS_META[status];
         return (
           <div key={status} className="flex items-center gap-1.5">
-            <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm", TONE_SOLID_CLASS[meta.tone].split(" ")[0])} />
+            <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm", projectStatusSolidClass(status).split(" ")[0])} />
             <span className="text-xs font-semibold text-muted-foreground">{meta.label}</span>
           </div>
         );

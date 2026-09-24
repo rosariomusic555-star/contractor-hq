@@ -119,6 +119,25 @@ export const PROJECT_STATUS_META: Record<ProjectStatus, StatusMeta> = {
 
 export const PROJECT_STATUSES = Object.keys(PROJECT_STATUS_META) as ProjectStatus[];
 
+/** Solid fill + contrasting text for a project status — the Bookings
+ * legend's swatch color. The /bookings day circles, the Dashboard Bookings
+ * card's day dots and its mobile heat swatch all use this too, so every
+ * calendar surface matches the legend. */
+export function projectStatusSolidClass(status: string): string {
+  return TONE_SOLID_CLASS[projectStatusMeta(status).tone];
+}
+
+/** When jobs with different statuses share a calendar day (or month), the
+ * one color shown — In progress beats Scheduled beats Complete. The day's
+ * tooltip lists every job. */
+const BOOKING_STATUS_PRIORITY: ProjectStatus[] = ["in_progress", "scheduled", "complete"];
+
+export function bookingDisplayStatus(jobs: { status: string }[]): ProjectStatus | null {
+  if (jobs.length === 0) return null;
+  const present = new Set(jobs.map((j) => j.status));
+  return BOOKING_STATUS_PRIORITY.find((s) => present.has(s)) ?? (jobs[0].status as ProjectStatus);
+}
+
 /** Tolerates legacy / unexpected status strings without throwing. */
 export function projectStatusMeta(status: string): StatusMeta {
   return PROJECT_STATUS_META[status as ProjectStatus] ?? meta(titleCase(status), "grey");
