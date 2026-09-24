@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, Check, MapPin, Plus, X } from "lucide-react";
+import { Calendar, Check, MapPin, Pencil, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,10 +19,13 @@ import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { useToast } from "@/hooks/use-toast";
 import { cn, pluralize } from "@/lib/utils";
 import { appointmentStatusMeta } from "@/lib/statusMeta";
+import { allDayDateTime, appointmentDateKey, appointmentTimeLabel, localYmd } from "@/lib/appointmentTime";
 import {
   listAppointments,
   createAppointment,
+  getOpportunity,
   setAppointmentStatus,
+  updateAppointment,
   createQuote,
   APPOINTMENT_TYPE_LABEL,
   listClients,
@@ -32,8 +35,10 @@ import {
 
 type Filter = "upcoming" | "today" | "past" | "all";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const dateOf = (a: Appointment) => a.date_time.slice(0, 10);
+// Local dates, not UTC slices — a UTC slice put evening appointments on the
+// next day (and all-day ones must land on the date that was picked).
+const todayStr = () => localYmd(new Date());
+const dateOf = (a: Appointment) => appointmentDateKey(a);
 
 function bucketAppointment(a: Appointment): Exclude<Filter, "all"> {
   const d = dateOf(a);
@@ -109,13 +114,14 @@ export function AppointmentRow({
   showClient?: boolean;
 }) {
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const qc = useQueryClient();
   const { toast } = useToast();
   const navigate = useNavigate();
 
   const dt = new Date(appointment.date_time);
   const dateLabel = dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  const timeLabel = dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const timeLabel = appointmentTimeLabel(appointment);
   const meta = appointmentStatusMeta(appointment.status);
   const overdue = appointment.status === "scheduled" && dateOf(appointment) < todayStr();
 
@@ -167,6 +173,10 @@ export function AppointmentRow({
               <Check className="mr-1 h-3 w-3" />
               Complete
             </Button>
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-1 h-3 w-3" />
+              Edit
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -179,20 +189,116 @@ export function AppointmentRow({
             </Button>
           </div>
         )}
-        {appointment.status === "completed" && appointment.type === "site_visit" && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-2 h-7 px-2 text-xs font-semibold"
-            disabled={startEstimateMut.isPending}
-            onClick={() => startEstimateMut.mutate()}
-          >
-            {startEstimateMut.isPending ? "Starting…" : "Start estimate →"}
-          </Button>
+        {appointment.status === "completed" && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-1 h-3 w-3" />
+              Edit
+            </Button>
+            {appointment.type === "site_visit" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs font-semibold"
+                disabled={startEstimateMut.isPending}
+                onClick={() => startEstimateMut.mutate()}
+              >
+                {startEstimateMut.isPending ? "Starting…" : "Start estimate →"}
+              </Button>
+            )}
+          </div>
         )}
       </div>
       <CompleteAppointmentDialog open={completeOpen} onOpenChange={setCompleteOpen} appointment={appointment} />
+      <EditAppointmentDialog open={editOpen} onOpenChange={setEditOpen} appointment={appointment} />
     </div>
+  );
+}
+
+/** Edits a scheduled or completed appointment — the same Type / Date / Notes fields as
+ * New appointment. A date-only appointment stays date-only; an older timed
+ * one keeps its time of day when its date changes. Address isn't editable
+ * here (it's filled automatically on create). */
+function EditAppointmentDialog({
+  open,
+  onOpenChange,
+  appointment,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  appointment: Appointment;
+}) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [type, setType] = useState<AppointmentType>(appointment.type);
+  const [date, setDate] = useState(appointmentDateKey(appointment));
+  const [notes, setNotes] = useState(appointment.notes ?? "");
+
+  useEffect(() => {
+    if (open) {
+      setType(appointment.type);
+      setDate(appointmentDateKey(appointment));
+      setNotes(appointment.notes ?? "");
+    }
+    // Reset only when the dialog opens — a background refetch of
+    // `appointment` mid-edit must not wipe what's being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const saveMut = useMutation({
+    mutationFn: () => {
+      let date_time = allDayDateTime(date);
+      if (!appointment.all_day) {
+        const old = new Date(appointment.date_time);
+        const [y, m, d] = date.split("-").map(Number);
+        date_time = new Date(y, m - 1, d, old.getHours(), old.getMinutes()).toISOString();
+      }
+      return updateAppointment(appointment.id, { type, date_time, notes: notes.trim() || null });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["appointments"] });
+      qc.invalidateQueries({ queryKey: ["client-appointments", appointment.client_id] });
+      if (appointment.opportunity_id) {
+        qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
+      }
+      onOpenChange(false);
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm gap-4">
+        <DialogHeader>
+          <DialogTitle>Edit appointment</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={type} onValueChange={(v) => setType(v as AppointmentType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(APPOINTMENT_TYPE_LABEL) as AppointmentType[]).map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {APPOINTMENT_TYPE_LABEL[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Date</Label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />
+        </div>
+        <Button className="w-full font-bold" disabled={!date || saveMut.isPending} onClick={() => saveMut.mutate()}>
+          {saveMut.isPending ? "Saving…" : "Save changes"}
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -266,9 +372,6 @@ export function CreateAppointmentDialog({
 
   const [type, setType] = useState<AppointmentType>("site_visit");
   const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
-  const [duration, setDuration] = useState("60");
-  const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
   const [clientId, setClientId] = useState<string | null>(defaultClientId ?? null);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
@@ -279,25 +382,32 @@ export function CreateAppointmentDialog({
     if (!open) {
       setType("site_visit");
       setDate("");
-      setTime("");
-      setDuration("60");
-      setAddress("");
       setNotes("");
       setClientId(defaultClientId ?? null);
     }
   }, [open, defaultClientId]);
 
   const createMut = useMutation({
-    mutationFn: () =>
-      createAppointment({
+    mutationFn: async () => {
+      // No address field — it's filled in automatically: the opportunity's
+      // property address when scheduled from an opportunity, else (or if
+      // that's blank) the selected client's address, else left empty.
+      const opportunity = defaultOpportunityId
+        ? await qc.fetchQuery({ queryKey: ["opportunity", defaultOpportunityId], queryFn: () => getOpportunity(defaultOpportunityId) })
+        : null;
+      const address = opportunity?.address?.trim() || selectedClient?.address?.trim() || null;
+      return createAppointment({
         client_id: clientId!,
         opportunity_id: defaultOpportunityId ?? null,
         type,
-        date_time: new Date(`${date}T${time || "09:00"}`).toISOString(),
-        duration_minutes: Number(duration) || 60,
-        address: address.trim() || null,
+        // Date-only (0092): no time or duration is asked for; duration
+        // keeps its 60-minute default for anything that needs a length.
+        date_time: allDayDateTime(date),
+        all_day: true,
+        address,
         notes: notes.trim() || null,
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["appointments"] });
       if (defaultClientId) qc.invalidateQueries({ queryKey: ["client-appointments", defaultClientId] });
@@ -337,21 +447,10 @@ export function CreateAppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label>Date</Label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Time</Label>
-                <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-              </div>
-            </div>
             <div className="space-y-1.5">
-              <Label>Duration (minutes)</Label>
-              <Input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} />
+              <Label>Date</Label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </div>
-            <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (optional)" />
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />
             {!defaultClientId && (
               <div className="space-y-1.5">

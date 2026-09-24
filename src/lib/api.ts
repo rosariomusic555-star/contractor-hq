@@ -4648,6 +4648,10 @@ export interface Appointment {
   opportunity_id: string | null;
   type: AppointmentType;
   date_time: string;
+  /** Date-only appointment (0092) — date_time is local noon of the date and
+   * carries no meaningful time; show it as "All day". Older appointments
+   * (false) keep their real time. */
+  all_day: boolean;
   duration_minutes: number;
   address: string | null;
   status: AppointmentStatus;
@@ -4714,6 +4718,7 @@ export async function createAppointment(input: {
   opportunity_id?: string | null;
   type?: AppointmentType;
   date_time: string;
+  all_day?: boolean;
   duration_minutes?: number;
   address?: string | null;
   notes?: string | null;
@@ -4727,6 +4732,7 @@ export async function createAppointment(input: {
       opportunity_id: input.opportunity_id ?? null,
       type: input.type ?? "site_visit",
       date_time: input.date_time,
+      all_day: input.all_day ?? false,
       duration_minutes: input.duration_minutes ?? 60,
       address: input.address ?? null,
       notes: input.notes ?? null,

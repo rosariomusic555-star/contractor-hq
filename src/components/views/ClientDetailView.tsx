@@ -699,7 +699,13 @@ function ClientAppointmentsCard({ clientId }: { clientId: string }) {
     queryFn: () => listAppointmentsForClient(clientId),
   });
 
-  const upcoming = appointments.filter((a) => a.status === "scheduled");
+  // Completed appointments stay on the card (with their Completed badge),
+  // below the scheduled ones — completing one never makes it vanish.
+  // Cancelled / no-show ones are still left off.
+  const shown = [
+    ...appointments.filter((a) => a.status === "scheduled"),
+    ...appointments.filter((a) => a.status === "completed"),
+  ];
 
   return (
     <section className="card-surface p-5">
@@ -709,11 +715,11 @@ function ClientAppointmentsCard({ clientId }: { clientId: string }) {
           + Add
         </button>
       </div>
-      {upcoming.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">No upcoming appointments.</p>
+      {shown.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">No appointments yet.</p>
       ) : (
         <div className="mt-2 space-y-2">
-          {upcoming.map((a) => (
+          {shown.map((a) => (
             <AppointmentRow key={a.id} appointment={a} />
           ))}
         </div>
