@@ -123,6 +123,7 @@ import {
   type ItemSortMode,
 } from "@/lib/materialsMath";
 import { OptionOrCustomField } from "@/components/materials/OptionOrCustomField";
+import { ProjectTypeChip } from "@/components/common/ProjectTypeChip";
 import {
   orderedQuantity,
   deliveredQuantity,
@@ -136,6 +137,7 @@ import {
   type LineStatus,
   type DeliveryLineWithOrderStatus,
 } from "@/lib/materialTracking";
+import { BackLink } from "@/components/common/BackLink";
 
 const NONE = "__none__";
 
@@ -361,13 +363,10 @@ function MaterialsSheetsListView({
 
   return (
     <div className="mx-auto max-w-4xl animate-fade-in space-y-6">
-      <Link
+      <BackLink
         to={`/projects/${projectId}`}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        Back to project
-      </Link>
+      >Back to project</BackLink>
 
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
@@ -922,13 +921,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
 
   return (
     <div className={cn("mx-auto max-w-4xl animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
-      <Link
+      <BackLink
         to={backHref}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        {backLabel}
-      </Link>
+      >{backLabel}</BackLink>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -1481,14 +1477,6 @@ function MaterialsSectionCard({
   // View order only — the saved manual order is untouched unless the user
   // reorders while sorted (the page handles that; see reorderFromSorted).
   const displayItems = sortItemsByCost(section.items, sortMode);
-  const typeName = section.job_category_id
-    ? (jobCategories.find((c) => c.id === section.job_category_id)?.name ?? null)
-    : null;
-  // Keep a tag that's no longer one of the project's types selectable/visible.
-  const typeOptions =
-    section.job_category_id && typeName && !projectTypeOptions.some((c) => c.id === section.job_category_id)
-      ? [...projectTypeOptions, { id: section.job_category_id, name: typeName } as Category]
-      : projectTypeOptions;
 
   return (
     <SectionCard
@@ -1497,11 +1485,12 @@ function MaterialsSectionCard({
       subtotal={subtotal}
       itemNames={displayItems.map((i) => materialLineLabel(i))}
       tag={
-        typeName ? (
-          <span className="inline-flex items-center rounded-full bg-white/[0.16] px-2 py-0.5 text-[11px] font-semibold text-background">
-            {typeName}
-          </span>
-        ) : undefined
+        <ProjectTypeChip
+          value={section.job_category_id}
+          options={projectTypeOptions}
+          allCategories={jobCategories}
+          onChange={onTypeChange}
+        />
       }
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
@@ -1526,22 +1515,6 @@ function MaterialsSectionCard({
                 Calculate quantities
               </button>
             )}
-            <Select value={section.job_category_id ?? NONE} onValueChange={(v) => onTypeChange(v === NONE ? null : v)}>
-              <SelectTrigger className="h-8 w-auto gap-1.5 border-none bg-muted px-2.5 text-xs font-semibold" aria-label="Project type">
-                <SelectValue placeholder="Project type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>No project type</SelectItem>
-                {typeOptions.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-                {typeOptions.length === 0 && (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Add Project types on the project first.</div>
-                )}
-              </SelectContent>
-            </Select>
             {section.items.length > 1 && (
               <Select value={sortMode} onValueChange={(v) => onSortChange(v as ItemSortMode)}>
                 <SelectTrigger className="h-8 w-auto gap-1.5 border-none bg-muted px-2.5 text-xs font-semibold" aria-label="Sort line items">

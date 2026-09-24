@@ -22,6 +22,7 @@ import { MonthThumbnail } from "@/components/bookings/MonthThumbnail";
 import { UnscheduledRail } from "@/components/bookings/UnscheduledRail";
 import { BookingsLegend } from "@/components/bookings/BookingsLegend";
 import { DaySidePanel } from "@/components/bookings/DaySidePanel";
+import { BackLink } from "@/components/common/BackLink";
 
 function groupById<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -203,13 +204,10 @@ export function BookingsView() {
       <MobilePageHeader title="Bookings" subtitle={String(year)} back={{ to: "/dashboard", label: "Dashboard" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/dashboard"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Dashboard
-        </Link>
+        >Dashboard</BackLink>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4">

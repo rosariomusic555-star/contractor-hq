@@ -128,12 +128,35 @@ export function SectionCard({
           <ChevronDown className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")} />
         </button>
         <div className="min-w-0 flex-1">
-          <input
-            value={name}
-            onChange={(e) => onRename(e.target.value)}
-            placeholder="New section"
-            className="-ml-2.5 w-full rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
-          />
+          {/* Auto-sized title: an invisible copy of the text and the input
+              share one grid cell, so the cell (and the input filling it)
+              hugs the text as it's typed — works in every browser, no
+              measuring JS. min-w keeps an empty/short title easy to click;
+              max-w-full stops it at this column, so it never reaches the
+              count/total or reorder controls — past that it truncates with
+              an ellipsis while not focused. The focus ring wraps only the
+              input. Only the chevron collapses and only the grip drags, so
+              clicking here does neither (pointer events stopped anyway). */}
+          <div
+            className="-ml-2.5 inline-grid min-w-[9rem] max-w-full grid-cols-[minmax(0,1fr)] align-top"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span
+              aria-hidden
+              className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-2.5 py-1 pr-3.5 text-[19px] font-bold tracking-tight"
+            >
+              {name || "Section name"}
+            </span>
+            <input
+              value={name}
+              onChange={(e) => onRename(e.target.value)}
+              placeholder="Section name"
+              aria-label="Section name"
+              size={1}
+              className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
+            />
+          </div>
           {tag && <div className="mt-0.5">{tag}</div>}
         </div>
         <div className="shrink-0 text-right">

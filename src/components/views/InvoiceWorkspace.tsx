@@ -40,6 +40,7 @@ import {
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceDaysLate } from "@/lib/financials";
+import { BackLink } from "@/components/common/BackLink";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 const FIELD_INPUT = "h-11 rounded-xl border-transparent bg-muted px-3.5 focus-visible:border-primary focus-visible:bg-card";
@@ -270,9 +271,7 @@ export function InvoiceWorkspace({
       />
 
       <div className="hidden md:block">
-        <Link to={backHref} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="h-3.5 w-3.5" /> {backLabel}
-        </Link>
+        <BackLink to={backHref} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">{backLabel}</BackLink>
         <div className="mt-2 flex items-center gap-2.5">
           <h1 className="text-[28px] font-bold tracking-tight text-foreground">{number}</h1>
           {daysLate > 0 ? (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -10,6 +10,7 @@ import {
   Briefcase,
   Copy,
   Sparkles,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,14 @@ import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
+import { ProjectTypeChip } from "@/components/common/ProjectTypeChip";
+import { QuoteSectionMaterialsChip } from "@/components/common/QuoteSectionMaterialsChip";
+import {
+  autoMatchedSheetSections,
+  linkedSheetSections as linkedSheetSectionsFor,
+  sectionMargin,
+  sheetSectionsCost,
+} from "@/lib/quoteSectionMaterials";
 import { ReorderControls } from "@/components/common/ReorderControls";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { revokeLocalImageUrls, type DraftLineImage } from "@/lib/draftLineItem";
@@ -71,6 +80,10 @@ import {
   updateQuote,
   addQuoteSection,
   updateQuoteSection,
+  setQuoteSectionMaterialLinks,
+  type MaterialsSection,
+  getProject,
+  projectCategoryIds,
   deleteQuoteSection,
   addQuoteItem,
   updateQuoteItem,
@@ -82,6 +95,7 @@ import {
   logProjectEvent,
   materialsCogs,
   getQuoteDefaults,
+  saveQuoteDefaults,
   QUOTE_DEFAULTS_FALLBACK,
   listProductCatalog,
   listQuickQuoteRates,
@@ -93,6 +107,7 @@ import {
 import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
 import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
+import { BackLink } from "@/components/common/BackLink";
 
 const NONE = "__none__";
 
@@ -127,6 +142,13 @@ interface DraftSection {
   id: string;
   name: string;
   is_optional: boolean;
+  /** Project-type tag (0095) — same chip as materials sheet sections. */
+  job_category_id: string | null;
+  /** How this section's materials are found (0095): 'auto' = matched live
+   * by project type / name; 'manual' = materialIds. */
+  materials_link_mode: "auto" | "manual";
+  /** Manual picks — materials sheet section ids (only used when manual). */
+  materialIds: string[];
   items: DraftItem[];
 }
 interface QuoteDraft {
@@ -144,6 +166,9 @@ const seed = (quote: Quote): QuoteDraft => ({
     id: s.id,
     name: s.name,
     is_optional: s.is_optional,
+    job_category_id: s.job_category_id ?? null,
+    materials_link_mode: s.materials_link_mode ?? "auto",
+    materialIds: (s.quote_section_material_links ?? []).map((l) => l.materials_section_id),
     items: s.quote_items.map((i) => ({
       id: i.id,
       name: i.name,
@@ -210,6 +235,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // onSuccess; also cleared if the approved-quote confirm dialog is
   // dismissed without saving, so a later unrelated save can't misfire it.
   const createProjectAfterSave = useRef(false);
+  // Same idea for the materials-sheet action (Add / View materials sheet):
+  // a path to open once the pending save lands.
+  const openAfterSave = useRef<string | null>(null);
 
   const { data: catalogItems = [] } = useQuery({
     queryKey: ["product-catalog"],
@@ -236,6 +264,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     queryKey: ["quote-defaults"],
     queryFn: getQuoteDefaults,
   });
+  // Terms card's "Save as my default terms" — Settings > Quote defaults.
+  const saveDefaultTermsMut = useMutation({
+    mutationFn: (terms: string | null) => saveQuoteDefaults({ terms }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["quote-defaults"] });
+      toast({ title: "Saved as your default terms", description: "New quotes will start with these terms." });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
 
   const { data: materials = [] } = useQuery({
     queryKey: ["materials", { project: projectId }],
@@ -260,6 +297,32 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     enabled: !!quote.material_sheet_id,
   });
   const [linkSheetPickerOpen, setLinkSheetPickerOpen] = useState(false);
+
+  // The materials sheet sections this quote's sections can link to (0095):
+  // the explicitly linked sheet once linking is required (>1 sheet or
+  // >1 quote on the project), else the project's only sheet. Empty when
+  // there's no sheet — or an ambiguous, unlinked one.
+  const sheetSectionsForLinking = useMemo(() => {
+    if (!projectId || materialsSheets.length === 0) return [];
+    if (needsExplicitDocumentLink(materialsSheets.length, projectQuotes.length)) {
+      return quote.material_sheet_id ? linkedSheetSections : [];
+    }
+    return materials;
+  }, [projectId, materialsSheets.length, projectQuotes.length, quote.material_sheet_id, linkedSheetSections, materials]);
+  const currentSheetSectionIds = useMemo(() => new Set(sheetSectionsForLinking.map((s) => s.id)), [sheetSectionsForLinking]);
+
+  // Section project-type tags — the project's own types (or every category
+  // for a standalone quote).
+  const { data: linkedProject } = useQuery({
+    queryKey: ["projects", projectId],
+    queryFn: () => getProject(projectId!),
+    enabled: !!projectId,
+  });
+  const projectTypeOptions = useMemo(() => {
+    if (!linkedProject) return categories;
+    const ids = new Set(projectCategoryIds(linkedProject));
+    return categories.filter((c) => ids.has(c.id));
+  }, [linkedProject, categories]);
 
   // --- draft state --------------------------------------------------------
   const [draft, setDraft] = useState<QuoteDraft>(() => seed(quote));
@@ -306,7 +369,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   // --- local mutators ----------------------------------------------------
   const addSection = () =>
-    setSections((s) => [...s, { id: tmpId(), name: "", is_optional: false, items: [] }]);
+    setSections((s) => [
+      ...s,
+      { id: tmpId(), name: "", is_optional: false, job_category_id: null, materials_link_mode: "auto", materialIds: [], items: [] },
+    ]);
   // Quick Quote lands as an ordinary new draft section with exactly one
   // line item — indistinguishable from a manually-added section/item from
   // this point on, so everything below (edit, delete, add more rows, Save)
@@ -318,6 +384,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         id: tmpId(),
         name: result.name,
         is_optional: false,
+        job_category_id: null,
+        materials_link_mode: "auto",
+        materialIds: [],
         items: [
           {
             id: tmpId(),
@@ -327,7 +396,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             quantity: result.quantity,
             unit: result.unit,
             is_optional: false,
-            client_selected: false,
+            // Same as the database default: optional work counts toward the
+            // all-in total unless the client deselects it (Client Hub).
+            client_selected: true,
             category_id: null,
             images: [],
           },
@@ -336,6 +407,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     ]);
   const renameSection = (sid: string, name: string) =>
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, name } : x)));
+  const setSectionType = (sid: string, job_category_id: string | null) =>
+    setSections((s) => s.map((x) => (x.id === sid ? { ...x, job_category_id } : x)));
+  const setSectionMaterials = (sid: string, next: { mode: "auto" | "manual"; ids: string[] }) =>
+    setSections((s) =>
+      s.map((x) => (x.id === sid ? { ...x, materials_link_mode: next.mode, materialIds: next.mode === "manual" ? next.ids : [] } : x)),
+    );
   const toggleSectionOptional = (sid: string, v: boolean) =>
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, is_optional: v } : x)));
   const removeSection = (sid: string) =>
@@ -360,7 +437,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   quantity: 1,
                   unit: "ea",
                   is_optional: false,
-                  client_selected: false,
+                  // Same as the database default: optional work counts toward
+                  // the all-in total unless the client deselects it.
+                  client_selected: true,
                   category_id: null,
                   images: [],
                 },
@@ -449,6 +528,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             name,
             is_optional: ds.is_optional,
             sort_order: si,
+            job_category_id: ds.job_category_id,
+            materials_link_mode: ds.materials_link_mode,
           });
           sectionId = created.id;
         } else if (
@@ -461,6 +542,28 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             is_optional: ds.is_optional,
             sort_order: si,
           });
+        }
+        if (
+          server &&
+          ((server.job_category_id ?? null) !== ds.job_category_id ||
+            (server.materials_link_mode ?? "auto") !== ds.materials_link_mode)
+        ) {
+          await updateQuoteSection(server.id, {
+            job_category_id: ds.job_category_id,
+            materials_link_mode: ds.materials_link_mode,
+          });
+        }
+        // Manual materials picks: keep only sections that still exist on the
+        // quote's current materials sheet (stale ones are pruned here), and
+        // clear any stored picks once the section is back on auto.
+        {
+          const wanted =
+            ds.materials_link_mode === "manual"
+              ? ds.materialIds.filter((mid) => currentSheetSectionIds.has(mid))
+              : [];
+          const stored = (server?.quote_section_material_links ?? []).map((l) => l.materials_section_id);
+          const same = wanted.length === stored.length && wanted.every((mid) => stored.includes(mid));
+          if (!same) await setQuoteSectionMaterialLinks(sectionId, wanted);
         }
 
         const serverItems = new Map((server?.quote_items ?? []).map((i) => [i.id, i]));
@@ -564,6 +667,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       if (createProjectAfterSave.current) {
         createProjectAfterSave.current = false;
         navigate("/projects/new", { state: { linkQuoteId: quote.id } });
+      } else if (openAfterSave.current) {
+        const to = openAfterSave.current;
+        openAfterSave.current = null;
+        navigate(to);
       }
     },
     onError,
@@ -666,11 +773,32 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // "that one sheet" whenever there's at most one).
   const needsExplicitMaterialsLink = !!projectId && needsExplicitDocumentLink(materialsSheets.length, projectQuotes.length);
   const linkedSheet = materialsSheets.find((s) => s.id === quote.material_sheet_id);
-  const materialsCost = needsExplicitMaterialsLink
-    ? quote.material_sheet_id
-      ? materialsCogs(linkedSheetSections)
-      : null
-    : materialsCogs(materials);
+  // No sheet at all yet → no cost source: "Not available", never a $0 cost
+  // (which used to read as a 100% margin).
+  const hasMaterialsSheet = materialsSheets.length > 0;
+  const materialsCost = !hasMaterialsSheet
+    ? null
+    : needsExplicitMaterialsLink
+      ? quote.material_sheet_id
+        ? materialsCogs(linkedSheetSections)
+        : null
+      : materialsCogs(materials);
+  // The one materials action shown by Est. cost — a sheet is where real
+  // cost and margin come from, so getting one attached is a primary action
+  // until it exists, then a quiet "View" link.
+  const effectiveSheet = needsExplicitMaterialsLink ? linkedSheet : materialsSheets.length === 1 ? materialsSheets[0] : undefined;
+  const materialsAction: MaterialsAction = !projectId
+    ? { label: "Create project to add a materials sheet", onClick: () => handleCreateProjectClick(), primary: true }
+    : !hasMaterialsSheet
+      ? { label: "Add materials sheet", onClick: () => openMaterialsPage(`/projects/${projectId}/materials`), primary: true }
+      : needsExplicitMaterialsLink && !linkedSheet
+        ? { label: "Link materials sheet", onClick: () => setLinkSheetPickerOpen(true), primary: true }
+        : {
+            label: "View materials sheet",
+            onClick: () =>
+              openMaterialsPage(effectiveSheet ? `/projects/${projectId}/materials/${effectiveSheet.id}` : `/projects/${projectId}/materials`),
+            primary: false,
+          };
   // The headline figure — required + whatever optional items the client has
   // currently selected, no tax (sales tax was a fabricated demo estimate,
   // never a real figure — removed). Matches quoteTotal() (api.ts) — a
@@ -713,6 +841,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   const handleSaveClick = () => {
     createProjectAfterSave.current = false;
+    openAfterSave.current = null;
     if (quote.status === "approved") {
       setConfirmApprovedSaveOpen(true);
     } else {
@@ -725,6 +854,18 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // already has — so if there are unsaved changes, save first (reusing
   // the exact same saveMut the Save button uses, including its
   // approved-quote confirm gate) and only navigate once that succeeds.
+  // Opens a materials-sheet page, saving any unsaved quote edits first.
+  const openMaterialsPage = (to: string) => {
+    if (!isDirty) {
+      navigate(to);
+      return;
+    }
+    createProjectAfterSave.current = false;
+    openAfterSave.current = to;
+    if (quote.status === "approved") setConfirmApprovedSaveOpen(true);
+    else saveMut.mutate();
+  };
+
   const handleCreateProjectClick = () => {
     if (!isDirty) {
       navigate("/projects/new", { state: { linkQuoteId: quote.id } });
@@ -792,12 +933,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
       {/* Desktop header */}
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to={backHref}
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" /> {backLabel}
-        </Link>
+        >{backLabel}</BackLink>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-xs font-semibold text-muted-subtle">
@@ -903,6 +1042,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             onToggleCollapse={() => toggleCollapse(section.id)}
                             isDraggingItem={isDraggingItem}
                             onAutoExpand={() => expandSection(section.id)}
+                            tag={
+                              <QuoteSectionHeaderTags
+                                section={section}
+                                price={sectionSubtotal(section)}
+                                typeOptions={projectTypeOptions}
+                                allCategories={categories}
+                                sheetSections={sheetSectionsForLinking}
+                                onTypeChange={(jobCategoryId) => setSectionType(section.id, jobCategoryId)}
+                                onMaterialsChange={(next) => setSectionMaterials(section.id, next)}
+                              />
+                            }
                             optionalSection={{
                               checked: section.is_optional,
                               onChange: (checked) => toggleSectionOptional(section.id, checked),
@@ -944,20 +1094,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           <div className="stat-card space-y-5">
             <div className="space-y-2">
               <Label htmlFor="quote-notes">Notes</Label>
-              <Textarea
+              {/* At least 4 lines, grows with the text — no inner scrollbar,
+                  no resize handle. */}
+              <AutoGrowTextarea
                 id="quote-notes"
+                rows={4}
                 value={draft.notes}
                 placeholder="Any notes for the client about this job..."
                 onChange={(e) => edit((d) => ({ ...d, notes: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="quote-terms">Terms &amp; conditions</Label>
-              <Textarea
-                id="quote-terms"
-                value={draft.terms}
-                placeholder="Payment terms, warranty info, etc."
-                onChange={(e) => edit((d) => ({ ...d, terms: e.target.value }))}
+                className="py-2 text-sm leading-relaxed"
               />
             </div>
             <div className="space-y-2">
@@ -1016,6 +1161,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             profit={margin}
             marginPct={marginPct}
             needsMaterialsLink={needsExplicitMaterialsLink}
+            materialsAction={materialsAction}
             depositPct={draft.depositPct}
             deposit={depositAmount}
             sendLabel={sendLabel}
@@ -1026,7 +1172,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             onPreview={() => previewMut.mutate()}
           />
 
-          <QuoteTermsCard terms={terms} />
+          <QuoteTermsCard
+            validUntil={terms.validUntil}
+            depositLabel={terms.depositLabel}
+            value={draft.terms}
+            onChange={(v) => edit((d) => ({ ...d, terms: v }))}
+            defaultTerms={quoteDefaults.terms}
+            onSaveAsDefault={() => saveDefaultTermsMut.mutate(draft.terms.trim() || null)}
+            savingDefault={saveDefaultTermsMut.isPending}
+          />
         </div>
       </div>
 
@@ -1043,6 +1197,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           profit={margin}
           marginPct={marginPct}
           needsMaterialsLink={needsExplicitMaterialsLink}
+          materialsAction={materialsAction}
           depositPct={draft.depositPct}
           deposit={depositAmount}
           sendLabel={sendLabel}
@@ -1052,6 +1207,17 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           previewDisabled={isDirty || previewMut.isPending}
           onPreview={() => previewMut.mutate()}
         />
+        <div className="mt-4">
+          <QuoteTermsCard
+            validUntil={terms.validUntil}
+            depositLabel={terms.depositLabel}
+            value={draft.terms}
+            onChange={(v) => edit((d) => ({ ...d, terms: v }))}
+            defaultTerms={quoteDefaults.terms}
+            onSaveAsDefault={() => saveDefaultTermsMut.mutate(draft.terms.trim() || null)}
+            savingDefault={saveDefaultTermsMut.isPending}
+          />
+        </div>
       </div>
 
       <DraftSaveBar
@@ -1068,7 +1234,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           // Dismissed (Escape/outside click/Cancel) without saving — don't
           // let a stale "create project after save" flag misfire the next
           // unrelated save.
-          if (!open) createProjectAfterSave.current = false;
+          if (!open) {
+            createProjectAfterSave.current = false;
+            openAfterSave.current = null;
+          }
         }}
       >
         <AlertDialogContent>
@@ -1186,6 +1355,14 @@ function LinkMaterialsSheetDialog({
 
 // ---------------------------------------------------------------------------
 
+interface MaterialsAction {
+  label: string;
+  onClick: () => void;
+  /** Primary until a materials sheet is attached (it's how real cost and
+   * margin appear); then a quiet secondary link. */
+  primary: boolean;
+}
+
 interface QuoteSummaryCardProps {
   /** "mobile" = full-width bottom card; "desktop" = 340px sidebar card. */
   variant: "mobile" | "desktop";
@@ -1218,6 +1395,7 @@ interface QuoteSummaryCardProps {
    * only for a truly standalone quote); linking now happens via the
    * LinkedDocumentBar on the Client Share Card instead. */
   needsMaterialsLink: boolean;
+  materialsAction: MaterialsAction;
   depositPct: number;
   deposit: number;
   sendLabel: string;
@@ -1245,6 +1423,7 @@ function QuoteSummaryCard({
   profit,
   marginPct,
   needsMaterialsLink,
+  materialsAction,
   depositPct,
   deposit,
   sendLabel,
@@ -1313,18 +1492,7 @@ function QuoteSummaryCard({
             label="Est. cost"
             value={
               cost == null ? (
-                <div className="flex flex-col items-start gap-1">
-                  <span className="text-[13px] font-extrabold text-foreground">Not available</span>
-                  {!needsMaterialsLink && (
-                    <button
-                      type="button"
-                      onClick={onCreateProject}
-                      className="text-[10px] font-bold text-primary hover:underline"
-                    >
-                      Create project
-                    </button>
-                  )}
-                </div>
+                <span className="text-[13px] font-extrabold text-foreground">Not available</span>
               ) : (
                 <span>{formatCurrency(cost)}</span>
               )
@@ -1343,18 +1511,7 @@ function QuoteSummaryCard({
             label="Est. cost"
             value={
               cost == null ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="text-sm font-extrabold text-foreground">Not available</span>
-                  {!needsMaterialsLink && (
-                    <button
-                      type="button"
-                      onClick={onCreateProject}
-                      className="text-xs font-bold text-primary hover:underline"
-                    >
-                      Create project
-                    </button>
-                  )}
-                </span>
+                <span className="text-sm font-extrabold text-foreground">Not available</span>
               ) : (
                 <span>{formatCurrency(cost)}</span>
               )
@@ -1362,6 +1519,32 @@ function QuoteSummaryCard({
           />
           <SummaryRow label="Profit" value={profit == null ? "Not available" : formatCurrency(profit)} highlight />
         </div>
+      )}
+
+      {materialsAction.primary ? (
+        <div className="flex flex-col gap-1.5 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={materialsAction.onClick}
+            className="h-10 w-full border-primary/50 font-bold text-primary hover:bg-primary/10"
+          >
+            <Layers className="mr-1.5 h-4 w-4" />
+            {materialsAction.label}
+          </Button>
+          <p className="text-center text-[11px] text-muted-foreground">
+            A materials sheet is how this quote gets a real cost, profit and margin.
+          </p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={materialsAction.onClick}
+          className="-mt-2 inline-flex items-center gap-1.5 self-start text-xs font-bold text-primary hover:underline"
+        >
+          <Layers className="h-3.5 w-3.5" />
+          {materialsAction.label}
+        </button>
       )}
 
       <div className="flex gap-2.5">
@@ -1506,19 +1689,30 @@ function ClientShareCard({
 
   return (
     <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
-      {/* Dark header — Client / Project pickers, styled as pills */}
+      {/* Dark header — Client and Project as two equal cards: same width
+          and height (grid stretch), same padding, pill on top and a
+          secondary action pinned to the bottom. Stacks on mobile. */}
       <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => setClientPickerOpen(true)}
-          className={cn("flex", pillTriggerClass)}
-        >
-          <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
-            {clientInitial}
-          </span>
-          <span className={pillLabelClass}>Client</span>
-          <span className={pillValueClass}>{clientName ?? "No client"}</span>
-        </button>
+        <div className="flex h-full flex-col gap-2.5 rounded-xl bg-white/[0.04] p-2.5">
+          <button
+            type="button"
+            onClick={() => setClientPickerOpen(true)}
+            className={cn("flex w-full", pillTriggerClass)}
+          >
+            <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
+              {clientInitial}
+            </span>
+            <span className={pillLabelClass}>Client</span>
+            <span className={pillValueClass}>{clientName ?? "No client"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setClientPickerOpen(true)}
+            className="mt-auto inline-flex h-10 items-center justify-center rounded-xl border border-white/25 px-4 text-sm font-bold text-background transition-colors hover:bg-white/10"
+          >
+            {clientName ? "Change client" : "Choose client"}
+          </button>
+        </div>
         <ClientPickerDialog
           open={clientPickerOpen}
           onOpenChange={setClientPickerOpen}
@@ -1526,7 +1720,7 @@ function ClientShareCard({
           allowClear
         />
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex h-full flex-col gap-2.5 rounded-xl bg-white/[0.04] p-2.5">
           <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
             <SelectTrigger className={pillTriggerClass}>
               <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
@@ -1546,8 +1740,12 @@ function ClientShareCard({
               ))}
             </SelectContent>
           </Select>
-          {projectId && (
-            <GoToProjectLink projectId={projectId} isDirty={isDirty} tone="dark" className="self-end px-1" />
+          {projectId ? (
+            <GoToProjectLink projectId={projectId} isDirty={isDirty} tone="dark" variant="button" className="mt-auto" />
+          ) : (
+            <p className="mt-auto flex h-10 items-center justify-center text-xs text-background/50">
+              Standalone quote — pick a project above to link it
+            </p>
           )}
         </div>
       </div>
@@ -1602,23 +1800,126 @@ function ClientShareCard({
   );
 }
 
-function QuoteTermsCard({ terms }: { terms: DemoQuoteTerms }) {
-  const row = (label: string, value: string) => (
+/**
+ * Per-quote terms, editable (auto-growing like Notes). Pre-filled from the
+ * contractor's default terms when the quote was created (createQuote);
+ * editing here changes this quote only. "Save as my default terms" writes
+ * this text to Settings > Quote defaults for future quotes. The two
+ * summary rows are real, derived from this quote (validity + deposit).
+ */
+function QuoteTermsCard({
+  validUntil,
+  depositLabel,
+  value,
+  onChange,
+  defaultTerms,
+  onSaveAsDefault,
+  savingDefault,
+}: {
+  validUntil: string;
+  depositLabel: string;
+  value: string;
+  onChange: (value: string) => void;
+  defaultTerms: string | null;
+  onSaveAsDefault: () => void;
+  savingDefault: boolean;
+}) {
+  const row = (label: string, v: string) => (
     <div className="flex justify-between text-[13px]">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold text-foreground">{value}</span>
+      <span className="font-semibold text-foreground">{v}</span>
     </div>
   );
+  const matchesDefault = (defaultTerms ?? "").trim() === value.trim();
   return (
     <div className="card-surface p-4">
       <div className="text-base font-bold text-foreground">Terms</div>
       <div className="mt-2.5 space-y-2.5">
-        {row("Valid until", terms.validUntil)}
-        {row("Deposit", terms.depositLabel)}
-        {row("Balance", terms.balance)}
-        {row("Warranty", terms.warranty)}
-        {row("Crew window", terms.crewWindow)}
+        {row("Valid until", validUntil)}
+        {row("Deposit", depositLabel)}
       </div>
+      <AutoGrowTextarea
+        aria-label="Terms"
+        rows={4}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Payment terms, warranty, exclusions…"
+        className="mt-3 py-2 text-[13px] leading-relaxed"
+      />
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        {!value.trim() && defaultTerms ? (
+          <button type="button" onClick={() => onChange(defaultTerms)} className="text-xs font-semibold text-primary hover:underline">
+            Use my default terms
+          </button>
+        ) : (
+          <span className="text-[11px] text-muted-subtle">Changes here apply to this quote only.</span>
+        )}
+        <button
+          type="button"
+          onClick={onSaveAsDefault}
+          disabled={savingDefault || !value.trim() || matchesDefault}
+          className="text-xs font-semibold text-primary hover:underline disabled:cursor-default disabled:text-muted-subtle disabled:no-underline"
+        >
+          {savingDefault ? "Saving…" : matchesDefault && value.trim() ? "Your default terms" : "Save as my default terms"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The row under a quote section's name in its dark header (0095): the
+ * project-type chip (same component as the Materials Sheet), which
+ * materials sheet sections this section's cost comes from, and — once
+ * there are some — that material cost plus the section's margin against
+ * its own price. Nothing materials-related shows until the quote has a
+ * materials sheet to link to (see sheetSectionsForLinking).
+ */
+function QuoteSectionHeaderTags({
+  section,
+  price,
+  typeOptions,
+  allCategories,
+  sheetSections,
+  onTypeChange,
+  onMaterialsChange,
+}: {
+  section: DraftSection;
+  price: number;
+  typeOptions: Category[];
+  allCategories: Category[];
+  sheetSections: MaterialsSection[];
+  onTypeChange: (jobCategoryId: string | null) => void;
+  onMaterialsChange: (next: { mode: "auto" | "manual"; ids: string[] }) => void;
+}) {
+  const linked = linkedSheetSectionsFor(section, section.materialIds, sheetSections);
+  const cost = sheetSectionsCost(linked);
+  const { marginPct } = sectionMargin(price, cost);
+  const autoIds = autoMatchedSheetSections(section, sheetSections).map((s) => s.id);
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <ProjectTypeChip value={section.job_category_id} options={typeOptions} allCategories={allCategories} onChange={onTypeChange} />
+      {sheetSections.length > 0 && (
+        <QuoteSectionMaterialsChip
+          mode={section.materials_link_mode}
+          manualIds={section.materialIds}
+          autoMatchedIds={autoIds}
+          sheetSections={sheetSections}
+          onChange={onMaterialsChange}
+        />
+      )}
+      {linked.length > 0 && (
+        <span className="text-[11px] font-semibold tabular-nums text-background/75">
+          Materials {formatCurrency(cost)}
+          {marginPct != null && (
+            <>
+              {" · "}
+              <span className={marginPct < 0 ? "text-destructive-foreground" : "text-background"}>Margin {marginPct.toFixed(0)}%</span>
+            </>
+          )}
+        </span>
+      )}
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
   type ClientStatus,
   type PreferredContactMethod,
 } from "@/lib/api";
+import { BackLink } from "@/components/common/BackLink";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 const FIELD_INPUT = "h-11 rounded-xl border-transparent bg-muted px-3.5 focus-visible:border-primary focus-visible:bg-card";
@@ -126,13 +127,10 @@ export function ClientFormView() {
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
-      <Link
+      <BackLink
         to="/clients"
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        Clients
-      </Link>
+      >Clients</BackLink>
 
       <h1 className="text-[28px] font-bold tracking-tight text-foreground">
         {isEdit ? "Edit client" : "New client"}

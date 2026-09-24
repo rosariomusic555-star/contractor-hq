@@ -38,6 +38,7 @@ import {
   type LaborPlanEntry,
 } from "@/lib/api";
 import { laborRollupsByScope, laborTotals, productivityMetrics, GENERAL_SCOPE_KEY, type ScopeLaborRollup } from "@/lib/laborPlan";
+import { BackLink } from "@/components/common/BackLink";
 
 const CUSTOM_WORKER = "__custom__";
 
@@ -259,10 +260,7 @@ export function ProjectLaborView() {
 
   return (
     <div className="animate-fade-in max-w-4xl space-y-6 pb-40 md:pb-24">
-      <Link to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
-        <ChevronLeft className="h-3.5 w-3.5" />
-        Back to project
-      </Link>
+      <BackLink to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Back to project</BackLink>
 
       <div>
         <h1 className="text-[28px] font-bold tracking-tight text-foreground">Labor Plan &amp; Tracking</h1>

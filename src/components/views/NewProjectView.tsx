@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { useToast } from "@/hooks/use-toast";
 import { listClients, createProject, updateQuote, logProjectEvent } from "@/lib/api";
+import { BackLink } from "@/components/common/BackLink";
 
 /** Dedicated "New project" screen (/projects/new) — the walk-in / repeat-
  * client path: a project with no opportunity behind it at all. Project
@@ -68,13 +69,10 @@ export function NewProjectView() {
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
-      <Link
+      <BackLink
         to={linkQuoteId ? `/quotes/${linkQuoteId}` : "/projects"}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        {linkQuoteId ? "Back to quote" : "Projects"}
-      </Link>
+      >{linkQuoteId ? "Back to quote" : "Projects"}</BackLink>
 
       <h1 className="text-[28px] font-bold tracking-tight text-foreground">New project</h1>
 

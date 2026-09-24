@@ -219,13 +219,53 @@ export interface QuoteItem {
   quote_item_images: QuoteItemImage[];
 }
 
+export type QuoteSectionMaterialsLinkMode = "auto" | "manual";
+
 export interface QuoteSection {
   id: string;
   quote_id: string;
   name: string;
   is_optional: boolean;
   sort_order: number;
+  /** Project-type tag (0095) — same list/chip as materials sheet sections.
+   * Drives auto-matching to the materials sheet. Undefined before 0095. */
+  job_category_id?: string | null;
+  /** 'auto' = matched live to the quote's materials sheet sections (see
+   * src/lib/quoteSectionMaterials.ts); 'manual' = quote_section_material_links. */
+  materials_link_mode?: QuoteSectionMaterialsLinkMode;
+  /** Manual picks (0095) — only on getQuote()'s read. */
+  quote_section_material_links?: { materials_section_id: string }[];
   quote_items: QuoteItem[];
+}
+
+/** Manual quote section → materials sheet section picks (0095). */
+export async function listQuoteSectionMaterialLinks(
+  quoteSectionIds: string[],
+): Promise<{ quote_section_id: string; materials_section_id: string }[]> {
+  if (quoteSectionIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("quote_section_material_links")
+    .select("quote_section_id, materials_section_id")
+    .in("quote_section_id", quoteSectionIds);
+  if (error) {
+    if (error.code === "PGRST205") return []; // 0095 not run yet
+    throw error;
+  }
+  return data ?? [];
+}
+
+/** Replaces one quote section's manual picks. */
+export async function setQuoteSectionMaterialLinks(quoteSectionId: string, materialsSectionIds: string[]): Promise<void> {
+  const { error: delError } = await supabase
+    .from("quote_section_material_links")
+    .delete()
+    .eq("quote_section_id", quoteSectionId);
+  if (delError) throw delError;
+  if (materialsSectionIds.length === 0) return;
+  const { error } = await supabase
+    .from("quote_section_material_links")
+    .insert(materialsSectionIds.map((materials_section_id) => ({ quote_section_id: quoteSectionId, materials_section_id })));
+  if (error) throw error;
 }
 
 export interface Quote {
@@ -2164,7 +2204,15 @@ export async function listQuotes(projectId?: string): Promise<Quote[]> {
   return (fallback ?? []).map(sortQuote);
 }
 
+// The builder's read — also embeds each section's manual materials links
+// (0095). Falls back to the plain select if that relationship is missing.
+const QUOTE_SELECT_WITH_MATERIAL_LINKS =
+  "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*, quote_item_images(*)), quote_section_material_links(materials_section_id))";
+
 export async function getQuote(id: string): Promise<Quote> {
+  const withLinks = await supabase.from("quotes").select(QUOTE_SELECT_WITH_MATERIAL_LINKS).eq("id", id).single();
+  if (!withLinks.error) return sortQuote(withLinks.data as unknown as Quote);
+  if (!isMissingRelationshipError(withLinks.error)) throw withLinks.error;
   const { data, error } = await supabase.from("quotes").select(QUOTE_SELECT).eq("id", id).single();
   if (!error) return sortQuote(data);
   if (!isMissingRelationshipError(error)) throw error;
@@ -2213,7 +2261,7 @@ export interface QuoteDefaults {
 }
 
 export const QUOTE_DEFAULTS_FALLBACK: QuoteDefaults = {
-  deposit_pct: 30,
+  deposit_pct: 50,
   quote_validity_days: 14,
   sales_tax_pct: 6.25,
   terms:
@@ -2346,7 +2394,13 @@ export async function linkQuoteToMaterialSheet(quoteId: string, sheetId: string 
 
 export async function addQuoteSection(
   quoteId: string,
-  input: { name: string; is_optional?: boolean; sort_order?: number },
+  input: {
+    name: string;
+    is_optional?: boolean;
+    sort_order?: number;
+    job_category_id?: string | null;
+    materials_link_mode?: QuoteSectionMaterialsLinkMode;
+  },
 ): Promise<QuoteSection> {
   const { data, error } = await supabase
     .from("quote_sections")
@@ -2355,6 +2409,9 @@ export async function addQuoteSection(
       name: input.name,
       is_optional: input.is_optional ?? false,
       sort_order: input.sort_order ?? 0,
+      // Only sent when set, so adding a section still works before 0095.
+      ...(input.job_category_id ? { job_category_id: input.job_category_id } : {}),
+      ...(input.materials_link_mode === "manual" ? { materials_link_mode: "manual" } : {}),
     })
     // No quote_item_images embed here (unlike the QUOTE_SELECT read path) —
     // a brand-new section's quote_items is always [] anyway, so there's
@@ -2369,7 +2426,7 @@ export async function addQuoteSection(
 
 export async function updateQuoteSection(
   id: string,
-  patch: Partial<Pick<QuoteSection, "name" | "is_optional" | "sort_order">>,
+  patch: Partial<Pick<QuoteSection, "name" | "is_optional" | "sort_order" | "job_category_id" | "materials_link_mode">>,
 ): Promise<void> {
   const { error } = await supabase.from("quote_sections").update(patch).eq("id", id);
   if (error) throw error;

@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { getQuoteDefaults, saveQuoteDefaults, QUOTE_DEFAULTS_FALLBACK, type QuoteDefaults } from "@/lib/api";
+import { BackLink } from "@/components/common/BackLink";
 
 /**
  * The only real, persisted section of Settings — backed by the
@@ -55,13 +56,10 @@ export function SettingsQuoteDefaultsView() {
       <MobilePageHeader title="Quote defaults" back={{ to: "/settings", label: "Settings" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/settings"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Settings
-        </Link>
+        >Settings</BackLink>
         <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">Quote defaults</h1>
       </div>
 

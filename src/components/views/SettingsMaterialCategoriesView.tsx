@@ -24,6 +24,7 @@ import {
   deleteMaterialCategory,
   type MaterialCategory,
 } from "@/lib/api";
+import { BackLink } from "@/components/common/BackLink";
 
 /**
  * Settings > Material categories (0094) — each contractor's own list for
@@ -98,13 +99,10 @@ export function SettingsMaterialCategoriesView() {
       <MobilePageHeader title="Material categories" back={{ to: "/settings", label: "Settings" }} />
 
       <div className="hidden md:block">
-        <Link
+        <BackLink
           to="/settings"
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          Settings
-        </Link>
+        >Settings</BackLink>
         <h1 className="mt-2 text-[28px] font-bold tracking-tight text-foreground">Material categories</h1>
       </div>
 

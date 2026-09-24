@@ -61,6 +61,7 @@ import { inviteClientToHub } from "@/lib/portalApi";
 import { clientStatusMeta, projectStatusMeta, quoteStatusMeta, invoiceStatusMeta, opportunityStageMeta } from "@/lib/statusMeta";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
+import { BackLink } from "@/components/common/BackLink";
 
 const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
   note: "Note",
@@ -142,9 +143,7 @@ export function ClientDetailView() {
       />
 
       <div className="hidden md:block">
-        <Link to="/clients" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="h-3.5 w-3.5" /> Clients
-        </Link>
+        <BackLink to="/clients" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Clients</BackLink>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
