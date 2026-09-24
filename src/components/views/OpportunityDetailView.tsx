@@ -142,12 +142,13 @@ export function OpportunityDetailView() {
 
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
 
-  // New Lead banner shows the client's phone/email — the opportunity query
-  // only joins the client's name. Same cache key as the client page.
+  // New Lead banner shows the client's phone, and an empty Property address
+  // offers the client's address — the opportunity query only joins the
+  // client's name. Same cache key as the client page.
   const { data: client } = useQuery({
     queryKey: ["client", opportunity?.client_id],
     queryFn: () => getClient(opportunity!.client_id),
-    enabled: !!opportunity?.client_id && opportunity.stage === "new_lead",
+    enabled: !!opportunity?.client_id && (opportunity.stage === "new_lead" || !opportunity.address),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["opportunity", id] });
@@ -426,6 +427,18 @@ export function OpportunityDetailView() {
                   onChange={(e) => setField("address", e.target.value)}
                   onBlur={() => commitField("address", opportunity.address)}
                 />
+                {/* Older opportunities were saved without one — offer the
+                    client's address, never fill it in silently. */}
+                {!opportunity.address && !field("address", opportunity.address) && client?.address && (
+                  <button
+                    type="button"
+                    onClick={() => updateMut.mutate({ address: client.address })}
+                    disabled={updateMut.isPending}
+                    className="text-left text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+                  >
+                    Use client's address: {client.address}
+                  </button>
+                )}
               </div>
               <div className="space-y-1">
                 <div className={FIELD_LABEL}>Project types</div>
@@ -454,6 +467,7 @@ export function OpportunityDetailView() {
                 (ProjectSizeCard below). */}
             <div className="space-y-1">
               <div className={FIELD_LABEL}>Measurement notes</div>
+              <p className="text-xs text-muted-foreground">{MEASUREMENTS_HINT}</p>
               <Textarea
                 value={field("measurements", opportunity.measurements)}
                 onChange={(e) => setField("measurements", e.target.value)}
@@ -480,6 +494,7 @@ export function OpportunityDetailView() {
             categoryIds={categoryIds}
             ensureProjectId={() => getOrCreateOpportunityProject(id)}
             onSaved={invalidateProjectLink}
+            hint={MEASUREMENTS_HINT}
           />
 
           <OpportunityPhotosSection projectId={opportunity.project_id} opportunityId={id} onProjectCreated={invalidateProjectLink} />
@@ -1066,6 +1081,10 @@ function FirstPhotoUploader({
 
 // Newest first — the card shows this many until "See more" is clicked.
 const ACTIVITY_PREVIEW_COUNT = 3;
+
+// Guidance on the opportunity's measurement fields — measurements come from
+// the site visit, so they're usually blank before it.
+const MEASUREMENTS_HINT = "Fill this out once the site visit is completed.";
 
 function OpportunityActivityCard({
   opportunityId,

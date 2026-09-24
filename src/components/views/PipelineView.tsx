@@ -1,18 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { AlertTriangle, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ClientPickerDialog } from "@/components/common/ClientPicker";
+import { CreateOpportunityDialog } from "@/components/common/CreateOpportunityDialog";
 import { FilterSegment, type FilterOption } from "@/components/common/FilterControls";
-import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { CategoryChips } from "@/components/common/CategoryChips";
-import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -21,16 +16,13 @@ import { OPPORTUNITY_STAGES, CLOSING_OPPORTUNITY_STAGES, opportunityStageMeta } 
 import {
   listOpportunities,
   listAppointments,
-  createOpportunity,
   moveOpportunityStage,
   markOpportunityWon,
-  listClients,
   listQuotes,
   listCategories,
   quoteTotal,
   pickHeadlineQuote,
   opportunityCategoryIds,
-  setOpportunityCategories,
   type Appointment,
   type Opportunity,
   type OpportunityStage,
@@ -372,86 +364,6 @@ function OpportunityCard({
       )}
       <div className="mt-1 text-[10px] text-muted-subtle">Updated {timeAgo(opportunity.updated_at)}</div>
     </Link>
-  );
-}
-
-function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
-
-  const [clientId, setClientId] = useState<string | null>(null);
-  const [clientPickerOpen, setClientPickerOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [categoryIds, setCategoryIds] = useState<string[]>([]);
-  const [leadSource, setLeadSource] = useState<string | null>(null);
-
-  const selectedClient = clients.find((c) => c.id === clientId) ?? null;
-
-  useEffect(() => {
-    if (!open) {
-      setClientId(null);
-      setTitle("");
-      setCategoryIds([]);
-      setLeadSource(null);
-    }
-  }, [open]);
-
-  const createMut = useMutation({
-    mutationFn: async () => {
-      const opp = await createOpportunity({
-        client_id: clientId!,
-        title: title.trim(),
-        lead_source: leadSource,
-      });
-      if (categoryIds.length > 0) await setOpportunityCategories(opp.id, categoryIds);
-      return opp;
-    },
-    onSuccess: (opp) => {
-      qc.invalidateQueries({ queryKey: ["opportunities"] });
-      onOpenChange(false);
-      navigate(`/pipeline/${opp.id}`);
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-
-  return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-sm gap-4">
-          <DialogHeader>
-            <DialogTitle>New opportunity</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Client</Label>
-              <button
-                type="button"
-                onClick={() => setClientPickerOpen(true)}
-                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm hover:bg-muted/50"
-              >
-                <span className={selectedClient ? "text-foreground" : "text-muted-foreground"}>
-                  {selectedClient ? selectedClient.name : "Pick a client"}
-                </span>
-                <span className="text-xs font-semibold text-primary">Change</span>
-              </button>
-            </div>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (e.g. Backyard patio)" />
-            <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} placeholder="Project types (optional)" />
-            <LeadSourceSelect value={leadSource} onChange={setLeadSource} placeholder="Lead source (optional)" />
-          </div>
-          <Button
-            className="w-full font-bold"
-            disabled={!clientId || !title.trim() || createMut.isPending}
-            onClick={() => createMut.mutate()}
-          >
-            {createMut.isPending ? "Creating…" : "Create opportunity"}
-          </Button>
-        </DialogContent>
-      </Dialog>
-      <ClientPickerDialog open={clientPickerOpen} onOpenChange={setClientPickerOpen} onSelect={setClientId} />
-    </>
   );
 }
 

@@ -42,12 +42,16 @@ export function ProjectMeasurementsCard({
   categoryIds,
   ensureProjectId,
   onSaved,
+  hint,
 }: {
   projectId: string | null;
   /** The selected Project types (Job Category ids). */
   categoryIds: string[];
   ensureProjectId?: () => Promise<string>;
   onSaved?: () => void;
+  /** Small muted guidance under the title (the opportunity page uses it to
+   * say when to fill this in). */
+  hint?: string;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -151,6 +155,7 @@ export function ProjectMeasurementsCard({
   return (
     <section className="card-surface p-5">
       <h3 className="text-base font-bold text-foreground">Measurements</h3>
+      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
       <p className="mt-1 text-[11px] text-muted-subtle">
         Total sq ft drives the Labor page's productivity metrics (hours/100sf, cost/sf).
       </p>
