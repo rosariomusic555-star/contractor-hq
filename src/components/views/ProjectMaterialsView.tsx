@@ -107,6 +107,16 @@ import { MaterialsLinePicker } from "@/components/common/MaterialsLinePicker";
 import { findSmartSectionTemplate, type CalculatedLine } from "@/lib/smartSections";
 import { nextOrderableQuantity } from "@/lib/catalogOrdering";
 import {
+  MATERIAL_UNITS,
+  formatQty,
+  materialLineLabel,
+  materialsLineTotal,
+  normalizeMaterialUnit,
+  quantityWithWaste,
+  wastePercentToReach,
+} from "@/lib/materialsMath";
+import { OptionOrCustomField } from "@/components/materials/OptionOrCustomField";
+import {
   orderedQuantity,
   deliveredQuantity,
   usedQuantity,
@@ -137,7 +147,7 @@ interface DraftItem {
   /** Order Sheet material category (0089/0090) — see ORDER_SHEET_CATEGORIES.
    * Prefilled from the Catalog/Price Book source at pick time, never locked. */
   category: string | null;
-  /** Free-text unit of measure (sf, cy, bag, lf, ea…). Not part of the math. */
+  /** One of MATERIAL_UNITS or a custom unit (see UnitSelect). Not part of the math. */
   unit: string;
   /** Set when this line was picked from the Price Book — locks
    * expense_category_id in the UI. Null = a normal custom line (or a pick
@@ -147,9 +157,12 @@ interface DraftItem {
    * line is ever linked to at most one of price_book_item_id /
    * catalog_product_id, never both. */
   catalog_product_id: string | null;
-  /** Reference-only, every line regardless of source — not part of the
-   * quantity*unit_cost math. */
+  /** Waste allowance — required quantity = quantity × (1 + waste%), which
+   * drives the line total and the suggested order quantity (materialsMath.ts). */
   waste_percent: number;
+  /** Color (0093) — picked from the Catalog product's list or typed in.
+   * Empty string = none. */
+  color: string;
   /** Track / Don't Track (0086) — whether this line shows up in the live
    * Material Tracker once the sheet itself is tracked. Never affects the
    * quantity*unit_cost math (estimated/actual cost, Cost Plan) — see
@@ -189,6 +202,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       price_book_item_id: i.price_book_item_id ?? null,
       catalog_product_id: i.catalog_product_id ?? null,
       waste_percent: Number(i.waste_percent ?? 0),
+      color: i.color ?? "",
       tracked: i.tracked ?? true,
       rememberPrice: false,
     })),
@@ -206,6 +220,7 @@ const itemChanged = (
     price_book_item_id: string | null;
     catalog_product_id: string | null;
     waste_percent: number;
+    color: string;
     tracked: boolean;
   },
 ) =>
@@ -218,6 +233,7 @@ const itemChanged = (
   a.price_book_item_id !== b.price_book_item_id ||
   a.catalog_product_id !== b.catalog_product_id ||
   a.waste_percent !== b.waste_percent ||
+  a.color !== b.color ||
   a.tracked !== b.tracked;
 
 /**
@@ -564,6 +580,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           price_book_item_id: null,
           catalog_product_id: null,
           waste_percent: 0,
+          color: "",
           tracked: true,
           rememberPrice: false,
         })),
@@ -584,7 +601,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           items: s.items.map((item) => {
             const line = lines.find((l) => l.name === item.name);
             if (!line) return item;
-            const patch: Partial<DraftItem> = { quantity: line.quantity, unit: line.unit };
+            const patch: Partial<DraftItem> = { quantity: line.quantity, unit: normalizeMaterialUnit(line.unit) };
             if (line.catalogProduct !== undefined) {
               const product = line.catalogProduct;
               patch.catalog_product_id = product?.id ?? null;
@@ -624,6 +641,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                   price_book_item_id: null,
                   catalog_product_id: null,
                   waste_percent: 0,
+                  color: "",
                   tracked: true,
                   rememberPrice: false,
                 },
@@ -705,6 +723,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
               waste_percent: di.waste_percent,
+              color: di.color.trim() || null,
               tracked: di.tracked,
             });
           } else if (
@@ -718,6 +737,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: srv.price_book_item_id ?? null,
               catalog_product_id: srv.catalog_product_id ?? null,
               waste_percent: Number(srv.waste_percent ?? 0),
+              color: srv.color ?? "",
               tracked: srv.tracked ?? true,
             }) ||
             srv.sort_order !== ii
@@ -732,6 +752,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
               waste_percent: di.waste_percent,
+              color: di.color.trim() || null,
               tracked: di.tracked,
               sort_order: ii,
             });
@@ -810,7 +831,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const grandTotal = useMemo(
     () =>
       draft.reduce(
-        (sum, s) => sum + s.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0),
+        (sum, s) => sum + s.items.reduce((a, i) => a + materialsLineTotal(i), 0),
         0,
       ),
     [draft],
@@ -875,7 +896,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               disabled={addSheetMut.isPending}
               className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
             >
-              + Add materials sheet
+              + Add another materials sheet
             </button>
             {sheets.length > 1 && (
               <AlertDialog>
@@ -1104,7 +1125,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
         >
           <Plus className="h-4 w-4" />
-          Add section
+          Add blank section
         </button>
         <button
           type="button"
@@ -1356,7 +1377,7 @@ function MaterialsSectionCard({
   isDraggingItem,
   onAutoExpand,
 }: SectionCardProps) {
-  const subtotal = section.items.reduce((a, i) => a + i.quantity * i.unit_cost, 0);
+  const subtotal = section.items.reduce((a, i) => a + materialsLineTotal(i), 0);
   const buildType = findSmartSectionTemplate(section.smart_section_build_type);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
 
@@ -1365,7 +1386,7 @@ function MaterialsSectionCard({
       name={section.name}
       onRename={onRename}
       subtotal={subtotal}
-      itemNames={section.items.map((i) => i.name)}
+      itemNames={section.items.map((i) => materialLineLabel(i))}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
       isDraggingItem={isDraggingItem}
@@ -1451,13 +1472,15 @@ function MaterialsSectionCard({
           </div>
         )}
       </Droppable>
+      {/* The section's primary action — tinted and solid-bordered so it
+          stands apart from Calculate quantities / Delete section. */}
       <button
         type="button"
         onClick={onAddItem}
-        className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
+        className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-primary/40 bg-primary/5 text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/10"
       >
         <Plus className="h-4 w-4" />
-        Add item to this section
+        Add line item
       </button>
 
       {buildType && (
@@ -1515,13 +1538,13 @@ function ItemRow({
   const [costStr, setCostStr] = useState(String(item.unit_cost));
   const [wasteStr, setWasteStr] = useState(String(item.waste_percent));
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [nudgeDismissed, setNudgeDismissed] = useState(false);
   useEffect(() => setQtyStr(String(item.quantity)), [item.quantity]);
   useEffect(() => setCostStr(String(item.unit_cost)), [item.unit_cost]);
   useEffect(() => setWasteStr(String(item.waste_percent)), [item.waste_percent]);
-  useEffect(() => setNudgeDismissed(false), [item.quantity, item.catalog_product_id]);
 
-  const total = item.quantity * item.unit_cost;
+  // Required quantity with waste drives the total and the order suggestion.
+  const adjustedQty = quantityWithWaste(item.quantity, item.waste_percent);
+  const total = materialsLineTotal(item);
   const linked = item.price_book_item_id != null;
   const catalogProduct = catalogItems.find((c) => c.id === item.catalog_product_id);
   const catalogLinked = catalogProduct != null;
@@ -1531,7 +1554,7 @@ function ItemRow({
   const applyPick = (pbi: PriceBookItem) => {
     onEdit({
       name: pbi.name,
-      unit: pbi.unit ?? "",
+      unit: normalizeMaterialUnit(pbi.unit),
       unit_cost: Number(pbi.unit_price),
       expense_category_id: pbi.expense_category_id,
       category: pbi.category ?? item.category,
@@ -1546,7 +1569,10 @@ function ItemRow({
     const override = priceOverrides.find((o) => o.catalog_product_id === product.id);
     onEdit({
       name: product.name,
-      unit: product.unit ?? "",
+      unit: normalizeMaterialUnit(product.unit),
+      // A different product's colors don't apply — keep the color only when
+      // re-picking the same product.
+      color: product.id === item.catalog_product_id ? item.color : "",
       unit_cost: override?.price ?? 0,
       category: product.category,
       price_book_item_id: null,
@@ -1556,9 +1582,12 @@ function ItemRow({
     setPickerOpen(false);
   };
 
-  const orderableQty = catalogLinked
-    ? nextOrderableQuantity(item.quantity, catalogProduct?.specs)
-    : null;
+  // Next whole package above the waste-adjusted quantity (Catalog lines
+  // with package specs only). "Use N" records the overage as extra waste,
+  // so the measured quantity itself never changes.
+  const orderableQty = catalogLinked ? nextOrderableQuantity(adjustedQty, catalogProduct?.specs) : null;
+  const unitLabel = item.unit || "units";
+  const colorOptions = catalogProduct?.colors ?? [];
 
   return (
     <div
@@ -1575,30 +1604,48 @@ function ItemRow({
       <div>
         <div className={ITEM_FIELD_LABEL}>Item</div>
         <div className="mt-1 flex items-center gap-3">
-          <AutoGrowTextarea
-            value={item.name}
-            onChange={(e) => onEdit({ name: e.target.value })}
-            placeholder="Item name"
-            className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
-          />
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+            <AutoGrowTextarea
+              value={item.name}
+              onChange={(e) => onEdit({ name: e.target.value })}
+              placeholder="Item name"
+              className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
+            />
+            {/* Color — once a Catalog product is picked. Its color list, or
+                a typed custom color when there's none / it isn't listed. */}
+            {catalogLinked && (
+              <OptionOrCustomField
+                value={item.color}
+                onChange={(color) => onEdit({ color })}
+                options={colorOptions}
+                placeholder={colorOptions.length ? "Color" : "Color (optional)"}
+                customPlaceholder="Type a color"
+                otherLabel="Other color…"
+                ariaLabel="Color"
+                className="sm:w-44"
+              />
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
             className={cn(
-              "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg transition-colors",
+              "flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors",
               linked || catalogLinked
                 ? "bg-primary/15 text-primary hover:bg-primary/25"
                 : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
             )}
             aria-label="Pick from Price Book or Catalog"
           >
-            <BookOpen className="h-4 w-4" />
+            <BookOpen className="h-4 w-4 shrink-0" />
+            {/* Label from sm up; the row is too tight on phones. */}
+            <span className="hidden sm:inline">Price Book</span>
           </button>
           <button
             type="button"
             onClick={() => onEdit({ tracked: !item.tracked })}
             className={cn(
-              "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg transition-colors",
+              "flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors",
               item.tracked
                 ? "bg-primary/15 text-primary hover:bg-primary/25"
                 : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
@@ -1611,7 +1658,8 @@ function ItemRow({
             }
             title={item.tracked ? "Tracked in Material Tracker" : "Not tracked"}
           >
-            {item.tracked ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            {item.tracked ? <Eye className="h-4 w-4 shrink-0" /> : <EyeOff className="h-4 w-4 shrink-0" />}
+            <span className="hidden sm:inline">{item.tracked ? "Tracked" : "Not tracked"}</span>
           </button>
           <ReorderControls
             dragHandleProps={dragHandleProps}
@@ -1646,7 +1694,7 @@ function ItemRow({
               onClick={() => onEdit({ price_book_item_id: null })}
               className="text-[11px] font-bold text-primary hover:underline"
             >
-              Unlink
+              Unlink from Price Book
             </button>
           )}
         </div>
@@ -1716,43 +1764,17 @@ function ItemRow({
             className="mt-1 h-[42px] tabular-nums"
             aria-label="Quantity"
           />
-          {orderableQty != null && !nudgeDismissed && (
-            <div className="mt-1.5 flex items-start justify-between gap-1.5 rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning">
-              <span>
-                {item.quantity} {item.unit || "units"} required · next orderable quantity:{" "}
-                {orderableQty} {item.unit || "units"}
-              </span>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQtyStr(String(orderableQty));
-                    onEdit({ quantity: orderableQty });
-                  }}
-                  className="font-bold text-primary hover:underline"
-                >
-                  Accept
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNudgeDismissed(true)}
-                  aria-label="Dismiss"
-                  className="text-muted-subtle hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            </div>
-          )}
         </label>
         <label className="block">
           <div className={ITEM_FIELD_LABEL}>Unit</div>
-          <Input
+          <OptionOrCustomField
             value={item.unit}
-            onChange={(e) => onEdit({ unit: e.target.value })}
-            placeholder="sf, cy, bag…"
-            className="mt-1 h-[42px]"
-            aria-label="Unit"
+            onChange={(unit) => onEdit({ unit })}
+            options={MATERIAL_UNITS}
+            placeholder="Choose unit"
+            customPlaceholder="Custom unit"
+            ariaLabel="Unit"
+            className="mt-1"
           />
         </label>
         <label className="block">
@@ -1802,7 +1824,34 @@ function ItemRow({
         </div>
       </div>
 
-      {track && <MaterialTrackingRow itemId={item.id} itemName={item.name} unit={item.unit} track={track} tracking={tracking} />}
+      {/* Waste math + order suggestion — one always-present line (fixed
+          min height) so neither ever shifts the layout. A plain muted hint,
+          never an error; ignoring it changes nothing. */}
+      <div className="-mt-1.5 flex min-h-[18px] flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+        {item.quantity > 0 && item.waste_percent > 0 && (
+          <span className="tabular-nums">
+            {formatQty(item.quantity)} {unitLabel} + {formatQty(item.waste_percent)}% waste ={" "}
+            <span className="font-semibold text-foreground">
+              {formatQty(adjustedQty)} {unitLabel}
+            </span>
+          </span>
+        )}
+        {orderableQty != null && (
+          <span className="tabular-nums">
+            Next full package: {formatQty(orderableQty)} {unitLabel} ·{" "}
+            <button
+              type="button"
+              onClick={() => onEdit({ waste_percent: wastePercentToReach(item.quantity, orderableQty) })}
+              className="font-semibold text-primary hover:underline"
+              title="Keeps the quantity and adds the extra to the waste %"
+            >
+              Use {formatQty(orderableQty)}
+            </button>
+          </span>
+        )}
+      </div>
+
+      {track && <MaterialTrackingRow itemId={item.id} itemName={materialLineLabel(item)} unit={item.unit} track={track} tracking={tracking} />}
 
       <MaterialPickerDialog
         open={pickerOpen}

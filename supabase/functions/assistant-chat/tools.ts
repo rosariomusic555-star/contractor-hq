@@ -298,7 +298,7 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
 
   const { data: materialsSections, error: mErr } = await sb
     .from("materials_sections")
-    .select("materials_items(quantity,unit_cost)")
+    .select("materials_items(quantity,unit_cost,waste_percent)")
     .eq("project_id", input.project_id);
   if (mErr) throw mErr;
   // deno-lint-ignore no-explicit-any

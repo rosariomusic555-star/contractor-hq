@@ -41,8 +41,12 @@ export function nextOrderableQuantity(
   const coverage = packageCoverage(specs);
   if (!coverage || quantity <= 0) return null;
   const packages = quantity / coverage;
-  if (Math.abs(packages - Math.round(packages)) < 1e-9) return null;
-  return Math.ceil(packages) * coverage;
+  // Tolerance, not exact equality: a quantity that's been matched to a
+  // whole package via a 2-decimal waste % (see wastePercentToReach) lands
+  // a hair off the exact multiple and must not re-trigger the nudge.
+  if (Math.abs(packages - Math.round(packages)) < 1e-3) return null;
+  // Rounded so float noise (116.82 × 3 = 350.46000000000004) never shows.
+  return Math.round(Math.ceil(packages) * coverage * 100) / 100;
 }
 
 /** The Order Sheet's "how much to actually order" quantity (0090) —
