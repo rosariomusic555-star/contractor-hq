@@ -36,12 +36,16 @@ export const TOOLS = [
   {
     name: "list_projects",
     description:
-      "List the contractor's projects/jobs, optionally filtered by status or a text search on the project name. Use this to resolve a job mentioned by name (e.g. 'the Miller job') to a project_id before calling get_project_financials.",
+      "List the contractor's projects/jobs, optionally filtered by status or a text search on the project name. Use this to resolve a job mentioned by name (e.g. 'the Miller job') to a project_id before calling get_project_financials. Only real jobs are returned by default: pre-sale projects (auto-created behind a pipeline opportunity that isn't Won yet — they just hold its estimate) are left out, so never count them as jobs. Set include_pre_sale only for pipeline/estimate questions; those rows come back with pre_sale: true.",
     input_schema: {
       type: "object",
       properties: {
         status: { type: "string", enum: ["estimating", "scheduled", "in_progress", "complete", "lost"] },
         search: { type: "string", description: "Case-insensitive substring match on the project name." },
+        include_pre_sale: {
+          type: "boolean",
+          description: "Also return pre-sale projects (opportunity not Won yet). Default false — only for pipeline questions.",
+        },
       },
     },
   },
@@ -112,7 +116,7 @@ export const TOOLS = [
   {
     name: "get_client_detail",
     description:
-      "Look up a client by name (fuzzy search) or by client_id. If a name search matches more than one client, returns the candidate list instead of picking one — call again with the specific client_id. Returns contact info plus their projects, quote/invoice counts, and lifetime value (sum of their paid invoices).",
+      "Look up a client by name (fuzzy search) or by client_id. If a name search matches more than one client, returns the candidate list instead of picking one — call again with the specific client_id. Returns contact info plus their projects (real jobs only — pre-sale projects behind a not-yet-Won opportunity are left out), quote/invoice counts, and lifetime value (sum of their paid invoices).",
     input_schema: {
       type: "object",
       properties: {
@@ -234,31 +238,40 @@ export interface ResolvedCreateTaskAction {
   priority: string;
 }
 
-async function listProjects(input: { status?: string; search?: string }, sb: SupabaseClient) {
+// Same rule as src/lib/api.ts isPreSaleProject(): a project whose linked
+// opportunity isn't Won is pre-sale — not a real job. Derived, never stored.
+// deno-lint-ignore no-explicit-any
+const isPreSale = (p: any) => (p.opportunities ?? []).some((o: { stage: string }) => o.stage !== "won");
+
+async function listProjects(input: { status?: string; search?: string; include_pre_sale?: boolean }, sb: SupabaseClient) {
   let q = sb
     .from("projects")
-    .select("id,name,status,created_at,updated_at,client:clients(name)")
+    .select("id,name,status,created_at,updated_at,client:clients(name),opportunities(stage)")
     .order("updated_at", { ascending: false })
     .limit(50);
   if (input.status) q = q.eq("status", input.status);
   if (input.search) q = q.ilike("name", `%${input.search}%`);
   const { data, error } = await q;
   if (error) throw error;
-  // deno-lint-ignore no-explicit-any
-  return (data ?? []).map((p: any) => ({
-    id: p.id,
-    name: p.name,
-    status: p.status,
-    client_name: p.client?.name ?? null,
-    created_at: p.created_at,
-    updated_at: p.updated_at,
-  }));
+  return (data ?? [])
+    // deno-lint-ignore no-explicit-any
+    .filter((p: any) => input.include_pre_sale || !isPreSale(p))
+    // deno-lint-ignore no-explicit-any
+    .map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      client_name: p.client?.name ?? null,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+      ...(isPreSale(p) ? { pre_sale: true } : {}),
+    }));
 }
 
 async function getProjectFinancials(input: { project_id: string }, sb: SupabaseClient) {
   const { data: project, error: pErr } = await sb
     .from("projects")
-    .select("id,name,status,client:clients(name)")
+    .select("id,name,status,client:clients(name),opportunities(stage)")
     .eq("id", input.project_id)
     .single();
   if (pErr) throw pErr;
@@ -308,6 +321,8 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
   return {
     project_name: project.name,
     status: project.status,
+    // Asked about directly — still answer, but flag it isn't a real job yet.
+    ...(isPreSale(project) ? { pre_sale: true } : {}),
     client_name: project.client?.name ?? null,
     // Headline quote total + approved change orders — same "contract
     // value" every other screen in the app shows for this project.
@@ -539,13 +554,17 @@ async function getClientDetail(input: { search?: string; client_id?: string }, s
   }
 
   const client = clients[0];
-  const { data: projects, error: projErr } = await sb
+  const { data: allProjects, error: projErr } = await sb
     .from("projects")
-    .select("id,name,status")
+    .select("id,name,status,opportunities(stage)")
     .eq("client_id", client.id);
   if (projErr) throw projErr;
+  // Quote/invoice history still spans every project (pre-sale estimates
+  // included); the project list/count is real jobs only.
   // deno-lint-ignore no-explicit-any
-  const projectIds = (projects ?? []).map((p: any) => p.id);
+  const projectIds = (allProjects ?? []).map((p: any) => p.id);
+  // deno-lint-ignore no-explicit-any
+  const projects = (allProjects ?? []).filter((p: any) => !isPreSale(p));
 
   const quoteSelect = "id,status,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected))";
   const quoteQueries = [sb.from("quotes").select(quoteSelect).eq("client_id", client.id)];

@@ -20,6 +20,7 @@ import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { useToast } from "@/hooks/use-toast";
 import { cn, pluralize } from "@/lib/utils";
 import { appointmentStatusMeta } from "@/lib/statusMeta";
+import { invalidateAppointmentQueries } from "@/lib/appointmentQueries";
 import { allDayDateTime, appointmentDateKey, appointmentTimeLabel, localYmd } from "@/lib/appointmentTime";
 import {
   listAppointments,
@@ -127,11 +128,7 @@ export function AppointmentRow({
 
   const cancelMut = useMutation({
     mutationFn: () => setAppointmentStatus(appointment, "cancelled"),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["client-appointments", appointment.client_id] });
-      if (appointment.opportunity_id) qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
-    },
+    onSuccess: () => invalidateAppointmentQueries(qc, appointment.client_id, appointment.opportunity_id),
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
@@ -145,16 +142,7 @@ export function AppointmentRow({
       completed
         ? setAppointmentStatus(appointment, "completed", appointment.outcome)
         : updateAppointment(appointment.id, { status: "scheduled" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["client-appointments", appointment.client_id] });
-      if (appointment.opportunity_id) {
-        qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
-        qc.invalidateQueries({ queryKey: ["opportunity", appointment.opportunity_id] });
-        qc.invalidateQueries({ queryKey: ["opportunities"] });
-      }
-      qc.invalidateQueries({ queryKey: ["activities", appointment.client_id] });
-    },
+    onSuccess: () => invalidateAppointmentQueries(qc, appointment.client_id, appointment.opportunity_id),
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
@@ -249,7 +237,7 @@ export function AppointmentRow({
  * New appointment. A date-only appointment stays date-only; an older timed
  * one keeps its time of day when its date changes. Address isn't editable
  * here (it's filled automatically on create). */
-function EditAppointmentDialog({
+export function EditAppointmentDialog({
   open,
   onOpenChange,
   appointment,
@@ -286,11 +274,7 @@ function EditAppointmentDialog({
       return updateAppointment(appointment.id, { type, date_time, notes: notes.trim() || null });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["client-appointments", appointment.client_id] });
-      if (appointment.opportunity_id) {
-        qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
-      }
+      invalidateAppointmentQueries(qc, appointment.client_id, appointment.opportunity_id);
       onOpenChange(false);
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
@@ -386,16 +370,7 @@ export function CreateAppointmentDialog({
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      if (defaultClientId) qc.invalidateQueries({ queryKey: ["client-appointments", defaultClientId] });
-      if (defaultOpportunityId) {
-        qc.invalidateQueries({ queryKey: ["opportunity-appointments", defaultOpportunityId] });
-        // Scheduling a site visit can auto-advance the opportunity's
-        // stage (see createAppointment in api.ts) — refresh it too.
-        qc.invalidateQueries({ queryKey: ["opportunity", defaultOpportunityId] });
-        qc.invalidateQueries({ queryKey: ["opportunities"] });
-      }
-      qc.invalidateQueries({ queryKey: ["activities"] });
+      invalidateAppointmentQueries(qc, defaultClientId, defaultOpportunityId);
       onOpenChange(false);
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),

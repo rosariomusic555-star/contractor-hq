@@ -4,7 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
-import { listInvoices, listQuotes } from "@/lib/api";
+import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@/lib/api";
 import { buildNeedsYouItems } from "@/lib/needsYou";
 
 /** Full, uncapped "Needs you" queue — the Dashboard card (NeedsYou.tsx)
@@ -13,8 +13,10 @@ import { buildNeedsYouItems } from "@/lib/needsYou";
 export function NeedsYouView() {
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
+  const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
 
-  const items = buildNeedsYouItems(quotes, invoices);
+  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments });
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">

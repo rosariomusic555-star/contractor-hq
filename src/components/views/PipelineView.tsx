@@ -16,9 +16,11 @@ import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
+import { overdueSiteVisitsByOpportunity, siteVisitDateLabel } from "@/lib/siteVisitCheck";
 import { OPPORTUNITY_STAGES, CLOSING_OPPORTUNITY_STAGES, opportunityStageMeta } from "@/lib/statusMeta";
 import {
   listOpportunities,
+  listAppointments,
   createOpportunity,
   moveOpportunityStage,
   markOpportunityWon,
@@ -29,6 +31,7 @@ import {
   pickHeadlineQuote,
   opportunityCategoryIds,
   setOpportunityCategories,
+  type Appointment,
   type Opportunity,
   type OpportunityStage,
   type Quote,
@@ -86,6 +89,10 @@ export function PipelineView() {
     return values;
   }, [quotes]);
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  // Site visits whose date passed without being checked off — flagged on
+  // the card (same overdueSiteVisit() rule as the StageBanner/Needs you).
+  const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
+  const overdueVisits = useMemo(() => overdueSiteVisitsByOpportunity(opportunities, appointments), [opportunities, appointments]);
   const qc = useQueryClient();
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -118,10 +125,14 @@ export function PipelineView() {
       if (context?.previous) qc.setQueryData(["opportunities"], context.previous);
       toast({ title: err.message, variant: "destructive" });
     },
-    onSettled: (_data, _err, { toStage }) => {
+    onSettled: (_data, _err, { opp, toStage }) => {
       qc.invalidateQueries({ queryKey: ["opportunities"] });
+      // Any move into or out of Won shows/hides the linked project in every
+      // project list (isPreSaleProject) — refresh them on every move.
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["client-projects"] });
+      if (opp.project_id) qc.invalidateQueries({ queryKey: ["project", opp.project_id] });
       if (toStage === "won") {
-        qc.invalidateQueries({ queryKey: ["projects"] });
         qc.invalidateQueries({ queryKey: ["quotes"] });
         qc.invalidateQueries({ queryKey: ["invoices"] });
       }
@@ -190,6 +201,7 @@ export function PipelineView() {
                     opportunities={filteredOpportunities.filter((o) => o.stage === stage)}
                     closing={CLOSING_OPPORTUNITY_STAGES.includes(stage)}
                     quoteValueByProjectId={quoteValueByProjectId}
+                    overdueVisits={overdueVisits}
                   />
                 ))}
               </div>
@@ -210,7 +222,12 @@ export function PipelineView() {
                   </div>
                   <div className="space-y-2">
                     {items.map((o) => (
-                      <OpportunityCard key={o.id} opportunity={o} quoteValueByProjectId={quoteValueByProjectId} />
+                      <OpportunityCard
+                        key={o.id}
+                        opportunity={o}
+                        quoteValueByProjectId={quoteValueByProjectId}
+                        overdueVisit={overdueVisits.get(o.id)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -235,6 +252,7 @@ function PipelineColumn({
   opportunities,
   closing,
   quoteValueByProjectId,
+  overdueVisits,
 }: {
   stage: OpportunityStage;
   opportunities: Opportunity[];
@@ -243,6 +261,7 @@ function PipelineColumn({
    * rather than blending in as just two more columns. */
   closing?: boolean;
   quoteValueByProjectId: Map<string, number>;
+  overdueVisits: Map<string, Appointment>;
 }) {
   const meta = opportunityStageMeta(stage);
   const isWon = stage === "won";
@@ -272,7 +291,12 @@ function PipelineColumn({
               <Draggable key={o.id} draggableId={o.id} index={index}>
                 {(provided, snapshot) => (
                   <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                    <OpportunityCard opportunity={o} dragging={snapshot.isDragging} quoteValueByProjectId={quoteValueByProjectId} />
+                    <OpportunityCard
+                      opportunity={o}
+                      dragging={snapshot.isDragging}
+                      quoteValueByProjectId={quoteValueByProjectId}
+                      overdueVisit={overdueVisits.get(o.id)}
+                    />
                   </div>
                 )}
               </Draggable>
@@ -289,10 +313,12 @@ function OpportunityCard({
   opportunity,
   dragging,
   quoteValueByProjectId,
+  overdueVisit,
 }: {
   opportunity: Opportunity;
   dragging?: boolean;
   quoteValueByProjectId: Map<string, number>;
+  overdueVisit?: Appointment;
 }) {
   const overdue = !!opportunity.next_action_date && opportunity.next_action_date < today();
   // A lead's value on this card is its linked quote's real total, never a
@@ -336,6 +362,12 @@ function OpportunityCard({
             {opportunity.next_action ?? "Follow up"}
             {opportunity.next_action_date ? ` · ${opportunity.next_action_date}` : ""}
           </span>
+        </div>
+      )}
+      {overdueVisit && (
+        <div className="mt-1.5 flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-1 text-[11px] font-semibold text-destructive">
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          <span className="truncate">Confirm site visit · {siteVisitDateLabel(overdueVisit)}</span>
         </div>
       )}
       <div className="mt-1 text-[10px] text-muted-subtle">Updated {timeAgo(opportunity.updated_at)}</div>

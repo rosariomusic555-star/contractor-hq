@@ -135,6 +135,24 @@ export interface Project {
    * Revenue by category (that's quote_items.category_id only); these are
    * descriptive tags, not money. */
   project_categories?: { category_id: string }[];
+  /** The CRM opportunity this project was created for, if any (reverse
+   * embed of opportunities.project_id — at most one, 1:1 via 0073's unique
+   * partial index). Drives isPreSaleProject(). */
+  opportunities?: { id: string; stage: OpportunityStage }[];
+}
+
+/**
+ * A project auto-created for an opportunity that hasn't been Won yet (New
+ * Lead → Revisions, or Lost). It holds the estimate (cost plan, quotes,
+ * photos) but isn't a real job: listProjects()/listProjectsForClient() leave
+ * it out, so it's missing from the Projects list, Bookings, Ongoing jobs,
+ * Revenue, job counts and project pickers. Derived from the opportunity's
+ * stage — never a stored flag — so moving to Won (or back out of it)
+ * shows/hides it everywhere with no sync step. Projects created directly
+ * (no opportunity) are never pre-sale.
+ */
+export function isPreSaleProject(project: Pick<Project, "opportunities">): boolean {
+  return !!project.opportunities?.some((o) => o.stage !== "won");
 }
 
 /** Flattens Project.project_categories into plain ids, in a stable order
@@ -1043,15 +1061,17 @@ export async function deleteLeadSource(id: string): Promise<void> {
 // Projects
 // ---------------------------------------------------------------------------
 
-const PROJECT_SELECT = "*, client:clients(name, email, phone, address), project_categories(category_id)";
+const PROJECT_SELECT =
+  "*, client:clients(name, email, phone, address), project_categories(category_id), opportunities(id, stage)";
 
+/** Every real job — pre-sale projects (see isPreSaleProject) excluded. */
 export async function listProjects(): Promise<Project[]> {
   const { data, error } = await supabase
     .from("projects")
     .select(PROJECT_SELECT)
     .order("updated_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).filter((p) => !isPreSaleProject(p));
 }
 
 export async function getProject(id: string): Promise<Project> {
@@ -1065,7 +1085,8 @@ export async function getProject(id: string): Promise<Project> {
 }
 
 /** A customer's own projects (0048, Customer 360 page) — distinct from
- * listProjects()'s full-list use everywhere else. */
+ * listProjects()'s full-list use everywhere else. Real jobs only, same as
+ * listProjects() (pre-sale ones live on the client's opportunities). */
 export async function listProjectsForClient(clientId: string): Promise<Project[]> {
   const { data, error } = await supabase
     .from("projects")
@@ -1073,7 +1094,7 @@ export async function listProjectsForClient(clientId: string): Promise<Project[]
     .eq("client_id", clientId)
     .order("updated_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).filter((p) => !isPreSaleProject(p));
 }
 
 export async function createProject(input: {
@@ -4664,6 +4685,11 @@ export interface Appointment {
   client?: { name: string } | null;
 }
 
+/** Appointment types that count as the site visit for the CRM stage rules
+ * (Site Visit Scheduled on schedule, back to Contacted on cancel, Site Visit
+ * Done on completion). */
+export const SITE_VISIT_APPOINTMENT_TYPES: AppointmentType[] = ["site_visit", "estimate_appointment"];
+
 export const APPOINTMENT_TYPE_LABEL: Record<AppointmentType, string> = {
   phone_consultation: "Phone Consultation",
   site_visit: "Site Visit",
@@ -4746,10 +4772,10 @@ export async function createAppointment(input: {
     opportunity_id: input.opportunity_id ?? null,
     meta: { appointment_id: data.id, date_time: input.date_time },
   });
-  // CRM auto-advance: scheduling a site visit for a lead moves it to Site
-  // Visit Scheduled (see autoAdvanceStage — never backward, never a
-  // closed lead).
-  if ((input.type ?? "site_visit") === "site_visit" && input.opportunity_id) {
+  // CRM auto-advance: scheduling a site visit / estimate appointment for a
+  // lead moves it to Site Visit Scheduled (see autoAdvanceStage — never
+  // backward, never a closed lead).
+  if (SITE_VISIT_APPOINTMENT_TYPES.includes(input.type ?? "site_visit") && input.opportunity_id) {
     const opportunity = await getOpportunity(input.opportunity_id);
     await autoAdvanceStage(opportunity, "site_visit_scheduled");
   }
@@ -4773,8 +4799,55 @@ export async function updateAppointment(
     >
   >,
 ): Promise<void> {
-  const { error } = await supabase.from("appointments").update(patch).eq("id", id);
+  const { data, error } = await supabase
+    .from("appointments")
+    .update(patch)
+    .eq("id", id)
+    .select("opportunity_id, type, status")
+    .single();
   if (error) throw error;
+  if (!data.opportunity_id || !SITE_VISIT_APPOINTMENT_TYPES.includes(data.type)) return;
+  // CRM auto-advance, same rules as createAppointment: an edit that leaves
+  // a scheduled site visit (type changed to site visit, or a completed one
+  // unchecked back to scheduled) moves the lead forward to Site Visit
+  // Scheduled — never backward, never a closed lead.
+  if (data.status === "scheduled") {
+    // Unchecking a completed visit (the only thing that sets status back to
+    // scheduled) first undoes the Site Visit Done advance, if nothing else
+    // justifies it.
+    if (patch.status === "scheduled") await revertSiteVisitStage(data.opportunity_id, "site_visit_done", "completed");
+    await autoAdvanceStage(await getOpportunity(data.opportunity_id), "site_visit_scheduled");
+  } else if (patch.status === "cancelled") {
+    await revertSiteVisitStage(data.opportunity_id, "site_visit_scheduled", "scheduled");
+  }
+}
+
+/**
+ * Undoes a site-visit auto-advance one step, only if the opportunity is
+ * still sitting at the stage that advance put it in and no other site visit
+ * / estimate appointment on it still justifies that stage:
+ * - cancelled visit: Site Visit Scheduled → Contacted, unless another visit
+ *   is still `scheduled` (an overdue, still-scheduled one counts — it may
+ *   well have happened and just not been checked off yet);
+ * - unchecked completion: Site Visit Done → Site Visit Scheduled, unless
+ *   another visit is still `completed`.
+ * Any other stage (the lead was moved on, or never got here) is left alone.
+ */
+async function revertSiteVisitStage(
+  opportunityId: string,
+  fromStage: "site_visit_scheduled" | "site_visit_done",
+  keepIfAnyStatus: AppointmentStatus,
+): Promise<void> {
+  const opportunity = await getOpportunity(opportunityId);
+  if (opportunity.stage !== fromStage) return;
+  const { count, error } = await supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("opportunity_id", opportunityId)
+    .in("type", SITE_VISIT_APPOINTMENT_TYPES)
+    .eq("status", keepIfAnyStatus);
+  if (error) throw error;
+  if (!count) await moveOpportunityStage(opportunity, fromStage === "site_visit_done" ? "site_visit_scheduled" : "contacted");
 }
 
 export async function deleteAppointment(id: string): Promise<void> {
@@ -4801,7 +4874,7 @@ export async function setAppointmentStatus(
     );
     // CRM auto-advance: completing a site visit moves the lead to Site
     // Visit Done (same forward-only guard as scheduling it).
-    if (appointment.type === "site_visit" && appointment.opportunity_id) {
+    if (SITE_VISIT_APPOINTMENT_TYPES.includes(appointment.type) && appointment.opportunity_id) {
       const opportunity = await getOpportunity(appointment.opportunity_id);
       await autoAdvanceStage(opportunity, "site_visit_done");
     }

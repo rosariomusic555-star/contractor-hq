@@ -80,7 +80,13 @@ export function InvoiceWorkspace({
     enabled: !!projectId,
   });
 
-  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  const { data: activeProjects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  // listProjects() leaves out pre-sale projects (isPreSaleProject); keep this
+  // invoice's own project in the picker anyway so the field isn't blank.
+  const projects =
+    projectId && !activeProjects.some((p) => p.id === projectId)
+      ? [{ id: projectId, name: invoice.project?.name ?? "Project" }, ...activeProjects]
+      : activeProjects;
 
   // Project-level contract (quote total + approved change orders) — distinct
   // from `quote` above, which is specifically the invoice's own linked/
