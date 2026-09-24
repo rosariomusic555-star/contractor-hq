@@ -178,10 +178,10 @@ export const TOOLS = [
         task_type: {
           type: "string",
           enum: [
-            "call", "text", "email", "site_visit", "prepare_estimate", "send_proposal",
+            "text", "email", "site_visit", "prepare_estimate", "send_proposal",
             "follow_up", "collect_deposit", "schedule_project", "general_task",
           ],
-          description: "Only set this if it's clearly implied (e.g. 'call' -> call); default is general_task.",
+          description: "Only set this if it's clearly implied (e.g. 'email' -> email); default is general_task. There is no call task type — use follow_up for 'call X' requests.",
         },
         priority: { type: "string", enum: ["low", "normal", "high"], description: "Only set if the user signals urgency; default is normal." },
       },
@@ -801,7 +801,7 @@ async function getPipelineSummaryTool(_input: Record<string, never>, sb: Supabas
 }
 
 const TASK_TYPES = [
-  "call", "text", "email", "site_visit", "prepare_estimate", "send_proposal",
+  "text", "email", "site_visit", "prepare_estimate", "send_proposal",
   "follow_up", "collect_deposit", "schedule_project", "general_task",
 ];
 

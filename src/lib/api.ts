@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
+import type { MeasurementRow } from "./measurements";
 
 /** Private Storage bucket (0023) holding both quote-item and project
  * photos, split by path prefix (`quote-items/…`, `projects/…`). */
@@ -3936,9 +3937,11 @@ export async function deleteClientFile(file: Pick<ClientFile, "id" | "storage_pa
 // writes (quote sent, pipeline stage changed, etc.) with no schema change.
 // ---------------------------------------------------------------------------
 
+// "call" was removed as a loggable kind (calls are no longer tracked in
+// the app). Historical "call" rows are left in the DB untouched, but every
+// activity/communication read below filters them out — see HIDDEN_ACTIVITY_KINDS.
 export type ActivityKind =
   | "note"
-  | "call"
   | "text"
   | "email"
   | "other"
@@ -3977,11 +3980,16 @@ export interface Activity {
   client?: { name: string } | null;
 }
 
+/** Kinds that still exist as historical rows but are no longer surfaced
+ * anywhere — call logging was removed; the rows are kept, just not shown. */
+const HIDDEN_ACTIVITY_KINDS = ["call"];
+
 export async function listActivities(clientId: string): Promise<Activity[]> {
   const { data, error } = await supabase
     .from("activities")
     .select("*")
     .eq("client_id", clientId)
+    .not("kind", "in", `(${HIDDEN_ACTIVITY_KINDS.join(",")})`)
     .order("created_at", { ascending: false });
   if (error) {
     if (error.code === "PGRST205") return [];
@@ -3997,6 +4005,7 @@ export async function listActivitiesForOpportunity(opportunityId: string): Promi
     .from("activities")
     .select("*")
     .eq("opportunity_id", opportunityId)
+    .not("kind", "in", `(${HIDDEN_ACTIVITY_KINDS.join(",")})`)
     .order("created_at", { ascending: false });
   if (error) {
     if (error.code === "PGRST205") return [];
@@ -4005,10 +4014,10 @@ export async function listActivitiesForOpportunity(opportunityId: string): Promi
   return data ?? [];
 }
 
-const MANUAL_COMMUNICATION_KINDS = ["note", "call", "text", "email"] as const;
+const MANUAL_COMMUNICATION_KINDS = ["note", "text", "email"] as const;
 
 /** CRM Phase 6's "Communication Center" — every manually-logged note/
- * call/text/email across every customer, newest first. Reuses the
+ * text/email across every customer, newest first. Reuses the
  * activities table (no new table): the same manual-log composer on
  * Customer 360 already writes these rows, this just surfaces them
  * cross-customer. Auto-generated kinds (stage_changed, quote_sent,
@@ -4479,6 +4488,21 @@ export interface Task {
   client?: { name: string } | null;
 }
 
+/** Task types offered when creating a task. "call" stays in TaskType (and
+ * TASK_TYPE_LABEL) only so historical call tasks still render a label —
+ * call-related features were removed, so no new ones can be created. */
+export const CREATABLE_TASK_TYPES: TaskType[] = [
+  "text",
+  "email",
+  "site_visit",
+  "prepare_estimate",
+  "send_proposal",
+  "follow_up",
+  "collect_deposit",
+  "schedule_project",
+  "general_task",
+];
+
 export const TASK_TYPE_LABEL: Record<TaskType, string> = {
   call: "Call",
   text: "Text",
@@ -4821,6 +4845,48 @@ export function findPossibleDuplicates(
     }
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Project measurements (0091) — grouped per build type; the field config
+// lives in src/lib/measurements.ts, this is just storage.
+// ---------------------------------------------------------------------------
+
+export async function listProjectMeasurements(projectId: string): Promise<MeasurementRow[]> {
+  const { data, error } = await supabase
+    .from("project_measurements")
+    .select("id, project_id, build_type, category_id, field_key, label, value, value_text, unit, sort_order")
+    .eq("project_id", projectId)
+    .order("sort_order")
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({ ...r, value: r.value == null ? null : Number(r.value) }));
+}
+
+/** Applies a Measurements card draft: upserts `rows` (ids are client-
+ * generated for new rows) and deletes `deleteIds`. Also writes the total
+ * area back into projects.size_sqft (see totalAreaSqft) so the Labor page
+ * keeps reading one number. */
+export async function saveProjectMeasurements(
+  projectId: string,
+  rows: MeasurementRow[],
+  deleteIds: string[],
+  sizeSqft: number | null,
+): Promise<void> {
+  if (deleteIds.length > 0) {
+    const { error } = await supabase.from("project_measurements").delete().in("id", deleteIds);
+    if (error) throw error;
+  }
+  if (rows.length > 0) {
+    const { error } = await supabase
+      .from("project_measurements")
+      .upsert(rows.map((r) => ({ ...r, project_id: projectId })));
+    if (error) throw error;
+  }
+  await updateProject(projectId, { size_sqft: sizeSqft });
 }
 
 // ---------------------------------------------------------------------------

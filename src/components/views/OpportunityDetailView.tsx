@@ -12,6 +12,7 @@ import {
   Layers,
   ExternalLink,
   Link2,
+  Calculator,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,10 +42,7 @@ import {
   listProjectsForClient,
   listOpportunitiesForClient,
   listCategories,
-  listLeadSources,
   listMaterialsSheets,
-  createMaterialsSheet,
-  createMaterialsSection,
   listMaterialsBySheet,
   listQuotes,
   quoteTotal,
@@ -70,6 +68,8 @@ import {
   type Project,
 } from "@/lib/api";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
+import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
+import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
@@ -78,7 +78,6 @@ const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-s
 
 const ACTIVITY_KIND_LABEL: Partial<Record<ActivityKind, string>> = {
   note: "Note",
-  call: "Call",
   text: "Text",
   email: "Email",
   stage_changed: "Stage change",
@@ -158,29 +157,17 @@ export function OpportunityDetailView() {
   });
 
   // Lazily creates the project the first time anything job-related happens
-  // here (first sheet, first quote, first photo) — see
+  // here (first cost plan, quote, photo or measurement) — see
   // getOrCreateOpportunityProject's own doc comment (api.ts). Shared by the
-  // Estimate card and the stage banner's "Create material sheet" action so
-  // there's exactly one place this happens. `categoryNames` (optional,
-  // wired from EstimateCard's "start with a section per type" toggle)
-  // pre-adds one section per selected job type as a starting structure —
-  // never required, just a convenience default.
-  const createSheetMut = useMutation({
-    mutationFn: async (categoryNames: string[]) => {
-      const projectId = await getOrCreateOpportunityProject(id);
-      const sheet = await createMaterialsSheet(projectId, { name: "Materials sheet" });
-      for (const [i, name] of categoryNames.entries()) {
-        await createMaterialsSection(projectId, sheet.id, { name, sort_order: i });
-      }
-      return sheet;
-    },
-    onSuccess: (sheet, _vars) => {
+  // Estimate card and the stage banner's "Create cost plan" action. A cost
+  // plan isn't its own record — every project has one (it rolls up the
+  // project's Materials + Labor), so "creating" it just means making sure
+  // the project exists and opening the project's Cost Plan page.
+  const openCostPlanMut = useMutation({
+    mutationFn: () => getOrCreateOpportunityProject(id),
+    onSuccess: (projectId) => {
       invalidateProjectLink();
-      qc.invalidateQueries({ queryKey: ["materials-sheets"] });
-      qc.invalidateQueries({ queryKey: ["materials-sections-all"] });
-      navigate(`/projects/${sheet.project_id}/materials/${sheet.id}`, {
-        state: opportunity?.measurements ? { measurementsReference: opportunity.measurements } : undefined,
-      });
+      navigate(`/projects/${projectId}/cost-plan`);
     },
     onError,
   });
@@ -277,7 +264,6 @@ export function OpportunityDetailView() {
 
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
-  const activityInputRef = useRef<HTMLInputElement>(null);
 
   if (isLoading) return <p className="text-muted-foreground">Loading…</p>;
   if (isError || !opportunity)
@@ -352,10 +338,9 @@ export function OpportunityDetailView() {
           opportunity={opportunity}
           nextTask={nextTask}
           upcomingAppointment={upcomingAppointment}
-          creatingSheet={createSheetMut.isPending}
-          onLogContact={() => activityInputRef.current?.focus()}
+          openingCostPlan={openCostPlanMut.isPending}
           onScheduleVisit={() => setAppointmentDialogOpen(true)}
-          onCreateSheet={() => createSheetMut.mutate(categoryNames)}
+          onOpenCostPlan={() => openCostPlanMut.mutate()}
           onFollowUp={() => setTaskDialogOpen(true)}
         />
       )}
@@ -395,12 +380,16 @@ export function OpportunityDetailView() {
                 rows={3}
               />
             </div>
+            {/* Free-form notes (opportunities.measurements) — always editable.
+                The structured project size lives on the project
+                (ProjectSizeCard below). */}
             <div className="space-y-1">
-              <div className={FIELD_LABEL}>Measurements</div>
+              <div className={FIELD_LABEL}>Measurement notes</div>
               <Textarea
                 value={field("measurements", opportunity.measurements)}
                 onChange={(e) => setField("measurements", e.target.value)}
                 onBlur={() => commitField("measurements", opportunity.measurements)}
+                placeholder="e.g. 600 sq ft patio, 8ft island"
                 rows={2}
               />
             </div>
@@ -417,6 +406,13 @@ export function OpportunityDetailView() {
             )}
           </section>
 
+          <ProjectMeasurementsCard
+            projectId={opportunity.project_id}
+            categoryIds={categoryIds}
+            ensureProjectId={() => getOrCreateOpportunityProject(id)}
+            onSaved={invalidateProjectLink}
+          />
+
           <OpportunityPhotosSection projectId={opportunity.project_id} opportunityId={id} onProjectCreated={invalidateProjectLink} />
         </div>
 
@@ -425,9 +421,9 @@ export function OpportunityDetailView() {
             opportunity={opportunity}
             projectId={opportunity.project_id}
             categoryNames={categoryNames}
-            creatingSheet={createSheetMut.isPending}
+            openingCostPlan={openCostPlanMut.isPending}
             creatingQuote={createQuoteMut.isPending}
-            onCreateSheet={(names) => createSheetMut.mutate(names)}
+            onOpenCostPlan={() => openCostPlanMut.mutate()}
             onCreateQuote={(names) => createQuoteMut.mutate(names)}
           />
           <OpportunityAppointmentsCard
@@ -442,7 +438,7 @@ export function OpportunityDetailView() {
             open={taskDialogOpen}
             onOpenChange={setTaskDialogOpen}
           />
-          <OpportunityActivityCard opportunityId={id} clientId={opportunity.client_id} inputRef={activityInputRef} />
+          <OpportunityActivityCard opportunityId={id} clientId={opportunity.client_id} />
         </div>
       </div>
 
@@ -518,25 +514,27 @@ function StageBanner({
   opportunity,
   nextTask,
   upcomingAppointment,
-  creatingSheet,
-  onLogContact,
+  openingCostPlan,
   onScheduleVisit,
-  onCreateSheet,
+  onOpenCostPlan,
   onFollowUp,
 }: {
   opportunity: Opportunity;
   nextTask: Task | undefined;
   upcomingAppointment: Appointment | undefined;
-  creatingSheet: boolean;
-  onLogContact: () => void;
+  openingCostPlan: boolean;
   onScheduleVisit: () => void;
-  onCreateSheet: () => void;
+  onOpenCostPlan: () => void;
   onFollowUp: () => void;
 }) {
   const content = (() => {
     switch (opportunity.stage) {
       case "new_lead":
-        return { text: "Log the first contact with this lead.", action: "Log contact", onClick: onLogContact };
+        return {
+          text: "Start planning the job.",
+          action: openingCostPlan ? "Opening…" : "Create cost plan",
+          onClick: onOpenCostPlan,
+        };
       case "contacted":
         return { text: "Ready to schedule a site visit?", action: "Schedule site visit", onClick: onScheduleVisit };
       case "site_visit_scheduled":
@@ -556,8 +554,8 @@ function StageBanner({
       case "site_visit_done":
         return {
           text: "Time to price the job.",
-          action: creatingSheet ? "Creating…" : "Create material sheet",
-          onClick: onCreateSheet,
+          action: openingCostPlan ? "Opening…" : "Create cost plan",
+          onClick: onOpenCostPlan,
         };
       case "proposal_sent":
         return {
@@ -592,7 +590,7 @@ function StageBanner({
             </Link>
           </Button>
         ) : content.onClick ? (
-          <Button size="sm" className="shrink-0 font-bold" onClick={content.onClick} disabled={creatingSheet}>
+          <Button size="sm" className="shrink-0 font-bold" onClick={content.onClick} disabled={openingCostPlan}>
             {content.action} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
           </Button>
         ) : null)}
@@ -600,30 +598,19 @@ function StageBanner({
   );
 }
 
-function LeadSourceField({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
-  const { data: leadSources = [] } = useQuery({ queryKey: ["lead-sources"], queryFn: listLeadSources });
+function LeadSourceField({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
   return (
     <div className="space-y-1">
       <div className={FIELD_LABEL}>Lead source</div>
-      <Select value={value ?? undefined} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder="Select a source" />
-        </SelectTrigger>
-        <SelectContent>
-          {leadSources.map((s) => (
-            <SelectItem key={s.id} value={s.name}>
-              {s.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <LeadSourceSelect value={value} onChange={onChange} />
     </div>
   );
 }
 
 /**
- * Replaces the old "Quote" card. Material sheet first, quote second —
- * "Create material sheet" is the primary action. Once a project exists,
+ * Replaces the old "Quote" card. Cost plan first, quote second —
+ * "Create cost plan" is the primary action (opens the project's Cost Plan,
+ * where materials + labor get planned). Once a project exists,
  * every sheet + quote on it shows as its own row (multiple options — e.g.
  * basic patio vs. patio + fire pit — are just multiple sheets/quotes on
  * the same project, linked via the existing LinkedDocumentBar rules once
@@ -634,9 +621,9 @@ function EstimateCard({
   opportunity,
   projectId,
   categoryNames,
-  creatingSheet,
+  openingCostPlan,
   creatingQuote,
-  onCreateSheet,
+  onOpenCostPlan,
   onCreateQuote,
 }: {
   opportunity: Opportunity;
@@ -645,9 +632,9 @@ function EstimateCard({
    * starting structure — see the "start with a section per type" toggle
    * below. */
   categoryNames: string[];
-  creatingSheet: boolean;
+  openingCostPlan: boolean;
   creatingQuote: boolean;
-  onCreateSheet: (categoryNames: string[]) => void;
+  onOpenCostPlan: () => void;
   onCreateQuote: (categoryNames: string[]) => void;
 }) {
   const { data: sheets = [] } = useQuery({
@@ -714,19 +701,14 @@ function EstimateCard({
             onCheckedChange={(v) => setPreAddSections(v === true)}
             className="mt-0.5"
           />
-          Start with a section per project type ({categoryNames.join(", ")})
+          Start the quote with a section per project type ({categoryNames.join(", ")})
         </label>
       )}
 
       <div className="flex flex-col gap-2 pt-1">
-        <Button
-          size="sm"
-          className="font-bold"
-          disabled={creatingSheet}
-          onClick={() => onCreateSheet(offerPreAdd && preAddSections ? categoryNames : [])}
-        >
-          <Layers className="mr-2 h-3.5 w-3.5" />
-          {creatingSheet ? "Creating…" : "Create material sheet"}
+        <Button size="sm" className="font-bold" disabled={openingCostPlan} onClick={onOpenCostPlan}>
+          <Calculator className="mr-2 h-3.5 w-3.5" />
+          {openingCostPlan ? "Opening…" : "Create cost plan"}
         </Button>
         <Button
           size="sm"
@@ -825,7 +807,11 @@ function OpportunityTasksCard({
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
-  const open_ = tasks.filter((t) => !t.completed);
+  // Completed tasks stay in the list (struck through by TaskRow) below the
+  // open ones, so checking one off never makes it vanish — unchecking
+  // restores it. listTasksForOpportunity already returns both, due-date
+  // sorted; this is a stable partition that keeps that order within each.
+  const sorted = [...tasks.filter((t) => !t.completed), ...tasks.filter((t) => t.completed)];
 
   return (
     <section className="card-surface p-5">
@@ -835,11 +821,11 @@ function OpportunityTasksCard({
           + Add
         </button>
       </div>
-      {open_.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">No open tasks.</p>
+      {sorted.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">No tasks yet.</p>
       ) : (
         <div className="mt-2 space-y-2">
-          {open_.map((t) => (
+          {sorted.map((t) => (
             <TaskRow key={t.id} task={t} onToggle={(v) => completeMut.mutate({ id: t.id, completed: v })} />
           ))}
         </div>
@@ -867,7 +853,9 @@ function OpportunityPhotosSection({
   onProjectCreated: () => void;
 }) {
   if (projectId) {
-    return <PhotoGallery owner={{ type: "project", id: projectId }} title="Site photos" emptyText="No photos yet." />;
+    return (
+      <PhotoGallery owner={{ type: "project", id: projectId }} title="Site photos" emptyText="No photos yet." internalOnly />
+    );
   }
   return <FirstPhotoUploader opportunityId={opportunityId} onProjectCreated={onProjectCreated} />;
 }
@@ -927,15 +915,12 @@ function FirstPhotoUploader({
 function OpportunityActivityCard({
   opportunityId,
   clientId,
-  inputRef,
 }: {
   opportunityId: string;
   clientId: string;
-  inputRef: React.RefObject<HTMLInputElement>;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [kind, setKind] = useState<ActivityKind>("note");
   const [body, setBody] = useState("");
 
   const { data: activities = [] } = useQuery({
@@ -944,10 +929,11 @@ function OpportunityActivityCard({
   });
 
   const logMut = useMutation({
-    mutationFn: () => logActivity(clientId, kind, body.trim(), { opportunity_id: opportunityId }),
+    // No type picker here — every manual entry on the opportunity is a note.
+    mutationFn: () => logActivity(clientId, "note", body.trim(), { opportunity_id: opportunityId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["opportunity-activities", opportunityId] });
-      // A call/text/email/note just logged also stamped last_contact_date
+      // A text/email/note just logged also stamped last_contact_date
       // automatically (migration 0078) — refresh the opportunity so it shows.
       qc.invalidateQueries({ queryKey: ["opportunity", opportunityId] });
       setBody("");
@@ -960,19 +946,7 @@ function OpportunityActivityCard({
       <h3 className="text-base font-bold text-foreground">Activity</h3>
       <div className="mt-3 space-y-2">
         <div className="flex gap-2">
-          <Select value={kind} onValueChange={(v) => setKind(v as ActivityKind)}>
-            <SelectTrigger className="w-32 shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="note">Note</SelectItem>
-              <SelectItem value="call">Call</SelectItem>
-              <SelectItem value="text">Text</SelectItem>
-              <SelectItem value="email">Email</SelectItem>
-            </SelectContent>
-          </Select>
           <Input
-            ref={inputRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder="Log an update…"

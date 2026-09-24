@@ -33,6 +33,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
+import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
@@ -239,16 +240,6 @@ export function ProjectDetailView() {
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't update estimated duration", description: err.message, variant: "destructive" }),
-  });
-
-  const sizeMutation = useMutation({
-    mutationFn: (size_sqft: number | null) => updateProject(id, { size_sqft }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["projects"] });
-      qc.invalidateQueries({ queryKey: ["projects", id] });
-    },
-    onError: (err: Error) =>
-      toast({ title: "Couldn't update project size", description: err.message, variant: "destructive" }),
   });
 
   const inviteToHubMut = useMutation({
@@ -773,29 +764,7 @@ export function ProjectDetailView() {
             )}
           </section>
 
-          <section className="card-surface p-5">
-            <h3 className="text-base font-bold text-foreground">Project size</h3>
-            <div className="mt-2 flex items-baseline gap-2">
-              <Input
-                key={project.size_sqft ?? "empty"}
-                type="number"
-                min="0"
-                step="1"
-                placeholder="e.g. 800"
-                defaultValue={project.size_sqft ?? ""}
-                onBlur={(e) => {
-                  const sqft = e.target.value ? Number(e.target.value) : null;
-                  if (sqft !== project.size_sqft) sizeMutation.mutate(sqft && sqft > 0 ? sqft : null);
-                }}
-                className="h-10 w-28"
-                aria-label="Project size in square feet"
-              />
-              <span className="text-sm text-muted-foreground">sq ft</span>
-            </div>
-            <p className="mt-2 text-[11px] text-muted-subtle">
-              Drives the Labor page's productivity metrics (hours/100sf, cost/sf).
-            </p>
-          </section>
+          <ProjectMeasurementsCard projectId={id} categoryIds={projectCategoryIds(project)} />
 
           {project.client && (
             <section

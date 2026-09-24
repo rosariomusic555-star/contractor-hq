@@ -64,7 +64,6 @@ import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/Appo
 
 const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
   note: "Note",
-  call: "Call",
   text: "Text",
   email: "Email",
   other: "Other",
@@ -660,7 +659,7 @@ function ActivityCard({ clientId }: { clientId: string }) {
           <Input
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder="Log a note, call, text, or email…"
+            placeholder="Log a note, text, or email…"
             onKeyDown={(e) => {
               if (e.key === "Enter" && body.trim()) logMut.mutate();
             }}
