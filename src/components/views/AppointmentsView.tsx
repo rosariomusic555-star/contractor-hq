@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, Check, MapPin, Pencil, Plus, X } from "lucide-react";
+import { Calendar, MapPin, Pencil, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -113,7 +114,6 @@ export function AppointmentRow({
   appointment: Appointment;
   showClient?: boolean;
 }) {
-  const [completeOpen, setCompleteOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -135,6 +135,29 @@ export function AppointmentRow({
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
+  // Checkbox toggle between scheduled and completed. Completing goes through
+  // setAppointmentStatus (activity log + site-visit stage auto-advance);
+  // un-completing just flips the status back. Either way the outcome note is
+  // kept, and the stage auto-advance is forward-only so un-completing a site
+  // visit leaves the lead's stage where it is.
+  const toggleMut = useMutation({
+    mutationFn: (completed: boolean) =>
+      completed
+        ? setAppointmentStatus(appointment, "completed", appointment.outcome)
+        : updateAppointment(appointment.id, { status: "scheduled" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["appointments"] });
+      qc.invalidateQueries({ queryKey: ["client-appointments", appointment.client_id] });
+      if (appointment.opportunity_id) {
+        qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
+        qc.invalidateQueries({ queryKey: ["opportunity", appointment.opportunity_id] });
+        qc.invalidateQueries({ queryKey: ["opportunities"] });
+      }
+      qc.invalidateQueries({ queryKey: ["activities", appointment.client_id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
   const startEstimateMut = useMutation({
     mutationFn: () => createQuote({ client_id: appointment.client_id, notes: appointment.outcome ?? null }),
     onSuccess: (quote) => navigate(`/quotes/${quote.id}`),
@@ -143,12 +166,24 @@ export function AppointmentRow({
 
   return (
     <div className="flex items-start gap-3 card-surface p-3.5">
-      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", overdue ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground")}>
-        <Calendar className="h-4 w-4" />
-      </span>
+      {appointment.status === "scheduled" || appointment.status === "completed" ? (
+        <Checkbox
+          checked={appointment.status === "completed"}
+          disabled={toggleMut.isPending}
+          onCheckedChange={(v) => toggleMut.mutate(v === true)}
+          aria-label={appointment.status === "completed" ? "Mark not completed" : "Mark completed"}
+          className={cn("mt-0.5", overdue && "border-destructive")}
+        />
+      ) : (
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <Calendar className="h-4 w-4" />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{APPOINTMENT_TYPE_LABEL[appointment.type]}</span>
+          <span className={cn("text-sm font-semibold text-foreground", appointment.status === "completed" && "line-through text-muted-foreground")}>
+            {APPOINTMENT_TYPE_LABEL[appointment.type]}
+          </span>
           <span className={meta.badge}>{meta.label}</span>
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -169,10 +204,6 @@ export function AppointmentRow({
         {appointment.outcome && <p className="mt-1 text-xs text-muted-foreground">{appointment.outcome}</p>}
         {appointment.status === "scheduled" && (
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setCompleteOpen(true)}>
-              <Check className="mr-1 h-3 w-3" />
-              Complete
-            </Button>
             <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setEditOpen(true)}>
               <Pencil className="mr-1 h-3 w-3" />
               Edit
@@ -209,7 +240,6 @@ export function AppointmentRow({
           </div>
         )}
       </div>
-      <CompleteAppointmentDialog open={completeOpen} onOpenChange={setCompleteOpen} appointment={appointment} />
       <EditAppointmentDialog open={editOpen} onOpenChange={setEditOpen} appointment={appointment} />
     </div>
   );
@@ -296,59 +326,6 @@ function EditAppointmentDialog({
         </div>
         <Button className="w-full font-bold" disabled={!date || saveMut.isPending} onClick={() => saveMut.mutate()}>
           {saveMut.isPending ? "Saving…" : "Save changes"}
-        </Button>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function CompleteAppointmentDialog({
-  open,
-  onOpenChange,
-  appointment,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  appointment: Appointment;
-}) {
-  const [outcome, setOutcome] = useState("");
-  const qc = useQueryClient();
-  const { toast } = useToast();
-
-  useEffect(() => {
-    if (!open) setOutcome("");
-  }, [open]);
-
-  const completeMut = useMutation({
-    mutationFn: () => setAppointmentStatus(appointment, "completed", outcome.trim() || null),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["appointments"] });
-      qc.invalidateQueries({ queryKey: ["client-appointments", appointment.client_id] });
-      if (appointment.opportunity_id) {
-        qc.invalidateQueries({ queryKey: ["opportunity-appointments", appointment.opportunity_id] });
-        // Completing a site visit can auto-advance the opportunity's
-        // stage (see setAppointmentStatus in api.ts) — refresh it too.
-        qc.invalidateQueries({ queryKey: ["opportunity", appointment.opportunity_id] });
-        qc.invalidateQueries({ queryKey: ["opportunities"] });
-      }
-      qc.invalidateQueries({ queryKey: ["activities", appointment.client_id] });
-      onOpenChange(false);
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-4">
-        <DialogHeader>
-          <DialogTitle>Complete appointment</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-1.5">
-          <Label>Notes / outcome (optional)</Label>
-          <Textarea value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="What happened? Measurements, next steps…" rows={4} />
-        </div>
-        <Button className="w-full font-bold" disabled={completeMut.isPending} onClick={() => completeMut.mutate()}>
-          {completeMut.isPending ? "Saving…" : "Mark completed"}
         </Button>
       </DialogContent>
     </Dialog>
