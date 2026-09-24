@@ -918,6 +918,9 @@ function FirstPhotoUploader({
   );
 }
 
+// Newest first — the card shows this many until "See more" is clicked.
+const ACTIVITY_PREVIEW_COUNT = 3;
+
 function OpportunityActivityCard({
   opportunityId,
   clientId,
@@ -928,6 +931,7 @@ function OpportunityActivityCard({
   const { toast } = useToast();
   const qc = useQueryClient();
   const [body, setBody] = useState("");
+  const [showAll, setShowAll] = useState(false);
 
   const { data: activities = [] } = useQuery({
     queryKey: ["opportunity-activities", opportunityId],
@@ -969,19 +973,30 @@ function OpportunityActivityCard({
       {activities.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">No activity yet.</p>
       ) : (
-        <ul className="mt-4 space-y-3">
-          {activities.map((a) => (
-            <li key={a.id} className="border-b border-hairline pb-3 last:border-0">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold uppercase tracking-wide text-muted-subtle">
-                  {ACTIVITY_KIND_LABEL[a.kind as ActivityKind] ?? a.kind}
-                </span>
-                <span className="text-[11px] text-muted-subtle">{timeAgo(a.created_at)}</span>
-              </div>
-              <p className="mt-0.5 text-[13px] text-foreground/80">{a.summary}</p>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="mt-4 space-y-3">
+            {(showAll ? activities : activities.slice(0, ACTIVITY_PREVIEW_COUNT)).map((a) => (
+              <li key={a.id} className="border-b border-hairline pb-3 last:border-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wide text-muted-subtle">
+                    {ACTIVITY_KIND_LABEL[a.kind as ActivityKind] ?? a.kind}
+                  </span>
+                  <span className="text-[11px] text-muted-subtle">{timeAgo(a.created_at)}</span>
+                </div>
+                <p className="mt-0.5 text-[13px] text-foreground/80">{a.summary}</p>
+              </li>
+            ))}
+          </ul>
+          {activities.length > ACTIVITY_PREVIEW_COUNT && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="mt-2 text-sm font-semibold text-primary hover:underline"
+            >
+              {showAll ? "See less" : `See more (${activities.length - ACTIVITY_PREVIEW_COUNT})`}
+            </button>
+          )}
+        </>
       )}
     </section>
   );
