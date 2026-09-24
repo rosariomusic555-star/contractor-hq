@@ -52,6 +52,13 @@ interface PhotoGalleryProps {
    * as its own top-level section (e.g. the project page). Everything else
    * — uploader, grid, lightbox, delete flow — is identical either way. */
   bare?: boolean;
+  /** Hide every client-visibility control (eye toggles, "Share all with
+   * client", the visibility hint) — for surfaces whose photos are internal
+   * only, e.g. the opportunity page's site photos. New uploads already
+   * default to hidden (client_visible defaults false, 0064), so nothing
+   * uploaded here ever reaches the client hub unless someone shares it
+   * from the project page later. */
+  internalOnly?: boolean;
 }
 
 /**
@@ -66,7 +73,8 @@ interface PhotoGalleryProps {
  * immediate writes, same as the project gallery always was — there's
  * nothing to "save" about a photo, it either uploaded or it didn't.
  */
-export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGalleryProps) {
+export function PhotoGallery({ owner, title, emptyText, bare = false, internalOnly = false }: PhotoGalleryProps) {
+  const showVisibility = owner.type === "project" && !internalOnly;
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -139,7 +147,7 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
     },
     onError,
   });
-  const hiddenCount = owner.type === "project" ? images.filter((i) => !i.client_visible).length : 0;
+  const hiddenCount = showVisibility ? images.filter((i) => !i.client_visible).length : 0;
 
   // Client Hub Phase 5 — moves a client-submitted photo into the regular
   // gallery. Still starts hidden from the client (see acceptProjectImage's
@@ -168,7 +176,7 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-bold text-foreground">{title}</h3>
         <div className="flex shrink-0 items-center gap-3">
-          {owner.type === "project" && hiddenCount > 0 && (
+          {showVisibility && hiddenCount > 0 && (
             <button
               type="button"
               onClick={() => visibilityMut.mutate({ ids: images.map((i) => i.id), visible: true })}
@@ -186,7 +194,7 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
           )}
         </div>
       </div>
-      {owner.type === "project" && images.length > 0 && (
+      {showVisibility && images.length > 0 && (
         <p className="mt-1 text-[11px] text-muted-subtle">
           {hiddenCount === 0
             ? "All photos are visible to the client."
@@ -267,7 +275,7 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
                 <Loader2 className="h-4 w-4 animate-spin text-muted-subtle" />
               </div>
             )}
-            {owner.type === "project" && (
+            {showVisibility && (
               <span
                 role="button"
                 tabIndex={0}
@@ -360,7 +368,7 @@ export function PhotoGallery({ owner, title, emptyText, bare = false }: PhotoGal
                   placeholder="Add a caption…"
                 />
               </div>
-              {owner.type === "project" && (
+              {showVisibility && (
                 <Button
                   variant="outline"
                   onClick={() =>

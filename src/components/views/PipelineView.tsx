@@ -12,6 +12,7 @@ import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { FilterSegment, type FilterOption } from "@/components/common/FilterControls";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { CategoryChips } from "@/components/common/CategoryChips";
+import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -352,7 +353,7 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
-  const [leadSource, setLeadSource] = useState("");
+  const [leadSource, setLeadSource] = useState<string | null>(null);
 
   const selectedClient = clients.find((c) => c.id === clientId) ?? null;
 
@@ -361,7 +362,7 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
       setClientId(null);
       setTitle("");
       setCategoryIds([]);
-      setLeadSource("");
+      setLeadSource(null);
     }
   }, [open]);
 
@@ -370,7 +371,7 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
       const opp = await createOpportunity({
         client_id: clientId!,
         title: title.trim(),
-        lead_source: leadSource.trim() || null,
+        lead_source: leadSource,
       });
       if (categoryIds.length > 0) await setOpportunityCategories(opp.id, categoryIds);
       return opp;
@@ -406,7 +407,7 @@ function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpen
             </div>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (e.g. Backyard patio)" />
             <CategoryMultiSelect value={categoryIds} onChange={setCategoryIds} placeholder="Project types (optional)" />
-            <Input value={leadSource} onChange={(e) => setLeadSource(e.target.value)} placeholder="Lead source (optional)" />
+            <LeadSourceSelect value={leadSource} onChange={setLeadSource} placeholder="Lead source (optional)" />
           </div>
           <Button
             className="w-full font-bold"

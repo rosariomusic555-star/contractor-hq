@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BUILD_TYPES } from "@/lib/buildTypes";
+import { findQuickQuoteTemplate } from "@/lib/quickQuote";
 
 /**
  * A single question — "what are you building?" — same taxonomy as the
@@ -25,7 +26,7 @@ export function QuickQuoteDialog({
         </DialogHeader>
 
         <div className="space-y-2">
-          {BUILD_TYPES.map((buildType) => (
+          {BUILD_TYPES.filter((b) => findQuickQuoteTemplate(b.id)).map((buildType) => (
             <button
               key={buildType.id}
               type="button"

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, MessageSquare, Phone, StickyNote } from "lucide-react";
+import { Mail, MessageSquare, StickyNote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,11 +18,10 @@ import { pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import { listCommunications, listClients, logActivity, type Activity, type ActivityKind } from "@/lib/api";
 
-type Filter = "all" | "call" | "text" | "email" | "note";
+type Filter = "all" | "text" | "email" | "note";
 
-const KIND_LABEL: Record<Filter, string> = { all: "All", call: "Calls", text: "Texts", email: "Emails", note: "Notes" };
-const KIND_ICON: Record<"call" | "text" | "email" | "note", typeof Phone> = {
-  call: Phone,
+const KIND_LABEL: Record<Filter, string> = { all: "All", text: "Texts", email: "Emails", note: "Notes" };
+const KIND_ICON: Record<"text" | "email" | "note", typeof Mail> = {
   text: MessageSquare,
   email: Mail,
   note: StickyNote,
@@ -30,7 +29,7 @@ const KIND_ICON: Record<"call" | "text" | "email" | "note", typeof Phone> = {
 
 /**
  * CRM Phase 6's "Communication Center" — every manually-logged note/
- * call/text/email across every customer in one place, newest first, so
+ * text/email across every customer in one place, newest first, so
  * "did anyone follow up with this person" doesn't require opening each
  * customer one at a time. Manual log only, same as the per-customer
  * composer (Phase 1) — no live email/SMS sending, per the ask.
@@ -43,7 +42,6 @@ export function CommunicationsView() {
   });
 
   const counts = {
-    call: communications.filter((c) => c.kind === "call").length,
     text: communications.filter((c) => c.kind === "text").length,
     email: communications.filter((c) => c.kind === "email").length,
     note: communications.filter((c) => c.kind === "note").length,
@@ -52,7 +50,6 @@ export function CommunicationsView() {
 
   const options: FilterOption<Filter>[] = [
     { value: "all", label: "All", count: communications.length },
-    { value: "call", label: "Calls", count: counts.call },
     { value: "text", label: "Texts", count: counts.text },
     { value: "email", label: "Emails", count: counts.email },
     { value: "note", label: "Notes", count: counts.note },
@@ -85,7 +82,7 @@ export function CommunicationsView() {
 }
 
 function CommunicationRow({ communication }: { communication: Activity }) {
-  const kind = communication.kind as "call" | "text" | "email" | "note";
+  const kind = communication.kind as "text" | "email" | "note";
   const Icon = KIND_ICON[kind] ?? StickyNote;
   return (
     <Link
@@ -114,7 +111,7 @@ function LogCommunicationCard() {
   const qc = useQueryClient();
   const [clientId, setClientId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [kind, setKind] = useState<Exclude<Filter, "all">>("call");
+  const [kind, setKind] = useState<Exclude<Filter, "all">>("note");
   const [body, setBody] = useState("");
 
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
@@ -145,7 +142,6 @@ function LogCommunicationCard() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="call">Call</SelectItem>
             <SelectItem value="text">Text</SelectItem>
             <SelectItem value="email">Email</SelectItem>
             <SelectItem value="note">Note</SelectItem>

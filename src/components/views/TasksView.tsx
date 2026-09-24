@@ -23,6 +23,7 @@ import {
   createTask,
   setTaskCompleted,
   TASK_TYPE_LABEL,
+  CREATABLE_TASK_TYPES,
   listClients,
   type Task,
   type TaskType,
@@ -221,7 +222,7 @@ export function CreateTaskDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(TASK_TYPE_LABEL) as TaskType[]).map((t) => (
+                  {CREATABLE_TASK_TYPES.map((t) => (
                     <SelectItem key={t} value={t}>
                       {TASK_TYPE_LABEL[t]}
                     </SelectItem>
