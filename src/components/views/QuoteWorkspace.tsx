@@ -223,7 +223,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const projectId = quote.project_id;
 
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
-  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  const { data: activeProjects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  // listProjects() leaves out pre-sale projects (isPreSaleProject) — which is
+  // where an opportunity's quotes live — so keep this quote's own project in
+  // the picker anyway, or the field would show blank.
+  const projects =
+    projectId && !activeProjects.some((p) => p.id === projectId)
+      ? [{ id: projectId, name: quote.project?.name ?? "Project" }, ...activeProjects]
+      : activeProjects;
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: quoteDefaults = QUOTE_DEFAULTS_FALLBACK } = useQuery({
     queryKey: ["quote-defaults"],

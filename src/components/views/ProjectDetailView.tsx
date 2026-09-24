@@ -74,6 +74,7 @@ import {
   listLaborPlanEntries,
   listLaborEntries,
   listCategories,
+  isPreSaleProject,
   type ProjectStatus,
   type MaterialsItem,
   type MaterialsUsageLog,
@@ -412,6 +413,22 @@ export function ProjectDetailView() {
           {statusSelect}
         </div>
       </div>
+
+      {/* Pre-sale: this project only holds an unwon opportunity's estimate,
+          and is hidden from every job list until it's Won (isPreSaleProject). */}
+      {isPreSaleProject(project) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-info/30 bg-info/10 px-4 py-3">
+          <p className="text-sm font-semibold text-foreground">This job hasn't been won yet.</p>
+          <Link
+            to={`/pipeline/${project.opportunities![0].id}`}
+            className="inline-flex items-center gap-1 text-sm font-bold text-primary hover:underline"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Back to opportunity
+          </Link>
+        </div>
+      )}
+
       <div className="md:hidden">{statusSelect}</div>
 
       <div className="max-w-sm">

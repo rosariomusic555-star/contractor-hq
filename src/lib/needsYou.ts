@@ -1,6 +1,7 @@
 import { pluralize, formatCurrency } from "./utils";
-import { quoteTotal, type Invoice, type Quote } from "./api";
+import { quoteTotal, type Appointment, type Invoice, type Opportunity, type Quote } from "./api";
 import { invoiceDaysLate } from "./financials";
+import { overdueSiteVisitsByOpportunity, siteVisitDateLabel } from "./siteVisitCheck";
 
 // Thresholds — confirmed 2026-09-09. Overdue invoices flag once 3+ days
 // past due; shared quotes flag once 3+ days old with no response.
@@ -100,15 +101,44 @@ function depositItems(quotes: Quote[], invoices: Invoice[], now: Date): NeedsYou
 }
 
 /**
- * The full "Needs you" action queue — overdue chases, deposit prompts,
- * quote follow-ups — combined and sorted most-urgent-first (highest raw day
+ * Site visits to confirm: a site visit / estimate appointment whose date
+ * has passed but was never checked off or cancelled, on a lead still early
+ * enough that confirming it moves the stage (see overdueSiteVisit). Links
+ * to the opportunity, whose StageBanner asks the same question with
+ * "Yes, mark completed" / "Reschedule".
+ */
+function siteVisitConfirmItems(opportunities: Opportunity[], appointments: Appointment[], now: Date): NeedsYouItem[] {
+  const byOpp = new Map(opportunities.map((o) => [o.id, o]));
+  return [...overdueSiteVisitsByOpportunity(opportunities, appointments, now)].map(([oppId, visit]) => {
+    const opportunity = byOpp.get(oppId)!;
+    return {
+      key: `site-visit-${visit.id}`,
+      tone: "red" as const,
+      title: `Confirm site visit: ${opportunity.title}`,
+      subtitle: `${siteVisitDateLabel(visit)}${opportunity.client?.name ? ` · ${opportunity.client.name}` : ""}`,
+      action: "Confirm",
+      href: `/pipeline/${oppId}`,
+      sortValue: Math.max(daysSince(visit.date_time, now), 1),
+    };
+  });
+}
+
+/**
+ * The full "Needs you" action queue — site visits to confirm, overdue
+ * chases, deposit prompts, quote follow-ups — combined and sorted most-urgent-first (highest raw day
  * count, regardless of category). Single source of truth for both the
  * Dashboard card (NeedsYou.tsx, capped to 5) and the full list (/needs-you,
  * NeedsYouView.tsx, uncapped) so the two can never disagree on contents or
  * order.
  */
-export function buildNeedsYouItems(quotes: Quote[], invoices: Invoice[], now: Date = new Date()): NeedsYouItem[] {
+export function buildNeedsYouItems(
+  quotes: Quote[],
+  invoices: Invoice[],
+  now: Date = new Date(),
+  siteVisits: { opportunities: Opportunity[]; appointments: Appointment[] } = { opportunities: [], appointments: [] },
+): NeedsYouItem[] {
   return [
+    ...siteVisitConfirmItems(siteVisits.opportunities, siteVisits.appointments, now),
     ...overdueInvoiceItems(invoices, now),
     ...depositItems(quotes, invoices, now),
     ...quoteFollowUpItems(quotes, now),

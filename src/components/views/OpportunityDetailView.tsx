@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Link2,
   Calculator,
+  Phone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { cn, formatCurrency, pluralize } from "@/lib/utils";
+import { cn, formatCurrency, formatPhone, phoneHref, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import { OPPORTUNITY_STAGES, opportunityStageMeta, quoteStatusMeta } from "@/lib/statusMeta";
 import {
@@ -37,6 +38,8 @@ import {
   moveOpportunityStage,
   markOpportunityWon,
   getOrCreateOpportunityProject,
+  getClient,
+  setAppointmentStatus,
   linkOpportunityToProject,
   unlinkOpportunityProject,
   listProjectsForClient,
@@ -55,6 +58,8 @@ import {
   listActivitiesForOpportunity,
   logActivity,
   listTasksForOpportunity,
+  listCostPlanItems,
+  listLaborPlanEntries,
   setTaskCompleted,
   listAppointmentsForOpportunity,
   opportunityCategoryIds,
@@ -63,8 +68,8 @@ import {
   type Opportunity,
   type OpportunityStage,
   type ActivityKind,
-  type Task,
   type Appointment,
+  type Client,
   type Project,
 } from "@/lib/api";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
@@ -72,7 +77,9 @@ import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
-import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
+import { AppointmentRow, CreateAppointmentDialog, EditAppointmentDialog } from "@/components/views/AppointmentsView";
+import { overdueSiteVisit, siteVisitDateLabel } from "@/lib/siteVisitCheck";
+import { invalidateAppointmentQueries } from "@/lib/appointmentQueries";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
@@ -101,19 +108,47 @@ export function OpportunityDetailView() {
     enabled: !!opportunity?.project_id,
   });
 
-  const { data: openTasks = [] } = useQuery({
-    queryKey: ["opportunity-tasks", id],
-    queryFn: () => listTasksForOpportunity(id),
+  // StageBanner inputs — only the opportunity's own job data, never tasks.
+  // Same query keys as the Project / Cost Plan pages, so they share cache.
+  const bannerProjectId = opportunity?.project_id ?? null;
+  const atSiteVisitDone = opportunity?.stage === "site_visit_done";
+  const { data: bannerSheets = [] } = useQuery({
+    queryKey: ["materials-sheets", { project: bannerProjectId }],
+    queryFn: () => listMaterialsSheets(bannerProjectId!),
+    enabled: !!bannerProjectId && atSiteVisitDone,
   });
-  const nextTask = openTasks.find((t) => !t.completed);
+  const { data: bannerCostPlanItems = [] } = useQuery({
+    queryKey: ["cost-plan-items", { project: bannerProjectId }],
+    queryFn: () => listCostPlanItems(bannerProjectId!),
+    enabled: !!bannerProjectId && atSiteVisitDone,
+  });
+  const { data: bannerLaborEntries = [] } = useQuery({
+    queryKey: ["labor-plan-entries", { project: bannerProjectId }],
+    queryFn: () => listLaborPlanEntries(bannerProjectId!),
+    enabled: !!bannerProjectId && atSiteVisitDone,
+  });
+  // A cost plan isn't its own record — it counts as started once anything
+  // it rolls up exists (materials sheet, labor plan, other cost lines).
+  const costPlanStarted = bannerSheets.length + bannerCostPlanItems.length + bannerLaborEntries.length > 0;
 
   const { data: appointments = [] } = useQuery({
     queryKey: ["opportunity-appointments", id],
     queryFn: () => listAppointmentsForOpportunity(id),
   });
   const upcomingAppointment = appointments.find((a) => a.status === "scheduled");
+  // A site visit whose date passed without being checked off — the banner
+  // asks whether it happened (same rule as Needs you / the Pipeline board).
+  const overdueVisit = opportunity ? overdueSiteVisit(opportunity, appointments) : undefined;
 
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+
+  // New Lead banner shows the client's phone/email — the opportunity query
+  // only joins the client's name. Same cache key as the client page.
+  const { data: client } = useQuery({
+    queryKey: ["client", opportunity?.client_id],
+    queryFn: () => getClient(opportunity!.client_id),
+    enabled: !!opportunity?.client_id && opportunity.stage === "new_lead",
+  });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["opportunity", id] });
   const invalidateProjectLink = () => {
@@ -137,8 +172,12 @@ export function OpportunityDetailView() {
       invalidate();
       qc.invalidateQueries({ queryKey: ["opportunities"] });
       qc.invalidateQueries({ queryKey: ["opportunity-activities", id] });
+      // Any move into or out of Won shows/hides the linked project in every
+      // project list (isPreSaleProject) — refresh them on every move.
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["client-projects"] });
+      if (opportunity?.project_id) qc.invalidateQueries({ queryKey: ["project", opportunity.project_id] });
       if (toStage === "won") {
-        qc.invalidateQueries({ queryKey: ["projects"] });
         qc.invalidateQueries({ queryKey: ["quotes"] });
         qc.invalidateQueries({ queryKey: ["invoices"] });
         toast({ title: "Won — project ready" });
@@ -171,6 +210,26 @@ export function OpportunityDetailView() {
     },
     onError,
   });
+
+  // Won banner's "Go to project" and Revisions' "Open project view". If the
+  // opportunity has no project yet, create/get it first.
+  const goToProjectMut = useMutation({
+    mutationFn: async () => opportunity!.project_id ?? (await getOrCreateOpportunityProject(id)),
+    onSuccess: (projectId) => {
+      if (projectId !== opportunity?.project_id) invalidateProjectLink();
+      navigate(`/projects/${projectId}`);
+    },
+    onError,
+  });
+
+  // "Yes, mark completed" on the overdue-visit prompt — the same completion
+  // as the appointment checkbox, so it also advances to Site Visit Done.
+  const confirmVisitMut = useMutation({
+    mutationFn: (visit: Appointment) => setAppointmentStatus(visit, "completed", visit.outcome),
+    onSuccess: (_d, visit) => invalidateAppointmentQueries(qc, visit.client_id, visit.opportunity_id),
+    onError,
+  });
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
 
   const createQuoteMut = useMutation({
     mutationFn: async (categoryNames: string[]) => {
@@ -333,14 +392,24 @@ export function OpportunityDetailView() {
         </Select>
       </div>
 
-      {opportunity.stage !== "won" && opportunity.stage !== "lost" && (
+      {opportunity.stage !== "lost" && (
         <StageBanner
           opportunity={opportunity}
-          nextTask={nextTask}
+          client={client}
+          movingStage={moveStageMut.isPending}
+          onMarkContacted={() => moveStageMut.mutate("contacted")}
+          onClientWantsChanges={() => moveStageMut.mutate("revisions")}
+          costPlanStarted={costPlanStarted}
           upcomingAppointment={upcomingAppointment}
+          overdueVisit={overdueVisit}
+          confirmingVisit={confirmVisitMut.isPending}
+          onConfirmVisit={() => overdueVisit && confirmVisitMut.mutate(overdueVisit)}
+          onRescheduleVisit={() => setRescheduleOpen(true)}
           openingCostPlan={openCostPlanMut.isPending}
+          openingProject={goToProjectMut.isPending}
           onScheduleVisit={() => setAppointmentDialogOpen(true)}
           onOpenCostPlan={() => openCostPlanMut.mutate()}
+          onGoToProject={() => goToProjectMut.mutate()}
           onFollowUp={() => setTaskDialogOpen(true)}
         />
       )}
@@ -442,6 +511,10 @@ export function OpportunityDetailView() {
         </div>
       </div>
 
+      {overdueVisit && (
+        <EditAppointmentDialog open={rescheduleOpen} onOpenChange={setRescheduleOpen} appointment={overdueVisit} />
+      )}
+
       <LinkProjectDialog
         open={linkProjectDialogOpen}
         onOpenChange={setLinkProjectDialogOpen}
@@ -512,29 +585,76 @@ function LinkProjectDialog({
  */
 function StageBanner({
   opportunity,
-  nextTask,
+  client,
+  movingStage,
+  onMarkContacted,
+  onClientWantsChanges,
+  costPlanStarted,
   upcomingAppointment,
+  overdueVisit,
+  confirmingVisit,
+  onConfirmVisit,
+  onRescheduleVisit,
   openingCostPlan,
+  openingProject,
   onScheduleVisit,
   onOpenCostPlan,
+  onGoToProject,
   onFollowUp,
 }: {
   opportunity: Opportunity;
-  nextTask: Task | undefined;
+  client: Pick<Client, "id" | "name" | "phone" | "email"> | undefined;
+  /** The stage dropdown's own mutation is running (Mark as contacted /
+   * Client wants changes use it too). */
+  movingStage: boolean;
+  onMarkContacted: () => void;
+  onClientWantsChanges: () => void;
+  costPlanStarted: boolean;
   upcomingAppointment: Appointment | undefined;
+  overdueVisit: Appointment | undefined;
+  confirmingVisit: boolean;
+  onConfirmVisit: () => void;
+  onRescheduleVisit: () => void;
   openingCostPlan: boolean;
+  openingProject: boolean;
   onScheduleVisit: () => void;
   onOpenCostPlan: () => void;
+  onGoToProject: () => void;
   onFollowUp: () => void;
 }) {
   const content = (() => {
+    // Takes over from the stage's own message — the visit date has passed
+    // and nobody said whether it happened.
+    if (overdueVisit) {
+      return {
+        text: `Was the site visit on ${siteVisitDateLabel(overdueVisit)} completed?`,
+        action: confirmingVisit ? "Saving…" : "Yes, mark completed",
+        onClick: onConfirmVisit,
+        secondary: { label: "Reschedule", onClick: onRescheduleVisit },
+      };
+    }
     switch (opportunity.stage) {
-      case "new_lead":
+      case "new_lead": {
+        const name = client?.name ?? opportunity.client?.name;
+        const phone = client?.phone?.trim();
         return {
-          text: "Start planning the job.",
-          action: openingCostPlan ? "Opening…" : "Create cost plan",
-          onClick: onOpenCostPlan,
+          text: name ? `New lead. Reach out to ${name}.` : "New lead. Reach out to the client.",
+          // Plain tel: link only — no call logging (calls were removed
+          // app-wide). No phone on file → link to the client's edit form.
+          detail: phone ? (
+            <a href={phoneHref(phone)} className="inline-flex items-center gap-1.5 text-primary hover:underline">
+              <Phone className="h-3.5 w-3.5 shrink-0" />
+              {formatPhone(phone)}
+            </a>
+          ) : client ? (
+            <Link to={`/clients/${client.id}/edit`} className="font-semibold text-primary hover:underline">
+              Add contact info
+            </Link>
+          ) : null,
+          action: movingStage ? "Saving…" : "Mark as contacted",
+          onClick: onMarkContacted,
         };
+      }
       case "contacted":
         return { text: "Ready to schedule a site visit?", action: "Schedule site visit", onClick: onScheduleVisit };
       case "site_visit_scheduled":
@@ -553,24 +673,28 @@ function StageBanner({
           : { text: "Site visit scheduled.", action: null, onClick: undefined };
       case "site_visit_done":
         return {
-          text: "Time to price the job.",
-          action: openingCostPlan ? "Opening…" : "Create cost plan",
+          text: "Site visit done. Build the estimate.",
+          action: openingCostPlan ? "Opening…" : costPlanStarted ? "Open cost plan" : "Create cost plan",
           onClick: onOpenCostPlan,
         };
       case "proposal_sent":
         return {
-          text: nextTask
-            ? `Next: ${nextTask.title}${nextTask.due_at ? ` · ${new Date(nextTask.due_at).toLocaleDateString()}` : ""}`
-            : "Waiting on the client — worth a follow-up?",
+          text: "Waiting on the client — worth a follow-up?",
           action: "Follow up",
           onClick: onFollowUp,
+          secondary: { label: movingStage ? "Saving…" : "Client wants changes", onClick: onClientWantsChanges },
         };
       case "revisions":
         return {
-          text: "The client asked for changes — a revised quote is owed.",
-          action: "Revise and resend quote",
-          onClick: undefined,
-          to: opportunity.project_id ? `/projects/${opportunity.project_id}/quotes` : undefined,
+          text: "Client asked for revisions.",
+          action: openingProject ? "Opening…" : "Open project view",
+          onClick: onGoToProject,
+        };
+      case "won":
+        return {
+          text: "Won. This job is now a project.",
+          action: openingProject ? "Opening…" : "Go to project",
+          onClick: onGoToProject,
         };
       default:
         return null;
@@ -578,22 +702,44 @@ function StageBanner({
   })();
 
   if (!content) return null;
+  // Two buttons don't fit beside the message on a phone — stack them full
+  // width under it below sm. Single-button banners keep the inline layout.
+  const twoButtons = "secondary" in content && !!content.secondary;
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-card border border-primary/30 bg-primary/5 px-4 py-3">
-      <p className="text-sm font-semibold text-foreground">{content.text}</p>
-      {content.action &&
-        (content.to ? (
-          <Button asChild size="sm" className="shrink-0 font-bold">
-            <Link to={content.to}>
-              {content.action} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-            </Link>
+    <div
+      className={cn(
+        "flex justify-between gap-3 rounded-card border border-primary/30 bg-primary/5 px-4 py-3",
+        twoButtons ? "flex-col sm:flex-row sm:items-center" : "items-center",
+      )}
+    >
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-foreground">{content.text}</p>
+        {"detail" in content && content.detail && <p className="mt-0.5 text-[13px] text-muted-foreground">{content.detail}</p>}
+      </div>
+      <div className={cn("flex shrink-0 gap-2", twoButtons ? "flex-col-reverse sm:flex-row sm:items-center [&>*]:w-full sm:[&>*]:w-auto" : "items-center")}>
+        {"secondary" in content && content.secondary && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="font-bold"
+            onClick={content.secondary.onClick}
+            disabled={confirmingVisit || movingStage}
+          >
+            {content.secondary.label}
           </Button>
-        ) : content.onClick ? (
-          <Button size="sm" className="shrink-0 font-bold" onClick={content.onClick} disabled={openingCostPlan}>
+        )}
+        {content.action && content.onClick && (
+          <Button
+            size="sm"
+            className="shrink-0 font-bold"
+            onClick={content.onClick}
+            disabled={openingCostPlan || openingProject || movingStage || confirmingVisit}
+          >
             {content.action} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
           </Button>
-        ) : null)}
+        )}
+      </div>
     </div>
   );
 }
