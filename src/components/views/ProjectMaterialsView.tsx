@@ -85,7 +85,12 @@ import {
   reviseMaterialBaseline,
   matchMaterialOrderItem,
   materialOrderUnitLabel,
-  ORDER_SHEET_CATEGORIES,
+  listCategories,
+  listMaterialCategories,
+  materialCategoryIdByName,
+  projectCategoryIds,
+  type Category,
+  type MaterialCategory,
   type MaterialsSection,
   type MaterialsSheet,
   type MaterialsItem,
@@ -114,6 +119,8 @@ import {
   normalizeMaterialUnit,
   quantityWithWaste,
   wastePercentToReach,
+  sortItemsByCost,
+  type ItemSortMode,
 } from "@/lib/materialsMath";
 import { OptionOrCustomField } from "@/components/materials/OptionOrCustomField";
 import {
@@ -144,9 +151,12 @@ interface DraftItem {
   unit_cost: number;
   /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
   expense_category_id: string | null;
-  /** Order Sheet material category (0089/0090) — see ORDER_SHEET_CATEGORIES.
-   * Prefilled from the Catalog/Price Book source at pick time, never locked. */
+  /** Legacy text category — now only a name snapshot of
+   * material_category_id, written on save (see saveMut). */
   category: string | null;
+  /** The line's one category (0094, Settings > Material categories).
+   * Prefilled from the Catalog/Price Book source at pick time, never locked. */
+  material_category_id: string | null;
   /** One of MATERIAL_UNITS or a custom unit (see UnitSelect). Not part of the math. */
   unit: string;
   /** Set when this line was picked from the Price Book — locks
@@ -180,6 +190,8 @@ interface DraftSection {
    * build type it is, so its header can show the calculator icon. Set
    * once at creation, never changes afterward. */
   smart_section_build_type: string | null;
+  /** Project-type tag (0094) — one of the project's own Job Categories. */
+  job_category_id: string | null;
   items: DraftItem[];
 }
 
@@ -191,6 +203,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
     id: s.id,
     name: s.name,
     smart_section_build_type: s.smart_section_build_type ?? null,
+    job_category_id: s.job_category_id ?? null,
     items: s.materials_items.map((i) => ({
       id: i.id,
       name: i.name,
@@ -198,6 +211,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       unit_cost: Number(i.unit_cost),
       expense_category_id: i.expense_category_id ?? null,
       category: i.category ?? null,
+      material_category_id: i.material_category_id ?? null,
       unit: i.unit ?? "",
       price_book_item_id: i.price_book_item_id ?? null,
       catalog_product_id: i.catalog_product_id ?? null,
@@ -216,6 +230,7 @@ const itemChanged = (
     unit_cost: number;
     expense_category_id: string | null;
     category: string | null;
+    material_category_id: string | null;
     unit: string;
     price_book_item_id: string | null;
     catalog_product_id: string | null;
@@ -229,6 +244,7 @@ const itemChanged = (
   a.unit_cost !== b.unit_cost ||
   a.expense_category_id !== b.expense_category_id ||
   a.category !== b.category ||
+  a.material_category_id !== b.material_category_id ||
   a.unit !== b.unit ||
   a.price_book_item_id !== b.price_book_item_id ||
   a.catalog_product_id !== b.catalog_product_id ||
@@ -449,6 +465,22 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // line's own live quantity/cost, so a project still in Estimating shows
   // a real number instead of $0.
   const { data: project } = useQuery({ queryKey: ["projects", projectId], queryFn: () => getProject(projectId) });
+  // Material categories (0094) — the line items' one category list.
+  const { data: materialCategories = [] } = useQuery({
+    queryKey: ["material-categories"],
+    queryFn: listMaterialCategories,
+  });
+  // Section project-type tags — options are the project's own Project
+  // types, so changing those on the project changes what's offered here.
+  const { data: jobCategories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const projectTypeOptions = useMemo(() => {
+    const ids = new Set(project ? projectCategoryIds(project) : []);
+    return jobCategories.filter((c) => ids.has(c.id));
+  }, [project, jobCategories]);
+  // Per-section item sort (view-only until the user reorders — see
+  // reorderFromSorted).
+  const [itemSort, setItemSort] = useState<Record<string, ItemSortMode>>({});
+  const sortOf = (sid: string): ItemSortMode => itemSort[sid] ?? "manual";
   const { data: projectChangeOrders = [] } = useQuery({
     queryKey: ["change-orders", { project: projectId }],
     queryFn: () => listChangeOrders(projectId),
@@ -532,7 +564,27 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     markDirty();
     setDraft((d) => fn(d));
   };
-  const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftItem, DraftSection>(edit);
+  const { moveSection, moveItem: moveItemRaw, onDragEnd: onDragEndRaw } = useSectionReorder<DraftItem, DraftSection>(edit);
+  // Reordering an item while its section is sorted by cost: the sorted
+  // order becomes the new manual order first, then the move applies on top
+  // and the section switches back to Manual. Sorting alone never touches
+  // the saved order.
+  const reorderFromSorted = (sectionIds: string[]) => {
+    const sorted = sectionIds.filter((sid) => sortOf(sid) !== "manual");
+    if (sorted.length === 0) return;
+    edit((d) => d.map((s) => (sorted.includes(s.id) ? { ...s, items: sortItemsByCost(s.items, sortOf(s.id)) } : s)));
+    setItemSort((prev) => ({ ...prev, ...Object.fromEntries(sorted.map((sid) => [sid, "manual" as const])) }));
+  };
+  const moveItem = (sid: string, index: number, direction: -1 | 1) => {
+    reorderFromSorted([sid]);
+    moveItemRaw(sid, index, direction);
+  };
+  const onDragEnd = (result: DropResult) => {
+    if (result.type === "item" && result.destination) {
+      reorderFromSorted([result.source.droppableId, result.destination.droppableId]);
+    }
+    onDragEndRaw(result);
+  };
   const {
     isCollapsed,
     toggle: toggleCollapse,
@@ -554,8 +606,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const renameSection = (sid: string, name: string) =>
     edit((d) => d.map((s) => (s.id === sid ? { ...s, name } : s)));
   const deleteSection = (sid: string) => edit((d) => d.filter((s) => s.id !== sid));
+  const setSectionType = (sid: string, job_category_id: string | null) =>
+    edit((d) => d.map((s) => (s.id === sid ? { ...s, job_category_id } : s)));
   const addSection = () =>
-    edit((d) => [...d, { id: tmpId(), name: "", smart_section_build_type: null, items: [] }]);
+    edit((d) => [...d, { id: tmpId(), name: "", smart_section_build_type: null, job_category_id: null, items: [] }]);
   // Step 1 of Smart Section is a template, not a calculator: it lands as
   // an ordinary new draft section with blank-quantity/price line items
   // named per the build type. Indistinguishable from manually-added rows
@@ -569,6 +623,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         id: tmpId(),
         name,
         smart_section_build_type: buildTypeId,
+        // Auto-tag with the project type matching this build type
+        // (e.g. "Paver Patio"), when the project has one.
+        job_category_id: matchProjectTypeForBuildType(buildTypeId, projectTypeOptions),
         items: lineItems.map((itemName) => ({
           id: tmpId(),
           name: itemName,
@@ -576,6 +633,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           unit_cost: 0,
           expense_category_id: null,
           category: null,
+          material_category_id: null,
           unit: "",
           price_book_item_id: null,
           catalog_product_id: null,
@@ -615,7 +673,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               }
               // Same never-clobber rule for the Order Sheet category —
               // inherits the Catalog product's category only while unset.
-              if (product && item.category == null) patch.category = product.category;
+              if (product && item.material_category_id == null) {
+                patch.material_category_id = materialCategoryIdByName(materialCategories, product.category);
+              }
             }
             return { ...item, ...patch };
           }),
@@ -637,6 +697,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                   unit_cost: 0,
                   expense_category_id: null,
                   category: null,
+                  material_category_id: null,
                   unit: "",
                   price_book_item_id: null,
                   catalog_product_id: null,
@@ -690,10 +751,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             name,
             sort_order: si,
             smart_section_build_type: ds.smart_section_build_type,
+            job_category_id: ds.job_category_id,
           });
           sectionId = created.id;
         } else if (server.name !== name || server.sort_order !== si) {
           await updateMaterialsSection(server.id, { name, sort_order: si });
+        }
+        if (server && (server.job_category_id ?? null) !== ds.job_category_id) {
+          await updateMaterialsSection(server.id, { job_category_id: ds.job_category_id });
         }
 
         const serverItems = new Map((server?.materials_items ?? []).map((i) => [i.id, i]));
@@ -711,6 +776,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           const di = ds.items[ii];
           const srv = serverItems.get(di.id);
           const unit = di.unit.trim() || null;
+          // Text category = a name snapshot of the chosen material
+          // category. Before 0094 (no categories loaded) keep the old value.
+          const categoryText = materialCategories.length
+            ? (materialCategories.find((c) => c.id === di.material_category_id)?.name ?? null)
+            : di.category;
           if (!srv) {
             await addMaterialsItem(sectionId, {
               name: di.name,
@@ -718,7 +788,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               unit_cost: di.unit_cost,
               sort_order: ii,
               expense_category_id: di.expense_category_id,
-              category: di.category,
+              category: categoryText,
+              material_category_id: di.material_category_id,
               unit,
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
@@ -733,6 +804,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               unit_cost: Number(srv.unit_cost),
               expense_category_id: srv.expense_category_id ?? null,
               category: srv.category ?? null,
+              material_category_id: srv.material_category_id ?? null,
               unit: srv.unit ?? "",
               price_book_item_id: srv.price_book_item_id ?? null,
               catalog_product_id: srv.catalog_product_id ?? null,
@@ -747,7 +819,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               quantity: di.quantity,
               unit_cost: di.unit_cost,
               expense_category_id: di.expense_category_id,
-              category: di.category,
+              category: categoryText,
+              material_category_id: di.material_category_id,
               unit,
               price_book_item_id: di.price_book_item_id,
               catalog_product_id: di.catalog_product_id,
@@ -932,16 +1005,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         )}
       </div>
 
-      <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
-        <div className="flex items-center justify-between bg-sidebar px-5 py-4">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-background/55">
-            Total cost
-          </span>
-          <span className="text-[26px] font-extrabold tracking-tight tabular-nums text-background">
-            {formatCurrency(grandTotal)}
-          </span>
-        </div>
-        {needsExplicitLink && sheetId && (
+      {/* Quote link stays up top; the total itself lives at the bottom,
+          after every section. */}
+      {needsExplicitLink && sheetId && (
+        <div className="overflow-hidden rounded-card shadow-card">
           <LinkedDocumentBar
             targetLabel="quote"
             linked={
@@ -953,8 +1020,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             onUnlink={() => unlinkQuoteMut.mutate(linkedQuote!.id)}
             className="bg-sidebar/95"
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {costSummary && (
         <div className="card-surface grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
@@ -1067,7 +1134,13 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                     <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
                       <MaterialsSectionCard
                         section={section}
+                        materialCategories={materialCategories}
                         expenseCategories={expenseCategories}
+                        sortMode={sortOf(section.id)}
+                        onSortChange={(mode) => setItemSort((prev) => ({ ...prev, [section.id]: mode }))}
+                        projectTypeOptions={projectTypeOptions}
+                        jobCategories={jobCategories}
+                        onTypeChange={(jobCategoryId) => setSectionType(section.id, jobCategoryId)}
                         priceBookItems={priceBookItems}
                         catalogItems={catalogItems}
                         priceOverrides={priceOverrides}
@@ -1135,6 +1208,16 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           <Wand2 className="h-4 w-4" />
           Create Smart Section
         </button>
+      </div>
+
+      {/* Sheet total — after all sections. */}
+      <div className="flex items-center justify-between overflow-hidden rounded-card border-2 border-primary bg-sidebar px-5 py-4 shadow-card">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-background/55">
+          Total cost · {pluralize(draft.length, "section")}
+        </span>
+        <span className="text-[26px] font-extrabold tracking-tight tabular-nums text-background">
+          {formatCurrency(grandTotal)}
+        </span>
       </div>
 
       <DraftSaveBar
@@ -1327,7 +1410,16 @@ interface TrackingContext {
 
 interface SectionCardProps {
   section: DraftSection;
+  materialCategories: MaterialCategory[];
+  /** Only for the Price Book picker's labels — no longer a line field. */
   expenseCategories: ExpenseCategory[];
+  sortMode: ItemSortMode;
+  onSortChange: (mode: ItemSortMode) => void;
+  /** The project's own Project types — the section tag's options. */
+  projectTypeOptions: Category[];
+  /** Every job category, to name a tag no longer among the project's types. */
+  jobCategories: Category[];
+  onTypeChange: (jobCategoryId: string | null) => void;
   priceBookItems: PriceBookItem[];
   catalogItems: ProductCatalogItem[];
   priceOverrides: CatalogPriceOverride[];
@@ -1354,7 +1446,13 @@ interface SectionCardProps {
 
 function MaterialsSectionCard({
   section,
+  materialCategories,
   expenseCategories,
+  sortMode,
+  onSortChange,
+  projectTypeOptions,
+  jobCategories,
+  onTypeChange,
   priceBookItems,
   catalogItems,
   priceOverrides,
@@ -1380,13 +1478,31 @@ function MaterialsSectionCard({
   const subtotal = section.items.reduce((a, i) => a + materialsLineTotal(i), 0);
   const buildType = findSmartSectionTemplate(section.smart_section_build_type);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
+  // View order only — the saved manual order is untouched unless the user
+  // reorders while sorted (the page handles that; see reorderFromSorted).
+  const displayItems = sortItemsByCost(section.items, sortMode);
+  const typeName = section.job_category_id
+    ? (jobCategories.find((c) => c.id === section.job_category_id)?.name ?? null)
+    : null;
+  // Keep a tag that's no longer one of the project's types selectable/visible.
+  const typeOptions =
+    section.job_category_id && typeName && !projectTypeOptions.some((c) => c.id === section.job_category_id)
+      ? [...projectTypeOptions, { id: section.job_category_id, name: typeName } as Category]
+      : projectTypeOptions;
 
   return (
     <SectionCard
       name={section.name}
       onRename={onRename}
       subtotal={subtotal}
-      itemNames={section.items.map((i) => materialLineLabel(i))}
+      itemNames={displayItems.map((i) => materialLineLabel(i))}
+      tag={
+        typeName ? (
+          <span className="inline-flex items-center rounded-full bg-white/[0.16] px-2 py-0.5 text-[11px] font-semibold text-background">
+            {typeName}
+          </span>
+        ) : undefined
+      }
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
       isDraggingItem={isDraggingItem}
@@ -1398,19 +1514,47 @@ function MaterialsSectionCard({
       onMoveUp={onMoveUp}
       onMoveDown={onMoveDown}
       secondRow={
-        <div className="flex items-center justify-between border-b border-hairline px-5 py-2.5">
-          {buildType ? (
-            <button
-              type="button"
-              onClick={() => setCalculatorOpen(true)}
-              className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
-            >
-              <Calculator className="h-4 w-4" />
-              Calculate quantities
-            </button>
-          ) : (
-            <span />
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-5 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {buildType && (
+              <button
+                type="button"
+                onClick={() => setCalculatorOpen(true)}
+                className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
+              >
+                <Calculator className="h-4 w-4" />
+                Calculate quantities
+              </button>
+            )}
+            <Select value={section.job_category_id ?? NONE} onValueChange={(v) => onTypeChange(v === NONE ? null : v)}>
+              <SelectTrigger className="h-8 w-auto gap-1.5 border-none bg-muted px-2.5 text-xs font-semibold" aria-label="Project type">
+                <SelectValue placeholder="Project type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>No project type</SelectItem>
+                {typeOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+                {typeOptions.length === 0 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Add Project types on the project first.</div>
+                )}
+              </SelectContent>
+            </Select>
+            {section.items.length > 1 && (
+              <Select value={sortMode} onValueChange={(v) => onSortChange(v as ItemSortMode)}>
+                <SelectTrigger className="h-8 w-auto gap-1.5 border-none bg-muted px-2.5 text-xs font-semibold" aria-label="Sort line items">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual order</SelectItem>
+                  <SelectItem value="cost_desc">Cost: high → low</SelectItem>
+                  <SelectItem value="cost_asc">Cost: low → high</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
@@ -1444,12 +1588,13 @@ function MaterialsSectionCard({
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
           <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
-            {section.items.map((item, index) => (
+            {displayItems.map((item, index) => (
               <Draggable key={item.id} draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
                   <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
                     <ItemRow
                       item={item}
+                      materialCategories={materialCategories}
                       expenseCategories={expenseCategories}
                       priceBookItems={priceBookItems}
                       catalogItems={catalogItems}
@@ -1496,10 +1641,20 @@ function MaterialsSectionCard({
   );
 }
 
+/** The project type matching a Smart Section build type, by name
+ * ("paver_patio" ↔ "Paver Patio"), among the project's own types. */
+function matchProjectTypeForBuildType(buildTypeId: string, options: Category[]): string | null {
+  const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/s$/, "");
+  const target = norm(findSmartSectionTemplate(buildTypeId)?.label ?? buildTypeId);
+  return options.find((c) => norm(c.name) === target)?.id ?? null;
+}
+
 const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 
 interface ItemRowProps {
   item: DraftItem;
+  materialCategories: MaterialCategory[];
+  /** Only for the Price Book picker's labels. */
   expenseCategories: ExpenseCategory[];
   priceBookItems: PriceBookItem[];
   catalogItems: ProductCatalogItem[];
@@ -1517,6 +1672,7 @@ interface ItemRowProps {
 
 function ItemRow({
   item,
+  materialCategories,
   expenseCategories,
   priceBookItems,
   catalogItems,
@@ -1548,16 +1704,15 @@ function ItemRow({
   const linked = item.price_book_item_id != null;
   const catalogProduct = catalogItems.find((c) => c.id === item.catalog_product_id);
   const catalogLinked = catalogProduct != null;
-  const linkedCategoryName =
-    expenseCategories.find((c) => c.id === item.expense_category_id)?.name ?? "Uncategorized";
 
   const applyPick = (pbi: PriceBookItem) => {
     onEdit({
       name: pbi.name,
       unit: normalizeMaterialUnit(pbi.unit),
       unit_cost: Number(pbi.unit_price),
+      // Kept in sync silently (not shown) — see 0094.
       expense_category_id: pbi.expense_category_id,
-      category: pbi.category ?? item.category,
+      material_category_id: materialCategoryIdByName(materialCategories, pbi.category) ?? item.material_category_id,
       price_book_item_id: pbi.id,
       catalog_product_id: null,
       rememberPrice: false,
@@ -1574,7 +1729,7 @@ function ItemRow({
       // re-picking the same product.
       color: product.id === item.catalog_product_id ? item.color : "",
       unit_cost: override?.price ?? 0,
-      category: product.category,
+      material_category_id: materialCategoryIdByName(materialCategories, product.category) ?? item.material_category_id,
       price_book_item_id: null,
       catalog_product_id: product.id,
       rememberPrice: false,
@@ -1681,67 +1836,24 @@ function ItemRow({
         </div>
       </div>
 
-      {/* Category — its own full-width row so the picked name is never
-          truncated/clipped on mobile. Locked (read-only) once this line is
-          linked to a Price Book item — that's what's meant to keep cost
-          categorization consistent; unlink to edit it directly again. */}
+      {/* Category (0094) — the line's one category, from Settings >
+          Material categories. Prefilled from the Catalog/Price Book source
+          at pick time, always editable. Groups the Order Sheet. (The old
+          cost category is no longer shown; its data is kept.) */}
       <div>
-        <div className="flex items-center justify-between">
-          <div className={ITEM_FIELD_LABEL}>Cost category</div>
-          {linked && (
-            <button
-              type="button"
-              onClick={() => onEdit({ price_book_item_id: null })}
-              className="text-[11px] font-bold text-primary hover:underline"
-            >
-              Unlink from Price Book
-            </button>
-          )}
-        </div>
-        {linked ? (
-          <div className="mt-1 flex h-[42px] items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm font-medium text-foreground">
-            <Lock className="h-3.5 w-3.5 shrink-0 text-muted-subtle" />
-            <span className="truncate">{linkedCategoryName}</span>
-          </div>
-        ) : (
-          <Select
-            value={item.expense_category_id ?? NONE}
-            onValueChange={(v) => onEdit({ expense_category_id: v === NONE ? null : v })}
-          >
-            <SelectTrigger className="mt-1 h-[42px]" aria-label="Cost category">
-              <SelectValue placeholder="Uncategorized" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>Uncategorized</SelectItem>
-              {expenseCategories.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {/* Material category (0089/0090) — feeds the Generate Order Sheet
-          picker's category chips/grouping. Prefilled from the Catalog/
-          Price Book source at pick time (see applyPick/applyCatalogPick)
-          but never locked — always a plain editable dropdown, even for a
-          Catalog-linked line. */}
-      <div>
-        <div className={ITEM_FIELD_LABEL}>Material category</div>
+        <div className={ITEM_FIELD_LABEL}>Category</div>
         <Select
-          value={item.category ?? NONE}
-          onValueChange={(v) => onEdit({ category: v === NONE ? null : v })}
+          value={item.material_category_id ?? NONE}
+          onValueChange={(v) => onEdit({ material_category_id: v === NONE ? null : v })}
         >
-          <SelectTrigger className="mt-1 h-[42px]" aria-label="Material category">
+          <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
             <SelectValue placeholder="Uncategorized" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NONE}>Uncategorized</SelectItem>
-            {ORDER_SHEET_CATEGORIES.map((c) => (
-              <SelectItem key={c} value={c}>
-                {c}
+            {materialCategories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
               </SelectItem>
             ))}
           </SelectContent>

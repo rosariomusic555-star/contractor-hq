@@ -42,6 +42,7 @@ import {
   MATERIAL_TYPES,
   materialTypeLabel,
   ORDER_SHEET_CATEGORIES,
+  listMaterialCategories,
   type PriceBookItem,
   type PriceBookItemSpecs,
   type ExpenseCategory,
@@ -265,12 +266,18 @@ function PriceBookItemDialog({
   ) => void;
   onDelete: () => void;
 }) {
+  // Options = Settings > Material categories (0094), stored here by name;
+  // the fixed list only until 0094 runs. The saved value always stays listed.
+  const { data: materialCategories = [] } = useQuery({ queryKey: ["material-categories"], queryFn: listMaterialCategories });
+  const baseCategoryOptions = materialCategories.length ? materialCategories.map((c) => c.name) : ORDER_SHEET_CATEGORIES;
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("");
   const [priceStr, setPriceStr] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [materialType, setMaterialType] = useState<string | null>(null);
   const [orderCategory, setOrderCategory] = useState<string | null>(null);
+  const orderCategoryOptions =
+    orderCategory && !baseCategoryOptions.includes(orderCategory) ? [...baseCategoryOptions, orderCategory] : baseCategoryOptions;
   const [specStr, setSpecStr] = useState<Record<keyof PriceBookItemSpecs, string>>({
     coverage_per_pallet_sqft: "",
     units_per_pallet: "",
@@ -427,7 +434,7 @@ function PriceBookItemDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>Uncategorized</SelectItem>
-                {ORDER_SHEET_CATEGORIES.map((c) => (
+                {orderCategoryOptions.map((c) => (
                   <SelectItem key={c} value={c}>
                     {c}
                   </SelectItem>

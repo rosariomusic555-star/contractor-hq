@@ -6,6 +6,7 @@ import {
   groupByCategory,
   guessMaterialOrderUnit,
   orderCategoryGroup,
+  lineCategoryName,
   orderSheetFilename,
   resolveOrderLine,
 } from "./orderSheet";
@@ -197,5 +198,14 @@ describe("guessMaterialOrderUnit", () => {
   it("falls back to 'each' for a unit with no equivalent (e.g. square feet)", () => {
     expect(guessMaterialOrderUnit("sf")).toBe("each");
     expect(guessMaterialOrderUnit(null)).toBe("each");
+  });
+});
+
+describe("lineCategoryName", () => {
+  it("prefers the material category by id (so renames show), else the old text", () => {
+    const names = new Map([["mc1", "Pavers (renamed)"]]);
+    expect(lineCategoryName({ material_category_id: "mc1", category: "Pavers" }, names)).toBe("Pavers (renamed)");
+    expect(lineCategoryName({ material_category_id: null, category: "Edging" }, names)).toBe("Edging");
+    expect(lineCategoryName({ material_category_id: "gone", category: null }, names)).toBeNull();
   });
 });
