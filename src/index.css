@@ -315,3 +315,31 @@
     background: white;
   }
 }
+
+/* Builders' mobile sticky action bar (BuilderActionBar sets
+   body[data-action-bar] on phones): lift the floating AI / create buttons
+   above it, pad the page so the last card isn't hidden under it, and make
+   focus scrolling leave room for it so a field focused with the keyboard
+   open is never hidden behind the bar. */
+@media (max-width: 767px) {
+  body[data-action-bar] .fab-lift {
+    /* `translate`, not `transform`, so it never fights active:scale-95. */
+    translate: 0 -4.25rem;
+  }
+  body[data-action-bar] main {
+    padding-bottom: calc(10.5rem + env(safe-area-inset-bottom));
+  }
+  html:has(body[data-action-bar]) {
+    scroll-padding-bottom: calc(9rem + env(safe-area-inset-bottom));
+  }
+  /* Small text links (Collapse all, Delete section…): same look, a
+     44px-tall hit area on phones. */
+  .tap-target {
+    position: relative;
+  }
+  .tap-target::before {
+    content: "";
+    position: absolute;
+    inset: -14px -6px;
+  }
+}

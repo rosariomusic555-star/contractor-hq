@@ -641,11 +641,11 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
 
           {draft.sections.length > 0 && (
             <div className="flex items-center justify-end gap-3 text-xs font-bold text-primary">
-              <button type="button" onClick={() => collapseAll(draft.sections.map((s) => s.id))} className="hover:underline">
+              <button type="button" onClick={() => collapseAll(draft.sections.map((s) => s.id))} className="tap-target hover:underline">
                 Collapse all
               </button>
               <span className="text-border">|</span>
-              <button type="button" onClick={() => expandAll(draft.sections.map((s) => s.id))} className="hover:underline">
+              <button type="button" onClick={() => expandAll(draft.sections.map((s) => s.id))} className="tap-target hover:underline">
                 Expand all
               </button>
             </div>

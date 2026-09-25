@@ -30,7 +30,7 @@ export function MobilePageHeader({
       {back && (
         <BackLink
           to={back.to}
-          className="mb-1 inline-flex items-center text-xs font-semibold text-sidebar-foreground/70"
+          className="tap-target mb-1 inline-flex items-center text-xs font-semibold text-sidebar-foreground/70"
         >{back.label}</BackLink>
       )}
       <div className="flex items-start justify-between gap-3">
