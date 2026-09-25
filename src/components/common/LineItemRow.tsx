@@ -1,17 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
-import { ImagePlus, Loader2, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ImagePlus, Loader2, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ActionMenu } from "@/components/responsive/ActionMenu";
+import { SheetSelect } from "@/components/responsive/SheetSelect";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { ReorderControls } from "@/components/common/ReorderControls";
@@ -84,7 +79,7 @@ export function LineItemRow({
   return (
     <div
       className={cn(
-        "group flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover",
+        "group flex flex-col gap-3 rounded-2xl border border-hairline p-3 transition-shadow sm:gap-3.5 sm:p-4 hover:border-input hover:shadow-card-hover",
         dragging && "border-primary/40 opacity-90 shadow-card-hover",
       )}
     >
@@ -92,16 +87,32 @@ export function LineItemRow({
           line above; the input, reorder group, and trash share one row so
           the controls center on the input itself (not the label+input
           block), independent of everything below (description, category,
-          photos). Textarea so long names wrap and it auto-grows. */}
+          photos). Textarea so long names wrap and it auto-grows. Phones: the
+          name gets the full width and reorder/remove move into a "⋯" menu
+          beside the label (the reorder controls stay mounted but hidden —
+          the drag handle must exist once; dragging is desktop-only). */}
       <div>
-        <div className={ITEM_FIELD_LABEL}>Item</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className={ITEM_FIELD_LABEL}>Item</div>
+          <ActionMenu
+            className="-my-2.5 -mr-2 sm:hidden"
+            title={item.name || "Line item"}
+            ariaLabel="Line item actions"
+            items={[
+              { label: "Move up", icon: ChevronUp, onSelect: onMoveUp, disabled: !canMoveUp },
+              { label: "Move down", icon: ChevronDown, onSelect: onMoveDown, disabled: !canMoveDown },
+              { label: "Remove item", icon: Trash2, onSelect: onDelete, destructive: true, separatorBefore: true },
+            ]}
+          />
+        </div>
         <div className="mt-1 flex items-center gap-3">
           <AutoGrowTextarea
             value={item.name}
             onChange={(e) => onEdit({ name: e.target.value })}
             placeholder="Item name"
-            className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
+            className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-base font-semibold hover:border-input focus-visible:border-primary sm:text-[15px]"
           />
+          <div className="hidden shrink-0 items-center gap-3 sm:flex">
           <ReorderControls
             dragHandleProps={dragHandleProps}
             onMoveUp={onMoveUp}
@@ -119,6 +130,7 @@ export function LineItemRow({
           >
             <Trash2 className="h-4 w-4" />
           </button>
+          </div>
         </div>
       </div>
 
@@ -129,7 +141,7 @@ export function LineItemRow({
           value={item.description}
           onChange={(e) => onEdit({ description: e.target.value })}
           placeholder="Short description"
-          className="mt-1 min-h-[44px] rounded-xl bg-muted px-3 py-2 text-sm text-muted-foreground hover:border-input focus-visible:border-primary"
+          className="mt-1 min-h-[44px] rounded-xl bg-muted px-3 py-2 text-base text-muted-foreground sm:text-sm hover:border-input focus-visible:border-primary"
         />
       </div>
 
@@ -137,22 +149,17 @@ export function LineItemRow({
           never truncated/clipped on mobile. */}
       <div>
         <div className={ITEM_FIELD_LABEL}>Category</div>
-        <Select
-          value={item.category_id ?? NONE}
-          onValueChange={(v) => onEdit({ category_id: v === NONE ? null : v })}
-        >
-          <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
-            <SelectValue placeholder="Uncategorized" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Uncategorized</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="mt-1">
+          <SheetSelect
+            value={item.category_id ?? NONE}
+            onValueChange={(v) => onEdit({ category_id: v === NONE ? null : v })}
+            options={[{ value: NONE, label: "Uncategorized" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+            placeholder="Uncategorized"
+            title="Category"
+            ariaLabel="Category"
+            triggerClassName="h-11 sm:h-[42px]"
+          />
+        </div>
       </div>
 
       {/* Photos — optional, multiple. Part of the draft like every other
@@ -160,7 +167,8 @@ export function LineItemRow({
           it's only uploaded when the whole builder is saved. */}
       <LineItemPhotos item={item} onEdit={onEdit} />
 
-      {/* Qty · Unit · Rate · Line total — two-up on mobile, four-up from sm. */}
+      {/* Qty · Unit / Rate two-up on phones with the line total on its own
+          right-aligned row; four-up from sm. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <label className="block">
           <div className={ITEM_FIELD_LABEL}>Qty</div>
@@ -173,7 +181,7 @@ export function LineItemRow({
               setQtyStr(e.target.value);
               onEdit({ quantity: parseFloat(e.target.value) || 0 });
             }}
-            className="mt-1 h-[42px] tabular-nums"
+            className="mt-1 h-11 tabular-nums sm:h-[42px]"
             aria-label="Quantity"
           />
         </label>
@@ -183,7 +191,7 @@ export function LineItemRow({
             value={item.unit}
             onChange={(e) => onEdit({ unit: e.target.value })}
             placeholder="ea"
-            className="mt-1 h-[42px]"
+            className="mt-1 h-11 sm:h-[42px]"
             aria-label="Unit"
           />
         </label>
@@ -198,16 +206,21 @@ export function LineItemRow({
               setPriceStr(e.target.value);
               onEdit({ price: parseFloat(e.target.value) || 0 });
             }}
-            className="mt-1 h-[42px] tabular-nums"
+            className="mt-1 h-11 tabular-nums sm:h-[42px]"
             aria-label="Unit price"
           />
         </label>
-        <div>
+        <div
+          className={cn(
+            "col-span-2 flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 sm:col-span-1 sm:block sm:rounded-none sm:bg-transparent sm:p-0",
+            isCredit ? "bg-destructive/10" : "bg-primary/10",
+          )}
+        >
           <div className={ITEM_FIELD_LABEL}>Line total</div>
           <div
             className={cn(
-              "mt-1 flex h-[42px] items-center justify-end rounded-md px-3 text-base font-extrabold tabular-nums",
-              isCredit ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-success",
+              "text-lg font-extrabold tabular-nums sm:mt-1 sm:flex sm:h-[42px] sm:items-center sm:justify-end sm:rounded-md sm:px-3 sm:text-base",
+              isCredit ? "text-destructive sm:bg-destructive/10" : "text-success sm:bg-primary/10",
             )}
           >
             {isCredit ? "−" : ""}
@@ -218,7 +231,7 @@ export function LineItemRow({
 
       {/* Optional add-on — quote builder only. */}
       {optionalToggle && (
-        <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <label className="-my-2 flex min-h-11 items-center gap-2 text-[13px] font-medium text-muted-foreground sm:my-0 sm:min-h-0 sm:text-xs">
           <Checkbox checked={optionalToggle.checked} onCheckedChange={(c) => optionalToggle.onChange(c === true)} />
           {optionalToggle.label}
         </label>

@@ -3,13 +3,17 @@ import { ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { BottomSheet } from "@/components/responsive/BottomSheet";
+import { HEADER_CHIP } from "@/components/common/ProjectTypeChip";
 
 /**
  * "Materials: Patio ▾" — a quote section's link to materials sheet sections,
  * as a chip in the dark section header. "Match automatically" follows the
  * project type / name match live; picking sections switches to a manual
- * choice (one, several, or none). Popover portals to <body> (never
- * clipped), and events are stopped so it can't collapse/drag the section.
+ * choice (one, several, or none). A popover on desktop (portalled, never
+ * clipped), a bottom sheet on phones; events are stopped so it can't
+ * collapse/drag the section.
  */
 export function QuoteSectionMaterialsChip({
   mode,
@@ -25,6 +29,7 @@ export function QuoteSectionMaterialsChip({
   onChange: (next: { mode: "auto" | "manual"; ids: string[] }) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
   const activeIds = mode === "auto" ? autoMatchedIds : manualIds.filter((id) => sheetSections.some((s) => s.id === id));
   const names = sheetSections.filter((s) => activeIds.includes(s.id)).map((s) => s.name || "Untitled section");
   const label = names.length ? names.join(", ") : "none";
@@ -35,28 +40,8 @@ export function QuoteSectionMaterialsChip({
     onChange({ mode: "manual", ids });
   };
 
-  return (
-    <span onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="Linked materials sheet sections"
-            className={cn(
-              "inline-flex h-6 max-w-[16rem] items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-primary",
-              names.length
-                ? "bg-white/[0.18] text-background hover:bg-white/[0.28]"
-                : "border border-dashed border-white/35 text-background/70 hover:border-white/60 hover:bg-white/10 hover:text-background",
-            )}
-          >
-            <span className="truncate">
-              Materials: {label}
-              {mode === "auto" && names.length > 0 ? " (auto)" : ""}
-            </span>
-            <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="z-50 w-64 p-2">
+  const panel = (
+    <>
           <p className="px-1.5 pb-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-subtle">Materials sheet sections</p>
           <button
             type="button"
@@ -90,6 +75,47 @@ export function QuoteSectionMaterialsChip({
           >
             None
           </button>
+    </>
+  );
+  // The chip; on phones it opens the bottom sheet instead of a popover.
+  const chip = (onClick?: () => void) => (
+          <button
+            type="button"
+            onClick={onClick}
+            aria-label="Linked materials sheet sections"
+            className={cn(
+              HEADER_CHIP,
+              "sm:max-w-[16rem] focus:outline-none focus:ring-2 focus:ring-primary",
+              names.length
+                ? "bg-white/[0.18] text-background hover:bg-white/[0.28]"
+                : "border border-dashed border-white/35 text-background/70 hover:border-white/60 hover:bg-white/10 hover:text-background",
+            )}
+          >
+            <span className="truncate">
+              Materials: {label}
+              {mode === "auto" && names.length > 0 ? " (auto)" : ""}
+            </span>
+            <ChevronDown className="h-3 w-3 shrink-0 opacity-80" />
+          </button>
+  );
+
+  if (isMobile) {
+    return (
+      <span onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} className="inline-flex max-w-full">
+        {chip(() => setOpen(true))}
+        <BottomSheet open={open} onOpenChange={setOpen} title="Materials for this section">
+          {panel}
+        </BottomSheet>
+      </span>
+    );
+  }
+
+  return (
+    <span onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} className="inline-flex max-w-full">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>{chip()}</PopoverTrigger>
+        <PopoverContent align="start" className="z-50 w-64 p-2">
+          {panel}
         </PopoverContent>
       </Popover>
     </span>

@@ -46,3 +46,11 @@ export function phoneHref(phone: string): string {
   if (digits.length === 11 && digits.startsWith("1")) return `tel:+${digits}`;
   return `tel:${phone.trim().startsWith("+") ? "+" : ""}${digits}`;
 }
+
+/** "https://host/quote/abcd…wxyz" — keeps both ends of a long link readable. */
+export function middleTruncate(text: string, max = 34): string {
+  if (text.length <= max) return text;
+  const keep = max - 1;
+  const head = Math.ceil(keep * 0.6);
+  return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
+}

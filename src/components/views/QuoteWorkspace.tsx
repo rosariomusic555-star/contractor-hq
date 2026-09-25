@@ -13,19 +13,14 @@ import {
   Layers,
   Pencil,
   ArrowRight,
+  ChevronDown,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -48,7 +43,10 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { ClientPickerDialog } from "@/components/common/ClientPicker";
-import { DraftSaveBar } from "@/components/common/DraftSaveBar";
+import { ActionMenu } from "@/components/responsive/ActionMenu";
+import { BuilderActionBar, BreakdownRow } from "@/components/responsive/BuilderActionBar";
+import { SheetSelect } from "@/components/responsive/SheetSelect";
+import { ShareLinkRow } from "@/components/responsive/ShareLinkRow";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { ProjectTypeChip } from "@/components/common/ProjectTypeChip";
@@ -917,10 +915,23 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const previewLabel = previewMut.isPending ? "Opening…" : "Preview";
 
   return (
-    <div className={cn("animate-fade-in max-w-6xl space-y-5", isDirty && "pb-40 md:pb-28")}>
+    <div className={cn("animate-fade-in max-w-6xl space-y-4 md:space-y-5", isDirty && "md:pb-28")}>
       <MobilePageHeader
         className="mobile-header-ink"
-        title={quote.project?.name ?? "Standalone quote"}
+        title={<span className="line-clamp-2 break-words">{quote.project?.name ?? "Standalone quote"}</span>}
+        actions={
+          <ActionMenu
+            tone="dark"
+            className="-mr-2 -mt-1"
+            title="Quote"
+            ariaLabel="Quote actions"
+            items={[
+              { label: previewLabel, icon: Eye, onSelect: () => previewMut.mutate(), disabled: isDirty || previewMut.isPending },
+              { label: "Copy client link", icon: Copy, onSelect: () => ensureLinkMut.mutate("copy"), disabled: isDirty || ensureLinkMut.isPending },
+              { label: materialsAction.label, icon: Layers, onSelect: materialsAction.onClick, separatorBefore: true },
+            ]}
+          />
+        }
         subtitle={`${meta.label} · ${clientName}`}
         back={{ to: backHref, label: backLabel }}
         pills={
@@ -996,7 +1007,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               <button
                 type="button"
                 onClick={() => collapseAll(draft.sections.map((s) => s.id))}
-                className="hover:underline"
+                className="tap-target hover:underline"
               >
                 Collapse all
               </button>
@@ -1004,7 +1015,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               <button
                 type="button"
                 onClick={() => expandAll(draft.sections.map((s) => s.id))}
-                className="hover:underline"
+                className="tap-target hover:underline"
               >
                 Expand all
               </button>
@@ -1105,7 +1116,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 value={draft.notes}
                 placeholder="Any notes for the client about this job..."
                 onChange={(e) => edit((d) => ({ ...d, notes: e.target.value }))}
-                className="py-2 text-sm leading-relaxed"
+                className="py-2 text-base leading-relaxed md:text-sm"
               />
             </div>
             <div className="space-y-2">
@@ -1223,11 +1234,36 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         </div>
       </div>
 
-      <DraftSaveBar
-        visible={isDirty}
+      <BuilderActionBar
+        isDirty={isDirty}
         onDiscard={discard}
         onSave={handleSaveClick}
         saving={saveMut.isPending}
+        figureLabel="Quote total"
+        figure={formatCurrency(grandTotal)}
+        breakdownTitle="Quote total"
+        breakdown={
+          <div>
+            {sectionRows.map((r) => (
+              <BreakdownRow key={r.id} label={<span className="block max-w-[14rem] truncate">{r.name}</span>} value={formatCurrency(r.subtotal)} />
+            ))}
+            {selectedAddonCount > 0 && <BreakdownRow label="Base (required)" value={formatCurrency(baseTotal)} />}
+            {selectedAddonCount > 0 && <BreakdownRow label={`Optional items (${selectedAddonCount})`} value={formatCurrency(selectedAddonsTotal)} />}
+            <BreakdownRow strong label="Quote total" value={formatCurrency(grandTotal)} />
+            <BreakdownRow label={`Deposit ${draft.depositPct}%`} value={formatCurrency(depositAmount)} />
+            <BreakdownRow label="Est. cost" value={estCost == null ? "Not available" : formatCurrency(estCost)} />
+            <BreakdownRow
+              label={marginPct == null ? "Estimated profit" : `Estimated profit · ${marginPct.toFixed(0)}% margin`}
+              value={margin == null ? "Not available" : formatCurrency(margin)}
+              tone={margin != null && margin > 0 ? "positive" : margin != null && margin < 0 ? "negative" : undefined}
+            />
+          </div>
+        }
+        primaryAction={{
+          label: quote.status === "draft" ? (shareQuoteMut.isPending ? "Preparing…" : "Send quote") : "Share link",
+          onClick: onSendClick,
+          disabled: sendDisabled,
+        }}
       />
 
       <AlertDialog
@@ -1705,7 +1741,7 @@ function ClientShareCard({
             create-project flow instead. Its chevron is a separate control
             that moves the quote to another project / unlinks it — it sits
             above the overlay and never triggers navigation. */}
-      <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 bg-foreground p-3 sm:grid-cols-2 sm:gap-2.5 sm:p-4">
         <button
           type="button"
           onClick={() => setClientPickerOpen(true)}
@@ -1750,26 +1786,20 @@ function ClientShareCard({
             {projectId ? <ArrowRight className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
           </span>
           {/* Move/unlink — its own hit area, above the card link. */}
-          <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
-            <SelectTrigger
-              aria-label={projectId ? "Move this quote to another project" : "Link an existing project"}
-              title={projectId ? "Move to another project" : "Link an existing project"}
-              onClick={(e) => e.stopPropagation()}
-              className="relative z-10 -my-1 -mr-1.5 ml-0.5 h-8 w-8 shrink-0 justify-center rounded-lg border-l border-white/15 bg-transparent p-0 text-background/70 hover:bg-white/15 hover:text-background focus:ring-2 focus:ring-primary focus:ring-offset-0 [&>svg]:opacity-100"
-            >
-              <span className="sr-only">
-                <SelectValue />
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>No project</SelectItem>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SheetSelect
+            value={projectId ?? NONE}
+            onValueChange={(v) => onProjectChange(v === NONE ? null : v)}
+            options={[{ value: NONE, label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]}
+            title={projectId ? "Move to another project" : "Link an existing project"}
+            ariaLabel={projectId ? "Move this quote to another project" : "Link an existing project"}
+            triggerClassName="relative z-10 -my-2 -mr-2 ml-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border-l border-white/15 bg-transparent p-0 text-background/70 hover:bg-white/15 hover:text-background focus:ring-2 focus:ring-primary focus:ring-offset-0 sm:-my-1 sm:-mr-1.5 sm:h-8 sm:w-8 [&>svg]:opacity-100"
+            renderTrigger={(sel) => (
+              <>
+                <span className="sr-only">{sel?.label}</span>
+                <ChevronDown className="h-4 w-4" />
+              </>
+            )}
+          />
         </div>
       </div>
 
@@ -1783,8 +1813,25 @@ function ClientShareCard({
         />
       )}
 
+      {/* Phones: link status + one row — middle-truncated url · Share · Copy. */}
+      <div className="space-y-1.5 bg-card p-3 md:hidden">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", hasToken ? "bg-primary" : "bg-border")} />
+          <span className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+            {hasToken ? "Client link is live" : "Client link not sent yet"}
+          </span>
+        </div>
+        <ShareLinkRow
+          url={shareUrl}
+          placeholder="Created when you first share"
+          onShare={onShare}
+          onCopy={onCopy}
+          disabled={actionsDisabled}
+        />
+      </div>
+
       {/* White footer — link status + url + Share/Copy */}
-      <div className="flex flex-wrap items-center gap-3.5 bg-card p-4">
+      <div className="hidden flex-wrap items-center gap-3.5 bg-card p-4 md:flex">
         <div className="min-w-[240px] flex-1 space-y-1.5">
           <div className="flex items-center gap-2">
             <span
@@ -1867,11 +1914,11 @@ function QuoteTermsCard({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Payment terms, warranty, exclusions…"
-        className="mt-3 py-2 text-[13px] leading-relaxed"
+        className="mt-3 py-2 text-base leading-relaxed md:text-[13px]"
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         {!value.trim() && defaultTerms ? (
-          <button type="button" onClick={() => onChange(defaultTerms)} className="text-xs font-semibold text-primary hover:underline">
+          <button type="button" onClick={() => onChange(defaultTerms)} className="tap-target text-xs font-semibold text-primary hover:underline">
             Use my default terms
           </button>
         ) : (
