@@ -947,7 +947,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           <GoToProjectLink projectId={projectId} isDirty={isDirty} className="mt-1.5" />
         </div>
         {sheetId && (
-          <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <div className="flex max-w-full flex-wrap items-center gap-3">
             <Button
               type="button"
               size="sm"
@@ -1729,15 +1729,21 @@ function ItemRow({
           share one row so they center on the input itself (not the
           label+input block), independent of everything below (category,
           qty/cost fields). */}
-      <div>
-        <div className={ITEM_FIELD_LABEL}>Item</div>
-        <div className="mt-1 flex items-center gap-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+      {/* sm+: "ITEM" label on its own line, then name · Price Book · Tracked ·
+          reorder · delete on one line. Phones reorder the same elements (no
+          duplicates — the drag handle can only exist once): label + reorder/
+          delete on top, then the full-width name (+ color), then Price Book /
+          Tracked. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className={cn(ITEM_FIELD_LABEL, "flex-1 sm:-mb-1 sm:basis-full")}>Item</div>
+        <div className="order-2 flex min-w-0 basis-full flex-col gap-2 sm:order-none sm:flex-1 sm:basis-auto sm:flex-row sm:items-center">
             <AutoGrowTextarea
               value={item.name}
               onChange={(e) => onEdit({ name: e.target.value })}
               placeholder="Item name"
-              className="min-w-0 flex-1 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary"
+              // flex-1 only when the row is horizontal (sm+) — in the phone's
+              // column layout it would pin the height and clip wrapped names.
+              className="min-w-0 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary sm:flex-1"
             />
             {/* Color — once a Catalog product is picked. Its color list, or
                 a typed custom color when there's none / it isn't listed. */}
@@ -1758,7 +1764,7 @@ function ItemRow({
             type="button"
             onClick={() => setPickerOpen(true)}
             className={cn(
-              "flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors",
+              "order-3 flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:order-none",
               linked || catalogLinked
                 ? "bg-primary/15 text-primary hover:bg-primary/25"
                 : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
@@ -1766,14 +1772,13 @@ function ItemRow({
             aria-label="Pick from Price Book or Catalog"
           >
             <BookOpen className="h-4 w-4 shrink-0" />
-            {/* Label from sm up; the row is too tight on phones. */}
-            <span className="hidden sm:inline">Price Book</span>
+            <span>Price Book</span>
           </button>
           <button
             type="button"
             onClick={() => onEdit({ tracked: !item.tracked })}
             className={cn(
-              "flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors",
+              "order-3 flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:order-none",
               item.tracked
                 ? "bg-primary/15 text-primary hover:bg-primary/25"
                 : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
@@ -1787,26 +1792,27 @@ function ItemRow({
             title={item.tracked ? "Tracked in Material Tracker" : "Not tracked"}
           >
             {item.tracked ? <Eye className="h-4 w-4 shrink-0" /> : <EyeOff className="h-4 w-4 shrink-0" />}
-            <span className="hidden sm:inline">{item.tracked ? "Tracked" : "Not tracked"}</span>
+            <span>{item.tracked ? "Tracked" : "Not tracked"}</span>
           </button>
-          <ReorderControls
-            dragHandleProps={dragHandleProps}
-            onMoveUp={onMoveUp}
-            onMoveDown={onMoveDown}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-            label={item.name || "item"}
-            className="mr-2"
-          />
-          <button
-            type="button"
-            onClick={onDelete}
-            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
-            aria-label="Remove item"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
+          <div className="order-1 flex shrink-0 items-center gap-3 sm:order-none">
+            <ReorderControls
+              dragHandleProps={dragHandleProps}
+              onMoveUp={onMoveUp}
+              onMoveDown={onMoveDown}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+              label={item.name || "item"}
+              className="sm:mr-2"
+            />
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label="Remove item"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
       </div>
 
       {/* Category (0094) — the line's one category, from Settings >

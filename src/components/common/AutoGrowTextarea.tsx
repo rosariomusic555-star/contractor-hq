@@ -28,6 +28,22 @@ export const AutoGrowTextarea = React.forwardRef<
   // Re-fit whenever the controlled value changes (typing, draft reseed, …).
   React.useLayoutEffect(resize, [value, resize]);
 
+  // …and whenever its width changes (phone layouts, rotation, a sibling
+  // field appearing), since the same text wraps onto more/fewer lines.
+  React.useEffect(() => {
+    const el = innerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastWidth = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth !== lastWidth) {
+        lastWidth = el.clientWidth;
+        resize();
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [resize]);
+
   return (
     <textarea
       ref={setRef}

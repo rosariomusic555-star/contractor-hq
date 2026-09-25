@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,10 +24,11 @@ interface GoToProjectLinkProps {
    * in a plain page header (Materials Sheet / Invoice builders). Same
    * component, same behavior — just matching the surrounding surface. */
   tone?: "light" | "dark";
-  /** "button" = a full, clearly clickable secondary button ("Go to project
-   * →") — the Quote builder's Project card. Default "link" = the small
-   * inline link used in page headers. */
-  variant?: "link" | "button";
+  /** "overlay" = an invisible link stretched over its (relative) parent,
+   * so a whole card is the link — the Quote builder's Project card. Give
+   * other controls inside that card `relative z-10` to sit above it.
+   * Default "link" = the small inline link used in page headers. */
+  variant?: "link" | "overlay";
   className?: string;
 }
 
@@ -54,14 +55,22 @@ export function GoToProjectLink({ projectId, isDirty, tone = "light", variant = 
             setConfirmOpen(true);
           }
         }}
+        // Links only activate on Enter natively — Space works too for the card.
+        onKeyDown={
+          variant === "overlay"
+            ? (e) => {
+                if (e.key === " ") {
+                  e.preventDefault();
+                  e.currentTarget.click();
+                }
+              }
+            : undefined
+        }
+        aria-label={variant === "overlay" ? "Go to project" : undefined}
+        title={variant === "overlay" ? "Go to project" : undefined}
         className={cn(
-          variant === "button"
-            ? cn(
-                "inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-bold transition-colors",
-                tone === "dark"
-                  ? "border border-white/25 text-background hover:bg-white/10"
-                  : "border border-border text-foreground hover:bg-muted",
-              )
+          variant === "overlay"
+            ? "absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             : cn(
                 "inline-flex items-center gap-1 text-xs font-bold hover:underline",
                 tone === "dark" ? "text-background/70 hover:text-background" : "text-primary hover:text-primary/80",
@@ -69,8 +78,12 @@ export function GoToProjectLink({ projectId, isDirty, tone = "light", variant = 
           className,
         )}
       >
-        Go to project
-        {variant === "button" ? <ArrowRight className="h-4 w-4" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+        {variant === "overlay" ? null : (
+          <>
+            Go to project
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </>
+        )}
       </Link>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

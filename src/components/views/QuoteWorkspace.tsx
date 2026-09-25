@@ -11,6 +11,8 @@ import {
   Copy,
   Sparkles,
   Layers,
+  Pencil,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -963,6 +965,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         clientId={quote.client_id}
         clients={clients}
         onClientChange={(v) => updateClientMut.mutate(v)}
+        onCreateProject={handleCreateProjectClick}
         projectId={quote.project_id}
         projects={projects}
         onProjectChange={(v) => updateProjectLinkMut.mutate(v)}
@@ -1634,6 +1637,8 @@ interface ClientShareCardProps {
   projectId: string | null;
   projects: { id: string; name: string }[];
   onProjectChange: (id: string | null) => void;
+  /** Standalone quote: the Project card runs the create-project flow. */
+  onCreateProject: () => void;
   /** The quote builder's own unsaved-changes flag — passed straight through
    * to GoToProjectLink. */
   isDirty: boolean;
@@ -1677,6 +1682,7 @@ function ClientShareCard({
   onOpenLinkedSheet,
   onLinkMaterialsSheet,
   onUnlinkMaterialsSheet,
+  onCreateProject,
 }: ClientShareCardProps) {
   const clientName = clients.find((c) => c.id === clientId)?.name;
   const clientInitial = clientName ? clientName.trim().charAt(0).toUpperCase() || "?" : "?";
@@ -1686,33 +1692,34 @@ function ClientShareCard({
     "h-auto items-center gap-2.5 rounded-xl border-none bg-white/[0.08] px-3.5 py-3 text-left transition-colors hover:bg-white/[0.14] focus:ring-2 focus:ring-primary focus:ring-offset-0 [&>span]:line-clamp-1";
   const pillLabelClass = "shrink-0 text-[11px] font-bold uppercase tracking-wide text-background/55";
   const pillValueClass = "min-w-0 flex-1 truncate text-right text-[15px] font-bold text-background";
+  const cardFocusClass = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
 
   return (
     <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
-      {/* Dark header — Client and Project as two equal cards: same width
-          and height (grid stretch), same padding, pill on top and a
-          secondary action pinned to the bottom. Stacks on mobile. */}
+      {/* Dark header — Client and Project as two equal, fully clickable
+          cards (same width/height, stack on mobile):
+          - Client card = a button that opens the change-client picker.
+          - Project card = a link to the project (a full-card overlay, so
+            cmd/ctrl-click still opens a new tab and the unsaved-changes
+            warning still applies); a standalone quote's card runs the
+            create-project flow instead. Its chevron is a separate control
+            that moves the quote to another project / unlinks it — it sits
+            above the overlay and never triggers navigation. */}
       <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
-        <div className="flex h-full flex-col gap-2.5 rounded-xl bg-white/[0.04] p-2.5">
-          <button
-            type="button"
-            onClick={() => setClientPickerOpen(true)}
-            className={cn("flex w-full", pillTriggerClass)}
-          >
-            <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
-              {clientInitial}
-            </span>
-            <span className={pillLabelClass}>Client</span>
-            <span className={pillValueClass}>{clientName ?? "No client"}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setClientPickerOpen(true)}
-            className="mt-auto inline-flex h-10 items-center justify-center rounded-xl border border-white/25 px-4 text-sm font-bold text-background transition-colors hover:bg-white/10"
-          >
-            {clientName ? "Change client" : "Choose client"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setClientPickerOpen(true)}
+          aria-label="Change client"
+          title="Change client"
+          className={cn("group flex w-full", pillTriggerClass, cardFocusClass)}
+        >
+          <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
+            {clientInitial}
+          </span>
+          <span className={pillLabelClass}>Client</span>
+          <span className={pillValueClass}>{clientName ?? "No client"}</span>
+          <Pencil className="h-3.5 w-3.5 shrink-0 text-background/50 transition-colors group-hover:text-background" />
+        </button>
         <ClientPickerDialog
           open={clientPickerOpen}
           onOpenChange={setClientPickerOpen}
@@ -1720,15 +1727,38 @@ function ClientShareCard({
           allowClear
         />
 
-        <div className="flex h-full flex-col gap-2.5 rounded-xl bg-white/[0.04] p-2.5">
+        <div className={cn("group relative flex w-full cursor-pointer", pillTriggerClass, "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary")}>
+          {projectId ? (
+            <GoToProjectLink projectId={projectId} isDirty={isDirty} variant="overlay" />
+          ) : (
+            <button
+              type="button"
+              onClick={onCreateProject}
+              aria-label="Create project"
+              title="Create a project for this quote"
+              className="absolute inset-0 rounded-xl focus-visible:outline-none"
+            />
+          )}
+          <span className="pointer-events-none !flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
+            <Briefcase className="h-3.5 w-3.5" />
+          </span>
+          <span className={cn(pillLabelClass, "pointer-events-none")}>Project</span>
+          <span className={cn(pillValueClass, "pointer-events-none")}>
+            {projects.find((p) => p.id === projectId)?.name ?? "No project"}
+          </span>
+          <span className="pointer-events-none shrink-0 text-background/50 transition-colors group-hover:text-background">
+            {projectId ? <ArrowRight className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+          </span>
+          {/* Move/unlink — its own hit area, above the card link. */}
           <Select value={projectId ?? NONE} onValueChange={(v) => onProjectChange(v === NONE ? null : v)}>
-            <SelectTrigger className={pillTriggerClass}>
-              <span className="!flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
-                <Briefcase className="h-3.5 w-3.5" />
-              </span>
-              <span className={pillLabelClass}>Project</span>
-              <span className={pillValueClass}>
-                <SelectValue placeholder="No project" />
+            <SelectTrigger
+              aria-label={projectId ? "Move this quote to another project" : "Link an existing project"}
+              title={projectId ? "Move to another project" : "Link an existing project"}
+              onClick={(e) => e.stopPropagation()}
+              className="relative z-10 -my-1 -mr-1.5 ml-0.5 h-8 w-8 shrink-0 justify-center rounded-lg border-l border-white/15 bg-transparent p-0 text-background/70 hover:bg-white/15 hover:text-background focus:ring-2 focus:ring-primary focus:ring-offset-0 [&>svg]:opacity-100"
+            >
+              <span className="sr-only">
+                <SelectValue />
               </span>
             </SelectTrigger>
             <SelectContent>
@@ -1740,13 +1770,6 @@ function ClientShareCard({
               ))}
             </SelectContent>
           </Select>
-          {projectId ? (
-            <GoToProjectLink projectId={projectId} isDirty={isDirty} tone="dark" variant="button" className="mt-auto" />
-          ) : (
-            <p className="mt-auto flex h-10 items-center justify-center text-xs text-background/50">
-              Standalone quote — pick a project above to link it
-            </p>
-          )}
         </div>
       </div>
 

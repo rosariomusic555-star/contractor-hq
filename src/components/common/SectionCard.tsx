@@ -116,64 +116,70 @@ export function SectionCard({
         dragging && "opacity-90 shadow-card-hover",
       )}
     >
-      {/* Slate section header — collapse chevron + editable name + running subtotal */}
-      <div className="group flex items-center gap-3 bg-sidebar px-5 py-4">
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={collapsed ? "Expand section" : "Collapse section"}
-          aria-expanded={!collapsed}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-background/90 transition-colors hover:bg-white/10 hover:text-background"
-        >
-          <ChevronDown className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")} />
-        </button>
-        <div className="min-w-0 flex-1">
-          {/* Auto-sized title: an invisible copy of the text and the input
+      {/* Slate section header — collapse chevron + editable name + running
+          subtotal, then (optional) the tag row. The tag row is its own
+          full-width line indented to sit under the name (chevron 2rem +
+          gap), so chips never get squeezed by the total/controls on a phone. */}
+      <div className="bg-sidebar px-5 py-4">
+        <div className="group flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? "Expand section" : "Collapse section"}
+            aria-expanded={!collapsed}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-background/90 transition-colors hover:bg-white/10 hover:text-background"
+          >
+            <ChevronDown className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")} />
+          </button>
+          <div className="min-w-0 flex-1">
+            {/* Auto-sized title: an invisible copy of the text and the input
               share one grid cell, so the cell (and the input filling it)
               hugs the text as it's typed — works in every browser, no
-              measuring JS. min-w keeps an empty/short title easy to click;
+              measuring JS. min-w keeps an empty/short title easy to click
+              (smaller on phones so the row never overflows);
               max-w-full stops it at this column, so it never reaches the
               count/total or reorder controls — past that it truncates with
               an ellipsis while not focused. The focus ring wraps only the
               input. Only the chevron collapses and only the grip drags, so
               clicking here does neither (pointer events stopped anyway). */}
-          <div
-            className="-ml-2.5 inline-grid min-w-[9rem] max-w-full grid-cols-[minmax(0,1fr)] align-top"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span
-              aria-hidden
-              className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-2.5 py-1 pr-3.5 text-[19px] font-bold tracking-tight"
+            <div
+              className="-ml-2.5 inline-grid min-w-[4rem] max-w-full grid-cols-[minmax(0,1fr)] align-top sm:min-w-[9rem]"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
             >
-              {name || "Section name"}
-            </span>
-            <input
-              value={name}
-              onChange={(e) => onRename(e.target.value)}
-              placeholder="Section name"
-              aria-label="Section name"
-              size={1}
-              className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
-            />
+              <span
+                aria-hidden
+                className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-2.5 py-1 pr-3.5 text-[19px] font-bold tracking-tight"
+              >
+                {name || "Section name"}
+              </span>
+              <input
+                value={name}
+                onChange={(e) => onRename(e.target.value)}
+                placeholder="Section name"
+                aria-label="Section name"
+                size={1}
+                className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
+              />
+            </div>
           </div>
-          {tag && <div className="mt-0.5">{tag}</div>}
-        </div>
-        <div className="shrink-0 text-right">
-          <div className="text-[11px] text-background/55">{pluralize(itemNames.length, "item")}</div>
-          <div className="mt-0.5 text-[19px] font-extrabold tracking-tight tabular-nums text-background">
-            {formatCurrency(subtotal)}
+          <div className="shrink-0 text-right">
+            <div className="text-[11px] text-background/55">{pluralize(itemNames.length, "item")}</div>
+            <div className="mt-0.5 text-[19px] font-extrabold tracking-tight tabular-nums text-background">
+              {formatCurrency(subtotal)}
+            </div>
           </div>
+          <ReorderControls
+            tone="dark"
+            dragHandleProps={dragHandleProps}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            label={name || "section"}
+          />
         </div>
-        <ReorderControls
-          tone="dark"
-          dragHandleProps={dragHandleProps}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          label={name || "section"}
-        />
+        {tag && <div className="mt-1 pl-11">{tag}</div>}
       </div>
 
       {collapsed && (
