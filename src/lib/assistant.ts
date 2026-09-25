@@ -1,3 +1,4 @@
+import { compressImageFile } from "./imageUpload";
 import { supabase } from "./supabase";
 
 export interface AssistantApiMessage {
@@ -120,4 +121,44 @@ export async function generateQuoteLineDescription(input: {
     throw new AssistantError(data?.message ?? "The assistant didn't return a description.", data?.error);
   }
   return data.description;
+}
+
+export interface ExtractedReceipt {
+  supplier: string | null;
+  date: string | null;
+  total: number | null;
+  lines: { description: string; quantity: number | null; unit: string | null; unit_price: number | null }[];
+}
+
+interface ExtractReceiptResponse {
+  ok: boolean;
+  receipt?: ExtractedReceipt;
+  error?: string;
+  message?: string;
+}
+
+const blobToBase64 = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+
+/**
+ * Reads a supplier receipt/invoice (photo or PDF) into delivery lines via
+ * the assistant-chat function's "extract_receipt" mode. Photos are shrunk
+ * first (receipts stay legible at 2000px). Read-only — the caller shows the
+ * result in an editable review step; nothing is saved here.
+ */
+export async function extractReceipt(file: File): Promise<ExtractedReceipt> {
+  const isPdf = file.type === "application/pdf";
+  const blob = isPdf ? file : await compressImageFile(file, { maxDimension: 2000, quality: 0.85 });
+  const mediaType = isPdf ? "application/pdf" : "image/jpeg";
+  const { data, error } = await supabase.functions.invoke<ExtractReceiptResponse>("assistant-chat", {
+    body: { mode: "extract_receipt", file: await blobToBase64(blob), mediaType },
+  });
+  if (error) throw new AssistantError(error.message);
+  if (!data?.ok || !data.receipt) throw new AssistantError(data?.message ?? "Couldn't read that receipt.", data?.error);
+  return { ...data.receipt, lines: data.receipt.lines ?? [] };
 }

@@ -1,8 +1,9 @@
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { formatCurrency } from "@/lib/utils";
-import { getSharedInvoice } from "@/lib/api";
+import { getSharedInvoice, markInvoiceViewed } from "@/lib/api";
 
 function PageShell({ children }: { children: ReactNode }) {
   return (
@@ -39,6 +40,13 @@ export default function SharedInvoicePage() {
     queryFn: () => getSharedInvoice(token),
     enabled: token.length > 0,
   });
+
+  // The contractor's "Viewed" timeline step — first open only; the RPC
+  // ignores drafts and the owner's own views (0097).
+  const loadedStatus = data?.invoice.status;
+  useEffect(() => {
+    if (token && loadedStatus && loadedStatus !== "draft") void markInvoiceViewed(token);
+  }, [token, loadedStatus]);
 
   if (!token || isError) {
     return <CenteredNotice>Invoice not found.</CenteredNotice>;
@@ -81,6 +89,29 @@ export default function SharedInvoicePage() {
           </p>
           {dueDate && <p className="text-sm text-muted-foreground pt-1">Due {dueDate}</p>}
         </div>
+
+        {data.items && data.items.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="font-semibold text-foreground">Details</h2>
+            <ul className="divide-y divide-border/60 rounded-xl border border-border">
+              {data.items.map((it, i) => (
+                <li key={i} className="flex items-start justify-between gap-4 px-4 py-3 text-sm">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">
+                    <span className="font-medium text-foreground">{it.description || "Item"}</span>
+                    {Number(it.quantity) !== 1 && (
+                      <span className="block text-xs text-muted-foreground">
+                        {Number(it.quantity)} × {formatCurrency(Number(it.unit_price))}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                    {formatCurrency(Number(it.quantity) * Number(it.unit_price))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {invoice.notes && (
           <div className="space-y-1.5">

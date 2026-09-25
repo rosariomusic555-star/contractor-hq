@@ -16,6 +16,7 @@ import {
   Send,
   Trash2,
   X,
+  Plus,
 } from "lucide-react";
 import {
   Select,
@@ -75,6 +76,8 @@ import {
   listLaborEntries,
   listCategories,
   isPreSaleProject,
+  createProjectInvoice,
+  DEPOSIT_INVOICE_NOTE,
   type ProjectStatus,
   type MaterialsItem,
   type MaterialsUsageLog,
@@ -96,11 +99,14 @@ import {
   leftoverQuantity,
   deliveredQuantity,
   usedQuantity,
+  effectiveEstimate,
+  executionTrackedLines,
   currentBaseline,
   predictedMaterialCost,
   type DeliveryLineWithOrderStatus,
 } from "@/lib/materialTracking";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
+import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
 import { demoJobMeta } from "@/lib/demoData";
 import { costPlanSummary } from "@/lib/costPlan";
 import { laborRollupsByScope, laborTotals } from "@/lib/laborPlan";
@@ -120,6 +126,7 @@ export function ProjectDetailView() {
   const [estimateDraft, setEstimateDraft] = useState("");
   const [reconcileOpen, setReconcileOpen] = useState(false);
   const [logUsageLine, setLogUsageLine] = useState<MaterialsItem | null>(null);
+  const [historyLine, setHistoryLine] = useState<MaterialsItem | null>(null);
 
   const { data: project, isLoading, isError, error } = useQuery({
     queryKey: ["projects", id],
@@ -255,6 +262,17 @@ export function ProjectDetailView() {
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
+  // The Won banner's "Send deposit invoice" when no deposit invoice exists
+  // (never created, or deleted) — creates a pre-filled one and opens it.
+  const createDepositMut = useMutation({
+    mutationFn: () => createProjectInvoice(id, "deposit"),
+    onSuccess: (invoice) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      navigate(`/projects/${id}/invoices/${invoice.id}`);
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
   if (isLoading) return <p className="text-muted-foreground">Loading project…</p>;
   if (isError || !project)
     return <p className="text-destructive">Failed to load project: {(error as Error)?.message}</p>;
@@ -267,12 +285,23 @@ export function ProjectDetailView() {
   const depositOverdue = isDepositOverdue(headlineQuote, contract, paidTotal);
   const depositRequired = headlineQuote ? contract * (headlineQuote.deposit_percentage / 100) : 0;
   const billing = projectBillingBadge(contract, projectInvoicedTotal, paidTotal, depositRequired);
-  // Won's own deposit invoice (migration 0075's apply_opportunity_won) —
-  // still a draft, never sent yet. Its presence + a freshly-Scheduled
-  // status is exactly "just won" — the banner naturally stops showing once
-  // either changes (the invoice gets sent, or the job moves past Scheduled).
-  const wonDepositInvoice = invoices.find((i) => i.status === "draft" && i.notes === "Deposit");
-  const showWonBanner = project.status === "scheduled" && !!wonDepositInvoice;
+  // "Won — project ready" CTAs, each shown only while it's still to do:
+  // - Schedule: until the job has a start date (editable any time in the
+  //   Schedule card).
+  // - Deposit: by the deposit invoice's own status — a draft still needs
+  //   sending; once sent/paid/overdue it's done. If it's deleted, the CTA
+  //   comes back and creates a fresh, pre-filled one (createProjectInvoice).
+  const depositInvoice = invoices.find((i) => i.notes === DEPOSIT_INVOICE_NOTE);
+  const showScheduleCta = !project.scheduled_start_date;
+  const depositCta: "open" | "create" | null = depositInvoice
+    ? depositInvoice.status === "draft"
+      ? "open"
+      : null
+    : headlineQuote?.status === "approved" && Number(headlineQuote.deposit_percentage) > 0
+      ? "create"
+      : null;
+  const showWonBanner =
+    (project.status === "scheduled" || project.status === "in_progress") && (showScheduleCta || depositCta !== null);
 
   // Material budget tracking (0080) — deliveries paired with their parent
   // order's status (see materialTracking.ts's DeliveryLineWithOrderStatus),
@@ -457,18 +486,28 @@ export function ProjectDetailView() {
             <p className="text-sm font-bold text-foreground">Won — project ready</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button asChild size="sm" variant="outline" className="font-semibold">
-              <Link to="/bookings">
-                <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
-                Schedule this job
-              </Link>
-            </Button>
-            <Button asChild size="sm" className="font-bold">
-              <Link to={`/projects/${id}/invoices/${wonDepositInvoice!.id}`}>
+            {showScheduleCta && (
+              <Button asChild size="sm" variant="outline" className="font-semibold">
+                <Link to="/bookings">
+                  <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                  Schedule this job
+                </Link>
+              </Button>
+            )}
+            {depositCta === "open" && (
+              <Button asChild size="sm" className="font-bold">
+                <Link to={`/projects/${id}/invoices/${depositInvoice!.id}`}>
+                  <Send className="mr-1.5 h-3.5 w-3.5" />
+                  Send deposit invoice
+                </Link>
+              </Button>
+            )}
+            {depositCta === "create" && (
+              <Button size="sm" className="font-bold" disabled={createDepositMut.isPending} onClick={() => createDepositMut.mutate()}>
                 <Send className="mr-1.5 h-3.5 w-3.5" />
-                Send deposit invoice
-              </Link>
-            </Button>
+                {createDepositMut.isPending ? "Preparing…" : "Send deposit invoice"}
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -498,14 +537,16 @@ export function ProjectDetailView() {
         </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
           <MaterialsTrackingCard
             summary={materialCostSummary}
             trackedLines={trackedLines}
+            usageLogs={usageLogs}
             onOpen={() => navigate(`/projects/${id}/materials`)}
             onLogUsage={(line) => setLogUsageLine(line)}
+            onShowHistory={(line) => setHistoryLine(line)}
           />
 
           {/* Section nav */}
@@ -644,141 +685,145 @@ export function ProjectDetailView() {
               Feeds the Dashboard Bookings card and the Bookings calendar once this job is
               scheduled.
             </p>
-          </section>
 
-          <section className="card-surface p-5">
-            <h3 className="text-base font-bold text-foreground">Estimated duration</h3>
+            {/* Estimated duration — part of the job's schedule, so it lives in
+                this card (it used to be its own card below). Same behavior:
+                estimate in crew days, actual start/end, elapsed vs estimate,
+                flagged red once it runs over. */}
+            <div className="mt-4 border-t border-hairline pt-4">
+              <h4 className="text-sm font-bold text-foreground">Estimated duration</h4>
 
-            {project.estimated_duration_days == null ? (
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">No estimate set</p>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="Days"
-                    value={estimateDraft}
-                    onChange={(e) => setEstimateDraft(e.target.value)}
-                    className="h-9 w-20"
-                    aria-label="Estimated crew days"
-                  />
-                  <Button
-                    size="sm"
-                    disabled={!estimateDraft || Number(estimateDraft) <= 0 || durationMutation.isPending}
-                    onClick={() => {
-                      const days = parseInt(estimateDraft, 10);
-                      if (days > 0) {
-                        durationMutation.mutate({ estimated_duration_days: days });
-                        setEstimateDraft("");
-                      }
-                    }}
-                  >
-                    Add
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={project.estimated_duration_days}
-                    onChange={(e) => {
-                      const days = e.target.value ? parseInt(e.target.value, 10) : null;
-                      durationMutation.mutate({ estimated_duration_days: days && days > 0 ? days : null });
-                    }}
-                    className="h-10 w-20"
-                    aria-label="Estimated crew days"
-                  />
-                  <span className="text-sm text-muted-foreground">crew days estimated</span>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="actual-start" className="text-xs font-semibold text-muted-foreground">
-                      Actual start
-                    </Label>
+              {project.estimated_duration_days == null ? (
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">No estimate set</p>
+                  <div className="flex items-center gap-2">
                     <Input
-                      id="actual-start"
-                      type="date"
-                      value={project.actual_start_date ?? ""}
-                      onChange={(e) =>
-                        durationMutation.mutate({ actual_start_date: e.target.value || null })
-                      }
-                      className="h-10"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Days"
+                      value={estimateDraft}
+                      onChange={(e) => setEstimateDraft(e.target.value)}
+                      className="h-9 w-20"
+                      aria-label="Estimated crew days"
                     />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="actual-end" className="text-xs font-semibold text-muted-foreground">
-                      Actual end
-                    </Label>
-                    <Input
-                      id="actual-end"
-                      type="date"
-                      min={project.actual_start_date ?? undefined}
-                      value={project.actual_end_date ?? ""}
-                      onChange={(e) =>
-                        durationMutation.mutate({ actual_end_date: e.target.value || null })
-                      }
-                      className="h-10"
-                    />
+                    <Button
+                      size="sm"
+                      disabled={!estimateDraft || Number(estimateDraft) <= 0 || durationMutation.isPending}
+                      onClick={() => {
+                        const days = parseInt(estimateDraft, 10);
+                        if (days > 0) {
+                          durationMutation.mutate({ estimated_duration_days: days });
+                          setEstimateDraft("");
+                        }
+                      }}
+                    >
+                      Add
+                    </Button>
                   </div>
                 </div>
+              ) : (
+                <>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={project.estimated_duration_days}
+                      onChange={(e) => {
+                        const days = e.target.value ? parseInt(e.target.value, 10) : null;
+                        durationMutation.mutate({ estimated_duration_days: days && days > 0 ? days : null });
+                      }}
+                      className="h-10 w-20"
+                      aria-label="Estimated crew days"
+                    />
+                    <span className="text-sm text-muted-foreground">crew days estimated</span>
+                  </div>
 
-                {(durationStatus.state === "in_progress" || durationStatus.state === "complete") && (
-                  <div className="mt-3">
-                    {(() => {
-                      const isOver =
-                        (durationStatus.state === "in_progress" && durationStatus.overDays > 0) ||
-                        (durationStatus.state === "complete" && durationStatus.diffDays > 0);
-                      const label =
-                        durationStatus.state === "in_progress"
-                          ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}${
-                              durationStatus.overDays > 0
-                                ? ` · ${pluralize(durationStatus.overDays, "day")} over`
-                                : ""
-                            }`
-                          : `Took ${pluralize(durationStatus.totalDays, "day")} · ${
-                              durationStatus.diffDays > 0
-                                ? `${pluralize(durationStatus.diffDays, "day")} over estimate`
-                                : durationStatus.diffDays < 0
-                                  ? `finished ${pluralize(-durationStatus.diffDays, "day")} early`
-                                  : "right on estimate"
-                            }`;
-                      const progressPct = Math.min(
-                        100,
-                        ((durationStatus.state === "in_progress"
-                          ? durationStatus.elapsedDays
-                          : durationStatus.totalDays) /
-                          durationStatus.estimateDays) *
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="actual-start" className="text-xs font-semibold text-muted-foreground">
+                        Actual start
+                      </Label>
+                      <Input
+                        id="actual-start"
+                        type="date"
+                        value={project.actual_start_date ?? ""}
+                        onChange={(e) =>
+                          durationMutation.mutate({ actual_start_date: e.target.value || null })
+                        }
+                        className="h-10"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="actual-end" className="text-xs font-semibold text-muted-foreground">
+                        Actual end
+                      </Label>
+                      <Input
+                        id="actual-end"
+                        type="date"
+                        min={project.actual_start_date ?? undefined}
+                        value={project.actual_end_date ?? ""}
+                        onChange={(e) =>
+                          durationMutation.mutate({ actual_end_date: e.target.value || null })
+                        }
+                        className="h-10"
+                      />
+                    </div>
+                  </div>
+
+                  {(durationStatus.state === "in_progress" || durationStatus.state === "complete") && (
+                    <div className="mt-3">
+                      {(() => {
+                        const isOver =
+                          (durationStatus.state === "in_progress" && durationStatus.overDays > 0) ||
+                          (durationStatus.state === "complete" && durationStatus.diffDays > 0);
+                        const label =
+                          durationStatus.state === "in_progress"
+                            ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}${
+                                durationStatus.overDays > 0
+                                  ? ` · ${pluralize(durationStatus.overDays, "day")} over`
+                                  : ""
+                              }`
+                            : `Took ${pluralize(durationStatus.totalDays, "day")} · ${
+                                durationStatus.diffDays > 0
+                                  ? `${pluralize(durationStatus.diffDays, "day")} over estimate`
+                                  : durationStatus.diffDays < 0
+                                    ? `finished ${pluralize(-durationStatus.diffDays, "day")} early`
+                                    : "right on estimate"
+                              }`;
+                        const progressPct = Math.min(
                           100,
-                      );
-                      return (
-                        <>
-                          <p className={cn("text-sm font-semibold", isOver ? "text-destructive" : "text-foreground")}>
-                            {label}
-                          </p>
-                          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all",
-                                isOver ? "bg-destructive" : "bg-primary",
-                              )}
-                              style={{ width: `${progressPct}%` }}
-                            />
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                )}
+                          ((durationStatus.state === "in_progress"
+                            ? durationStatus.elapsedDays
+                            : durationStatus.totalDays) /
+                            durationStatus.estimateDays) *
+                            100,
+                        );
+                        return (
+                          <>
+                            <p className={cn("text-sm font-semibold", isOver ? "text-destructive" : "text-foreground")}>
+                              {label}
+                            </p>
+                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all",
+                                  isOver ? "bg-destructive" : "bg-primary",
+                                )}
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
 
-                {windowNote && <p className="mt-3 text-[11px] text-warning">{windowNote}</p>}
-              </>
-            )}
+                  {windowNote && <p className="mt-3 text-[11px] text-warning">{windowNote}</p>}
+                </>
+              )}
+            </div>
           </section>
 
           <ProjectMeasurementsCard projectId={id} categoryIds={projectCategoryIds(project)} />
@@ -882,6 +927,9 @@ export function ProjectDetailView() {
       {logUsageLine && (
         <LogUsageDialog open={!!logUsageLine} onOpenChange={(open) => !open && setLogUsageLine(null)} line={logUsageLine} />
       )}
+      {historyLine && (
+        <UsageLogHistoryDialog open={!!historyLine} onOpenChange={(open) => !open && setHistoryLine(null)} line={historyLine} />
+      )}
 
       <ReconcileMaterialsDialog
         open={reconcileOpen}
@@ -913,6 +961,11 @@ function ProfitSummaryCard({
   const actualProfit = quoted !== null && actualCost !== null ? quoted - actualCost : null;
   const predictedMargin = predictedProfit !== null && quoted ? (predictedProfit / quoted) * 100 : null;
   const actualMargin = actualProfit !== null && quoted ? (actualProfit / quoted) * 100 : null;
+  // Profit variance = actual − estimated profit. Positive = ahead of the
+  // estimate (green), negative = behind (red). % is against the estimate.
+  const profitVariance = predictedProfit !== null && actualProfit !== null ? actualProfit - predictedProfit : null;
+  const profitVariancePct =
+    profitVariance !== null && predictedProfit ? (profitVariance / Math.abs(predictedProfit)) * 100 : null;
 
   return (
     <section className="card-surface space-y-4 p-5">
@@ -944,6 +997,31 @@ function ProfitSummaryCard({
           )}
         </div>
       )}
+      {profitVariance !== null && (
+        <div
+          className={cn(
+            "flex flex-wrap items-baseline justify-between gap-2 rounded-xl px-3.5 py-2.5",
+            profitVariance >= 0 ? "bg-success/10" : "bg-destructive/10",
+          )}
+        >
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">Profit variance</p>
+            <p className="text-xs text-muted-foreground">
+              {profitVariance >= 0 ? "Ahead of estimate" : "Behind estimate"}
+            </p>
+          </div>
+          <p className={cn("text-lg font-extrabold tabular-nums", profitVariance >= 0 ? "text-success" : "text-destructive")}>
+            {profitVariance >= 0 ? "+" : "−"}
+            {formatCurrency(Math.abs(profitVariance))}
+            {profitVariancePct !== null && (
+              <span className="ml-1.5 text-sm font-bold">
+                ({profitVariance >= 0 ? "+" : "−"}
+                {Math.abs(profitVariancePct).toFixed(0)}%)
+              </span>
+            )}
+          </p>
+        </div>
+      )}
     </section>
   );
 }
@@ -957,64 +1035,105 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-/** The compact project-page Materials card — same cost-summary shape as
- * the sheet's own header card (sheetCostSummary), just condensed, with a
- * link through to the full sheet. Always rendered, even for a project
- * with no materials sheet started yet — sheetCostSummary()'s all-zero
- * output on an empty line list reads fine as "nothing planned yet" rather
- * than needing a separate empty state. */
+/** Rows shown before "See more" on the project page's Materials card. */
+const MATERIAL_ROWS_PREVIEW = 5;
+
+/**
+ * The project page's Materials card — logs quantity USED as the job goes.
+ * One row per tracked line (the per-line Track flag, 0086): used vs.
+ * estimated in the line's own unit, a progress bar, and the dollar values
+ * derived from unit cost (never typed in). "Log usage" adds an entry (in
+ * the line's unit, optional date/note); "History" edits or deletes them.
+ * Entries sum into the line's "Used" in the estimated → ordered → delivered
+ * → used tracking. Ordering / delivered stay with Material deliveries.
+ */
 function MaterialsTrackingCard({
   summary,
   trackedLines,
+  usageLogs,
   onOpen,
   onLogUsage,
+  onShowHistory,
 }: {
   summary: ReturnType<typeof sheetCostSummary>;
   trackedLines: MaterialsItem[];
+  usageLogs: MaterialsUsageLog[];
   onOpen: () => void;
   onLogUsage: (line: MaterialsItem) => void;
+  onShowHistory: (line: MaterialsItem) => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const lines = executionTrackedLines(trackedLines);
+  const rows = lines.map((line) => {
+    const est = effectiveEstimate(line);
+    const used = usedQuantity(line, usageLogs);
+    const entries = usageLogs.filter((u) => u.materials_item_id === line.id).length;
+    return { line, estQty: est.quantity, used, unitCost: est.unit_cost, entries };
+  });
+  const usedValue = rows.reduce((sum, r) => sum + r.used * r.unitCost, 0);
+  const estValue = rows.reduce((sum, r) => sum + r.estQty * r.unitCost, 0);
+  const shown = showAll ? rows : rows.slice(0, MATERIAL_ROWS_PREVIEW);
+  const qty = (n: number) => String(Math.round(n * 100) / 100);
+
   return (
     <div className="card-surface p-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-bold text-foreground">Materials</h3>
-        <div className="flex items-center gap-3">
-          {trackedLines.length > 0 && (
-            <Select onValueChange={(v) => onLogUsage(trackedLines.find((l) => l.id === v)!)}>
-              <SelectTrigger className="h-7 w-auto gap-1 border-none bg-transparent px-0 text-xs font-semibold text-primary shadow-none [&>svg]:hidden">
-                <span>+ Log usage</span>
-              </SelectTrigger>
-              <SelectContent>
-                {trackedLines.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {materialLineLabel(l)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <button type="button" onClick={onOpen} className="text-xs font-semibold text-primary">
-            Open sheet →
-          </button>
-        </div>
+        <button type="button" onClick={onOpen} className="shrink-0 text-xs font-semibold text-primary">
+          Open sheet →
+        </button>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-        <div>
-          <p className="text-muted-foreground">Estimated</p>
-          <p className="font-bold text-foreground">{formatCurrency(summary.estimatedCost)}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground">Actual</p>
-          <p className="font-bold text-foreground">{formatCurrency(summary.actualCost)}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground">Variance</p>
-          <p className={cn("font-bold", summary.varianceDollars > 0 ? "text-warning-strong" : "text-foreground")}>
-            {summary.varianceDollars >= 0 ? "+" : ""}
-            {formatCurrency(summary.varianceDollars)}
+      {rows.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">No tracked materials yet — add lines on the materials sheet.</p>
+      ) : (
+        <>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Used <span className="font-bold tabular-nums text-foreground">{formatCurrency(usedValue)}</span> of{" "}
+            <span className="tabular-nums">{formatCurrency(estValue)}</span> estimated · log what the crew uses as you go
           </p>
-        </div>
-      </div>
+          <ul className="mt-3 divide-y divide-hairline">
+            {shown.map(({ line, estQty, used, unitCost, entries }) => {
+              const unit = line.unit || "units";
+              const pct = estQty > 0 ? Math.min(100, (used / estQty) * 100) : used > 0 ? 100 : 0;
+              const over = estQty > 0 && used > estQty;
+              return (
+                <li key={line.id} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">{materialLineLabel(line)}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                        <span className={cn("font-bold", over ? "text-destructive" : "text-foreground")}>
+                          {qty(used)} / {qty(estQty)} {unit}
+                        </span>{" "}
+                        used · {formatCurrency(used * unitCost)} of {formatCurrency(estQty * unitCost)}
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-8 shrink-0 px-2.5 text-xs font-bold" onClick={() => onLogUsage(line)}>
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      Log usage
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div className={cn("h-full rounded-full", over ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
+                    </div>
+                    {entries > 0 && (
+                      <button type="button" onClick={() => onShowHistory(line)} className="shrink-0 text-[11px] font-semibold text-primary hover:underline">
+                        History ({entries})
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          {rows.length > MATERIAL_ROWS_PREVIEW && (
+            <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-2 text-sm font-semibold text-primary hover:underline">
+              {showAll ? "See less" : `See all ${rows.length} materials`}
+            </button>
+          )}
+        </>
+      )}
       {(summary.notOrderedCount > 0 || summary.overEstimateCount > 0 || summary.unplannedCount > 0) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {summary.notOrderedCount > 0 && <span className="badge-status badge-pending">{pluralize(summary.notOrderedCount, "line")} not ordered</span>}

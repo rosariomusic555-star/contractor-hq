@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { addUsageLog, uploadUsageLogPhoto, type MaterialsItem } from "@/lib/api";
 import { materialLineLabel } from "@/lib/materialsMath";
+import { allDayDateTime, localYmd } from "@/lib/appointmentTime";
 
 interface LogUsageDialogProps {
   open: boolean;
@@ -32,6 +33,8 @@ export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageD
   const qc = useQueryClient();
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
+  // Defaults to today; pick an earlier day when logging after the fact.
+  const [date, setDate] = useState(() => localYmd(new Date()));
   const [loggedBy, setLoggedBy] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -40,6 +43,7 @@ export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageD
     if (!open) {
       setQuantity("");
       setNote("");
+      setDate(localYmd(new Date()));
       setLoggedBy("");
       setPhoto(null);
       setPhotoPreview(null);
@@ -53,6 +57,8 @@ export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageD
       return addUsageLog({
         materials_item_id: line.id,
         quantity: parseFloat(quantity),
+        // Today → the actual time; an earlier day → local noon of that day.
+        logged_at: date === localYmd(new Date()) ? new Date().toISOString() : allDayDateTime(date),
         note: note.trim() || null,
         logged_by: loggedBy.trim() || null,
         photo_path,
@@ -95,6 +101,17 @@ export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageD
             />
             {line.unit && <span className="shrink-0 text-lg font-semibold text-muted-foreground">{line.unit}</span>}
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="usage-date" className="text-xs text-muted-foreground">Date</Label>
+          <Input
+            id="usage-date"
+            type="date"
+            value={date}
+            max={localYmd(new Date())}
+            onChange={(e) => setDate(e.target.value || localYmd(new Date()))}
+          />
         </div>
 
         <div className="space-y-2">

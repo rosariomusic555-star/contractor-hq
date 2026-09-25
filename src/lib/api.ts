@@ -89,6 +89,8 @@ interface ClientRef {
 }
 interface ProjectRef {
   name: string;
+  /** Only where the select asks for it (INVOICE_SELECT). */
+  client_id?: string | null;
   client: ClientRef | null;
 }
 
@@ -328,9 +330,68 @@ export interface Invoice {
   // invoices already on the project. Frozen — doesn't shift if an earlier
   // invoice is later deleted.
   invoice_number: string | null;
+  /** First time the client opened the share link (0097) — the timeline's
+   * "Viewed" step. Null until then (and before 0097). */
+  viewed_at?: string | null;
   created_at: string;
   updated_at: string;
   project?: ProjectRef | null;
+}
+
+/** An invoice's own line item (0097). */
+export interface InvoiceItem {
+  id: string;
+  invoice_id: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  sort_order: number;
+}
+
+export async function listInvoiceItems(invoiceId: string): Promise<InvoiceItem[]> {
+  const { data, error } = await supabase
+    .from("invoice_items")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return []; // 0097 not run yet
+    throw error;
+  }
+  return data ?? [];
+}
+
+/**
+ * Replaces an invoice's line items and, when there are any, writes their
+ * sum to invoices.amount — so every total/revenue/aging reader (which all
+ * read `amount`) stays correct with no changes. With no lines the invoice
+ * keeps its own hand-entered amount (`fallbackAmount`).
+ */
+export async function saveInvoiceItems(
+  invoiceId: string,
+  items: { description: string; quantity: number; unit_price: number }[],
+  fallbackAmount: number,
+): Promise<void> {
+  const { error: delError } = await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
+  if (delError && delError.code !== "PGRST205") throw delError;
+  if (items.length > 0) {
+    const { error } = await supabase
+      .from("invoice_items")
+      .insert(items.map((it, i) => ({ invoice_id: invoiceId, ...it, sort_order: i })));
+    if (error) throw error;
+  }
+  const amount = items.length > 0 ? invoiceItemsTotal(items) : fallbackAmount;
+  await updateInvoice(invoiceId, { amount: Math.round(amount * 100) / 100 });
+}
+
+export const invoiceItemsTotal = (items: { quantity: number; unit_price: number }[]) =>
+  items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
+
+/** Stamps the first client view of a shared invoice (0097). Best-effort —
+ * a failure (e.g. before the migration) never affects the page. */
+export async function markInvoiceViewed(token: string): Promise<void> {
+  const { error } = await supabase.rpc("mark_invoice_viewed", { p_token: token });
+  if (error) console.warn("mark_invoice_viewed failed", error.message);
 }
 
 /** A user's own editable list of cost categories (Settings > Expense
@@ -779,6 +840,19 @@ export interface Expense {
   // Only populated where the select asks for it (the global Expenses
   // list) — project-scoped callers already know their own project.
   project?: ProjectRef | null;
+  /** Split lines (0096) — two or more = a split expense; category rollups
+   * use these (see expenseCategoryAllocations). Empty/undefined = a normal,
+   * single-category expense. */
+  expense_lines?: ExpenseLine[];
+}
+
+export interface ExpenseLine {
+  id: string;
+  expense_id: string;
+  expense_category_id: string | null;
+  amount: number;
+  description: string | null;
+  sort_order: number;
 }
 
 export type ChangeOrderStatus = "draft" | "sent" | "approved" | "declined";
@@ -2608,7 +2682,7 @@ export async function getSignedImageUrls(paths: string[]): Promise<Record<string
 // Invoices
 // ---------------------------------------------------------------------------
 
-const INVOICE_SELECT = "*, project:projects(name, client:clients(name))";
+const INVOICE_SELECT = "*, project:projects(name, client_id, client:clients(name))";
 
 export async function listInvoices(projectId?: string): Promise<Invoice[]> {
   let query = supabase
@@ -2694,6 +2768,55 @@ export async function createInvoice(
   return data;
 }
 
+/** How the Won transaction (0075) and createProjectInvoice() mark a
+ * project's deposit invoice — its notes are exactly this. */
+export const DEPOSIT_INVOICE_NOTE = "Deposit";
+
+/**
+ * Starts an invoice from a project — every "new invoice" entry point that
+ * already knows its project (the project's Invoices tab, the project page's
+ * deposit CTA, the mobile + menu while on a project). The project is
+ * pre-linked (so the invoice's client is the project's client) and the
+ * amount is pre-filled from the project's headline quote:
+ *   - "deposit": the quote's deposit % of the contract value, marked as the
+ *     deposit invoice;
+ *   - "balance": the contract value minus everything already invoiced;
+ *   - "auto" (default): the deposit while the project has no deposit invoice
+ *     yet and its quote asks for one, else the balance.
+ * Returns the draft; the user edits it before sending.
+ */
+export async function createProjectInvoice(
+  projectId: string,
+  kind: "auto" | "deposit" | "balance" = "auto",
+): Promise<Invoice> {
+  const [quotes, changeOrders, invoices] = await Promise.all([
+    listQuotes(projectId),
+    listChangeOrders(projectId),
+    listInvoices(projectId),
+  ]);
+  const headline = pickHeadlineQuote(quotes);
+  const contract = projectContractValue(quotes, changeOrders);
+  const depositPct = headline ? Number(headline.deposit_percentage) : 0;
+  const hasDeposit = invoices.some((i) => i.notes === DEPOSIT_INVOICE_NOTE);
+  const asDeposit = kind === "deposit" || (kind === "auto" && !hasDeposit && depositPct > 0 && contract > 0);
+  const alreadyInvoiced = invoices.reduce((sum, i) => sum + Number(i.amount), 0);
+  const amount = asDeposit ? contract * (depositPct / 100) : Math.max(0, contract - alreadyInvoiced);
+
+  const invoice = await createInvoice({
+    project_id: projectId,
+    amount: Math.round(amount * 100) / 100,
+    quote_id: headline?.id ?? null,
+    notes: asDeposit ? DEPOSIT_INVOICE_NOTE : null,
+  });
+  void logProjectEvent(
+    projectId,
+    "invoice_created",
+    `${invoice.invoice_number ?? "Invoice"} drafted · ${asDeposit ? "deposit" : "balance"}`,
+    { invoice_id: invoice.id, invoice_number: invoice.invoice_number },
+  );
+  return invoice;
+}
+
 export async function updateInvoice(
   id: string,
   patch: Partial<
@@ -2719,14 +2842,47 @@ export async function deleteInvoice(id: string): Promise<void> {
 /** Omitting projectId returns every expense the user owns, across all
  * projects — used by the global Expenses list. */
 export async function listExpenses(projectId?: string): Promise<Expense[]> {
-  let query = supabase
-    .from("expenses")
-    .select("*, project:projects(name)")
-    .order("created_at", { ascending: false });
-  if (projectId) query = query.eq("project_id", projectId);
-  const { data, error } = await query;
+  const build = (select: string) => {
+    let query = supabase.from("expenses").select(select).order("created_at", { ascending: false });
+    if (projectId) query = query.eq("project_id", projectId);
+    return query;
+  };
+  // Split lines (0096) ride along; falls back to the plain read until the
+  // migration has run.
+  const withLines = await build("*, project:projects(name), expense_lines(*)");
+  if (!withLines.error) {
+    return ((withLines.data ?? []) as unknown as Expense[]).map((e) => ({
+      ...e,
+      expense_lines: [...(e.expense_lines ?? [])].sort((a, b) => a.sort_order - b.sort_order),
+    }));
+  }
+  if (withLines.error.code !== "PGRST200") throw withLines.error;
+  const { data, error } = await build("*, project:projects(name)");
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as unknown as Expense[];
+}
+
+/**
+ * Replaces an expense's split lines (0096). Two or more lines = split;
+ * saving zero or one line un-splits it — the single line's category (if
+ * any) becomes the expense's own category again.
+ */
+export async function saveExpenseLines(
+  expenseId: string,
+  lines: { expense_category_id: string | null; amount: number; description: string | null }[],
+): Promise<void> {
+  const { error: delError } = await supabase.from("expense_lines").delete().eq("expense_id", expenseId);
+  if (delError) throw delError;
+  if (lines.length <= 1) {
+    await updateExpense(expenseId, { expense_category_id: lines[0]?.expense_category_id ?? null });
+    return;
+  }
+  const { error } = await supabase
+    .from("expense_lines")
+    .insert(lines.map((l, i) => ({ expense_id: expenseId, ...l, sort_order: i })));
+  if (error) throw error;
+  // The expense's own single category no longer applies once it's split.
+  await updateExpense(expenseId, { expense_category_id: null });
 }
 
 /**
@@ -2769,7 +2925,7 @@ export async function createExpense(input: {
  * re-adding it. */
 export async function updateExpense(
   id: string,
-  patch: Partial<Pick<Expense, "expense_category_id">>,
+  patch: Partial<Pick<Expense, "expense_category_id" | "date">>,
 ): Promise<void> {
   const { error } = await supabase.from("expenses").update(patch).eq("id", id);
   if (error) throw error;
@@ -3715,6 +3871,8 @@ export interface SharedInvoice {
   // Null for a standalone invoice (no linked project).
   project: { name: string } | null;
   client: { name: string } | null;
+  /** Itemised invoices (0097) — empty for a single-amount invoice. */
+  items?: { description: string; quantity: number; unit_price: number }[];
 }
 
 export async function getSharedInvoice(token: string): Promise<SharedInvoice | null> {

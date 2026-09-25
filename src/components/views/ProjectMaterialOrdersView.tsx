@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ImagePlus, Plus, Trash2, Truck, X } from "lucide-react";
+import { ChevronLeft, ImagePlus, Plus, Trash2, Truck, X, Camera, FileUp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,6 +52,10 @@ import {
 import { materialOrderStatusMeta } from "@/lib/statusMeta";
 import { suggestMaterialsItemMatches, effectiveDeliveryStatus } from "@/lib/materialTracking";
 import { BackLink } from "@/components/common/BackLink";
+import { Switch } from "@/components/ui/switch";
+import { extractReceipt } from "@/lib/assistant";
+import { mapReceiptUnit } from "@/lib/receiptLines";
+import { materialLineLabel } from "@/lib/materialsMath";
 
 interface DraftItem {
   description: string;
@@ -97,6 +101,58 @@ export function ProjectMaterialOrdersView() {
   // exact same addMaterialOrderImage() the delivery card's gallery uses.
   const [stagedPhotos, setStagedPhotos] = useState<{ file: File; previewUrl: string }[]>([]);
   const stagedPhotoInputRef = useRef<HTMLInputElement>(null);
+  // Logging a delivery (vs. placing an order) — scanning a receipt or
+  // skipping line items switches this to Delivered.
+  const [status, setStatus] = useState<MaterialOrderStatus>("ordered");
+  // "Skip line items": just supplier, date, optional total, photo, notes.
+  const [skipLines, setSkipLines] = useState(false);
+  const [total, setTotal] = useState("");
+  // Receipt scan (assistant-chat "extract_receipt"): fills the editable line
+  // items below — nothing is saved until "Add" is pressed.
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
+
+  const scanReceipt = async (file: File) => {
+    setScanning(true);
+    setScanNote(null);
+    try {
+      const receipt = await extractReceipt(file);
+      if (receipt.supplier && !supplier.trim()) setSupplier(receipt.supplier);
+      if (receipt.date) setExpectedDate(receipt.date);
+      if (receipt.total != null) setTotal(String(receipt.total));
+      setStatus("delivered");
+      if (receipt.lines.length > 0) {
+        setSkipLines(false);
+        setItems(
+          receipt.lines.map((l) => {
+            const { unit, note } = mapReceiptUnit(l.unit);
+            return {
+              description: note ? `${l.description} (${note})` : l.description,
+              quantity: l.quantity != null ? String(l.quantity) : "",
+              unit,
+              materialsItemId: null,
+              unitPrice: l.unit_price != null ? String(l.unit_price) : "",
+            };
+          }),
+        );
+        setScanNote(`Read ${pluralize(receipt.lines.length, "line")} from the receipt — check them below before saving.`);
+      } else {
+        setSkipLines(true);
+        setScanNote("Couldn't find line items on that receipt — logged as a delivery without them. Add lines by hand if you like.");
+      }
+      // The receipt itself is attached to the delivery (images only — the
+      // photo gallery can't show a PDF).
+      if (file.type.startsWith("image/")) {
+        setStagedPhotos((prev) => [...prev, { file, previewUrl: URL.createObjectURL(file) }]);
+      }
+    } catch (err) {
+      toast({ title: "Couldn't read that receipt", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["material-orders", { project: id }] });
@@ -111,15 +167,22 @@ export function ProjectMaterialOrdersView() {
         supplier: supplier.trim() || null,
         expected_delivery_date: expectedDate || null,
         notes: notes.trim() || null,
-        items: items
-          .filter((it) => it.description.trim())
-          .map((it) => ({
-            description: it.description.trim(),
-            quantity: parseFloat(it.quantity) || 0,
-            unit: it.unit,
-            materials_item_id: it.materialsItemId,
-            unit_price: it.unitPrice.trim() ? parseFloat(it.unitPrice) : null,
-          })),
+        status,
+        // No line items: an optional total is kept as one unmatched line so
+        // it still counts in actual material cost.
+        items: skipLines
+          ? parseFloat(total) > 0
+            ? [{ description: "Delivery total (no line items)", quantity: 1, unit: "each" as MaterialOrderUnit, unit_price: parseFloat(total) }]
+            : []
+          : items
+              .filter((it) => it.description.trim())
+              .map((it) => ({
+                description: it.description.trim(),
+                quantity: parseFloat(it.quantity) || 0,
+                unit: it.unit,
+                materials_item_id: it.materialsItemId,
+                unit_price: it.unitPrice.trim() ? parseFloat(it.unitPrice) : null,
+              })),
       });
       for (let i = 0; i < stagedPhotos.length; i++) {
         await addMaterialOrderImage(order.id, stagedPhotos[i].file, { sort_order: i });
@@ -135,6 +198,10 @@ export function ProjectMaterialOrdersView() {
       setItems([emptyItem()]);
       stagedPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
       setStagedPhotos([]);
+      setStatus("ordered");
+      setSkipLines(false);
+      setTotal("");
+      setScanNote(null);
     },
     onError,
   });
@@ -164,7 +231,9 @@ export function ProjectMaterialOrdersView() {
     onError,
   });
 
-  const canSave = items.some((it) => it.description.trim().length > 0);
+  const canSave = skipLines
+    ? !!supplier.trim() || parseFloat(total) > 0 || stagedPhotos.length > 0
+    : items.some((it) => it.description.trim().length > 0);
 
   const setItem = (i: number, patch: Partial<DraftItem>) =>
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
@@ -183,33 +252,113 @@ export function ProjectMaterialOrdersView() {
       </div>
 
       <section className="card-surface space-y-4 p-5">
-        <h3 className="text-base font-bold text-foreground">Add order</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-base font-bold text-foreground">Add order or delivery</h3>
+          {/* Scan a receipt: camera on phones, or upload a photo/PDF. */}
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            <Button type="button" variant="outline" size="sm" disabled={scanning} onClick={() => cameraInputRef.current?.click()} className="flex-1 font-semibold sm:flex-none">
+              <Camera className="mr-1.5 h-4 w-4" />
+              Take photo
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={scanning} onClick={() => receiptInputRef.current?.click()} className="flex-1 font-semibold sm:flex-none">
+              <FileUp className="mr-1.5 h-4 w-4" />
+              Upload receipt
+            </Button>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void scanReceipt(f);
+              }}
+            />
+            <input
+              ref={receiptInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void scanReceipt(f);
+              }}
+            />
+          </div>
+        </div>
+        {scanning && (
+          <p className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Reading the receipt…
+          </p>
+        )}
+        {scanNote && !scanning && (
+          <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-foreground">{scanNote}</p>
+        )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Supplier</Label>
             <SupplierCombobox value={supplier} onChange={setSupplier} placeholder="e.g. Techo-Bloc" />
           </div>
           <div className="space-y-1.5">
-            <Label>Expected delivery date</Label>
+            <Label>{status === "delivered" ? "Delivery date" : "Expected delivery date"}</Label>
             <Input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
           </div>
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as MaterialOrderStatus)}>
+              <SelectTrigger aria-label="Status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ordered">Ordered — not here yet</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-hairline px-3 py-2 sm:self-end">
+            <span className="text-sm">
+              <span className="font-semibold text-foreground">No line items</span>
+              <span className="block text-xs text-muted-foreground">Just supplier, date, total, photo and notes</span>
+            </span>
+            <Switch
+              checked={skipLines}
+              onCheckedChange={(v) => {
+                setSkipLines(v);
+                if (v) setStatus("delivered");
+              }}
+              aria-label="Skip line items"
+            />
+          </label>
         </div>
 
+        {skipLines && (
+          <div className="space-y-1.5 sm:max-w-xs">
+            <Label>Total (optional)</Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+              <Input type="number" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className="pl-6" />
+            </div>
+            <p className="text-[11px] text-muted-subtle">Counts toward actual material cost as one unplanned line.</p>
+          </div>
+        )}
+
+        {!skipLines && (
         <div className="space-y-3">
           <Label>Line items</Label>
           {items.map((item, i) => (
             <div key={i} className="space-y-1.5 rounded-lg border border-hairline p-2.5">
-              <div className="flex flex-wrap items-center gap-2">
+              {/* Phones: description full width, then qty | unit, then
+                  price | delete. sm+: one wrapping row. */}
+              <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2 sm:flex sm:flex-wrap">
                 <Input
                   value={item.description}
                   onChange={(e) => setItem(i, { description: e.target.value })}
-                  onBlur={() => {
-                    if (item.materialsItemId || !item.description.trim()) return;
-                    const [top] = suggestMaterialsItemMatches(item.description, allSheetLines);
-                    if (top) setItem(i, { materialsItemId: top.id });
-                  }}
                   placeholder="e.g. Techo-Bloc Blu 60mm"
-                  className="min-w-[180px] flex-1"
+                  className="col-span-3 sm:min-w-[180px] sm:flex-1"
                 />
                 <Input
                   type="number"
@@ -218,10 +367,10 @@ export function ProjectMaterialOrdersView() {
                   value={item.quantity}
                   onChange={(e) => setItem(i, { quantity: e.target.value })}
                   placeholder="Qty"
-                  className="w-24"
+                  className="sm:w-24"
                 />
                 <Select value={item.unit} onValueChange={(v) => setItem(i, { unit: v as MaterialOrderUnit })}>
-                  <SelectTrigger className="w-40" aria-label="Unit">
+                  <SelectTrigger className="col-span-2 sm:col-span-1 sm:w-40" aria-label="Unit">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -239,7 +388,7 @@ export function ProjectMaterialOrdersView() {
                   value={item.unitPrice}
                   onChange={(e) => setItem(i, { unitPrice: e.target.value })}
                   placeholder="$/unit (optional)"
-                  className="w-36"
+                  className="col-span-2 sm:col-span-1 sm:w-36"
                 />
                 <button
                   type="button"
@@ -251,6 +400,24 @@ export function ProjectMaterialOrdersView() {
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
+              {/* Suggest — never auto-apply — a matching sheet line. Matching
+                  is what feeds that line's Ordered/Delivered quantity in
+                  material tracking. */}
+              {(() => {
+                if (item.materialsItemId || !item.description.trim()) return null;
+                const [top] = suggestMaterialsItemMatches(item.description, allSheetLines);
+                if (!top) return null;
+                return (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-primary/5 px-2.5 py-1.5 text-xs">
+                    <span className="text-muted-foreground">
+                      Looks like sheet line <span className="font-semibold text-foreground">{materialLineLabel(top)}</span>
+                    </span>
+                    <button type="button" onClick={() => setItem(i, { materialsItemId: top.id })} className="font-bold text-primary hover:underline">
+                      Match — update its {status === "delivered" ? "delivered" : "ordered"} quantity
+                    </button>
+                  </div>
+                );
+              })()}
               {allSheetLines.length > 0 && (
                 <MaterialsLinePicker
                   sections={sections}
@@ -271,6 +438,7 @@ export function ProjectMaterialOrdersView() {
             Add line item
           </button>
         </div>
+        )}
 
         <div className="space-y-2">
           <Label>Photos (optional)</Label>
@@ -323,8 +491,8 @@ export function ProjectMaterialOrdersView() {
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="PO #, contact, delivery instructions…" />
         </div>
 
-        <Button onClick={() => addMut.mutate()} disabled={!canSave || addMut.isPending} className="font-bold">
-          {addMut.isPending ? "Saving…" : "Add order"}
+        <Button onClick={() => addMut.mutate()} disabled={!canSave || addMut.isPending || scanning} className="w-full font-bold sm:w-auto">
+          {addMut.isPending ? "Saving…" : status === "delivered" ? "Log delivery" : "Add order"}
         </Button>
       </section>
 

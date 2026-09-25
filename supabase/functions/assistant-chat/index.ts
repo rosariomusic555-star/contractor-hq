@@ -162,6 +162,75 @@ async function generateQuoteDescription(apiKey: string, buildType: string, answe
   return json({ ok: true, description });
 }
 
+// ---------------------------------------------------------------------------
+// Receipt extraction (mode: "extract_receipt") — a supplier receipt/invoice
+// photo or PDF → structured delivery lines for the Material orders form.
+// Read-only like generate_quote_description: never touches the user's
+// data; the app shows the lines in an editable review step and nothing is
+// saved until the user confirms there.
+// ---------------------------------------------------------------------------
+
+const RECEIPT_MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"];
+// ~10 MB of file once base64-decoded.
+const MAX_RECEIPT_BASE64_LENGTH = 14_000_000;
+
+const receiptSystemPrompt = `You read supplier receipts, invoices and delivery tickets for a landscaping/hardscaping contractor and extract the materials delivered. Call record_receipt exactly once. Only include real material/product lines (skip subtotal, tax, delivery-fee-only or payment lines unless the fee is a separate line the contractor paid for — include those as their own line). Use the quantity and unit printed on the document; if a unit isn't printed, leave it empty. unit_price is the per-unit price if printed, otherwise null. Never invent values — leave anything you can't read as null/empty.`;
+
+const receiptTool = {
+  name: "record_receipt",
+  description: "Record the delivery details read from the receipt.",
+  input_schema: {
+    type: "object",
+    properties: {
+      supplier: { type: ["string", "null"], description: "Supplier/vendor name as printed." },
+      date: { type: ["string", "null"], description: "Receipt or delivery date as YYYY-MM-DD, if printed." },
+      total: { type: ["number", "null"], description: "Grand total paid, if printed." },
+      lines: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            quantity: { type: ["number", "null"] },
+            unit: { type: ["string", "null"], description: "Unit as printed, e.g. ton, pallet, bag, yd, ea, sq ft." },
+            unit_price: { type: ["number", "null"] },
+          },
+          required: ["description"],
+        },
+      },
+    },
+    required: ["lines"],
+  },
+};
+
+async function extractReceipt(apiKey: string, file: string, mediaType: string): Promise<Response> {
+  const block =
+    mediaType === "application/pdf"
+      ? { type: "document", source: { type: "base64", media_type: mediaType, data: file } }
+      : { type: "image", source: { type: "base64", media_type: mediaType, data: file } };
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 2048,
+      system: receiptSystemPrompt,
+      tools: [receiptTool],
+      tool_choice: { type: "tool", name: "record_receipt" },
+      messages: [{ role: "user", content: [block, { type: "text", text: "Extract this receipt's delivery details." }] }],
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    return json({ ok: false, error: "server_error", message: `Anthropic API error (${resp.status}): ${text.slice(0, 300)}` }, 500);
+  }
+  const data = await resp.json();
+  // deno-lint-ignore no-explicit-any
+  const toolUse = (data.content ?? []).find((c: any) => c.type === "tool_use" && c.name === "record_receipt");
+  if (!toolUse) return json({ ok: false, error: "server_error", message: "Couldn't read that receipt — try a clearer photo." });
+  return json({ ok: true, receipt: toolUse.input });
+}
+
 /**
  * The ONLY code path in this function that writes to the database.
  * Re-validates everything from scratch against live data — nothing echoed
@@ -387,7 +456,9 @@ Deno.serve(async (req: Request) => {
       ? "execute_action"
       : body?.mode === "generate_quote_description"
         ? "generate_quote_description"
-        : "chat";
+        : body?.mode === "extract_receipt"
+          ? "extract_receipt"
+          : "chat";
 
   // Rate limit — shared across both modes (see DAILY_MESSAGE_LIMIT above).
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -423,6 +494,18 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "invalid_request", message: "Missing build type." });
     }
     return generateQuoteDescription(anthropicKey, buildType, answers);
+  }
+
+  if (mode === "extract_receipt") {
+    const file = typeof body?.file === "string" ? body.file : "";
+    const mediaType = typeof body?.mediaType === "string" ? body.mediaType : "";
+    if (!file || !RECEIPT_MEDIA_TYPES.includes(mediaType)) {
+      return json({ ok: false, error: "invalid_request", message: "Send a JPG, PNG, WebP, GIF or PDF receipt." });
+    }
+    if (file.length > MAX_RECEIPT_BASE64_LENGTH) {
+      return json({ ok: false, error: "invalid_request", message: "That file is too large — try a smaller photo or PDF." });
+    }
+    return extractReceipt(anthropicKey, file, mediaType);
   }
 
   const rawMessages: ChatMessage[] = Array.isArray(body.messages) ? body.messages : [];

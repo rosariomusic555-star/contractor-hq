@@ -10,7 +10,7 @@ import {
   listInvoices,
   listQuotes,
   listChangeOrders,
-  createInvoice,
+  createProjectInvoice,
   logProjectEvent,
   pickHeadlineQuote,
   projectContractValue,
@@ -48,29 +48,13 @@ export function ProjectInvoicesView() {
 
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
-  // New invoice defaults to the remaining balance on the project's quote
-  // (quote total minus what's already been paid) — the contractor can
-  // override it on the detail page.
+  // Pre-linked to this project and pre-filled from its quote — the deposit
+  // while none exists yet, else the remaining balance (createProjectInvoice).
   const createMut = useMutation({
-    mutationFn: async () => {
-      const [quotes, changeOrders] = await Promise.all([listQuotes(id), listChangeOrders(id)]);
-      const headline = pickHeadlineQuote(quotes);
-      const contract = projectContractValue(quotes, changeOrders);
-      const paidSum = invoices
-        .filter((i) => i.status === "paid")
-        .reduce((sum, i) => sum + Number(i.amount), 0);
-      const amount = Math.round(Math.max(0, contract - paidSum) * 100) / 100;
-      return createInvoice({ project_id: id, amount, quote_id: headline?.id ?? null });
-    },
+    mutationFn: () => createProjectInvoice(id),
     onSuccess: (invoice) => {
       qc.invalidateQueries({ queryKey: ["invoices", { project: id }] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
-      void logProjectEvent(
-        id,
-        "invoice_created",
-        `${invoice.invoice_number ?? "Invoice"} drafted · ${formatCurrency(Number(invoice.amount))}`,
-        { invoice_id: invoice.id, invoice_number: invoice.invoice_number },
-      );
       qc.invalidateQueries({ queryKey: ["project-events", id] });
       navigate(`/projects/${id}/invoices/${invoice.id}`);
     },
