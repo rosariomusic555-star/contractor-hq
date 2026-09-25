@@ -501,7 +501,9 @@ async function listExpensesTool(
 ) {
   let q = sb
     .from("expenses")
-    .select("id,name,amount,date,created_at,project:projects(name),expense_category:expense_categories(name)")
+    .select(
+      "id,name,amount,date,created_at,project:projects(name),expense_category:expense_categories(name),expense_lines(amount,description,expense_category:expense_categories(name))",
+    )
     .order("created_at", { ascending: false })
     .limit(500);
   if (input.project_id) q = q.eq("project_id", input.project_id);
@@ -510,16 +512,28 @@ async function listExpensesTool(
   const { data, error } = await q;
   if (error) throw error;
 
+  // A split expense (0096: two or more expense_lines) becomes one row per
+  // line, with the line's own category + amount — same rule as the app's
+  // expenseCategoryAllocations(), so category filters and totals match it.
+  // Any unallocated remainder is its own Uncategorized row.
   // deno-lint-ignore no-explicit-any
-  let rows = (data ?? []).map((e: any) => ({
-    id: e.id,
-    name: e.name,
-    amount: Number(e.amount),
-    date: e.date,
-    project_name: e.project?.name ?? null,
-    category: e.expense_category?.name ?? "Uncategorized",
-    created_at: e.created_at,
-  }));
+  let rows = (data ?? []).flatMap((e: any) => {
+    const base = { id: e.id, date: e.date, project_name: e.project?.name ?? null, created_at: e.created_at };
+    const lines = e.expense_lines ?? [];
+    if (lines.length < 2) {
+      return [{ ...base, name: e.name, amount: Number(e.amount), category: e.expense_category?.name ?? "Uncategorized" }];
+    }
+    // deno-lint-ignore no-explicit-any
+    const split = lines.map((l: any) => ({
+      ...base,
+      name: l.description ? `${e.name} — ${l.description}` : e.name,
+      amount: Number(l.amount),
+      category: l.expense_category?.name ?? "Uncategorized",
+    }));
+    // deno-lint-ignore no-explicit-any
+    const remainder = Math.round((Number(e.amount) - split.reduce((s: number, r: any) => s + r.amount, 0)) * 100) / 100;
+    return remainder !== 0 ? [...split, { ...base, name: `${e.name} — unallocated`, amount: remainder, category: "Uncategorized" }] : split;
+  });
   if (input.category) {
     const needle = input.category.toLowerCase();
     rows = rows.filter((r) => r.category.toLowerCase().includes(needle));

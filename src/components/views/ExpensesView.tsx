@@ -17,7 +17,11 @@ import { FilterSegment, FilterPills, type FilterOption } from "@/components/comm
 import { ListCard } from "@/components/common/ListCard";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { listExpenses, listExpenseCategories, deleteExpense, type Expense } from "@/lib/api";
+import { listExpenses, listExpenseCategories, deleteExpense, updateExpense, type Expense } from "@/lib/api";
+import { Input } from "@/components/ui/input";
+import { ExpenseCategoryPill } from "@/components/expenses/ExpenseCategoryPill";
+import { ExpenseSplitDialog } from "@/components/expenses/ExpenseSplitDialog";
+import { expenseAmountForCategory, expenseCategoryAllocations, isSplitExpense } from "@/lib/expenseSplit";
 
 const UNCATEGORIZED = "__uncategorized__";
 const ALL = "__all__";
@@ -45,6 +49,18 @@ export function ExpensesView() {
   });
   const { data: categories = [] } = useQuery({ queryKey: ["expense-categories"], queryFn: listExpenseCategories });
 
+  const recategorizeMut = useMutation({
+    mutationFn: ({ id, expense_category_id }: { id: string; expense_category_id: string | null }) => updateExpense(id, { expense_category_id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  const redateMut = useMutation({
+    mutationFn: ({ id, date }: { id: string; date: string | null }) => updateExpense(id, { date }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  const [splitExpense, setSplitExpense] = useState<Expense | null>(null);
+
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteExpense(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses"] }),
@@ -56,8 +72,10 @@ export function ExpensesView() {
     .filter((e) => e.date && now.getTime() - new Date(`${e.date}T00:00:00`).getTime() <= 30 * DAY)
     .reduce((s, e) => s + Number(e.amount), 0);
 
-  const countFor = (catId: string | null) =>
-    expenses.filter((e) => (catId === null ? !e.expense_category_id : e.expense_category_id === catId)).length;
+  // Category rollups use split line amounts (0096) — a split expense counts
+  // under every category it has a share in (expenseCategoryAllocations).
+  const inCategory = (e: Expense, catId: string | null) => expenseCategoryAllocations(e).some((a) => a.categoryId === catId);
+  const countFor = (catId: string | null) => expenses.filter((e) => inCategory(e, catId)).length;
 
   const options: FilterOption<string>[] = [
     { value: ALL, label: "All", count: expenses.length },
@@ -68,10 +86,12 @@ export function ExpensesView() {
   const categoryName = (id: string | null) => (id ? categories.find((c) => c.id === id)?.name ?? "—" : "Uncategorized");
 
   const term = search.toLowerCase();
+  const filterCat = category === ALL ? undefined : category === UNCATEGORIZED ? null : category;
+  // Amount shown for a row: its share in the filtered category (split
+  // expenses), else the whole expense.
+  const shownAmount = (e: Expense) => (filterCat === undefined ? Number(e.amount) : expenseAmountForCategory(e, filterCat));
   const filtered = expenses.filter((e) => {
-    if (category === UNCATEGORIZED ? !!e.expense_category_id : category !== ALL && e.expense_category_id !== category) {
-      return false;
-    }
+    if (filterCat !== undefined && !inCategory(e, filterCat)) return false;
     return (
       !term ||
       e.name.toLowerCase().includes(term) ||
@@ -126,9 +146,30 @@ export function ExpensesView() {
                     <tr key={expense.id} className="cursor-pointer" onClick={() => expense.project_id && navigate(`/projects/${expense.project_id}/expenses`)}>
                       <td className="font-semibold text-foreground">{expense.name || "Expense"}</td>
                       <td className="text-muted-foreground">{expense.project?.name ?? "—"}</td>
-                      <td className="text-muted-foreground">{categoryName(expense.expense_category_id)}</td>
-                      <td className="text-muted-foreground">{formatDate(expense.date)}</td>
-                      <td className="font-bold tabular-nums">{formatCurrency(Number(expense.amount))}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <ExpenseCategoryPill
+                          expense={expense}
+                          categories={categories}
+                          onRecategorize={(expense_category_id) => recategorizeMut.mutate({ id: expense.id, expense_category_id })}
+                          onSplit={() => setSplitExpense(expense)}
+                        />
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {/* Inline date — saves as soon as it changes. */}
+                        <Input
+                          type="date"
+                          aria-label={`Date of ${expense.name || "expense"}`}
+                          value={expense.date ?? ""}
+                          onChange={(e) => redateMut.mutate({ id: expense.id, date: e.target.value || null })}
+                          className="h-8 w-[9.5rem] px-2 text-xs"
+                        />
+                      </td>
+                      <td className="font-bold tabular-nums">
+                        {formatCurrency(shownAmount(expense))}
+                        {filterCat !== undefined && isSplitExpense(expense) && (
+                          <span className="block text-[11px] font-medium text-muted-foreground">of {formatCurrency(Number(expense.amount))}</span>
+                        )}
+                      </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -168,8 +209,8 @@ export function ExpensesView() {
               <ListCard
                 key={expense.id}
                 to={expense.project_id ? `/projects/${expense.project_id}/expenses` : undefined}
-                eyebrow={categoryName(expense.expense_category_id)}
-                eyebrowRight={formatCurrency(Number(expense.amount))}
+                eyebrow={isSplitExpense(expense) ? `Split · ${expense.expense_lines!.length} lines` : categoryName(expense.expense_category_id)}
+                eyebrowRight={formatCurrency(shownAmount(expense))}
                 title={expense.name || "Expense"}
                 subtitle={`${expense.project?.name ?? "—"} · ${formatDate(expense.date)}`}
               />
@@ -177,6 +218,15 @@ export function ExpensesView() {
             {filtered.length === 0 && <p className="text-sm text-muted-foreground">No expenses here.</p>}
           </div>
         </>
+      )}
+      {splitExpense && (
+        <ExpenseSplitDialog
+          open={!!splitExpense}
+          onOpenChange={(open) => !open && setSplitExpense(null)}
+          expense={splitExpense}
+          categories={categories}
+          invalidateKeys={[["expenses"]]}
+        />
       )}
     </div>
   );

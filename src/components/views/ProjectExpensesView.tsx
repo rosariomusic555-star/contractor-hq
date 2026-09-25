@@ -37,6 +37,8 @@ import {
   type ExpenseCategory,
 } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
+import { ExpenseCategoryPill } from "@/components/expenses/ExpenseCategoryPill";
+import { ExpenseSplitDialog } from "@/components/expenses/ExpenseSplitDialog";
 
 const NONE = "__none__";
 
@@ -110,6 +112,13 @@ export function ProjectExpensesView() {
     onSuccess: invalidate,
     onError,
   });
+
+  const redateMut = useMutation({
+    mutationFn: ({ expenseId, date }: { expenseId: string; date: string | null }) => updateExpense(expenseId, { date }),
+    onSuccess: invalidate,
+    onError,
+  });
+  const [splitExpense, setSplitExpense] = useState<Expense | null>(null);
 
   const deleteMut = useMutation({
     mutationFn: (expenseId: string) => deleteExpense(expenseId),
@@ -207,42 +216,43 @@ export function ProjectExpensesView() {
 
       {!isLoading && !isError && expenses.length > 0 && (
         <div className="stat-card overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-muted-foreground text-left">
-                  <th className="py-2 px-4 font-medium">Name</th>
-                  <th className="py-2 px-4 font-medium">Category</th>
-                  <th className="py-2 px-4 font-medium">Date</th>
-                  <th className="py-2 px-4 font-medium text-right">Amount</th>
-                  <th className="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenses.map((expense) => (
-                  <ExpenseRow
-                    key={expense.id}
-                    expense={expense}
-                    expenseCategories={expenseCategories}
-                    onRecategorize={(expense_category_id) =>
-                      recategorizeMut.mutate({ expenseId: expense.id, expense_category_id })
-                    }
-                    onDelete={() => deleteMut.mutate(expense.id)}
-                  />
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-border font-semibold text-foreground">
-                  <td className="py-2 px-4" colSpan={3}>
-                    Total
-                  </td>
-                  <td className="py-2 px-4 text-right">{formatCurrency(total)}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
+          {/* Rows, not a table: on a phone each expense stacks (name + amount,
+              then category / date / delete) instead of scrolling sideways. */}
+          <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_9.5rem_7rem_2.5rem] gap-3 border-b border-hairline px-4 py-2 text-xs text-muted-foreground sm:grid">
+            <span>Name</span>
+            <span>Category</span>
+            <span>Date</span>
+            <span className="text-right">Amount</span>
+            <span />
+          </div>
+          <ul className="divide-y divide-hairline">
+            {expenses.map((expense) => (
+              <ExpenseRow
+                key={expense.id}
+                expense={expense}
+                expenseCategories={expenseCategories}
+                onRecategorize={(expense_category_id) => recategorizeMut.mutate({ expenseId: expense.id, expense_category_id })}
+                onDateChange={(date) => redateMut.mutate({ expenseId: expense.id, date })}
+                onSplit={() => setSplitExpense(expense)}
+                onDelete={() => deleteMut.mutate(expense.id)}
+              />
+            ))}
+          </ul>
+          <div className="flex items-center justify-between border-t border-border px-4 py-2.5 font-semibold text-foreground">
+            <span>Total</span>
+            <span className="tabular-nums">{formatCurrency(total)}</span>
           </div>
         </div>
+      )}
+
+      {splitExpense && (
+        <ExpenseSplitDialog
+          open={!!splitExpense}
+          onOpenChange={(open) => !open && setSplitExpense(null)}
+          expense={splitExpense}
+          categories={expenseCategories}
+          invalidateKeys={[["expenses"]]}
+        />
       )}
     </div>
   );
@@ -252,48 +262,37 @@ function ExpenseRow({
   expense,
   expenseCategories,
   onRecategorize,
+  onDateChange,
+  onSplit,
   onDelete,
 }: {
   expense: Expense;
   expenseCategories: ExpenseCategory[];
   onRecategorize: (expense_category_id: string | null) => void;
+  onDateChange: (date: string | null) => void;
+  onSplit: () => void;
   onDelete: () => void;
 }) {
   return (
-    <tr className="border-b border-border last:border-0">
-      <td className="py-2 px-4 text-foreground">{expense.name}</td>
-      <td className="py-2 px-2">
-        {/* Select styled as a compact pill so it reads as a tag, but is a
-            real dropdown — click to recategorize without deleting/re-adding. */}
-        <Select
-          value={expense.expense_category_id ?? NONE}
-          onValueChange={(v) => onRecategorize(v === NONE ? null : v)}
-        >
-          <SelectTrigger
-            aria-label="Category"
-            className="h-7 w-auto min-w-0 gap-1.5 rounded-full border-none bg-muted px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 focus:ring-0 focus:ring-offset-0"
-          >
-            <SelectValue placeholder="Uncategorized" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Uncategorized</SelectItem>
-            {expenseCategories.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </td>
-      <td className="py-2 px-4 text-muted-foreground">{formatDate(expense.date)}</td>
-      <td className="py-2 px-4 text-right text-foreground whitespace-nowrap">
-        {formatCurrency(Number(expense.amount))}
-      </td>
-      <td className="py-2 px-2">
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 text-sm sm:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_9.5rem_7rem_2.5rem] sm:py-2">
+      <span className="min-w-0 truncate font-medium text-foreground">{expense.name}</span>
+      <span className="text-right font-semibold tabular-nums text-foreground sm:order-4">{formatCurrency(Number(expense.amount))}</span>
+      <div className="col-span-2 flex min-w-0 items-center gap-2 sm:order-2 sm:col-span-1">
+        <ExpenseCategoryPill expense={expense} categories={expenseCategories} onRecategorize={onRecategorize} onSplit={onSplit} />
+      </div>
+      {/* Inline date — saves as soon as it changes. */}
+      <Input
+        type="date"
+        aria-label={`Date of ${expense.name}`}
+        value={expense.date ?? ""}
+        onChange={(e) => onDateChange(e.target.value || null)}
+        className="h-8 w-[9.5rem] px-2 text-xs sm:order-3"
+      />
+      <div className="flex justify-end sm:order-5">
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <button className="text-muted-foreground hover:text-destructive">
-              <Trash2 className="w-4 h-4" />
+            <button className="text-muted-foreground hover:text-destructive" aria-label={`Delete ${expense.name}`}>
+              <Trash2 className="h-4 w-4" />
             </button>
           </AlertDialogTrigger>
           <AlertDialogContent>
@@ -303,16 +302,13 @@ function ExpenseRow({
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={onDelete}
-              >
+              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={onDelete}>
                 Delete
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </td>
-    </tr>
+      </div>
+    </li>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { createQuote, createInvoice, listProjects } from "@/lib/api";
+import { createQuote, createInvoice, createProjectInvoice, listProjects } from "@/lib/api";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
 function TabLink({ to, icon: Icon, label }: { to: string; icon: typeof FileText; label: string }) {
@@ -64,6 +64,7 @@ function TabLink({ to, icon: Icon, label }: { to: string; icon: typeof FileText;
 
 export function BottomTabBar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { signOut } = useAuth();
   const { setOpen: setAssistantOpen } = useAssistant();
@@ -83,11 +84,15 @@ export function BottomTabBar() {
       toast({ title: "Couldn't create quote", description: err.message, variant: "destructive" }),
   });
 
+  // On a project's pages the project is already known — pre-link it and
+  // pre-fill from its quote (createProjectInvoice) instead of creating a
+  // blank invoice that then asks "which project?".
+  const currentProjectId = location.pathname.match(/^\/projects\/([0-9a-f-]{36})(?:\/|$)/)?.[1] ?? null;
   const newInvoiceMut = useMutation({
-    mutationFn: () => createInvoice(),
+    mutationFn: () => (currentProjectId ? createProjectInvoice(currentProjectId) : createInvoice()),
     onSuccess: (invoice) => {
       setCreateOpen(false);
-      navigate(`/invoices/${invoice.id}`);
+      navigate(invoice.project_id ? `/projects/${invoice.project_id}/invoices/${invoice.id}` : `/invoices/${invoice.id}`);
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't create invoice", description: err.message, variant: "destructive" }),
