@@ -267,12 +267,14 @@ function CostPlanGroupSection({
         {items.length === 0 && <p className="text-sm text-muted-foreground">Nothing planned yet.</p>}
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
+      {/* Phones: name on its own line, then price + button (the specific
+          button label is too long to share one line). sm+: one line. */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 sm:flex-nowrap">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={`e.g. ${group === "subcontractor" ? "Excavation sub" : group === "equipment" ? "Skid steer rental" : "Permit fees"}`}
-          className="h-9 min-w-0 flex-1"
+          className="h-9 min-w-0 basis-full sm:flex-1 sm:basis-auto"
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
         <div className="relative w-28 shrink-0">
@@ -287,7 +289,7 @@ function CostPlanGroupSection({
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
         </div>
-        <Button size="sm" disabled={!name.trim() || saving} onClick={submit} className={cn("shrink-0 font-bold")}>
+        <Button size="sm" disabled={!name.trim() || saving} onClick={submit} className={cn("min-w-0 flex-1 font-bold sm:flex-none sm:shrink-0")}>
           <Plus className="mr-1 h-3.5 w-3.5" />
           {ADD_COST_LABEL[group]}
         </Button>
