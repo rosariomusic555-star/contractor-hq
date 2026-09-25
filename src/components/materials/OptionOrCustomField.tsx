@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { List } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { SheetSelect } from "@/components/responsive/SheetSelect";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const OTHER = "__other__";
@@ -11,8 +11,7 @@ const OTHER = "__other__";
  * a custom value — the materials sheet's Unit and Color fields. A value
  * that isn't one of the options (a custom unit/color, or one saved before
  * the list existed) opens straight into the text box, so nothing is ever
- * hidden or lost. With no options at all it's just the text box. The list
- * opens as a bottom sheet on phones.
+ * hidden or lost. With no options at all it's just the text box.
  */
 export function OptionOrCustomField({
   value,
@@ -49,7 +48,7 @@ export function OptionOrCustomField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={options.length === 0 ? placeholder : customPlaceholder}
-          className={cn("h-11 sm:h-[42px]", options.length > 0 && "pr-11 sm:pr-9")}
+          className={cn("h-[42px]", options.length > 0 && "pr-9")}
           aria-label={ariaLabel}
           autoFocus={custom && value === ""}
         />
@@ -60,7 +59,7 @@ export function OptionOrCustomField({
               setCustom(false);
               onChange("");
             }}
-            className="absolute right-0.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded text-muted-subtle hover:bg-muted hover:text-foreground sm:right-2 sm:h-auto sm:w-auto sm:p-1"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-subtle hover:bg-muted hover:text-foreground"
             aria-label="Choose from the list instead"
             title="Choose from the list"
           >
@@ -72,7 +71,7 @@ export function OptionOrCustomField({
   }
 
   return (
-    <SheetSelect
+    <Select
       value={value || undefined}
       onValueChange={(v) => {
         if (v === OTHER) {
@@ -82,11 +81,18 @@ export function OptionOrCustomField({
           onChange(v);
         }
       }}
-      options={[...options.map((o) => ({ value: o, label: o })), { value: OTHER, label: otherLabel, separatorBefore: true }]}
-      placeholder={placeholder}
-      title={ariaLabel}
-      ariaLabel={ariaLabel}
-      triggerClassName={cn("h-11 sm:h-[42px]", className)}
-    />
+    >
+      <SelectTrigger className={cn("h-[42px]", className)} aria-label={ariaLabel}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o} value={o}>
+            {o}
+          </SelectItem>
+        ))}
+        <SelectItem value={OTHER}>{otherLabel}</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }

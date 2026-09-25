@@ -1,8 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import type { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { ReorderControls } from "@/components/common/ReorderControls";
-import { ActionMenu } from "@/components/responsive/ActionMenu";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 
 const HOVER_EXPAND_DELAY_MS = 600;
@@ -121,16 +120,14 @@ export function SectionCard({
           subtotal, then (optional) the tag row. The tag row is its own
           full-width line indented to sit under the name (chevron 2rem +
           gap), so chips never get squeezed by the total/controls on a phone. */}
-      {/* Phones: 44px chevron + "⋯" (reorder) targets, 17px type, tighter
-          padding; sm+ as before. */}
-      <div className="bg-sidebar px-3 py-3 sm:px-5 sm:py-4">
-        <div className="group flex items-center gap-2 sm:gap-3">
+      <div className="bg-sidebar px-5 py-4">
+        <div className="group flex items-center gap-3">
           <button
             type="button"
             onClick={onToggleCollapse}
             aria-label={collapsed ? "Expand section" : "Collapse section"}
             aria-expanded={!collapsed}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-background/90 transition-colors hover:bg-white/10 hover:text-background sm:h-8 sm:w-8"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-background/90 transition-colors hover:bg-white/10 hover:text-background"
           >
             <ChevronDown className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")} />
           </button>
@@ -152,7 +149,7 @@ export function SectionCard({
             >
               <span
                 aria-hidden
-                className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-2.5 py-1 pr-3.5 text-[17px] font-bold tracking-tight sm:text-[19px]"
+                className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-2.5 py-1 pr-3.5 text-[19px] font-bold tracking-tight"
               >
                 {name || "Section name"}
               </span>
@@ -162,51 +159,36 @@ export function SectionCard({
                 placeholder="Section name"
                 aria-label="Section name"
                 size={1}
-                className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-lg border-none bg-transparent px-2.5 py-1 text-[17px] font-bold tracking-tight text-background outline-none sm:text-[19px] transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
+                className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>
           <div className="shrink-0 text-right">
             <div className="text-[11px] text-background/55">{pluralize(itemNames.length, "item")}</div>
-            <div className="mt-0.5 text-[17px] font-extrabold tracking-tight tabular-nums text-background sm:text-[19px]">
+            <div className="mt-0.5 text-[19px] font-extrabold tracking-tight tabular-nums text-background">
               {formatCurrency(subtotal)}
             </div>
           </div>
-          {/* Drag + arrows on sm+; on phones the handle stays mounted (the
-              drag library needs it) but hidden, and reorder is in "⋯". */}
-          <div className="hidden sm:flex">
-            <ReorderControls
-              tone="dark"
-              dragHandleProps={dragHandleProps}
-              onMoveUp={onMoveUp}
-              onMoveDown={onMoveDown}
-              canMoveUp={canMoveUp}
-              canMoveDown={canMoveDown}
-              label={name || "section"}
-            />
-          </div>
-          <div className="-mr-1 sm:hidden">
-            <ActionMenu
-              tone="dark"
-              title={name || "Section"}
-              ariaLabel="Section actions"
-              items={[
-                { label: "Move up", icon: ArrowUp, onSelect: onMoveUp, disabled: !canMoveUp },
-                { label: "Move down", icon: ArrowDown, onSelect: onMoveDown, disabled: !canMoveDown },
-              ]}
-            />
-          </div>
+          <ReorderControls
+            tone="dark"
+            dragHandleProps={dragHandleProps}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            label={name || "section"}
+          />
         </div>
-        {tag && <div className="mt-1 pl-[3.25rem] sm:pl-11">{tag}</div>}
+        {tag && <div className="mt-1 pl-11">{tag}</div>}
       </div>
 
       {collapsed && (
-        <p className="truncate px-3 py-3 text-[13px] text-muted-subtle sm:px-5">{collapsedSummary(itemNames)}</p>
+        <p className="truncate px-5 py-3 text-[13px] text-muted-subtle">{collapsedSummary(itemNames)}</p>
       )}
 
       <div className={cn(collapsed && "hidden")}>
         {secondRow}
-        <div className="p-3 sm:p-[18px]">{children}</div>
+        <div className="p-[18px]">{children}</div>
       </div>
     </div>
   );

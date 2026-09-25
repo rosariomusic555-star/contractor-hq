@@ -108,9 +108,9 @@ export function LineItemSectionCard({
       onMoveUp={onMoveUp}
       onMoveDown={onMoveDown}
       secondRow={
-        <div className="flex items-center justify-between gap-3 border-b border-hairline px-3 py-2.5 sm:px-5">
+        <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
           {optionalSection ? (
-            <label className="-my-2.5 flex min-h-11 items-center gap-2 text-xs font-medium text-muted-foreground sm:my-0 sm:min-h-0">
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <Switch
                 checked={optionalSection.checked}
                 onCheckedChange={optionalSection.onChange}
@@ -125,7 +125,7 @@ export function LineItemSectionCard({
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button
-                className="tap-target shrink-0 text-muted-foreground hover:text-destructive"
+                className="shrink-0 text-muted-foreground hover:text-destructive"
                 aria-label="Delete section"
               >
                 <Trash2 className="h-4 w-4" />

@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Briefcase, Check, ChevronDown, Copy, ExternalLink, FileText, Plus, Share2, Trash2 } from "lucide-react";
+import { ArrowRight, Briefcase, Check, Copy, ExternalLink, FileText, Plus, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
-import { ActionMenu } from "@/components/responsive/ActionMenu";
-import { BuilderActionBar, BreakdownRow } from "@/components/responsive/BuilderActionBar";
-import { SheetSelect } from "@/components/responsive/SheetSelect";
-import { ShareLinkRow } from "@/components/responsive/ShareLinkRow";
+import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
@@ -275,23 +273,9 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
   const pillValue = "min-w-0 flex-1 truncate text-right text-[15px] font-bold text-background";
 
   return (
-    <div className={cn("animate-fade-in space-y-4 md:space-y-5", isDirty && "md:pb-28")}>
+    <div className={cn("animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
       <MobilePageHeader
-        title={<span className="line-clamp-2 break-words">{number}</span>}
-        actions={
-          shareLink ? (
-            <ActionMenu
-              tone="dark"
-              className="-mr-2 -mt-1"
-              title={number}
-              ariaLabel="Invoice actions"
-              items={[
-                { label: "View as client", icon: ExternalLink, onSelect: () => window.open(shareLink, "_blank", "noopener") },
-                { label: "Share link", icon: Share2, onSelect: () => setShareUrl(shareLink) },
-              ]}
-            />
-          ) : undefined
-        }
+        title={number}
         subtitle={`${invoice.project?.name ?? "Standalone"}${clientName ? ` · ${clientName}` : ""}`}
         back={{ to: backHref, label: backLabel }}
         pills={
@@ -324,7 +308,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
 
       {/* Client / Project cards + client link — same block as the Quote builder. */}
       <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
-        <div className="grid grid-cols-1 gap-2 bg-foreground p-3 sm:grid-cols-2 sm:gap-2.5 sm:p-4">
+        <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
           {clientId ? (
             <Link to={`/clients/${clientId}`} aria-label="Open client" className={cn("group", pillClass)}>
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
@@ -354,43 +338,26 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
             </div>
           ) : (
             // Started outside a project → the only place a project is picked.
-            <SheetSelect
-              value={NONE}
-              onValueChange={(v) => updateProjectLinkMut.mutate(v === NONE ? null : v)}
-              disabled={updateProjectLinkMut.isPending}
-              options={[{ value: NONE, label: "No project" }, ...activeProjects.map((p) => ({ value: p.id, label: p.name }))]}
-              title="Link a project"
-              ariaLabel="Link a project"
-              triggerClassName={cn(pillClass, "border-none focus:ring-2 focus:ring-primary focus:ring-offset-0 [&>svg]:text-background")}
-              renderTrigger={() => (
-                <>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
-                    <Briefcase className="h-3.5 w-3.5" />
-                  </span>
-                  <span className={pillLabel}>Project</span>
-                  <span className={pillValue}>Link a project</span>
-                  <ChevronDown className="h-4 w-4 shrink-0 text-background/70" />
-                </>
-              )}
-            />
+            <Select value={NONE} onValueChange={(v) => updateProjectLinkMut.mutate(v === NONE ? null : v)} disabled={updateProjectLinkMut.isPending}>
+              <SelectTrigger className={cn(pillClass, "border-none focus:ring-2 focus:ring-primary focus:ring-offset-0 [&>svg]:text-background")}>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
+                  <Briefcase className="h-3.5 w-3.5" />
+                </span>
+                <span className={pillLabel}>Project</span>
+                <span className={pillValue}>Link a project</span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>No project</SelectItem>
+                {activeProjects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
-        {/* Phones: status + one row — middle-truncated url · Share · Copy. */}
-        <div className="space-y-1.5 bg-card p-3 md:hidden">
-          <div className="flex items-center gap-2">
-            <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", shareLink && !isPaid ? "bg-primary" : "bg-border")} />
-            <span className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
-              {shareLink ? (isPaid ? "Paid — link still works" : "Client link is live") : "Not sent yet"}
-            </span>
-          </div>
-          <ShareLinkRow
-            url={shareLink}
-            placeholder="Created when you send this invoice"
-            onShare={() => (shareLink ? setShareUrl(shareLink) : shareMut.mutate())}
-            disabled={!shareLink && (isDirty || shareMut.isPending)}
-          />
-        </div>
-        <div className="hidden flex-wrap items-center gap-3.5 bg-card p-4 md:flex">
+        <div className="flex flex-wrap items-center gap-3.5 bg-card p-4">
           <div className="min-w-0 flex-1 basis-60 space-y-1.5">
             <div className="flex items-center gap-2">
               <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", shareLink && !isPaid ? "bg-primary" : "bg-border")} />
@@ -453,14 +420,14 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
         <div className="space-y-5 lg:col-span-2">
           {/* Line items — dark header like a quote section */}
           <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
-            <div className="flex items-center justify-between gap-3 bg-sidebar px-3 py-3 sm:gap-5 sm:px-5 sm:py-4">
+            <div className="flex items-center justify-between gap-5 bg-sidebar px-5 py-4">
               <span className="text-[17px] font-bold tracking-tight text-background">Line items</span>
               <div className="shrink-0 text-right">
                 <div className="text-[11px] text-background/55">{itemized ? `${draft.lines.length} lines` : "Single amount"}</div>
                 <div className="mt-0.5 text-[17px] font-extrabold tracking-tight tabular-nums text-background">{formatCurrency(draftTotal)}</div>
               </div>
             </div>
-            <div className="space-y-3 p-3 sm:p-[18px]">
+            <div className="space-y-3 p-4 sm:p-[18px]">
               {!itemized ? (
                 <div className="space-y-2">
                   <div className={FIELD_LABEL}>Amount</div>
@@ -487,19 +454,18 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
                       disabled={isPaid}
                       onChange={(e) => editLine(l.key, { description: e.target.value })}
                       placeholder="Description"
-                      className="h-11 rounded-xl border-transparent bg-muted font-semibold focus-visible:border-primary focus-visible:bg-card sm:h-10"
+                      className="h-10 rounded-xl border-transparent bg-muted font-semibold focus-visible:border-primary focus-visible:bg-card"
                     />
                     <button
                       type="button"
                       disabled={isPaid}
                       onClick={() => editDraft({ lines: draft.lines.filter((x) => x.key !== l.key) })}
-                      className="-mr-1 flex h-11 w-11 items-center justify-center rounded-lg text-muted-subtle hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 sm:order-last sm:mr-0 sm:h-10 sm:w-8"
+                      className="flex h-10 w-8 items-center justify-center rounded-lg text-muted-subtle hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 sm:order-last"
                       aria-label={`Remove line ${i + 1}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
-                    {/* Phones: Qty · Unit price two-up, total on its own row. */}
-                    <div className="col-span-2 grid grid-cols-2 gap-2 sm:contents">
+                    <div className="col-span-2 grid grid-cols-3 gap-2 sm:contents">
                       <Input
                         type="number"
                         step="any"
@@ -508,7 +474,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
                         value={l.quantity}
                         disabled={isPaid}
                         onChange={(e) => editLine(l.key, { quantity: e.target.value })}
-                        className="h-11 rounded-xl border-transparent bg-muted tabular-nums sm:h-10"
+                        className="h-10 rounded-xl border-transparent bg-muted tabular-nums"
                       />
                       <div className="relative">
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
@@ -520,11 +486,10 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
                           value={l.unitPrice}
                           disabled={isPaid}
                           onChange={(e) => editLine(l.key, { unitPrice: e.target.value })}
-                          className="h-11 rounded-xl border-transparent bg-muted pl-6 tabular-nums sm:h-10"
+                          className="h-10 rounded-xl border-transparent bg-muted pl-6 tabular-nums"
                         />
                       </div>
-                      <span className="col-span-2 flex h-11 items-center justify-between gap-3 rounded-xl bg-primary/10 px-3 text-base font-extrabold tabular-nums text-success sm:col-span-1 sm:h-10 sm:justify-end sm:text-sm">
-                        <span className={cn(FIELD_LABEL, "sm:hidden")}>Line total</span>
+                      <span className="flex h-10 items-center justify-end rounded-xl bg-primary/10 px-3 text-sm font-extrabold tabular-nums text-success">
                         {formatCurrency(lineTotal(l))}
                       </span>
                     </div>
@@ -562,7 +527,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
           </div>
 
           {/* Details */}
-          <section className="card-surface space-y-4 p-4 sm:p-5">
+          <section className="card-surface space-y-4 p-5">
             <h3 className="text-base font-bold text-foreground">Details</h3>
             <div className="space-y-1.5 sm:max-w-xs">
               <div className={FIELD_LABEL}>Due date</div>
@@ -575,7 +540,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
                 value={draft.notes}
                 placeholder="Progress payment — foundation complete"
                 onChange={(e) => editDraft({ notes: e.target.value })}
-                className="rounded-xl border-transparent bg-muted px-3.5 py-3 text-base leading-relaxed focus-visible:border-primary focus-visible:bg-card md:text-sm"
+                className="rounded-xl border-transparent bg-muted px-3.5 py-3 text-sm leading-relaxed focus-visible:border-primary focus-visible:bg-card"
               />
             </div>
           </section>
@@ -583,7 +548,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
 
         {/* Right rail — payment summary + actions, then history */}
         <div className="space-y-5 lg:sticky lg:top-4 lg:self-start">
-          <section className="card-surface flex flex-col gap-4 p-4 sm:p-5">
+          <section className="card-surface flex flex-col gap-4 p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">Balance due</div>
@@ -626,7 +591,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
             </div>
           </section>
 
-          <section className="card-surface p-4 sm:p-5">
+          <section className="card-surface p-5">
             <h3 className="text-base font-bold text-foreground">History</h3>
             {invoiceHistory.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">Nothing yet.</p>
@@ -644,40 +609,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
         </div>
       </div>
 
-      <BuilderActionBar
-        isDirty={isDirty}
-        onDiscard={discard}
-        onSave={() => saveMut.mutate()}
-        saving={saveMut.isPending}
-        figureLabel={isPaid ? "Paid in full" : "Balance due"}
-        // Live off the draft, so the figure moves as lines are edited.
-        figure={formatCurrency(isPaid ? 0 : draftTotal)}
-        breakdownTitle={number}
-        breakdown={
-          <div>
-            {itemized &&
-              draft.lines.map((l, i) => (
-                <BreakdownRow
-                  key={l.key}
-                  label={<span className="block max-w-[14rem] truncate">{l.description || `Line ${i + 1}`}</span>}
-                  value={formatCurrency(lineTotal(l))}
-                />
-              ))}
-            <BreakdownRow strong label="Invoice total" value={formatCurrency(draftTotal)} />
-            <BreakdownRow label="Paid" value={formatCurrency(isPaid ? draftTotal : 0)} />
-            <BreakdownRow strong label="Balance due" value={formatCurrency(isPaid ? 0 : draftTotal)} />
-          </div>
-        }
-        primaryAction={
-          invoice.status === "draft"
-            ? { label: shareMut.isPending ? "Preparing…" : "Send invoice", onClick: () => shareMut.mutate(), disabled: shareMut.isPending }
-            : invoice.status === "sent" || invoice.status === "overdue"
-              ? { label: "Record payment", onClick: () => setPaymentOpen(true) }
-              : shareLink
-                ? { label: "Share link", onClick: () => setShareUrl(shareLink) }
-                : undefined
-        }
-      />
+      <DraftSaveBar visible={isDirty} onDiscard={discard} onSave={() => saveMut.mutate()} saving={saveMut.isPending} />
 
       <ShareLinkDialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)} url={shareUrl ?? ""} kind="invoice" />
 

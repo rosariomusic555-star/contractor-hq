@@ -131,7 +131,7 @@ export function BottomTabBar() {
         type="button"
         aria-label="Create"
         onClick={() => setCreateOpen(true)}
-        className="fab-lift fixed right-4 z-50 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95 md:hidden bottom-[calc(8.75rem+env(safe-area-inset-bottom))]"
+        className="fixed right-4 z-50 flex h-[52px] w-[52px] items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95 md:hidden bottom-[calc(8.75rem+env(safe-area-inset-bottom))]"
       >
         <Plus className="h-6 w-6" />
       </button>

@@ -5,8 +5,6 @@ import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableP
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
-  ChevronDown,
   Plus,
   Trash2,
   BookOpen,
@@ -22,14 +20,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { ActionMenu } from "@/components/responsive/ActionMenu";
-import { BuilderActionBar, BreakdownRow } from "@/components/responsive/BuilderActionBar";
-import { SheetSelect } from "@/components/responsive/SheetSelect";
-import { ResponsiveDialog } from "@/components/responsive/ResponsiveDialog";
+import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { StatusPill } from "@/components/common/StatusPill";
 import { ReorderControls } from "@/components/common/ReorderControls";
@@ -418,15 +420,11 @@ interface MaterialsSheetBuilderProps {
   backLabel: string;
 }
 
-// Stable fallback while the sheet loads — a fresh `[]` each render would
-// re-fire the draft-seeding effect below in an endless render loop.
-const NO_SECTIONS: MaterialsSection[] = [];
-
 function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, backLabel }: MaterialsSheetBuilderProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data: sections = NO_SECTIONS, isLoading, isError, error } = useQuery({
+  const { data: sections = [], isLoading, isError, error } = useQuery({
     queryKey: ["materials", { sheet: sheetId }],
     queryFn: () => listMaterialsBySheet(sheetId!),
     enabled: !!sheetId,
@@ -550,7 +548,6 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const [draft, setDraft] = useState<DraftSection[]>([]);
   const [smartSectionOpen, setSmartSectionOpen] = useState(false);
   const [orderSheetOpen, setOrderSheetOpen] = useState(false);
-  const [deleteSheetOpen, setDeleteSheetOpen] = useState(false);
   const dirty = useRef(false);
 
   // Seed the draft from the server — but never clobber unsaved edits.
@@ -940,37 +937,17 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                 setNameDraft(trimmed);
                 if (trimmed !== currentSheet?.name) renameSheetMut.mutate(trimmed);
               }}
-              className="h-auto border-none bg-transparent px-0 text-2xl font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0 md:text-[28px]"
+              className="h-auto border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0"
               aria-label="Sheet name"
             />
           ) : (
-            <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-[28px]">Materials sheet</h1>
+            <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
           )}
           <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
           <GoToProjectLink projectId={projectId} isDirty={isDirty} className="mt-1.5" />
         </div>
-        {/* Phones: the header's secondary actions live in "⋯". */}
         {sheetId && (
-          <ActionMenu
-            className="-mr-2 md:hidden"
-            title="Materials sheet"
-            ariaLabel="Sheet actions"
-            items={[
-              {
-                label: "Generate order sheet",
-                icon: FileDown,
-                onSelect: () => setOrderSheetOpen(true),
-                disabled: sections.every((s) => s.materials_items.length === 0),
-              },
-              { label: "Add another materials sheet", icon: Plus, onSelect: () => addSheetMut.mutate() },
-              ...(sheets.length > 1
-                ? [{ label: "Delete sheet", icon: Trash2, destructive: true, separatorBefore: true, onSelect: () => setDeleteSheetOpen(true) }]
-                : []),
-            ]}
-          />
-        )}
-        {sheetId && (
-          <div className="hidden max-w-full flex-wrap items-center gap-3 md:flex">
+          <div className="flex max-w-full flex-wrap items-center gap-3">
             <Button
               type="button"
               size="sm"
@@ -991,18 +968,15 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               + Add another materials sheet
             </button>
             {sheets.length > 1 && (
-              <button
-                type="button"
-                onClick={() => setDeleteSheetOpen(true)}
-                className="text-xs font-medium text-muted-foreground hover:text-destructive"
-              >
-                Delete sheet
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      <AlertDialog open={deleteSheetOpen} onOpenChange={setDeleteSheetOpen}>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-muted-foreground hover:text-destructive"
+                  >
+                    Delete sheet
+                  </button>
+                </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete "{currentSheet?.name || "this sheet"}"?</AlertDialogTitle>
@@ -1021,7 +995,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
-      </AlertDialog>
+              </AlertDialog>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Quote link stays up top; the total itself lives at the bottom,
           after every section. */}
@@ -1086,7 +1064,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           </span>
           <Popover>
             <PopoverTrigger asChild>
-              <button type="button" className="tap-target text-xs font-bold text-primary hover:underline">
+              <button type="button" className="text-xs font-bold text-primary hover:underline">
                 Manage tracking
               </button>
             </PopoverTrigger>
@@ -1121,7 +1099,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           <button
             type="button"
             onClick={() => collapseAll(draft.map((s) => s.id))}
-            className="tap-target hover:underline"
+            className="hover:underline"
           >
             Collapse all
           </button>
@@ -1129,7 +1107,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           <button
             type="button"
             onClick={() => expandAll(draft.map((s) => s.id))}
-            className="tap-target hover:underline"
+            className="hover:underline"
           >
             Expand all
           </button>
@@ -1238,35 +1216,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </span>
       </div>
 
-      <BuilderActionBar
-        isDirty={isDirty}
+      <DraftSaveBar
+        visible={isDirty}
         onDiscard={discard}
         onSave={() => saveMut.mutate()}
         saving={saveMut.isPending}
-        figureLabel="Sheet total"
-        figure={formatCurrency(grandTotal)}
-        breakdownTitle="Sheet total"
-        breakdown={
-          <div>
-            {draft.map((s) => (
-              <BreakdownRow
-                key={s.id}
-                label={<span className="block max-w-[14rem] truncate">{s.name || "Untitled section"}</span>}
-                value={formatCurrency(s.items.reduce((a, i) => a + materialsLineTotal(i), 0))}
-              />
-            ))}
-            <BreakdownRow strong label="Total cost" value={formatCurrency(grandTotal)} />
-          </div>
-        }
-        primaryAction={
-          sheetId
-            ? {
-                label: "Order sheet",
-                onClick: () => setOrderSheetOpen(true),
-                disabled: sections.every((s) => s.materials_items.length === 0),
-              }
-            : undefined
-        }
       />
 
       <SmartSectionDialog
@@ -1549,7 +1503,7 @@ function MaterialsSectionCard({
       onMoveUp={onMoveUp}
       onMoveDown={onMoveDown}
       secondRow={
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-3 py-2 sm:px-5 sm:py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {buildType && (
               <button
@@ -1562,23 +1516,21 @@ function MaterialsSectionCard({
               </button>
             )}
             {section.items.length > 1 && (
-              <SheetSelect
-                value={sortMode}
-                onValueChange={(v) => onSortChange(v as ItemSortMode)}
-                title="Sort line items"
-                ariaLabel="Sort line items"
-                options={[
-                  { value: "manual", label: "Manual order" },
-                  { value: "cost_desc", label: "Cost: high → low" },
-                  { value: "cost_asc", label: "Cost: low → high" },
-                ]}
-                triggerClassName="h-9 w-auto gap-1.5 rounded-lg border-none bg-muted px-2.5 text-xs font-semibold sm:h-8"
-              />
+              <Select value={sortMode} onValueChange={(v) => onSortChange(v as ItemSortMode)}>
+                <SelectTrigger className="h-8 w-auto gap-1.5 border-none bg-muted px-2.5 text-xs font-semibold" aria-label="Sort line items">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual order</SelectItem>
+                  <SelectItem value="cost_desc">Cost: high → low</SelectItem>
+                  <SelectItem value="cost_asc">Cost: low → high</SelectItem>
+                </SelectContent>
+              </Select>
             )}
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <button className="tap-target flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
+              <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
                 <Trash2 className="h-4 w-4" />
                 Delete section
               </button>
@@ -1768,7 +1720,7 @@ function ItemRow({
   return (
     <div
       className={cn(
-        "group flex flex-col gap-3 rounded-2xl border border-hairline p-3 transition-shadow sm:gap-3.5 sm:p-4 hover:border-input hover:shadow-card-hover",
+        "group flex flex-col gap-3.5 rounded-2xl border border-hairline p-4 transition-shadow hover:border-input hover:shadow-card-hover",
         dragging && "border-primary/40 opacity-90 shadow-card-hover",
       )}
     >
@@ -1778,49 +1730,20 @@ function ItemRow({
           label+input block), independent of everything below (category,
           qty/cost fields). */}
       {/* sm+: "ITEM" label on its own line, then name · Price Book · Tracked ·
-          reorder · delete on one line. Phones: label (+ linked / not-tracked
-          hints) and a "⋯" menu holding every secondary control on top, then
-          the full-width name (+ color under it). The reorder controls stay
-          mounted (hidden) on phones — the drag handle can only exist once,
-          and dragging is desktop-only. */}
+          reorder · delete on one line. Phones reorder the same elements (no
+          duplicates — the drag handle can only exist once): label + reorder/
+          delete on top, then the full-width name (+ color), then Price Book /
+          Tracked. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 sm:-mb-1 sm:basis-full">
-          <span className={ITEM_FIELD_LABEL}>Item</span>
-          {(linked || catalogLinked) && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary sm:hidden">
-              <BookOpen className="h-3 w-3" />
-              {catalogLinked ? "Catalog" : "Price Book"}
-            </span>
-          )}
-          {!item.tracked && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground sm:hidden">
-              <EyeOff className="h-3 w-3" />
-              Not tracked
-            </span>
-          )}
-        </div>
-        <ActionMenu
-          className="-my-2 -mr-2 sm:hidden"
-          title={item.name || "Line item"}
-          ariaLabel="Line item actions"
-          items={[
-            { label: "Move up", icon: ChevronUp, onSelect: onMoveUp, disabled: !canMoveUp },
-            { label: "Move down", icon: ChevronDown, onSelect: onMoveDown, disabled: !canMoveDown },
-            { label: "Pick from Price Book / Catalog", icon: BookOpen, onSelect: () => setPickerOpen(true), separatorBefore: true },
-            item.tracked
-              ? { label: "Stop tracking in Material Tracker", icon: EyeOff, onSelect: () => onEdit({ tracked: false }) }
-              : { label: "Track in Material Tracker", icon: Eye, onSelect: () => onEdit({ tracked: true }) },
-            { label: "Remove item", icon: Trash2, onSelect: onDelete, destructive: true, separatorBefore: true },
-          ]}
-        />
-        <div className="flex min-w-0 basis-full flex-col gap-2 sm:flex-1 sm:basis-auto sm:flex-row sm:items-center">
+        <div className={cn(ITEM_FIELD_LABEL, "flex-1 sm:-mb-1 sm:basis-full")}>Item</div>
+        <div className="order-2 flex min-w-0 basis-full flex-col gap-2 sm:order-none sm:flex-1 sm:basis-auto sm:flex-row sm:items-center">
             <AutoGrowTextarea
               value={item.name}
               onChange={(e) => onEdit({ name: e.target.value })}
               placeholder="Item name"
               // flex-1 only when the row is horizontal (sm+) — in the phone's
               // column layout it would pin the height and clip wrapped names.
-              className="min-w-0 rounded-xl bg-muted px-3 py-2 text-base font-semibold hover:border-input focus-visible:border-primary sm:flex-1 sm:text-[15px]"
+              className="min-w-0 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary sm:flex-1"
             />
             {/* Color — once a Catalog product is picked. Its color list, or
                 a typed custom color when there's none / it isn't listed. */}
@@ -1841,7 +1764,7 @@ function ItemRow({
             type="button"
             onClick={() => setPickerOpen(true)}
             className={cn(
-              "hidden h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:flex",
+              "order-3 flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:order-none",
               linked || catalogLinked
                 ? "bg-primary/15 text-primary hover:bg-primary/25"
                 : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
@@ -1855,7 +1778,7 @@ function ItemRow({
             type="button"
             onClick={() => onEdit({ tracked: !item.tracked })}
             className={cn(
-              "hidden h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:flex",
+              "order-3 flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:order-none",
               item.tracked
                 ? "bg-primary/15 text-primary hover:bg-primary/25"
                 : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
@@ -1871,7 +1794,7 @@ function ItemRow({
             {item.tracked ? <Eye className="h-4 w-4 shrink-0" /> : <EyeOff className="h-4 w-4 shrink-0" />}
             <span>{item.tracked ? "Tracked" : "Not tracked"}</span>
           </button>
-          <div className="hidden shrink-0 items-center gap-3 sm:flex">
+          <div className="order-1 flex shrink-0 items-center gap-3 sm:order-none">
             <ReorderControls
               dragHandleProps={dragHandleProps}
               onMoveUp={onMoveUp}
@@ -1898,21 +1821,25 @@ function ItemRow({
           cost category is no longer shown; its data is kept.) */}
       <div>
         <div className={ITEM_FIELD_LABEL}>Category</div>
-        <div className="mt-1">
-          <SheetSelect
-            value={item.material_category_id ?? NONE}
-            onValueChange={(v) => onEdit({ material_category_id: v === NONE ? null : v })}
-            options={[{ value: NONE, label: "Uncategorized" }, ...materialCategories.map((c) => ({ value: c.id, label: c.name }))]}
-            placeholder="Uncategorized"
-            title="Category"
-            ariaLabel="Category"
-            triggerClassName="h-11 sm:h-[42px]"
-          />
-        </div>
+        <Select
+          value={item.material_category_id ?? NONE}
+          onValueChange={(v) => onEdit({ material_category_id: v === NONE ? null : v })}
+        >
+          <SelectTrigger className="mt-1 h-[42px]" aria-label="Category">
+            <SelectValue placeholder="Uncategorized" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>Uncategorized</SelectItem>
+            {materialCategories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      {/* Qty · Unit / Waste % · Unit cost two-up on phones with Total on its
-          own right-aligned row; five-up from sm. */}
+      {/* Qty · Unit · Waste % · Unit cost · Total — two-up on mobile, five-up from sm. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <label className="block">
           <div className={ITEM_FIELD_LABEL}>Qty</div>
@@ -1925,7 +1852,7 @@ function ItemRow({
               setQtyStr(e.target.value);
               onEdit({ quantity: parseFloat(e.target.value) || 0 });
             }}
-            className="mt-1 h-11 tabular-nums sm:h-[42px]"
+            className="mt-1 h-[42px] tabular-nums"
             aria-label="Quantity"
           />
         </label>
@@ -1952,7 +1879,7 @@ function ItemRow({
               setWasteStr(e.target.value);
               onEdit({ waste_percent: parseFloat(e.target.value) || 0 });
             }}
-            className="mt-1 h-11 tabular-nums sm:h-[42px]"
+            className="mt-1 h-[42px] tabular-nums"
             aria-label="Waste percent"
           />
         </label>
@@ -1967,7 +1894,7 @@ function ItemRow({
               setCostStr(e.target.value);
               onEdit({ unit_cost: parseFloat(e.target.value) || 0 });
             }}
-            className="mt-1 h-11 tabular-nums sm:h-[42px]"
+            className="mt-1 h-[42px] tabular-nums"
             aria-label="Unit cost"
           />
           {catalogLinked && (
@@ -1980,9 +1907,9 @@ function ItemRow({
             </label>
           )}
         </label>
-        <div className="col-span-2 flex items-center justify-between gap-3 rounded-xl bg-primary/10 px-3 py-2.5 sm:col-span-1 sm:block sm:rounded-none sm:bg-transparent sm:p-0">
+        <div>
           <div className={ITEM_FIELD_LABEL}>Total</div>
-          <div className="text-lg font-extrabold tabular-nums text-success sm:mt-1 sm:flex sm:h-[42px] sm:items-center sm:justify-end sm:rounded-md sm:bg-primary/10 sm:px-3 sm:text-base">
+          <div className="mt-1 flex h-[42px] items-center justify-end rounded-md bg-primary/10 px-3 text-base font-extrabold tabular-nums text-success">
             {formatCurrency(total)}
           </div>
         </div>
@@ -2006,7 +1933,7 @@ function ItemRow({
             <button
               type="button"
               onClick={() => onEdit({ waste_percent: wastePercentToReach(item.quantity, orderableQty) })}
-              className="tap-target font-semibold text-primary hover:underline"
+              className="font-semibold text-primary hover:underline"
               title="Keeps the quantity and adds the extra to the waste %"
             >
               Use {formatQty(orderableQty)}
@@ -2125,14 +2052,13 @@ function MaterialPickerDialog({
   onSelectCatalog: (item: ProductCatalogItem) => void;
 }) {
   return (
-    <ResponsiveDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Pick a material"
-      desktopClassName="flex max-h-[80vh] max-w-md flex-col gap-3"
-    >
-        {/* Phones: a fixed-height sheet so the search stays put and only the list scrolls. */}
-        <Tabs defaultValue="price-book" className="flex h-[65dvh] min-h-0 flex-1 flex-col md:h-auto">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[80vh] max-w-md flex-col gap-3">
+        <DialogHeader>
+          <DialogTitle>Pick a material</DialogTitle>
+        </DialogHeader>
+
+        <Tabs defaultValue="price-book" className="flex min-h-0 flex-1 flex-col">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="price-book">Price Book</TabsTrigger>
             <TabsTrigger value="catalog">Catalog</TabsTrigger>
@@ -2148,7 +2074,8 @@ function MaterialPickerDialog({
             <CatalogPicker catalogItems={catalogItems} onSelect={onSelectCatalog} />
           </TabsContent>
         </Tabs>
-    </ResponsiveDialog>
+      </DialogContent>
+    </Dialog>
   );
 }
 

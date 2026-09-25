@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
-import { ResponsiveDialog } from "@/components/responsive/ResponsiveDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -111,13 +111,11 @@ export function ClientPickerDialog({
   };
 
   return (
-    // A bottom sheet on phones, a dialog on desktop.
-    <ResponsiveDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title={creating ? "New client" : "Pick a client"}
-      desktopClassName="max-w-sm gap-4"
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm gap-4">
+        <DialogHeader>
+          <DialogTitle>{creating ? "New client" : "Pick a client"}</DialogTitle>
+        </DialogHeader>
 
         {!creating ? (
           <div className="space-y-3">
@@ -195,8 +193,6 @@ export function ClientPickerDialog({
                 setDuplicates([]);
               }}
               placeholder="Phone"
-              type="tel"
-              inputMode="tel"
             />
             <Input
               value={newAddress}
@@ -238,6 +234,7 @@ export function ClientPickerDialog({
             </div>
           </div>
         )}
-    </ResponsiveDialog>
+      </DialogContent>
+    </Dialog>
   );
 }
