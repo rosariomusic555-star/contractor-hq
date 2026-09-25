@@ -51,8 +51,17 @@ import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
-import { ProjectTypeChip } from "@/components/common/ProjectTypeChip";
-import { QuoteSectionMaterialsChip } from "@/components/common/QuoteSectionMaterialsChip";
+import { SectionTypeChip } from "@/components/common/SectionTypeChip";
+import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
+import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
+import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
+import {
+  categoryForSectionName,
+  sectionFeatureOptions,
+  withCommittedSectionName,
+  withSectionType,
+  type SectionFeatureOption,
+} from "@/lib/sectionFeatures";
 import {
   autoMatchedSheetSections,
   linkedSheetSections as linkedSheetSectionsFor,
@@ -66,6 +75,7 @@ import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
+import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
@@ -109,6 +119,7 @@ import {
 import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
 import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
+import { buildTypeForCategoryName } from "@/lib/measurements";
 import { BackLink } from "@/components/common/BackLink";
 
 const NONE = "__none__";
@@ -138,6 +149,9 @@ interface DraftItem {
   client_selected: boolean;
   /** Optional work category (Settings > Categories). Null = uncategorized. */
   category_id: string | null;
+  /** The line a section's Quick Quote produced (0102) — its build type.
+   * Re-running Quick Quote on the section updates this line in place. */
+  quick_quote_build_type: string | null;
   images: DraftImage[];
 }
 interface DraftSection {
@@ -181,6 +195,7 @@ const seed = (quote: Quote): QuoteDraft => ({
       is_optional: i.is_optional,
       client_selected: i.client_selected,
       category_id: i.category_id ?? null,
+      quick_quote_build_type: i.quick_quote_build_type ?? null,
       images: (i.quote_item_images ?? []).map((img) => ({
         id: img.id,
         storage_path: img.storage_path,
@@ -370,47 +385,136 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   };
 
   // --- local mutators ----------------------------------------------------
-  const addSection = () =>
+  // "Add section" opens the new section's feature picker straight away.
+  const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(null);
+  const addSection = () => {
+    const id = tmpId();
     setSections((s) => [
       ...s,
-      { id: tmpId(), name: "", is_optional: false, job_category_id: null, materials_link_mode: "auto", materialIds: [], items: [] },
+      { id, name: "", is_optional: false, job_category_id: null, materials_link_mode: "auto", materialIds: [], items: [] },
     ]);
+    setAutoOpenSectionId(id);
+  };
   // Quick Quote lands as an ordinary new draft section with exactly one
   // line item — indistinguishable from a manually-added section/item from
   // this point on, so everything below (edit, delete, add more rows, Save)
   // treats it exactly the same.
-  const addQuickQuoteSection = (result: QuickQuoteResult) =>
+  /** The one line a Quick Quote produces — price, AI description, marked
+   * with its build type so a re-run can find and update it. */
+  const quickQuoteLine = (result: QuickQuoteResult, buildType: string): DraftItem => ({
+    id: tmpId(),
+    name: result.name,
+    description: result.description,
+    price: result.rate,
+    quantity: result.quantity,
+    unit: result.unit,
+    is_optional: false,
+    // Same as the database default: optional work counts toward the
+    // all-in total unless the client deselects it (Client Hub).
+    client_selected: true,
+    category_id: null,
+    quick_quote_build_type: buildType,
+    images: [],
+  });
+  const addQuickQuoteSection = (result: QuickQuoteResult, buildType: string) =>
     setSections((s) => [
       ...s,
       {
         id: tmpId(),
         name: result.name,
         is_optional: false,
-        job_category_id: null,
+        // Quick Quote knows its feature — tag it like a Smart Section is.
+        job_category_id: categoryForSectionName(result.name, projectTypeOptions, categories),
         materials_link_mode: "auto",
         materialIds: [],
-        items: [
-          {
-            id: tmpId(),
-            name: result.name,
-            description: result.description,
-            price: result.rate,
-            quantity: result.quantity,
-            unit: result.unit,
-            is_optional: false,
-            // Same as the database default: optional work counts toward the
-            // all-in total unless the client deselects it (Client Hub).
-            client_selected: true,
-            category_id: null,
-            images: [],
-          },
-        ],
+        items: [quickQuoteLine(result, buildType)],
       },
     ]);
+
+  // --- Quick Quote on an existing section (its toolbar action) -----------
+  // Which section the open Quick Quote is for (null = the page-level
+  // "Quick Quote" that adds a new section).
+  const [quickQuoteSectionId, setQuickQuoteSectionId] = useState<string | null>(null);
+  // A result waiting on "Replace items / Add as a new line".
+  const [pendingQuickQuote, setPendingQuickQuote] = useState<{ sectionId: string; item: DraftItem } | null>(null);
+  /** The Quick Quote template for a section's project type, if it has one. */
+  const quickQuoteBuildTypeFor = (section: DraftSection): string | null => {
+    const name = categories.find((c) => c.id === section.job_category_id)?.name;
+    const bt = name ? buildTypeForCategoryName(name)?.id : null;
+    return bt && findQuickQuoteTemplate(bt) ? bt : null;
+  };
+  const startSectionQuickQuote = (section: DraftSection) => {
+    setQuickQuoteSectionId(section.id);
+    // Known feature → straight to the form; otherwise ask what it is first.
+    const bt = quickQuoteBuildTypeFor(section);
+    if (bt) setQuickQuoteBuildType(bt);
+    else setQuickQuotePickerOpen(true);
+  };
+  const applySectionQuickQuote = (sectionId: string, result: QuickQuoteResult, buildType: string) => {
+    const section = draft.sections.find((x) => x.id === sectionId);
+    if (!section) return;
+    const line = quickQuoteLine(result, buildType);
+    const existing = section.items.find((i) => i.quick_quote_build_type);
+    if (existing) {
+      // Re-run: update that same line in place (keeps its id, photos, category).
+      setSections((s) =>
+        s.map((x) =>
+          x.id === sectionId
+            ? {
+                ...x,
+                items: x.items.map((i) =>
+                  i.id === existing.id
+                    ? { ...i, name: line.name, description: line.description, price: line.price, quantity: line.quantity, unit: line.unit, quick_quote_build_type: buildType }
+                    : i,
+                ),
+              }
+            : x,
+        ),
+      );
+    } else if (section.items.length === 0) {
+      setSections((s) => s.map((x) => (x.id === sectionId ? { ...x, items: [line] } : x)));
+    } else {
+      setPendingQuickQuote({ sectionId, item: line });
+    }
+  };
+  const resolvePendingQuickQuote = (mode: "replace" | "add") => {
+    if (!pendingQuickQuote) return;
+    const { sectionId, item } = pendingQuickQuote;
+    setSections((s) =>
+      s.map((x) =>
+        x.id === sectionId
+          ? { ...x, items: mode === "replace" ? (x.items.forEach(revokeLocalImageUrls), [item]) : [...x.items, item] }
+          : x,
+      ),
+    );
+    setPendingQuickQuote(null);
+  };
   const renameSection = (sid: string, name: string) =>
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, name } : x)));
+  // The type chip: the name follows the new type while it's still the
+  // autofilled one (see withSectionType); a hand-typed name is left alone.
   const setSectionType = (sid: string, job_category_id: string | null) =>
-    setSections((s) => s.map((x) => (x.id === sid ? { ...x, job_category_id } : x)));
+    setSections((s) => s.map((x) => (x.id === sid ? withSectionType(x, job_category_id, categories) : x)));
+  // The name field's feature picker: name + type in one step.
+  const pickSectionFeature = (sid: string, o: SectionFeatureOption) =>
+    setSections((s) => s.map((x) => (x.id === sid ? { ...x, name: o.label, job_category_id: o.categoryId ?? x.job_category_id } : x)));
+  // Typed name committed: an untyped section whose name matches a feature
+  // gets that type. Only touches the draft when something changes.
+  const commitSectionName = (sid: string) => {
+    const section = draft.sections.find((x) => x.id === sid);
+    if (!section) return;
+    const next = withCommittedSectionName(section, projectTypeOptions, categories);
+    if (next !== section) setSections((s) => s.map((x) => (x.id === sid ? next : x)));
+  };
+  const featureOptions = useMemo(() => sectionFeatureOptions(projectTypeOptions, categories), [projectTypeOptions, categories]);
+  const featurePickerFor = (sid: string): SectionFeaturePicker => ({
+    ...featureOptions,
+    usedCategoryIds: new Set(draft.sections.filter((x) => x.id !== sid && x.job_category_id).map((x) => x.job_category_id!)),
+    onPick: (o) => pickSectionFeature(sid, o),
+    onCommit: () => commitSectionName(sid),
+    autoOpen: autoOpenSectionId === sid,
+    onAutoOpened: () => setAutoOpenSectionId(null),
+  });
   const setSectionMaterials = (sid: string, next: { mode: "auto" | "manual"; ids: string[] }) =>
     setSections((s) =>
       s.map((x) => (x.id === sid ? { ...x, materials_link_mode: next.mode, materialIds: next.mode === "manual" ? next.ids : [] } : x)),
@@ -443,6 +547,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   // the all-in total unless the client deselects it.
                   client_selected: true,
                   category_id: null,
+                  quick_quote_build_type: null,
                   images: [],
                 },
               ],
@@ -594,6 +699,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               is_optional: di.is_optional,
               sort_order: ii,
               category_id: di.category_id,
+              quick_quote_build_type: di.quick_quote_build_type,
             });
             itemId = created.id;
           } else {
@@ -606,7 +712,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               (srv.unit ?? null) !== unit ||
               srv.is_optional !== di.is_optional ||
               srv.sort_order !== ii ||
-              (srv.category_id ?? null) !== di.category_id
+              (srv.category_id ?? null) !== di.category_id ||
+              (srv.quick_quote_build_type ?? null) !== di.quick_quote_build_type
             ) {
               await updateQuoteItem(srv.id, {
                 name: di.name,
@@ -617,6 +724,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 is_optional: di.is_optional,
                 sort_order: ii,
                 category_id: di.category_id,
+                // Only sent when it changed, so ordinary edits work before 0102.
+                ...((srv.quick_quote_build_type ?? null) !== di.quick_quote_build_type
+                  ? { quick_quote_build_type: di.quick_quote_build_type }
+                  : {}),
               });
             }
           }
@@ -992,23 +1103,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           )}
 
           {draft.sections.length > 0 && (
-            <div className="flex items-center justify-end gap-3 text-xs font-bold text-primary">
-              <button
-                type="button"
-                onClick={() => collapseAll(draft.sections.map((s) => s.id))}
-                className="hover:underline"
-              >
-                Collapse all
-              </button>
-              <span className="text-border">|</span>
-              <button
-                type="button"
-                onClick={() => expandAll(draft.sections.map((s) => s.id))}
-                className="hover:underline"
-              >
-                Expand all
-              </button>
-            </div>
+            <CollapseAllLinks onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))} onExpandAll={() => expandAll(draft.sections.map((s) => s.id))} />
           )}
 
           <DragDropContext
@@ -1030,6 +1125,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             subtotal={sectionSubtotal(section)}
                             categories={categories}
                             onRename={(name) => renameSection(section.id, name)}
+                            featurePicker={featurePickerFor(section.id)}
+                            toolbarActions={
+                              <SectionQuickQuoteAction
+                                projectId={quote.project_id}
+                                buildType={quickQuoteBuildTypeFor(section)}
+                                hasQuickQuote={section.items.some((i) => i.quick_quote_build_type)}
+                                onClick={() => startSectionQuickQuote(section)}
+                              />
+                            }
                             onDeleteSection={() => removeSection(section.id)}
                             onAddItem={() => addItem(section.id)}
                             onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
@@ -1086,7 +1190,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             </button>
             <button
               type="button"
-              onClick={() => setQuickQuotePickerOpen(true)}
+              onClick={() => {
+                // Page-level Quick Quote: a new section, not an existing one.
+                setQuickQuoteSectionId(null);
+                setQuickQuotePickerOpen(true);
+              }}
               className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-primary/30 bg-primary/5 text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/10"
             >
               <Sparkles className="h-4 w-4" />
@@ -1273,9 +1381,32 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         kind="quote"
       />
 
+      <AlertDialog open={!!pendingQuickQuote} onOpenChange={(open) => !open && setPendingQuickQuote(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>This section already has items</AlertDialogTitle>
+            <AlertDialogDescription>
+              Replace them with the Quick Quote line, or keep them and add it as a new line? Nothing is saved until you press
+              Save changes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="outline" onClick={() => resolvePendingQuickQuote("add")}>
+              Add as a new line
+            </Button>
+            <AlertDialogAction onClick={() => resolvePendingQuickQuote("replace")}>Replace items in this section</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <QuickQuoteDialog
         open={quickQuotePickerOpen}
-        onOpenChange={setQuickQuotePickerOpen}
+        onOpenChange={(open) => {
+          setQuickQuotePickerOpen(open);
+          // Dismissed without picking — forget which section it was for.
+          if (!open) setQuickQuoteSectionId(null);
+        }}
         onPick={(buildTypeId) => {
           setQuickQuoteBuildType(buildTypeId);
           setQuickQuotePickerOpen(false);
@@ -1288,11 +1419,22 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           return (
             <QuickQuoteFormDialog
               open={!!quickQuoteBuildType}
-              onOpenChange={(open) => !open && setQuickQuoteBuildType(null)}
+              onOpenChange={(open) => {
+                if (open) return;
+                setQuickQuoteBuildType(null);
+                setQuickQuoteSectionId(null);
+              }}
               template={template}
               rates={quickQuoteRates}
               catalogItems={catalogItems}
-              onCreate={addQuickQuoteSection}
+              // A section's own Quick Quote fills that section; the page-level
+              // one adds a new section.
+              onCreate={(result) =>
+                quickQuoteSectionId
+                  ? applySectionQuickQuote(quickQuoteSectionId, result, quickQuoteBuildType)
+                  : addQuickQuoteSection(result, quickQuoteBuildType)
+              }
+              projectId={quote.project_id}
             />
           );
         })()}
@@ -1920,29 +2062,64 @@ function QuoteSectionHeaderTags({
   const { marginPct } = sectionMargin(price, cost);
   const autoIds = autoMatchedSheetSections(section, sheetSections).map((s) => s.id);
 
+  // One chip: "Outdoor Kitchen · Materials $1,240 ▾" (type + linked
+  // materials together); the margin stays beside it.
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <ProjectTypeChip value={section.job_category_id} options={typeOptions} allCategories={allCategories} onChange={onTypeChange} />
-      {sheetSections.length > 0 && (
-        <QuoteSectionMaterialsChip
-          mode={section.materials_link_mode}
-          manualIds={section.materialIds}
-          autoMatchedIds={autoIds}
-          sheetSections={sheetSections}
-          onChange={onMaterialsChange}
-        />
-      )}
-      {linked.length > 0 && (
-        <span className="text-[11px] font-semibold tabular-nums text-background/75">
-          Materials {formatCurrency(cost)}
-          {marginPct != null && (
-            <>
-              {" · "}
-              <span className={marginPct < 0 ? "text-destructive-foreground" : "text-background"}>Margin {marginPct.toFixed(0)}%</span>
-            </>
+      <SectionTypeChip
+        value={section.job_category_id}
+        options={typeOptions}
+        allCategories={allCategories}
+        onChange={onTypeChange}
+        materials={{
+          mode: section.materials_link_mode,
+          manualIds: section.materialIds,
+          autoMatchedIds: autoIds,
+          sheetSections,
+          cost,
+          onChange: onMaterialsChange,
+        }}
+      />
+      {linked.length > 0 && marginPct != null && (
+        <span
+          className={cn(
+            "text-[11px] font-semibold tabular-nums",
+            marginPct < 0 ? "text-destructive-foreground" : "text-background",
           )}
+        >
+          Margin {marginPct.toFixed(0)}%
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * A quote section's "Quick quote" toolbar action (SectionToolbarAction,
+ * shared with the Materials Sheet's "Calculate quantities"): the prompt
+ * version — "Measurements available · Quick quote" — when the project has
+ * site measurements for the section's feature; "Update quick quote" once
+ * the section has a Quick Quote line.
+ */
+function SectionQuickQuoteAction({
+  projectId,
+  buildType,
+  hasQuickQuote,
+  onClick,
+}: {
+  projectId: string | null;
+  buildType: string | null;
+  hasQuickQuote: boolean;
+  onClick: () => void;
+}) {
+  const prefill = useMeasurementPrefill(projectId, buildType ?? "", !!buildType && !!projectId);
+  const label = hasQuickQuote ? "Update quick quote" : "Quick quote";
+  return (
+    <SectionToolbarAction
+      icon={Sparkles}
+      label={label}
+      measurements={!hasQuickQuote && prefill.sources.length > 0}
+      onClick={onClick}
+    />
   );
 }

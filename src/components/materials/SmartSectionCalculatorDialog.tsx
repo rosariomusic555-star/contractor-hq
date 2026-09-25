@@ -27,6 +27,13 @@ import {
   type CatalogProductQuestion,
 } from "@/lib/smartSections";
 import { CatalogPicker } from "./CatalogPicker";
+import { MeasurementPrefillPicker } from "@/components/measurements/MeasurementPrefillPicker";
+import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
+import { smartSectionPrefill, type FeatureTotals } from "@/lib/measurements";
+
+/** A prefilled patio size handed to AreaOrDimensionsField; `v` bumps on
+ * every (re)apply so the field re-syncs its own inputs. */
+type AreaPrefill = { areaSqft: number; perimeterFt: number | null; v: number };
 
 /**
  * Step 2 — the per-section calculator. Fills in quantities on the
@@ -34,6 +41,11 @@ import { CatalogPicker } from "./CatalogPicker";
  * type's template) — never renames them, never touches lines the
  * calculator doesn't recognize. Re-running always overwrites, no
  * confirmation needed.
+ *
+ * Size questions are prefilled from the project's site measurements for
+ * this build type (src/lib/measurements.ts smartSectionPrefill) — one
+ * instance or all combined, picked in the banner at the top. Everything
+ * stays editable before running.
  */
 export function SmartSectionCalculatorDialog({
   open,
@@ -41,15 +53,32 @@ export function SmartSectionCalculatorDialog({
   template,
   catalogItems,
   onApply,
+  projectId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   template: SmartSectionTemplate;
   catalogItems: ProductCatalogItem[];
   onApply: (lines: CalculatedLine[]) => void;
+  projectId?: string | null;
 }) {
   const [answers, setAnswers] = useState<SmartSectionAnswers>({});
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [areaPrefill, setAreaPrefill] = useState<AreaPrefill | null>(null);
+  const prefill = useMeasurementPrefill(projectId, template.id, open);
+
+  /** Measurement totals → answers. Area goes through AreaOrDimensionsField
+   * (it owns its sq ft / L×W inputs); plain numbers are set directly. */
+  const prefillAnswers = (totals: FeatureTotals | undefined): SmartSectionAnswers => {
+    if (!totals) return {};
+    // Height → courses uses this contractor's course height for the template.
+    const courseHeightIn = template.tunables.some((t) => t.key === "course_height_in")
+      ? resolveTunableValue(template, settings, "course_height_in")
+      : undefined;
+    const { area, ...rest } = smartSectionPrefill(template.id, totals, { courseHeightIn }) as { area?: Omit<AreaPrefill, "v"> } & SmartSectionAnswers;
+    if (area) setAreaPrefill((p) => ({ ...area, v: (p?.v ?? 0) + 1 }));
+    return rest;
+  };
 
   const { data: allSettings = [] } = useQuery({
     queryKey: ["smart-section-settings"],
@@ -79,15 +108,17 @@ export function SmartSectionCalculatorDialog({
     for (const t of template.tunables) {
       if (!questionKeys.has(t.key)) seeded[t.key] = resolveTunableValue(template, settings, t.key);
     }
-    setAnswers(seeded);
+    setAreaPrefill(null); // nothing stale from a previous open
+    setAnswers({ ...seeded, ...prefillAnswers(prefill.selected?.totals) });
     setPickerFor(null);
     // Re-seeds once the settings query resolves too — on a fresh page
     // load this dialog can mount before listSmartSectionSettings
     // returns, and without allSettings here the seeded values would stay
     // stuck on app defaults even after the contractor's real
     // customization arrives.
+    // Also re-seeds once the project's measurements arrive (sourcesKey).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, template, allSettings]);
+  }, [open, template, allSettings, prefill.sourcesKey]);
 
   const setAnswer = (key: string, value: unknown) => setAnswers((a) => ({ ...a, [key]: value }));
 
@@ -132,6 +163,15 @@ export function SmartSectionCalculatorDialog({
               Fills in quantities on this section's existing line items. Running this again always
               overwrites them — nothing else on the sheet is touched.
             </p>
+            <MeasurementPrefillPicker
+              sources={prefill.sources}
+              selected={prefill.selected}
+              onSelect={(id) => {
+                prefill.select(id);
+                const totals = prefill.sources.find((s) => s.id === id)?.totals;
+                setAnswers((a) => ({ ...a, ...prefillAnswers(totals) }));
+              }}
+            />
             {visibleQuestions.map((q) => (
               <QuestionField
                 key={q.key}
@@ -139,6 +179,7 @@ export function SmartSectionCalculatorDialog({
                 value={answers[q.key]}
                 onChange={(v) => setAnswer(q.key, v)}
                 onPickCatalog={() => setPickerFor(q.key)}
+                areaPrefill={areaPrefill}
               />
             ))}
           </div>
@@ -173,11 +214,13 @@ function QuestionField({
   value,
   onChange,
   onPickCatalog,
+  areaPrefill,
 }: {
   question: SmartSectionQuestion;
   value: unknown;
   onChange: (v: unknown) => void;
   onPickCatalog: () => void;
+  areaPrefill: AreaPrefill | null;
 }) {
   switch (question.type) {
     case "area_or_dimensions":
@@ -186,6 +229,7 @@ function QuestionField({
           label={question.label}
           value={value as AreaAndPerimeter | undefined}
           onChange={onChange}
+          prefill={areaPrefill}
         />
       );
 
@@ -264,29 +308,43 @@ function AreaOrDimensionsField({
   label,
   value,
   onChange,
+  prefill,
 }: {
   label: string;
   value: AreaAndPerimeter | undefined;
   onChange: (v: AreaAndPerimeter) => void;
+  /** From site measurements — fills the sq ft input, and carries the real
+   * perimeter when the measured shape has one. */
+  prefill: AreaPrefill | null;
 }) {
   const [mode, setMode] = useState<"sqft" | "dimensions">("sqft");
   const [sqft, setSqft] = useState("");
   const [length, setLength] = useState("");
   const [width, setWidth] = useState("");
+  // The measured perimeter for the prefilled sq ft; dropped as soon as the
+  // sq ft is edited (it no longer describes the same shape).
+  const [knownPerimeter, setKnownPerimeter] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!prefill) return;
+    setMode("sqft");
+    setSqft(String(prefill.areaSqft));
+    setKnownPerimeter(prefill.perimeterFt);
+  }, [prefill?.v]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (mode === "sqft") {
       const area = parseFloat(sqft) || 0;
       // ASSUMPTION: perimeter estimated assuming a square footprint when
       // only sq ft is known — real perimeter needs actual dimensions.
-      onChange({ areaSqft: area, perimeterFt: 4 * Math.sqrt(area) });
+      onChange({ areaSqft: area, perimeterFt: knownPerimeter ?? 4 * Math.sqrt(area) });
     } else {
       const l = parseFloat(length) || 0;
       const w = parseFloat(width) || 0;
       onChange({ areaSqft: l * w, perimeterFt: 2 * (l + w) });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, sqft, length, width]);
+  }, [mode, sqft, length, width, knownPerimeter]);
 
   return (
     <div className="space-y-2">
@@ -320,7 +378,10 @@ function AreaOrDimensionsField({
           inputMode="decimal"
           placeholder="e.g. 300"
           value={sqft}
-          onChange={(e) => setSqft(e.target.value)}
+          onChange={(e) => {
+            setSqft(e.target.value);
+            setKnownPerimeter(null);
+          }}
         />
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -345,7 +406,7 @@ function AreaOrDimensionsField({
         <p className="text-xs font-medium text-primary">
           = {Math.round(value.areaSqft).toLocaleString()} sq ft · perimeter ≈{" "}
           {Math.round(value.perimeterFt).toLocaleString()} ft
-          {mode === "sqft" && " (estimated, assumes a square footprint)"}
+          {mode === "sqft" && (knownPerimeter ? " (from site measurements)" : " (estimated, assumes a square footprint)")}
         </p>
       )}
     </div>

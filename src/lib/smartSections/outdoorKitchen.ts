@@ -38,6 +38,10 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
   ],
   tunables: [
     { key: "courses", label: "Default courses", unit: "courses", defaultValue: 3, relatedSlotKey: "concrete_block_core" },
+    // Not used by calculate() — the default counter height a new kitchen gets
+    // on the Measurements card (src/lib/measurements.ts KITCHEN_HEIGHT_TUNABLE).
+    // Lives here so it's edited alongside the other kitchen defaults.
+    { key: "counter_height_in", label: "Default counter height (Measurements)", unit: "in", defaultValue: 36, relatedSlotKey: "concrete_block_core" },
     {
       key: "veneer_face_length_in",
       label: "Face length",

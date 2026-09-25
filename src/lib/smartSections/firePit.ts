@@ -31,6 +31,10 @@ export const firePitTemplate: SmartSectionTemplate = {
   ],
   tunables: [
     { key: "courses", label: "Default courses", unit: "courses", defaultValue: 3, relatedSlotKey: "wall_block" },
+    // Not used by calculate() — the default height a new fire pit gets on
+    // the Measurements card (src/lib/measurements.ts FIRE_PIT_HEIGHT_TUNABLE).
+    // Lives here so it's edited alongside the other fire pit defaults.
+    { key: "pit_height_in", label: "Default pit height (Measurements)", unit: "in", defaultValue: 18, relatedSlotKey: "wall_block" },
     { key: "block_face_length_in", label: "Face length", unit: "in", defaultValue: 8, relatedSlotKey: "wall_block" }, // ASSUMPTION
     { key: "cap_length_in", label: "Cap length", unit: "in", defaultValue: 12, relatedSlotKey: "caps" }, // ASSUMPTION
     {

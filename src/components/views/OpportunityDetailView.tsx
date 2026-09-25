@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -46,6 +47,12 @@ import {
   listOpportunitiesForClient,
   listCategories,
   listMaterialsSheets,
+  listSmartSectionSettings,
+  createMaterialsSheetWithSections,
+  pickHeadlineQuote,
+  type MaterialsSheet,
+  type Quote,
+  projectCategoryIds,
   listMaterialsBySheet,
   listQuotes,
   quoteTotal,
@@ -58,8 +65,6 @@ import {
   listActivitiesForOpportunity,
   logActivity,
   listTasksForOpportunity,
-  listCostPlanItems,
-  listLaborPlanEntries,
   setTaskCompleted,
   listAppointmentsForOpportunity,
   opportunityCategoryIds,
@@ -76,9 +81,12 @@ import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
+import { MeasuredCategoryMultiSelect } from "@/components/measurements/MeasuredCategoryMultiSelect";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog, EditAppointmentDialog } from "@/components/views/AppointmentsView";
 import { overdueSiteVisit, siteVisitDateLabel } from "@/lib/siteVisitCheck";
+import { appointmentWhenLabel } from "@/lib/appointmentTime";
+import { featureSectionSeeds } from "@/lib/sectionFeatures";
 import { invalidateAppointmentQueries } from "@/lib/appointmentQueries";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -109,28 +117,12 @@ export function OpportunityDetailView() {
     enabled: !!opportunity?.project_id,
   });
 
-  // StageBanner inputs — only the opportunity's own job data, never tasks.
-  // Same query keys as the Project / Cost Plan pages, so they share cache.
-  const bannerProjectId = opportunity?.project_id ?? null;
-  const atSiteVisitDone = opportunity?.stage === "site_visit_done";
-  const { data: bannerSheets = [] } = useQuery({
-    queryKey: ["materials-sheets", { project: bannerProjectId }],
-    queryFn: () => listMaterialsSheets(bannerProjectId!),
-    enabled: !!bannerProjectId && atSiteVisitDone,
-  });
-  const { data: bannerCostPlanItems = [] } = useQuery({
-    queryKey: ["cost-plan-items", { project: bannerProjectId }],
-    queryFn: () => listCostPlanItems(bannerProjectId!),
-    enabled: !!bannerProjectId && atSiteVisitDone,
-  });
-  const { data: bannerLaborEntries = [] } = useQuery({
-    queryKey: ["labor-plan-entries", { project: bannerProjectId }],
-    queryFn: () => listLaborPlanEntries(bannerProjectId!),
-    enabled: !!bannerProjectId && atSiteVisitDone,
-  });
-  // A cost plan isn't its own record — it counts as started once anything
-  // it rolls up exists (materials sheet, labor plan, other cost lines).
-  const costPlanStarted = bannerSheets.length + bannerCostPlanItems.length + bannerLaborEntries.length > 0;
+  // The one "what estimate documents exist" check for this opportunity's
+  // project — the Estimate card, the stage banner and the Appointments
+  // card's "Start estimate" all follow it, so none of them ever creates a
+  // second sheet/quote when one already exists.
+  const { sheets: estimateSheets, quotes: estimateQuotes } = useEstimateDocs(opportunity?.project_id ?? null);
+  const hasCostPlan = estimateSheets.length > 0;
 
   const { data: appointments = [] } = useQuery({
     queryKey: ["opportunity-appointments", id],
@@ -202,16 +194,54 @@ export function OpportunityDetailView() {
   // getOrCreateOpportunityProject's own doc comment (api.ts). Shared by the
   // Estimate card and the stage banner's "Create cost plan" action. A cost
   // plan isn't its own record — every project has one (it rolls up the
-  // project's Materials + Labor), so "creating" it just means making sure
-  // the project exists and opening the project's Cost Plan page.
+  // project's Materials + Labor), so "creating" it means making sure the
+  // project exists, starting its first materials sheet if it has none yet,
+  // and opening the project's Cost Plan page. The sheet starts with one
+  // Smart Section per project type unless the Estimate card's
+  // "Start the cost plan with a section per project type" box is unticked.
+  const [costPlanSectionPerType, setCostPlanSectionPerType] = useState(true);
   const openCostPlanMut = useMutation({
-    mutationFn: () => getOrCreateOpportunityProject(id),
-    onSuccess: (projectId) => {
+    mutationFn: async () => {
+      const projectId = await getOrCreateOpportunityProject(id);
+      // Re-checked here, not just from the cache, so a double click or a
+      // stale page can never create a second sheet.
+      const sheets = await listMaterialsSheets(projectId);
+      if (sheets.length > 0) return { projectId, sheets };
+      {
+        const [project, allCategories, smartSettings] = await Promise.all([
+          getProject(projectId),
+          qc.fetchQuery({ queryKey: ["categories"], queryFn: listCategories }),
+          qc.fetchQuery({ queryKey: ["smart-section-settings"], queryFn: listSmartSectionSettings }),
+        ]);
+        const typeIds = projectCategoryIds(project);
+        const sheet = await createMaterialsSheetWithSections(projectId, {
+          name: "Materials sheet",
+          seeds: costPlanSectionPerType ? featureSectionSeeds(typeIds, allCategories, smartSettings) : [],
+          projectTypeIds: typeIds,
+        });
+        return { projectId, sheets: [sheet] };
+      }
+    },
+    onSuccess: ({ projectId, sheets }) => {
       invalidateProjectLink();
-      navigate(`/projects/${projectId}/cost-plan`);
+      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
+      qc.invalidateQueries({ queryKey: ["materials", { project: projectId }] });
+      openSheet(projectId, sheets);
     },
     onError,
   });
+  // One sheet → straight into it; several → the project's sheet list.
+  const openSheet = (projectId: string, sheets: { id: string }[]) =>
+    navigate(sheets.length === 1 ? `/projects/${projectId}/materials/${sheets[0].id}` : `/projects/${projectId}/materials`);
+  /** "Create cost plan" / "Open cost plan" everywhere on this page. */
+  const openOrCreateCostPlan = () =>
+    opportunity?.project_id && hasCostPlan ? openSheet(opportunity.project_id, estimateSheets) : openCostPlanMut.mutate();
+  /** "Create quote" / "Open quote": the headline quote once one exists. */
+  const openOrCreateQuote = (withSectionPerType: boolean) => {
+    const headline = pickHeadlineQuote(estimateQuotes);
+    if (headline) navigate(`/quotes/${headline.id}`);
+    else createQuoteMut.mutate(withSectionPerType);
+  };
 
   // Won banner's "Go to project" and Revisions' "Open project view". If the
   // opportunity has no project yet, create/get it first.
@@ -233,11 +263,22 @@ export function OpportunityDetailView() {
   });
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
 
+  // Optionally starts the quote with one section per project type — each
+  // named AND tagged with its type (job_category_id), same as a new
+  // materials sheet's sections, so its chip and materials auto-link work
+  // from the start.
   const createQuoteMut = useMutation({
-    mutationFn: async (categoryNames: string[]) => {
+    mutationFn: async (withSectionPerType: boolean) => {
       const quote = await createQuoteFromOpportunity(opportunity!);
-      for (const [i, name] of categoryNames.entries()) {
-        await addQuoteSection(quote.id, { name, sort_order: i });
+      if (withSectionPerType) {
+        // Computed here (not from the render-scope categoryIds, which is
+        // defined below the page's loading return).
+        const types = opportunityCategoryIds(opportunity!)
+          .map((cid) => categories.find((c) => c.id === cid))
+          .filter((c): c is NonNullable<typeof c> => !!c);
+        for (const [i, t] of types.entries()) {
+          await addQuoteSection(quote.id, { name: t.name, sort_order: i, job_category_id: t.id });
+        }
       }
       return quote;
     },
@@ -399,7 +440,7 @@ export function OpportunityDetailView() {
           movingStage={moveStageMut.isPending}
           onMarkContacted={() => moveStageMut.mutate("contacted")}
           onClientWantsChanges={() => moveStageMut.mutate("revisions")}
-          costPlanStarted={costPlanStarted}
+          costPlanStarted={hasCostPlan}
           upcomingAppointment={upcomingAppointment}
           overdueVisit={overdueVisit}
           confirmingVisit={confirmVisitMut.isPending}
@@ -408,7 +449,7 @@ export function OpportunityDetailView() {
           openingCostPlan={openCostPlanMut.isPending}
           openingProject={goToProjectMut.isPending}
           onScheduleVisit={() => setAppointmentDialogOpen(true)}
-          onOpenCostPlan={() => openCostPlanMut.mutate()}
+          onOpenCostPlan={openOrCreateCostPlan}
           onGoToProject={() => goToProjectMut.mutate()}
           onFollowUp={() => setTaskDialogOpen(true)}
         />
@@ -441,7 +482,8 @@ export function OpportunityDetailView() {
               </div>
               <div className="space-y-1">
                 <div className={FIELD_LABEL}>Project types</div>
-                <CategoryMultiSelect
+                <MeasuredCategoryMultiSelect
+                  projectId={opportunity.project_id}
                   value={categoryIds}
                   onChange={(ids) => categoriesMut.mutate(ids)}
                   placeholder="Select types…"
@@ -461,18 +503,25 @@ export function OpportunityDetailView() {
                 rows={3}
               />
             </div>
-            {/* Free-form notes (opportunities.measurements) — always editable.
-                The structured project size lives on the project
-                (ProjectSizeCard below). */}
+            {/* Internal site-condition notes (opportunities.site_conditions,
+                0099 — was "measurements"). Real measurements live in the
+                Measurements card below. Never shown to the client. Grows
+                with the text like the quote builder's Notes. */}
             <div className="space-y-1">
-              <div className={FIELD_LABEL}>Measurement notes</div>
-              <p className="text-xs text-muted-foreground">{MEASUREMENTS_HINT}</p>
-              <Textarea
-                value={field("measurements", opportunity.measurements)}
-                onChange={(e) => setField("measurements", e.target.value)}
-                onBlur={() => commitField("measurements", opportunity.measurements)}
-                placeholder="e.g. 600 sq ft patio, 8ft island"
-                rows={2}
+              <label htmlFor="opp-site-conditions" className={FIELD_LABEL}>
+                Site condition notes
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Access, slope, drainage, soil, utilities, anything that affects the job. Fill in during or after the site visit.
+              </p>
+              <AutoGrowTextarea
+                id="opp-site-conditions"
+                rows={3}
+                value={field("site_conditions", opportunity.site_conditions)}
+                onChange={(e) => setField("site_conditions", e.target.value)}
+                onBlur={() => commitField("site_conditions", opportunity.site_conditions)}
+                placeholder='e.g. Narrow side gate (36"), slight slope toward house, old concrete pad to remove, sprinkler lines along fence.'
+                className="py-2 text-sm leading-relaxed"
               />
             </div>
             {opportunity.stage === "lost" && (
@@ -503,17 +552,26 @@ export function OpportunityDetailView() {
           <EstimateCard
             opportunity={opportunity}
             projectId={opportunity.project_id}
+            sheets={estimateSheets}
+            quotes={estimateQuotes}
             categoryNames={categoryNames}
+            costPlanSectionPerType={costPlanSectionPerType}
+            onCostPlanSectionPerTypeChange={setCostPlanSectionPerType}
             openingCostPlan={openCostPlanMut.isPending}
             creatingQuote={createQuoteMut.isPending}
-            onOpenCostPlan={() => openCostPlanMut.mutate()}
-            onCreateQuote={(names) => createQuoteMut.mutate(names)}
+            onCostPlan={openOrCreateCostPlan}
+            onQuote={openOrCreateQuote}
           />
           <OpportunityAppointmentsCard
             opportunityId={id}
             clientId={opportunity.client_id}
             open={appointmentDialogOpen}
             onOpenChange={setAppointmentDialogOpen}
+            estimateAction={{
+              label: hasCostPlan ? "Open cost plan →" : "Start estimate →",
+              onClick: openOrCreateCostPlan,
+              pending: openCostPlanMut.isPending,
+            }}
           />
           <OpportunityTasksCard
             opportunityId={id}
@@ -674,13 +732,8 @@ function StageBanner({
       case "site_visit_scheduled":
         return upcomingAppointment
           ? {
-              text: `Site visit scheduled for ${new Date(upcomingAppointment.date_time).toLocaleString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                // Date-only appointments (0092) have no real time to show.
-                ...(upcomingAppointment.all_day ? {} : { hour: "numeric", minute: "2-digit" }),
-              })}.`,
+              // "Fri, Sep 25 · 9:30 AM" (date only for a date-only appointment)
+              text: `Site visit scheduled for ${appointmentWhenLabel(upcomingAppointment)}.`,
               action: null,
               onClick: undefined,
             }
@@ -768,56 +821,67 @@ function LeadSourceField({ value, onChange }: { value: string | null; onChange: 
 }
 
 /**
- * Replaces the old "Quote" card. Cost plan first, quote second —
- * "Create cost plan" is the primary action (opens the project's Cost Plan,
- * where materials + labor get planned). Once a project exists,
- * every sheet + quote on it shows as its own row (multiple options — e.g.
- * basic patio vs. patio + fire pit — are just multiple sheets/quotes on
- * the same project, linked via the existing LinkedDocumentBar rules once
- * there's more than one of either). Creating a quote never blocks on a
- * missing sheet — it just can't show a margin yet.
+ * The opportunity's estimate: cost plan (materials sheet) first, quote
+ * second. Every sheet and quote on the project is its own clickable row
+ * (with its total, and the quote's status). The buttons follow what
+ * exists — useEstimateDocs(), the one check shared with the stage banner
+ * and the Appointments card:
+ *   - "Create cost plan" → "Open cost plan" once a sheet exists (never a
+ *     second sheet by accident).
+ *   - "Create quote" → "Open quote" once a quote exists.
+ * Extra sheets/quotes are added from the project and the builders, not here.
+ *   - Exactly one green primary, the next step: no sheet → Create cost plan;
+ *     sheet but no quote → Create quote; both → Open quote.
+ * Creating a quote never blocks on a missing sheet — it just can't show a
+ * margin yet.
  */
 function EstimateCard({
   opportunity,
   projectId,
+  sheets,
+  quotes,
   categoryNames,
+  costPlanSectionPerType,
+  onCostPlanSectionPerTypeChange,
   openingCostPlan,
   creatingQuote,
-  onOpenCostPlan,
-  onCreateQuote,
+  onCostPlan,
+  onQuote,
 }: {
   opportunity: Opportunity;
   projectId: string | null;
+  sheets: MaterialsSheet[];
+  quotes: Quote[];
   /** Selected job types (Details card's Project types field), offered as a
-   * starting structure — see the "start with a section per type" toggle
-   * below. */
+   * starting structure — see the "start with a section per type" boxes. */
   categoryNames: string[];
+  /** "Start the cost plan with a section per project type" — owned by the
+   * page so the stage banner's "Create cost plan" honors it too. */
+  costPlanSectionPerType: boolean;
+  onCostPlanSectionPerTypeChange: (v: boolean) => void;
   openingCostPlan: boolean;
   creatingQuote: boolean;
-  onOpenCostPlan: () => void;
-  onCreateQuote: (categoryNames: string[]) => void;
+  /** Open the existing sheet, or create the first one. */
+  onCostPlan: () => void;
+  /** Open the headline quote, or create the first one (optionally with a
+   * section per project type). */
+  onQuote: (withSectionPerType: boolean) => void;
 }) {
-  const { data: sheets = [] } = useQuery({
-    queryKey: ["materials-sheets", { project: projectId }],
-    queryFn: () => listMaterialsSheets(projectId!),
-    enabled: !!projectId,
-  });
-  const { data: quotes = [] } = useQuery({
-    queryKey: ["quotes", { project: projectId }],
-    queryFn: () => listQuotes(projectId!),
-    enabled: !!projectId,
-  });
-  // Defaults on whenever there's something to pre-add and nothing exists
-  // yet — once a sheet/quote already exists, later ones are almost always
-  // a revision or a second option, not a fresh starting structure.
+  const hasSheet = sheets.length > 0;
+  const hasQuote = quotes.length > 0;
+  // Starting structure for the first quote — once one exists, later ones
+  // are almost always a revision or a second option.
   const [preAddSections, setPreAddSections] = useState(true);
-  const offerPreAdd = categoryNames.length > 0 && sheets.length === 0 && quotes.length === 0;
+  const offerPreAdd = categoryNames.length > 0 && !hasQuote;
+  const offerCostPlanSections = categoryNames.length > 0 && !hasSheet;
+  // The single primary: the next step.
+  const primary: "cost_plan" | "quote" = !hasSheet ? "cost_plan" : "quote";
 
   return (
     <section className="card-surface space-y-3 p-5">
       <h3 className="text-base font-bold text-foreground">Estimate</h3>
 
-      {sheets.length === 0 && quotes.length === 0 ? (
+      {!hasSheet && !hasQuote ? (
         <p className="text-sm text-muted-foreground">No material sheet or quote yet.</p>
       ) : (
         <div className="space-y-2">
@@ -850,35 +914,51 @@ function EstimateCard({
         </div>
       )}
 
-      {quotes.length > 0 && sheets.length === 0 && (
-        <p className="text-xs text-muted-subtle">No material sheet — margin won't be visible.</p>
-      )}
-
-      {offerPreAdd && (
-        <label className="flex items-start gap-2 text-xs text-muted-foreground">
-          <Checkbox
-            checked={preAddSections}
-            onCheckedChange={(v) => setPreAddSections(v === true)}
-            className="mt-0.5"
-          />
-          Start the quote with a section per project type ({categoryNames.join(", ")})
-        </label>
-      )}
+      {hasQuote && !hasSheet && <p className="text-xs text-muted-subtle">No material sheet — margin won't be visible.</p>}
 
       <div className="flex flex-col gap-2 pt-1">
-        <Button size="sm" className="font-bold" disabled={openingCostPlan} onClick={onOpenCostPlan}>
-          <Calculator className="mr-2 h-3.5 w-3.5" />
-          {openingCostPlan ? "Opening…" : "Create cost plan"}
-        </Button>
         <Button
           size="sm"
-          variant="outline"
+          variant={primary === "cost_plan" ? "default" : "outline"}
+          className={cn(primary === "cost_plan" && "font-bold")}
+          disabled={openingCostPlan}
+          onClick={onCostPlan}
+        >
+          <Calculator className="mr-2 h-3.5 w-3.5" />
+          {openingCostPlan ? "Opening…" : hasSheet ? "Open cost plan" : "Create cost plan"}
+        </Button>
+        {offerCostPlanSections && (
+          <label className="flex items-start gap-2 pb-1 text-xs text-muted-foreground">
+            <Checkbox
+              checked={costPlanSectionPerType}
+              onCheckedChange={(v) => onCostPlanSectionPerTypeChange(v === true)}
+              className="mt-0.5"
+            />
+            Start the cost plan with a section per project type ({categoryNames.join(", ")})
+          </label>
+        )}
+
+        <Button
+          size="sm"
+          variant={primary === "quote" ? "default" : "outline"}
+          className={cn("mt-1", primary === "quote" && "font-bold")}
           disabled={creatingQuote}
-          onClick={() => onCreateQuote(offerPreAdd && preAddSections ? categoryNames : [])}
+          onClick={() => onQuote(offerPreAdd && preAddSections)}
         >
           <FileText className="mr-2 h-3.5 w-3.5" />
-          {creatingQuote ? "Creating…" : "Create quote"}
+          {creatingQuote ? "Creating…" : hasQuote ? "Open quote" : "Create quote"}
         </Button>
+        {/* Each option sits under the button it applies to. */}
+        {offerPreAdd && (
+          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={preAddSections}
+              onCheckedChange={(v) => setPreAddSections(v === true)}
+              className="mt-0.5"
+            />
+            Start the quote with a section per project type ({categoryNames.join(", ")})
+          </label>
+        )}
       </div>
 
       {opportunity.stage === "won" && !quotes.some((q) => q.status === "approved") && (
@@ -886,6 +966,24 @@ function EstimateCard({
       )}
     </section>
   );
+}
+
+/** Which estimate documents this opportunity's project has — the single
+ * check behind the Estimate card's buttons, the stage banner's cost plan
+ * action and the Appointments card's "Start estimate" (same query keys as
+ * the project pages, so they share cache and refresh together). */
+function useEstimateDocs(projectId: string | null) {
+  const { data: sheets = [] } = useQuery({
+    queryKey: ["materials-sheets", { project: projectId }],
+    queryFn: () => listMaterialsSheets(projectId!),
+    enabled: !!projectId,
+  });
+  const { data: quotes = [] } = useQuery({
+    queryKey: ["quotes", { project: projectId }],
+    queryFn: () => listQuotes(projectId!),
+    enabled: !!projectId,
+  });
+  return { sheets, quotes };
 }
 
 /** A sheet's own cost total — fetched per-row since EstimateCard only
@@ -904,11 +1002,13 @@ function OpportunityAppointmentsCard({
   clientId,
   open,
   onOpenChange,
+  estimateAction,
 }: {
   opportunityId: string;
   clientId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  estimateAction: { label: string; onClick: () => void; pending?: boolean };
 }) {
   const { data: appointments = [] } = useQuery({
     queryKey: ["opportunity-appointments", opportunityId],
@@ -936,7 +1036,7 @@ function OpportunityAppointmentsCard({
       ) : (
         <div className="mt-2 space-y-2">
           {shown.map((a) => (
-            <AppointmentRow key={a.id} appointment={a} />
+            <AppointmentRow key={a.id} appointment={a} estimateAction={estimateAction} />
           ))}
         </div>
       )}
@@ -1081,8 +1181,8 @@ function FirstPhotoUploader({
 // Newest first — the card shows this many until "See more" is clicked.
 const ACTIVITY_PREVIEW_COUNT = 3;
 
-// Guidance on the opportunity's measurement fields — measurements come from
-// the site visit, so they're usually blank before it.
+// Guidance on the Measurements card — measurements come from the site
+// visit, so they're usually blank before it.
 const MEASUREMENTS_HINT = "Fill this out once the site visit is completed.";
 
 function OpportunityActivityCard({

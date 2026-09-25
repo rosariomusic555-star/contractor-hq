@@ -37,6 +37,7 @@ import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
+import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { revokeLocalImageUrls, type DraftLineItem, type DraftLineSection } from "@/lib/draftLineItem";
 import { changeOrderStatusMeta } from "@/lib/statusMeta";
 import { computeProjectImpact, scheduleImpactLabel } from "@/lib/changeOrderImpact";
@@ -640,15 +641,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           )}
 
           {draft.sections.length > 0 && (
-            <div className="flex items-center justify-end gap-3 text-xs font-bold text-primary">
-              <button type="button" onClick={() => collapseAll(draft.sections.map((s) => s.id))} className="hover:underline">
-                Collapse all
-              </button>
-              <span className="text-border">|</span>
-              <button type="button" onClick={() => expandAll(draft.sections.map((s) => s.id))} className="hover:underline">
-                Expand all
-              </button>
-            </div>
+            <CollapseAllLinks onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))} onExpandAll={() => expandAll(draft.sections.map((s) => s.id))} />
           )}
 
           {/* Once approved/declined, a change order is a permanent record —

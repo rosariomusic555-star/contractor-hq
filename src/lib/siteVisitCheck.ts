@@ -1,19 +1,20 @@
 import { SITE_VISIT_APPOINTMENT_TYPES, type Appointment, type Opportunity, type OpportunityStage } from "./api";
-import { appointmentDateKey, localYmd } from "./appointmentTime";
+import { appointmentHasPassed, appointmentWhenLabel } from "./appointmentTime";
 
 // Stages where confirming the visit still moves the lead forward (to Site
 // Visit Done). Past these the visit is moot, so no prompt — this matches
 // the forward-only auto-advance in api.ts.
 const CONFIRMABLE_STAGES: OpportunityStage[] = ["new_lead", "contacted", "site_visit_scheduled"];
 
-type VisitFields = Pick<Appointment, "opportunity_id" | "type" | "status" | "date_time">;
+type VisitFields = Pick<Appointment, "opportunity_id" | "type" | "status" | "date_time" | "all_day">;
 
 /**
  * The site visit / estimate appointment an opportunity needs confirmed:
- * still `scheduled` (not completed or cancelled) and dated before today
- * (the prompt starts the day after the visit). Oldest first if there are
- * several. Undefined once it's completed, cancelled or moved to today or
- * later — which is what makes the prompt disappear everywhere. Single
+ * still `scheduled` (not completed or cancelled) and already past — a timed
+ * visit once its start time has passed, a date-only one (older, 0092) from
+ * the day after (appointmentHasPassed). Oldest first if there are several.
+ * Undefined once it's completed, cancelled or moved later — which is what
+ * makes the prompt disappear everywhere. Single
  * source for the StageBanner, the Needs-you queue and the Pipeline board.
  */
 export function overdueSiteVisit<A extends VisitFields>(
@@ -22,14 +23,13 @@ export function overdueSiteVisit<A extends VisitFields>(
   now: Date = new Date(),
 ): A | undefined {
   if (!CONFIRMABLE_STAGES.includes(opportunity.stage)) return undefined;
-  const today = localYmd(now);
   return appointments
     .filter(
       (a) =>
         a.opportunity_id === opportunity.id &&
         a.status === "scheduled" &&
         SITE_VISIT_APPOINTMENT_TYPES.includes(a.type) &&
-        appointmentDateKey(a) < today,
+        appointmentHasPassed(a, now),
     )
     .sort((a, b) => a.date_time.localeCompare(b.date_time))[0];
 }
@@ -55,6 +55,5 @@ export function overdueSiteVisitsByOpportunity<A extends VisitFields>(
   return result;
 }
 
-/** "Fri, Sep 25" */
-export const siteVisitDateLabel = (a: Pick<Appointment, "date_time">) =>
-  new Date(a.date_time).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+/** "Fri, Sep 25 · 9:30 AM" (just the date for a date-only visit). */
+export const siteVisitDateLabel = (a: Pick<Appointment, "date_time" | "all_day">) => appointmentWhenLabel(a);

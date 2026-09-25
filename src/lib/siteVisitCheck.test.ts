@@ -32,10 +32,15 @@ describe("overdueSiteVisit", () => {
     expect(overdueSiteVisit(opp(), [visit({ type: "estimate_appointment" })], NOW)).toBeDefined();
   });
 
-  it("waits until the day after — today's visit isn't overdue yet", () => {
+  it("a timed visit asks as soon as its start time has passed — not at midnight", () => {
+    const at = (h: number, m = 0) => visit({ date_time: new Date(2026, 8, 26, h, m).toISOString(), all_day: false });
+    expect(overdueSiteVisit(opp(), [at(9)], NOW)).toBeDefined(); // 9 AM today, now 3 PM
+    expect(overdueSiteVisit(opp(), [at(15)], NOW)).toBeDefined(); // exactly now
+    expect(overdueSiteVisit(opp(), [at(16, 30)], NOW)).toBeUndefined(); // later today
+  });
+
+  it("a date-only visit (no time) still waits until the day after", () => {
     expect(overdueSiteVisit(opp(), [visit({ date_time: allDayDateTime("2026-09-26") })], NOW)).toBeUndefined();
-    // A timed visit earlier today is still not overdue.
-    expect(overdueSiteVisit(opp(), [visit({ date_time: new Date(2026, 8, 26, 9, 0).toISOString(), all_day: false })], NOW)).toBeUndefined();
   });
 
   it.each(["completed", "cancelled", "no_show"] as const)("clears once the visit is %s", (status) => {

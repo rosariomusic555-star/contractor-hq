@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import type { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { ReorderControls } from "@/components/common/ReorderControls";
+import { SectionNameField, type SectionFeaturePicker } from "@/components/common/SectionNameField";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 
 const HOVER_EXPAND_DELAY_MS = 600;
@@ -42,6 +43,9 @@ interface SectionCardProps {
   /** Optional small tag shown under the name in the header (the
    * Materials Sheet's section project type). */
   tag?: ReactNode;
+  /** Quote + Materials Sheet: the name field doubles as the feature picker
+   * (sets name + project type together). Omitted → a plain name input. */
+  featurePicker?: SectionFeaturePicker;
   /** The line item list + "Add item to this section" button. */
   children: ReactNode;
 }
@@ -77,6 +81,7 @@ export function SectionCard({
   onMoveDown,
   secondRow,
   tag,
+  featurePicker,
   children,
 }: SectionCardProps) {
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -132,36 +137,10 @@ export function SectionCard({
             <ChevronDown className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")} />
           </button>
           <div className="min-w-0 flex-1">
-            {/* Auto-sized title: an invisible copy of the text and the input
-              share one grid cell, so the cell (and the input filling it)
-              hugs the text as it's typed — works in every browser, no
-              measuring JS. min-w keeps an empty/short title easy to click
-              (smaller on phones so the row never overflows);
-              max-w-full stops it at this column, so it never reaches the
-              count/total or reorder controls — past that it truncates with
-              an ellipsis while not focused. The focus ring wraps only the
-              input. Only the chevron collapses and only the grip drags, so
-              clicking here does neither (pointer events stopped anyway). */}
-            <div
-              className="-ml-2.5 inline-grid min-w-[4rem] max-w-full grid-cols-[minmax(0,1fr)] align-top sm:min-w-[9rem]"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <span
-                aria-hidden
-                className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre px-2.5 py-1 pr-3.5 text-[19px] font-bold tracking-tight"
-              >
-                {name || "Section name"}
-              </span>
-              <input
-                value={name}
-                onChange={(e) => onRename(e.target.value)}
-                placeholder="Section name"
-                aria-label="Section name"
-                size={1}
-                className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-lg border-none bg-transparent px-2.5 py-1 text-[19px] font-bold tracking-tight text-background outline-none transition placeholder:font-semibold placeholder:text-background/40 hover:bg-white/[0.08] focus:bg-white/[0.12] focus:ring-2 focus:ring-primary"
-              />
-            </div>
+            {/* Auto-sized name — with `featurePicker`, also the feature
+                picker (see SectionNameField). Only the chevron collapses and
+                only the grip drags; the name field stops pointer events. */}
+            <SectionNameField name={name} onRename={onRename} picker={featurePicker} />
           </div>
           <div className="shrink-0 text-right">
             <div className="text-[11px] text-background/55">{pluralize(itemNames.length, "item")}</div>

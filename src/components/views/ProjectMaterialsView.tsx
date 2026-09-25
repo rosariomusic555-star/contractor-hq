@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import {
@@ -40,6 +40,7 @@ import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
+import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import {
   AlertDialog,
@@ -60,6 +61,7 @@ import {
   listMaterials,
   listMaterialsBySheet,
   listMaterialsSheets,
+  listSmartSectionSettings,
   createMaterialsSheet,
   updateMaterialsSheet,
   deleteMaterialsSheet,
@@ -103,6 +105,8 @@ import {
   type CatalogPriceOverride,
 } from "@/lib/api";
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
+import { NewMaterialsSheetDialog } from "@/components/materials/NewMaterialsSheetDialog";
+import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectionCalculatorDialog";
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
@@ -123,12 +127,22 @@ import {
   type ItemSortMode,
 } from "@/lib/materialsMath";
 import { OptionOrCustomField } from "@/components/materials/OptionOrCustomField";
-import { ProjectTypeChip } from "@/components/common/ProjectTypeChip";
+import { SectionTypeChip } from "@/components/common/SectionTypeChip";
+import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
+import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
+import {
+  featureSectionSeeds,
+  sectionFeatureOptions,
+  withCommittedSectionName,
+  withSectionType,
+  type SectionFeatureOption,
+} from "@/lib/sectionFeatures";
 import {
   orderedQuantity,
   deliveredQuantity,
   usedQuantity,
-  effectiveEstimate,
+  isProjectActive,
+  revisedBaseline,
   lineStatus,
   sheetCostSummary,
   executionTrackedLines,
@@ -199,6 +213,36 @@ interface DraftSection {
 
 const tmpId = () => `tmp-${crypto.randomUUID()}`;
 const isTmp = (id: string) => id.startsWith("tmp-");
+
+/** A new draft section from a feature seed — named line items, blank
+ * quantity/price (how Smart Sections always start). */
+const draftSectionFromSeed = (seed: {
+  name: string;
+  job_category_id: string | null;
+  smart_section_build_type: string | null;
+  itemNames: string[];
+}): DraftSection => ({
+  id: tmpId(),
+  name: seed.name,
+  smart_section_build_type: seed.smart_section_build_type,
+  job_category_id: seed.job_category_id,
+  items: seed.itemNames.map((itemName) => ({
+    id: tmpId(),
+    name: itemName,
+    quantity: 0,
+    unit_cost: 0,
+    expense_category_id: null,
+    category: null,
+    material_category_id: null,
+    unit: "",
+    price_book_item_id: null,
+    catalog_product_id: null,
+    waste_percent: 0,
+    color: "",
+    tracked: true,
+    rememberPrice: false,
+  })),
+});
 
 const seed = (sections: MaterialsSection[]): DraftSection[] =>
   sections.map((s) => ({
@@ -291,34 +335,10 @@ export function ProjectMaterialsView() {
  * sheet list above when a project has more than one sheet. */
 export function ProjectMaterialsSheetDetailView() {
   const { id = "", sheetId = "" } = useParams();
-  const location = useLocation();
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
-
-  // Carried over, once, from the opportunity page's "Create material
-  // sheet" action (OpportunityDetailView) — a reference only, never
-  // persisted or parsed into real line items, so the contractor doesn't
-  // have to flip back and forth to re-read what the lead's own
-  // Measurements field said while pricing the job.
-  const measurementsReference = (location.state as { measurementsReference?: string } | null)?.measurementsReference;
-  const [showReference, setShowReference] = useState(!!measurementsReference);
 
   return (
     <div className="space-y-4">
-      {showReference && measurementsReference && (
-        <div className="mx-auto flex max-w-4xl items-start justify-between gap-3 rounded-card border border-primary/30 bg-primary/5 p-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-subtle">From the lead's measurements</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{measurementsReference}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowReference(false)}
-            className="shrink-0 text-xs font-semibold text-muted-foreground hover:text-foreground"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
       <MaterialsSheetBuilder
         projectId={id}
         projectName={project?.name}
@@ -352,14 +372,8 @@ function MaterialsSheetsListView({
     queryFn: () => listQuotes(projectId),
   });
 
-  const addMut = useMutation({
-    mutationFn: () => createMaterialsSheet(projectId, { name: "New materials sheet" }),
-    onSuccess: (sheet) => {
-      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
-      navigate(`/projects/${projectId}/materials/${sheet.id}`);
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
+  // Added scope: pick which features the new sheet starts sections for.
+  const [newSheetOpen, setNewSheetOpen] = useState(false);
 
   return (
     <div className="mx-auto max-w-4xl animate-fade-in space-y-6">
@@ -373,11 +387,17 @@ function MaterialsSheetsListView({
           <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheets</h1>
           <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
         </div>
-        <Button onClick={() => addMut.mutate()} disabled={addMut.isPending} className="font-bold">
+        <Button onClick={() => setNewSheetOpen(true)} className="font-bold">
           <Plus className="mr-2 h-4 w-4" />
           Add materials sheet
         </Button>
       </div>
+      <NewMaterialsSheetDialog
+        open={newSheetOpen}
+        onOpenChange={setNewSheetOpen}
+        projectId={projectId}
+        onCreated={(sheet) => navigate(`/projects/${projectId}/materials/${sheet.id}`)}
+      />
 
       <div className="space-y-3">
         {sheets.map((sheet) => {
@@ -499,22 +519,30 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     queryFn: () => listUsageLogsForItems(trackedLineIds),
     enabled: trackedLineIds.length > 0,
   });
-  const costSummary = isTracked ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
+  // Tracking only applies once the job is actually happening (Won and
+  // scheduled / in progress / complete) — isProjectActive, the one rule for
+  // every tracking-related piece of this screen. Before that the sheet is a
+  // plain estimate: no panels, no Tracked toggles, no summary card.
+  const trackingActive = isProjectActive(project);
+  const costSummary = trackingActive && isTracked ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
 
+  // Per tracked line: what's been ordered/delivered/used, plus an explicit
+  // "Revise estimate" if there is one. Est. itself is worked out live in
+  // each row from the draft quantity + waste (see ItemRow).
   const trackingByItemId = useMemo(() => {
-    const map = new Map<
-      string,
-      { estimated: number; ordered: number; delivered: number; used: number; status: LineStatus; unit: string | null }
-    >();
+    const map: TrackingContext["byItemId"] = new Map();
+    if (!trackingActive) return map;
     for (const line of executionTrackedLines(trackedLines)) {
-      const estimated = effectiveEstimate(line).quantity;
-      const ordered = orderedQuantity(line, deliveries);
-      const delivered = deliveredQuantity(line, deliveries);
-      const used = usedQuantity(line, usageLogs);
-      map.set(line.id, { estimated, ordered, delivered, used, status: lineStatus(estimated, ordered, delivered, used), unit: line.unit });
+      map.set(line.id, {
+        revisedQuantity: revisedBaseline(line)?.quantity ?? null,
+        ordered: orderedQuantity(line, deliveries),
+        delivered: deliveredQuantity(line, deliveries),
+        used: usedQuantity(line, usageLogs),
+        unit: line.unit,
+      });
     }
     return map;
-  }, [trackedLines, deliveries, usageLogs]);
+  }, [trackingActive, trackedLines, deliveries, usageLogs]);
 
   const [logUsageLine, setLogUsageLine] = useState<MaterialsItem | null>(null);
 
@@ -605,10 +633,37 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const renameSection = (sid: string, name: string) =>
     edit((d) => d.map((s) => (s.id === sid ? { ...s, name } : s)));
   const deleteSection = (sid: string) => edit((d) => d.filter((s) => s.id !== sid));
+  // The type chip: the name follows the new type while it's still the
+  // autofilled one (see withSectionType); a hand-typed name is left alone.
   const setSectionType = (sid: string, job_category_id: string | null) =>
-    edit((d) => d.map((s) => (s.id === sid ? { ...s, job_category_id } : s)));
-  const addSection = () =>
-    edit((d) => [...d, { id: tmpId(), name: "", smart_section_build_type: null, job_category_id: null, items: [] }]);
+    edit((d) => d.map((s) => (s.id === sid ? withSectionType(s, job_category_id, jobCategories) : s)));
+  // The name field's feature picker: name + type in one step.
+  const pickSectionFeature = (sid: string, o: SectionFeatureOption) =>
+    edit((d) => d.map((s) => (s.id === sid ? { ...s, name: o.label, job_category_id: o.categoryId ?? s.job_category_id } : s)));
+  // Typed name committed: an untyped section whose name matches a feature
+  // gets that type. Only touches the draft when something changes.
+  const commitSectionName = (sid: string) => {
+    const section = draft.find((s) => s.id === sid);
+    if (!section) return;
+    const next = withCommittedSectionName(section, projectTypeOptions, jobCategories);
+    if (next !== section) edit((d) => d.map((s) => (s.id === sid ? next : s)));
+  };
+  const featureOptions = useMemo(() => sectionFeatureOptions(projectTypeOptions, jobCategories), [projectTypeOptions, jobCategories]);
+  // "Add blank section" opens the new section's picker straight away.
+  const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(null);
+  const addSection = () => {
+    const id = tmpId();
+    edit((d) => [...d, { id, name: "", smart_section_build_type: null, job_category_id: null, items: [] }]);
+    setAutoOpenSectionId(id);
+  };
+  const featurePickerFor = (sid: string): SectionFeaturePicker => ({
+    ...featureOptions,
+    usedCategoryIds: new Set(draft.filter((s) => s.id !== sid && s.job_category_id).map((s) => s.job_category_id!)),
+    onPick: (o) => pickSectionFeature(sid, o),
+    onCommit: () => commitSectionName(sid),
+    autoOpen: autoOpenSectionId === sid,
+    onAutoOpened: () => setAutoOpenSectionId(null),
+  });
   // Step 1 of Smart Section is a template, not a calculator: it lands as
   // an ordinary new draft section with blank-quantity/price line items
   // named per the build type. Indistinguishable from manually-added rows
@@ -618,31 +673,60 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const addSmartSection = (buildTypeId: string, name: string, lineItems: string[]) =>
     edit((d) => [
       ...d,
-      {
-        id: tmpId(),
+      draftSectionFromSeed({
         name,
         smart_section_build_type: buildTypeId,
         // Auto-tag with the project type matching this build type
         // (e.g. "Paver Patio"), when the project has one.
         job_category_id: matchProjectTypeForBuildType(buildTypeId, projectTypeOptions),
-        items: lineItems.map((itemName) => ({
-          id: tmpId(),
-          name: itemName,
-          quantity: 0,
-          unit_cost: 0,
-          expense_category_id: null,
-          category: null,
-          material_category_id: null,
-          unit: "",
-          price_book_item_id: null,
-          catalog_product_id: null,
-          waste_percent: 0,
-          color: "",
-          tracked: true,
-          rememberPrice: false,
-        })),
-      },
+        itemNames: lineItems,
+      }),
     ]);
+
+  // --- one section per project feature (sectionFeatures.featureSectionSeeds)
+  const { data: smartSettings = [], isSuccess: smartSettingsLoaded } = useQuery({
+    queryKey: ["smart-section-settings"],
+    queryFn: listSmartSectionSettings,
+  });
+  const projectTypeIds = useMemo(() => (project ? projectCategoryIds(project) : []), [project]);
+  // A project with no sheet yet opens straight into this builder: start
+  // the (unsaved) draft with one section per project type, once. Discard
+  // empties it; Save creates the sheet with them.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (sheetId || prefilled.current || dirty.current || !project || !smartSettingsLoaded || jobCategories.length === 0) return;
+    prefilled.current = true;
+    const seeds = featureSectionSeeds(projectTypeIds, jobCategories, smartSettings);
+    if (seeds.length > 0) edit(() => seeds.map(draftSectionFromSeed));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetId, project, smartSettingsLoaded, jobCategories]);
+
+  // Project types added since this sheet was made — a non-blocking banner
+  // per type ("X was added to this project · Add section"), never added
+  // silently. `feature_category_ids` (0100) is what the sheet has accounted
+  // for; undefined before 0100, and no sheet yet → no banner.
+  const currentSheet = sheets.find((sh) => sh.id === sheetId);
+  const [ackPending, setAckPending] = useState<string[]>([]);
+  const newProjectTypes = currentSheet?.feature_category_ids
+    ? projectTypeOptions.filter(
+        (c) =>
+          !currentSheet.feature_category_ids!.includes(c.id) &&
+          !ackPending.includes(c.id) &&
+          !draft.some((sec) => sec.job_category_id === c.id),
+      )
+    : [];
+  const addFeatureSection = (categoryId: string) => {
+    const [seedFor] = featureSectionSeeds([categoryId], jobCategories, smartSettings);
+    if (seedFor) edit((d) => [...d, draftSectionFromSeed(seedFor)]);
+    // Recorded as accounted for when the sheet is saved (with the section).
+    setAckPending((p) => [...p, categoryId]);
+  };
+  const dismissFeatureMut = useMutation({
+    mutationFn: (categoryId: string) =>
+      updateMaterialsSheet(sheetId!, { feature_category_ids: [...(currentSheet?.feature_category_ids ?? []), categoryId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
   // Step 2 — the calculator writes quantities into the section's existing
   // line items, matched purely by name against the build type's fixed
   // template (never by position). A line the calculator doesn't return
@@ -728,7 +812,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     mutationFn: async () => {
       // No sheet exists yet (brand-new project) — create it lazily, exactly
       // like a brand-new section/item's tmp- id resolves to a real row here.
-      const currentSheetId = sheetId ?? (await createMaterialsSheet(projectId, { name: "Materials sheet" })).id;
+      const currentSheetId =
+        sheetId ?? (await createMaterialsSheet(projectId, { name: "Materials sheet", feature_category_ids: projectTypeIds })).id;
+      // Types added from the "was added" banner are now accounted for.
+      if (sheetId && ackPending.length > 0 && currentSheet?.feature_category_ids) {
+        await updateMaterialsSheet(sheetId, {
+          feature_category_ids: [...new Set([...currentSheet.feature_category_ids, ...ackPending])],
+        });
+      }
 
       const serverSections = new Map(sections.map((s) => [s.id, s]));
       const draftSectionIds = new Set(draft.map((s) => s.id));
@@ -841,6 +932,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     },
     onSuccess: () => {
       dirty.current = false;
+      setAckPending([]);
       qc.invalidateQueries({ queryKey: ["materials", { sheet: sheetId }] });
       qc.invalidateQueries({ queryKey: ["materials", { project: projectId }] });
       qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
@@ -877,14 +969,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   });
 
   const navigate = useNavigate();
-  const addSheetMut = useMutation({
-    mutationFn: () => createMaterialsSheet(projectId, { name: "New materials sheet" }),
-    onSuccess: (sheet) => {
-      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
-      navigate(`/projects/${projectId}/materials/${sheet.id}`);
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
+  const [newSheetOpen, setNewSheetOpen] = useState(false);
   const deleteSheetMut = useMutation({
     mutationFn: () => deleteMaterialsSheet(sheetId!),
     onSuccess: () => {
@@ -896,7 +981,6 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
-  const currentSheet = sheets.find((s) => s.id === sheetId);
   const [nameDraft, setNameDraft] = useState(currentSheet?.name ?? "");
   useEffect(() => setNameDraft(currentSheet?.name ?? ""), [currentSheet?.name]);
 
@@ -961,12 +1045,17 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             </Button>
             <button
               type="button"
-              onClick={() => addSheetMut.mutate()}
-              disabled={addSheetMut.isPending}
+              onClick={() => setNewSheetOpen(true)}
               className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
             >
               + Add another materials sheet
             </button>
+            <NewMaterialsSheetDialog
+              open={newSheetOpen}
+              onOpenChange={setNewSheetOpen}
+              projectId={projectId}
+              onCreated={(sheet) => navigate(`/projects/${projectId}/materials/${sheet.id}`)}
+            />
             {sheets.length > 1 && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -1056,7 +1145,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </div>
       )}
 
-      {itemTrackingSummary.totalCount > 0 && (
+      {trackingActive && itemTrackingSummary.totalCount > 0 && (
         <div className="flex items-center justify-between gap-3 text-sm">
           <span className="text-muted-foreground">
             Tracking <span className="font-bold text-foreground">{itemTrackingSummary.trackedCount}</span> of{" "}
@@ -1094,24 +1183,32 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </div>
       )}
 
-      {draft.length > 0 && (
-        <div className="flex items-center justify-end gap-3 text-xs font-bold text-primary">
-          <button
-            type="button"
-            onClick={() => collapseAll(draft.map((s) => s.id))}
-            className="hover:underline"
-          >
-            Collapse all
+      {/* Project types added since this sheet was made — offered, never added silently. */}
+      {newProjectTypes.map((c) => (
+        <div
+          key={c.id}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-primary/30 bg-primary/5 px-4 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1 text-foreground">
+            <span className="font-semibold">{c.name}</span> was added to this project
+          </span>
+          <button type="button" onClick={() => addFeatureSection(c.id)} className="min-h-9 font-bold text-primary hover:underline">
+            Add section
           </button>
-          <span className="text-border">|</span>
           <button
             type="button"
-            onClick={() => expandAll(draft.map((s) => s.id))}
-            className="hover:underline"
+            onClick={() => dismissFeatureMut.mutate(c.id)}
+            aria-label={`Dismiss — don't add a ${c.name} section to this sheet`}
+            title="Dismiss"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            Expand all
+            <X className="h-4 w-4" />
           </button>
         </div>
+      ))}
+
+      {draft.length > 0 && (
+        <CollapseAllLinks onCollapseAll={() => collapseAll(draft.map((s) => s.id))} onExpandAll={() => expandAll(draft.map((s) => s.id))} />
       )}
 
       <DragDropContext
@@ -1141,6 +1238,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         catalogItems={catalogItems}
                         priceOverrides={priceOverrides}
                         tracking={{
+                          active: trackingActive,
                           byItemId: trackingByItemId,
                           onLogUsage: (itemId) => {
                             const line = trackedLines.find((l) => l.id === itemId);
@@ -1156,11 +1254,13 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                           },
                         }}
                         onRename={(name) => renameSection(section.id, name)}
+                        featurePicker={featurePickerFor(section.id)}
                         onDelete={() => deleteSection(section.id)}
                         onAddItem={() => addItem(section.id)}
                         onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
                         onDeleteItem={(iid) => deleteItem(section.id, iid)}
                         onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
+                        projectId={projectId}
                         dragHandleProps={dragProvided.dragHandleProps}
                         dragging={dragSnapshot.isDragging}
                         canMoveUp={index > 0}
@@ -1183,7 +1283,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </Droppable>
       </DragDropContext>
 
-      {isTracked && deliveries.some((d) => d.item.materials_item_id == null) && (
+      {trackingActive && isTracked && deliveries.some((d) => d.item.materials_item_id == null) && (
         <UnplannedMaterialsCard sections={sections} deliveries={deliveries} />
       )}
 
@@ -1398,7 +1498,21 @@ function LinkQuoteDialog({
  * untracked sheet, so every row below just checks `tracking.byItemId.get
  * (item.id)` and renders nothing extra when it's undefined. */
 interface TrackingContext {
-  byItemId: Map<string, { estimated: number; ordered: number; delivered: number; used: number; status: LineStatus; unit: string | null }>;
+  /** False before the job is Won / in progress (isProjectActive) — then
+   * there's no panel and no Tracked toggle at all. */
+  active: boolean;
+  byItemId: Map<
+    string,
+    {
+      /** Raw quantity of the latest explicit "Revise estimate", else null
+       * (Est. then follows the line's live quantity + waste). */
+      revisedQuantity: number | null;
+      ordered: number;
+      delivered: number;
+      used: number;
+      unit: string | null;
+    }
+  >;
   onLogUsage: (itemId: string) => void;
   onMarkFullyUsed: (itemId: string) => void;
   onReviseEstimate: (itemId: string) => void;
@@ -1426,6 +1540,9 @@ interface SectionCardProps {
   onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
   onApplyCalculatedLines: (lines: CalculatedLine[]) => void;
+  featurePicker: SectionFeaturePicker;
+  /** For the calculator's "From site measurements" prefill. */
+  projectId: string;
   dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
   dragging: boolean;
   canMoveUp: boolean;
@@ -1459,6 +1576,8 @@ function MaterialsSectionCard({
   onEditItem,
   onDeleteItem,
   onApplyCalculatedLines,
+  featurePicker,
+  projectId,
   dragHandleProps,
   dragging,
   canMoveUp,
@@ -1474,6 +1593,12 @@ function MaterialsSectionCard({
   const subtotal = section.items.reduce((a, i) => a + materialsLineTotal(i), 0);
   const buildType = findSmartSectionTemplate(section.smart_section_build_type);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
+  // "Measurements available · Fill quantities": the project has site
+  // measurements for this feature and nothing's been filled in yet. Opens
+  // the calculator (which prefills from them) — never runs it on its own.
+  const measurementPrefill = useMeasurementPrefill(projectId, buildType?.id ?? "", !!buildType);
+  const offerFillFromMeasurements =
+    !!buildType && measurementPrefill.sources.length > 0 && section.items.every((i) => !i.quantity);
   // View order only — the saved manual order is untouched unless the user
   // reorders while sorted (the page handles that; see reorderFromSorted).
   const displayItems = sortItemsByCost(section.items, sortMode);
@@ -1482,10 +1607,11 @@ function MaterialsSectionCard({
     <SectionCard
       name={section.name}
       onRename={onRename}
+      featurePicker={featurePicker}
       subtotal={subtotal}
       itemNames={displayItems.map((i) => materialLineLabel(i))}
       tag={
-        <ProjectTypeChip
+        <SectionTypeChip
           value={section.job_category_id}
           options={projectTypeOptions}
           allCategories={jobCategories}
@@ -1505,15 +1631,9 @@ function MaterialsSectionCard({
       secondRow={
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {buildType && (
-              <button
-                type="button"
-                onClick={() => setCalculatorOpen(true)}
-                className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
-              >
-                <Calculator className="h-4 w-4" />
-                Calculate quantities
-              </button>
+            {buildType && <SectionToolbarAction icon={Calculator} label="Calculate quantities" onClick={() => setCalculatorOpen(true)} />}
+            {offerFillFromMeasurements && (
+              <SectionToolbarAction icon={Calculator} label="Fill quantities" measurements onClick={() => setCalculatorOpen(true)} />
             )}
             {section.items.length > 1 && (
               <Select value={sortMode} onValueChange={(v) => onSortChange(v as ItemSortMode)}>
@@ -1608,6 +1728,7 @@ function MaterialsSectionCard({
           template={buildType}
           catalogItems={catalogItems}
           onApply={onApplyCalculatedLines}
+          projectId={projectId}
         />
       )}
     </SectionCard>
@@ -1660,7 +1781,19 @@ function ItemRow({
   onMoveUp,
   onMoveDown,
 }: ItemRowProps) {
-  const track = tracking.byItemId.get(item.id);
+  const trackData = tracking.byItemId.get(item.id);
+  // Est. = the line's current quantity with waste, live as it's edited —
+  // until an explicit "Revise estimate" sets a different tracked number.
+  const track = trackData
+    ? (() => {
+        const estimated = quantityWithWaste(trackData.revisedQuantity ?? item.quantity, item.waste_percent);
+        return {
+          ...trackData,
+          estimated,
+          status: lineStatus(estimated, trackData.ordered, trackData.delivered, trackData.used),
+        };
+      })()
+    : undefined;
   // Local string state so a half-typed number ("1.", "0.0") isn't reformatted
   // out from under the cursor. Re-synced when the draft is reseeded.
   const [qtyStr, setQtyStr] = useState(String(item.quantity));
@@ -1774,26 +1907,29 @@ function ItemRow({
             <BookOpen className="h-4 w-4 shrink-0" />
             <span>Price Book</span>
           </button>
-          <button
-            type="button"
-            onClick={() => onEdit({ tracked: !item.tracked })}
-            className={cn(
-              "order-3 flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:order-none",
-              item.tracked
-                ? "bg-primary/15 text-primary hover:bg-primary/25"
-                : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
-            )}
-            aria-pressed={item.tracked}
-            aria-label={
-              item.tracked
-                ? "Tracked in the Material Tracker — click to stop tracking"
-                : "Not tracked — click to track in the Material Tracker"
-            }
-            title={item.tracked ? "Tracked in Material Tracker" : "Not tracked"}
-          >
-            {item.tracked ? <Eye className="h-4 w-4 shrink-0" /> : <EyeOff className="h-4 w-4 shrink-0" />}
-            <span>{item.tracked ? "Tracked" : "Not tracked"}</span>
-          </button>
+          {/* Track / Don't Track only means something once the job is on. */}
+          {tracking.active && (
+            <button
+              type="button"
+              onClick={() => onEdit({ tracked: !item.tracked })}
+              className={cn(
+                "order-3 flex h-[30px] min-w-[30px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:order-none",
+                item.tracked
+                  ? "bg-primary/15 text-primary hover:bg-primary/25"
+                  : "text-muted-subtle hover:bg-primary/10 hover:text-primary",
+              )}
+              aria-pressed={item.tracked}
+              aria-label={
+                item.tracked
+                  ? "Tracked in the Material Tracker — click to stop tracking"
+                  : "Not tracked — click to track in the Material Tracker"
+              }
+              title={item.tracked ? "Tracked in Material Tracker" : "Not tracked"}
+            >
+              {item.tracked ? <Eye className="h-4 w-4 shrink-0" /> : <EyeOff className="h-4 w-4 shrink-0" />}
+              <span>{item.tracked ? "Tracked" : "Not tracked"}</span>
+            </button>
+          )}
           <div className="order-1 flex shrink-0 items-center gap-3 sm:order-none">
             <ReorderControls
               dragHandleProps={dragHandleProps}

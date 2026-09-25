@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ClientPickerDialog } from "@/components/common/ClientPicker";
+import { ClientCombobox } from "@/components/common/ClientPicker";
+import { useClientField } from "@/hooks/use-client-field";
 import { useToast } from "@/hooks/use-toast";
-import { listClients, createProject, updateQuote, logProjectEvent } from "@/lib/api";
+import { createProject, updateQuote, logProjectEvent } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
 
 /** Dedicated "New project" screen (/projects/new) — the walk-in / repeat-
  * client path: a project with no opportunity behind it at all. Project
- * name + client (pick existing, or create one inline via the shared
- * ClientPickerDialog — see src/components/common/ClientPicker.tsx).
+ * name + client (pick existing, or add one inline via the shared
+ * ClientCombobox — see src/components/common/ClientPicker.tsx; a new client
+ * is created by "Create project", right before the project).
  *
  * Reachable from a standalone quote's "Create project" nudge (Estimated
  * Cost card), which navigates here with `state: { linkQuoteId }`. In that
@@ -36,21 +38,21 @@ export function NewProjectView() {
   const linkQuoteId = state?.linkQuoteId ?? null;
 
   const [name, setName] = useState("");
-  const [clientId, setClientId] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const client = useClientField();
 
-  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
-  const selectedClient = clients.find((c) => c.id === clientId) ?? null;
-
-  const canSave = name.trim().length > 0;
+  // Client is optional here, but a half-filled new-client draft isn't.
+  const canSave = name.trim().length > 0 && (!client.draft || client.hasClient);
 
   const createMut = useMutation({
     mutationFn: async () => {
+      const clientId = await client.ensureClient();
+      if (clientId === undefined) return null;
       const project = await createProject({ name: name.trim(), client_id: clientId, status: "estimating" });
       if (linkQuoteId) await updateQuote(linkQuoteId, { project_id: project.id });
       return project;
     },
     onSuccess: (project) => {
+      if (!project) return;
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
       void logProjectEvent(project.id, "project_created", "Project created");
@@ -88,19 +90,14 @@ export function NewProjectView() {
           />
         </div>
 
-        <div className="space-y-2">
-          <Label>Client</Label>
-          <button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm hover:bg-muted/50"
-          >
-            <span className={selectedClient ? "text-foreground" : "text-muted-foreground"}>
-              {selectedClient ? selectedClient.name : "No client"}
-            </span>
-            <span className="text-xs font-semibold text-primary">Change</span>
-          </button>
-        </div>
+        <ClientCombobox
+          field={client}
+          optional
+          onCreateAnyway={() => {
+            client.acceptDuplicate();
+            createMut.mutate();
+          }}
+        />
       </div>
 
       <div className="flex justify-end gap-3">
@@ -119,7 +116,6 @@ export function NewProjectView() {
         </Button>
       </div>
 
-      <ClientPickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onSelect={setClientId} allowClear />
     </div>
   );
 }

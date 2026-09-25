@@ -1,4 +1,4 @@
-import type { ChangeOrder, Opportunity, Project, ProjectStatus, Quote } from "./api";
+import type { ChangeOrder, Project, ProjectStatus, Quote } from "./api";
 import { projectContractValue } from "./api";
 import { jobSizeLabel } from "./jobSize";
 
@@ -54,7 +54,6 @@ function toBookingJob(
   project: Project,
   quotesByProject: Map<string, Quote[]>,
   changeOrdersByProject: Map<string, ChangeOrder[]>,
-  opportunitiesByProjectId: Map<string, Opportunity>,
 ): BookingJob {
   return {
     projectId: project.id,
@@ -65,7 +64,7 @@ function toBookingJob(
       quotesByProject.get(project.id) ?? [],
       changeOrdersByProject.get(project.id) ?? [],
     ),
-    scopeLabel: jobSizeLabel(project, opportunitiesByProjectId, quotesByProject),
+    scopeLabel: jobSizeLabel(project, quotesByProject),
     startDate: project.scheduled_start_date,
     endDate: project.scheduled_end_date,
   };
@@ -79,9 +78,7 @@ function toBookingJob(
  * month). Each project's dollar value is its real contract value
  * (projectContractValue — headline quote + approved change orders), keyed
  * off `quotesByProject`/`changeOrdersByProject` maps the caller builds from
- * listQuotes()/listChangeOrders(); scope labels come from jobSizeLabel(),
- * keyed off an `opportunitiesByProjectId` map the caller builds from
- * listOpportunities().
+ * listQuotes()/listChangeOrders(); scope labels come from jobSizeLabel().
  *
  * Previously also computed a capacity/"Room for N" fullness figure per
  * month (against a Settings > Seasonal capacity page) — removed as not
@@ -91,7 +88,6 @@ export function seasonalBookings(
   projects: Project[],
   quotesByProject: Map<string, Quote[]>,
   changeOrdersByProject: Map<string, ChangeOrder[]>,
-  opportunitiesByProjectId: Map<string, Opportunity>,
   monthsForward = 6,
   from: Date = new Date(),
 ): SeasonalBookings {
@@ -112,7 +108,7 @@ export function seasonalBookings(
 
   for (const p of projects) {
     if (!COMMITTED_STATUSES.includes(p.status)) continue;
-    const job = toBookingJob(p, quotesByProject, changeOrdersByProject, opportunitiesByProjectId);
+    const job = toBookingJob(p, quotesByProject, changeOrdersByProject);
 
     if (!p.scheduled_start_date) {
       unscheduledJobs.push(job);

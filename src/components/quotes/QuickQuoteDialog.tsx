@@ -2,6 +2,8 @@ import { ChevronRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BUILD_TYPES } from "@/lib/buildTypes";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
+import { MOBILE_BOTTOM_SHEET } from "@/lib/dialogStyles";
+import { cn } from "@/lib/utils";
 
 /**
  * A single question — "what are you building?" — same taxonomy as the
@@ -20,7 +22,7 @@ export function QuickQuoteDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-4">
+      <DialogContent className={cn("max-w-sm gap-4", MOBILE_BOTTOM_SHEET)}>
         <DialogHeader>
           <DialogTitle>What are you building?</DialogTitle>
         </DialogHeader>

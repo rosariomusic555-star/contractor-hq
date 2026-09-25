@@ -6,6 +6,7 @@ import {
   deliveredQuantity,
   effectiveDeliveryStatus,
   effectiveEstimate,
+  isProjectActive,
   executionTrackedLines,
   leftoverQuantity,
   lineActualCost,
@@ -222,18 +223,51 @@ describe("computed quantities from deliveries and usage", () => {
     expect(currentBaseline(makeItem({ materials_item_baselines: [] }))).toBeNull();
   });
 
-  it("effectiveEstimate prefers the real baseline once one exists", () => {
+  it("effectiveEstimate ignores the automatic first snapshot — Est. follows the live line (the 'Est. 0' bug)", () => {
+    // Auto-snapshotted while the line was still blank, then filled in.
+    const line = makeItem({
+      quantity: 750,
+      unit_cost: 4,
+      unit: "sq ft",
+      waste_percent: 5,
+      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 0, unit_cost: 0, unit: "sq ft", reason: null, created_at: "2026-01-01" }],
+    });
+    expect(effectiveEstimate(line)).toEqual({ quantity: 787.5, unit_cost: 4, unit: "sq ft" });
+  });
+
+  it("effectiveEstimate uses an explicit 'Revise estimate' once there is one (newest revision wins)", () => {
     const line = makeItem({
       quantity: 999,
       unit_cost: 999,
-      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 24, unit_cost: 50, unit: "ton", reason: null, created_at: "2026-01-01" }],
+      materials_item_baselines: [
+        { id: "b3", materials_item_id: "mi-1", quantity: 26, unit_cost: 52, unit: "ton", reason: "added a bed", created_at: "2026-03-01" },
+        { id: "b2", materials_item_id: "mi-1", quantity: 24, unit_cost: 50, unit: "ton", reason: "site remeasure", created_at: "2026-02-01" },
+        { id: "b1", materials_item_id: "mi-1", quantity: 20, unit_cost: 45, unit: "ton", reason: null, created_at: "2026-01-01" },
+      ],
     });
-    expect(effectiveEstimate(line)).toEqual({ quantity: 24, unit_cost: 50, unit: "ton" });
+    expect(effectiveEstimate(line)).toEqual({ quantity: 26, unit_cost: 52, unit: "ton" });
   });
 
-  it("effectiveEstimate falls back to the line's own live quantity/cost before any baseline exists — the Material Tracker shows on every project, not just Won ones", () => {
+  it("effectiveEstimate falls back to the line's own live quantity/cost before any baseline exists", () => {
     const line = makeItem({ quantity: 30, unit_cost: 12, unit: "bag", materials_item_baselines: [] });
     expect(effectiveEstimate(line)).toEqual({ quantity: 30, unit_cost: 12, unit: "bag" });
+  });
+});
+
+describe("isProjectActive — when any tracking UI shows", () => {
+  it("only once the job is Won and scheduled / in progress / complete", () => {
+    expect(isProjectActive({ status: "scheduled", opportunities: [{ id: "o", stage: "won" }] })).toBe(true);
+    expect(isProjectActive({ status: "in_progress", opportunities: [] })).toBe(true);
+    expect(isProjectActive({ status: "complete", opportunities: [{ id: "o", stage: "won" }] })).toBe(true);
+  });
+
+  it("never for a pre-sale (opportunity not Won), Estimating or Lost project", () => {
+    expect(isProjectActive({ status: "estimating", opportunities: [{ id: "o", stage: "site_visit_done" }] })).toBe(false);
+    // Even a stray non-estimating status behind an open opportunity stays hidden.
+    expect(isProjectActive({ status: "scheduled", opportunities: [{ id: "o", stage: "proposal_sent" }] })).toBe(false);
+    expect(isProjectActive({ status: "estimating", opportunities: [] })).toBe(false);
+    expect(isProjectActive({ status: "lost", opportunities: [{ id: "o", stage: "lost" }] })).toBe(false);
+    expect(isProjectActive(null)).toBe(false);
   });
 });
 
@@ -325,12 +359,14 @@ describe("actual cost, including Unplanned items", () => {
     const tracked = makeItem({
       id: "mi-1",
       tracked: true,
+      quantity: 10,
       unit_cost: 50,
       materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 10, unit_cost: 50, unit: "ton", reason: null, created_at: "2026-01-01" }],
     });
     const untracked = makeItem({
       id: "mi-2",
       tracked: false,
+      quantity: 5,
       unit_cost: 20,
       materials_item_baselines: [{ id: "b2", materials_item_id: "mi-2", quantity: 5, unit_cost: 20, unit: "bag", reason: null, created_at: "2026-01-01" }],
     });
@@ -436,6 +472,7 @@ describe("burn-rate and other early-warning alerts", () => {
     const line = makeItem({
       id: "mi-1",
       unit: "ton",
+      quantity: 100,
       materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 100, unit_cost: 1, unit: "ton", reason: null, created_at: "2026-01-01" }],
     });
     const deliveries = [delivery(makeOrderItem({ materials_item_id: "mi-1", quantity: 115, unit: "ton" }), "ordered")];

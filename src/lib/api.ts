@@ -1,7 +1,9 @@
 import { supabase } from "./supabase";
 import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
-import type { MeasurementRow } from "./measurements";
+import type { FeatureInstance, MeasurementRow } from "./measurements";
+import type { FeatureSectionSeed } from "./sectionFeatures";
+import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
 /** Private Storage bucket (0023) holding both quote-item and project
  * photos, split by path prefix (`quote-items/…`, `projects/…`). */
@@ -218,6 +220,10 @@ export interface QuoteItem {
   sort_order: number;
   /** Optional work category (Settings > Categories). Null = uncategorized. */
   category_id: string | null;
+  /** Set on the line a section's Quick Quote produced (0102) — the build
+   * type it was quoted as. Re-running Quick Quote on the section updates
+   * this line in place. Null = an ordinary line; undefined before 0102. */
+  quick_quote_build_type?: string | null;
   quote_item_images: QuoteItemImage[];
 }
 
@@ -663,6 +669,10 @@ export interface MaterialsSheet {
   name: string;
   sort_order: number;
   created_at: string;
+  /** Project types this sheet has accounted for (0100): present when it was
+   * created (with or without a section), or added/dismissed from the "was
+   * added to this project" banner since. Undefined before 0100 — no banner. */
+  feature_category_ids?: string[];
   // Only populated where the select asks for it (the global Material
   // Sheets list) — project-scoped callers already know their own project.
   project?: ProjectRef | null;
@@ -1924,7 +1934,7 @@ export async function listAllMaterialsSections(): Promise<MaterialsSection[]> {
 
 export async function createMaterialsSheet(
   projectId: string,
-  input: { name?: string; sort_order?: number } = {},
+  input: { name?: string; sort_order?: number; feature_category_ids?: string[] } = {},
 ): Promise<MaterialsSheet> {
   const { data, error } = await supabase
     .from("materials_sheets")
@@ -1932,6 +1942,8 @@ export async function createMaterialsSheet(
       project_id: projectId,
       name: input.name?.trim() || "Materials sheet",
       sort_order: input.sort_order ?? 0,
+      // Only sent when given, so creating a sheet still works before 0100.
+      ...(input.feature_category_ids ? { feature_category_ids: input.feature_category_ids } : {}),
     })
     .select()
     .single();
@@ -1939,9 +1951,49 @@ export async function createMaterialsSheet(
   return data;
 }
 
+/**
+ * A new sheet that starts with one section per chosen project feature
+ * (featureSectionSeeds, src/lib/sectionFeatures.ts): named + tagged after
+ * it, Smart Section template line items with blank quantity/price. Every
+ * project type the user saw (chosen or not) is recorded as accounted for,
+ * so none of them raise the "was added" banner later.
+ */
+export async function createMaterialsSheetWithSections(
+  projectId: string,
+  input: { name?: string; sort_order?: number; seeds: FeatureSectionSeed[]; projectTypeIds: string[] },
+): Promise<MaterialsSheet> {
+  const sheet = await createMaterialsSheet(projectId, {
+    name: input.name,
+    sort_order: input.sort_order,
+    feature_category_ids: input.projectTypeIds,
+  });
+  for (const [i, seed] of input.seeds.entries()) {
+    const section = await createMaterialsSection(projectId, sheet.id, {
+      name: seed.name,
+      sort_order: i,
+      smart_section_build_type: seed.smart_section_build_type,
+      job_category_id: seed.job_category_id,
+    });
+    if (seed.itemNames.length === 0) continue;
+    const { error } = await supabase.from("materials_items").insert(
+      seed.itemNames.map((name, j) => ({
+        section_id: section.id,
+        name,
+        quantity: 0,
+        unit_cost: 0,
+        sort_order: j,
+        waste_percent: 0,
+        tracked: true,
+      })),
+    );
+    if (error) throw error;
+  }
+  return sheet;
+}
+
 export async function updateMaterialsSheet(
   id: string,
-  patch: Partial<Pick<MaterialsSheet, "name" | "sort_order">>,
+  patch: Partial<Pick<MaterialsSheet, "name" | "sort_order" | "feature_category_ids">>,
 ): Promise<void> {
   const { error } = await supabase.from("materials_sheets").update(patch).eq("id", id);
   if (error) throw error;
@@ -2544,6 +2596,7 @@ export async function addQuoteItem(
     is_optional?: boolean;
     sort_order?: number;
     category_id?: string | null;
+    quick_quote_build_type?: string | null;
   },
 ): Promise<QuoteItem> {
   const { data, error } = await supabase
@@ -2558,6 +2611,8 @@ export async function addQuoteItem(
       is_optional: input.is_optional ?? false,
       sort_order: input.sort_order ?? 0,
       category_id: input.category_id ?? null,
+      // Only sent when set, so adding an ordinary line works before 0102.
+      ...(input.quick_quote_build_type ? { quick_quote_build_type: input.quick_quote_build_type } : {}),
     })
     // No embed here — see addQuoteSection's comment just above. A brand-new
     // item has zero images by definition, so it's attached in JS instead of
@@ -2582,6 +2637,7 @@ export async function updateQuoteItem(
       | "client_selected"
       | "sort_order"
       | "category_id"
+      | "quick_quote_build_type"
     >
   >,
 ): Promise<void> {
@@ -4417,7 +4473,10 @@ export interface Opportunity {
   stage: OpportunityStage;
   priority: OpportunityPriority;
   tags: string[];
-  measurements: string | null;
+  /** Internal free-text site conditions — access, slope, drainage, soil,
+   * utilities (0099; was `measurements`). Never shown on quotes or in the
+   * Client Hub. Real measurements live on the project (0098). */
+  site_conditions: string | null;
   lost_reason: string | null;
   next_action: string | null;
   next_action_date: string | null;
@@ -4585,7 +4644,7 @@ export async function updateOpportunity(
       | "lead_source"
       | "stage"
       | "tags"
-      | "measurements"
+      | "site_conditions"
       | "lost_reason"
     >
   >,
@@ -5024,7 +5083,8 @@ export async function listAppointments(): Promise<Appointment[]> {
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return data ?? [];
+  // Date, then date-only before timed, then time (compareAppointments).
+  return (data ?? []).sort(compareAppointments);
 }
 
 export async function listAppointmentsForClient(clientId: string): Promise<Appointment[]> {
@@ -5037,7 +5097,8 @@ export async function listAppointmentsForClient(clientId: string): Promise<Appoi
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return data ?? [];
+  // Date, then date-only before timed, then time (compareAppointments).
+  return (data ?? []).sort(compareAppointments);
 }
 
 export async function listAppointmentsForOpportunity(opportunityId: string): Promise<Appointment[]> {
@@ -5050,7 +5111,8 @@ export async function listAppointmentsForOpportunity(opportunityId: string): Pro
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return data ?? [];
+  // Date, then date-only before timed, then time (compareAppointments).
+  return (data ?? []).sort(compareAppointments);
 }
 
 export async function createAppointment(input: {
@@ -5082,10 +5144,19 @@ export async function createAppointment(input: {
     .select(APPOINTMENT_SELECT)
     .single();
   if (error) throw error;
-  await logActivity(input.client_id, "appointment_scheduled", `Appointment scheduled: ${APPOINTMENT_TYPE_LABEL[input.type ?? "site_visit"]}`, {
+  await logActivity(
+    input.client_id,
+    "appointment_scheduled",
+    // "Appointment scheduled: Site visit · Fri, Sep 25 · 9:30 AM"
+    `Appointment scheduled: ${APPOINTMENT_TYPE_LABEL[input.type ?? "site_visit"]} · ${appointmentWhenLabel({
+      date_time: input.date_time,
+      all_day: input.all_day ?? false,
+    })}`,
+    {
     opportunity_id: input.opportunity_id ?? null,
-    meta: { appointment_id: data.id, date_time: input.date_time },
-  });
+      meta: { appointment_id: data.id, date_time: input.date_time },
+    },
+  );
   // CRM auto-advance: scheduling a site visit / estimate appointment for a
   // lead moves it to Site Visit Scheduled (see autoAdvanceStage — never
   // backward, never a closed lead).
@@ -5103,6 +5174,7 @@ export async function updateAppointment(
       Appointment,
       | "type"
       | "date_time"
+      | "all_day"
       | "duration_minutes"
       | "address"
       | "notes"
@@ -5241,9 +5313,25 @@ export function findPossibleDuplicates(
 }
 
 // ---------------------------------------------------------------------------
-// Project measurements (0091) — grouped per build type; the field config
-// lives in src/lib/measurements.ts, this is just storage.
+// Project measurements — feature instances (0098: typed data + computed
+// totals per patio/wall/kitchen…) and custom label/qty/unit rows (0091).
+// All shape/math knowledge lives in src/lib/measurements.ts; this is just
+// storage.
 // ---------------------------------------------------------------------------
+
+export async function listFeatureMeasurements(projectId: string): Promise<FeatureInstance[]> {
+  const { data, error } = await supabase
+    .from("project_feature_measurements")
+    .select("id, project_id, build_type, label, data, totals, sort_order")
+    .eq("project_id", projectId)
+    .order("sort_order")
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({ ...r, data: r.data ?? {}, totals: r.totals ?? {} }));
+}
 
 export async function listProjectMeasurements(projectId: string): Promise<MeasurementRow[]> {
   const { data, error } = await supabase
@@ -5259,24 +5347,39 @@ export async function listProjectMeasurements(projectId: string): Promise<Measur
   return (data ?? []).map((r) => ({ ...r, value: r.value == null ? null : Number(r.value) }));
 }
 
-/** Applies a Measurements card draft: upserts `rows` (ids are client-
- * generated for new rows) and deletes `deleteIds`. Also writes the total
- * area back into projects.size_sqft (see totalAreaSqft) so the Labor page
- * keeps reading one number. */
+/** Applies a Measurements card draft: upserts changed feature instances +
+ * custom rows (ids are client-generated for new ones) and deletes the
+ * removed ones. Also writes the paved surface total back into
+ * projects.size_sqft (see totalSurfaceSqft) so the Labor page keeps
+ * reading one number. */
 export async function saveProjectMeasurements(
   projectId: string,
-  rows: MeasurementRow[],
-  deleteIds: string[],
+  changes: {
+    instances: FeatureInstance[];
+    deleteInstanceIds: string[];
+    customRows: MeasurementRow[];
+    deleteCustomIds: string[];
+  },
   sizeSqft: number | null,
 ): Promise<void> {
-  if (deleteIds.length > 0) {
-    const { error } = await supabase.from("project_measurements").delete().in("id", deleteIds);
+  if (changes.deleteInstanceIds.length > 0) {
+    const { error } = await supabase.from("project_feature_measurements").delete().in("id", changes.deleteInstanceIds);
     if (error) throw error;
   }
-  if (rows.length > 0) {
+  if (changes.instances.length > 0) {
+    const { error } = await supabase
+      .from("project_feature_measurements")
+      .upsert(changes.instances.map((r) => ({ ...r, project_id: projectId })));
+    if (error) throw error;
+  }
+  if (changes.deleteCustomIds.length > 0) {
+    const { error } = await supabase.from("project_measurements").delete().in("id", changes.deleteCustomIds);
+    if (error) throw error;
+  }
+  if (changes.customRows.length > 0) {
     const { error } = await supabase
       .from("project_measurements")
-      .upsert(rows.map((r) => ({ ...r, project_id: projectId })));
+      .upsert(changes.customRows.map((r) => ({ ...r, project_id: projectId })));
     if (error) throw error;
   }
   await updateProject(projectId, { size_sqft: sizeSqft });
