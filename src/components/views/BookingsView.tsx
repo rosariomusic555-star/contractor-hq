@@ -9,9 +9,7 @@ import {
   listProjects,
   listQuotes,
   listChangeOrders,
-  listOpportunities,
   type ChangeOrder,
-  type Opportunity,
   type Quote,
 } from "@/lib/api";
 import { seasonalBookings, type BookingJob } from "@/lib/bookings";
@@ -69,14 +67,9 @@ export function BookingsView() {
   const { data: projects = [], isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
-  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: () => listOpportunities() });
 
   const quotesByProject = groupById<Quote>(quotes);
   const changeOrdersByProject = groupById<ChangeOrder>(changeOrders);
-  const opportunitiesByProjectId = new Map<string, Opportunity>();
-  for (const o of opportunities) {
-    if (o.project_id) opportunitiesByProjectId.set(o.project_id, o);
-  }
 
   // Dec of the previous year through Jan of the next — one month of padding
   // on each side so a job that starts in late December still tints into
@@ -85,7 +78,6 @@ export function BookingsView() {
     projects,
     quotesByProject,
     changeOrdersByProject,
-    opportunitiesByProjectId,
     14,
     new Date(year - 1, 11, 1),
   );

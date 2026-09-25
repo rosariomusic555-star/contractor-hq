@@ -1,33 +1,19 @@
-import type { Opportunity, Project, Quote } from "./api";
+import type { Project, Quote } from "./api";
 import { pickHeadlineQuote, quoteLineTotal } from "./api";
 
 /**
  * "Wayfield · 680 sq ft paver patio" / "Miller · 42 lf retaining wall" — the
- * Ongoing Jobs card's work-type/size line. No structured field for this
- * exists anywhere in the schema, so it's read from whichever real source is
- * available, in order:
+ * Bookings rows' work-type/size line: the project's headline quote's single
+ * largest line item (quantity + unit + name) — reliable for Quick Quote's
+ * one-line-item quotes, noisier on an itemized quote with many granular
+ * lines, but present for any quoted job. null → the caller shows just the
+ * project title.
  *
- *  1. The Pipeline opportunity this project was won from — its own
- *     measurements text (sales-side data, never bootstrap-copied to the
- *     project — see the pipeline restructure). Project type used to be
- *     folded in here too; it's now the project's own job-type tags
- *     (project_categories, migration 0079), shown as chips elsewhere
- *     (CategoryChips) rather than in this free-text heuristic.
- *  2. The project's headline quote's single largest line item (quantity +
- *     unit + name) — reliable for Quick Quote's one-line-item quotes,
- *     noisier on an itemized quote with many granular lines, but present
- *     for any quoted job regardless of how it was created.
- *  3. null — caller falls back to showing just the project title, per spec.
+ * It used to prefer the opportunity's free-text "measurements" notes; that
+ * field is now Site condition notes (0099 — gate widths, slope, soil…),
+ * which isn't a job size, so it's no longer read here.
  */
-export function jobSizeLabel(
-  project: Project,
-  opportunitiesByProjectId: Map<string, Opportunity>,
-  quotesByProject: Map<string, Quote[]>,
-): string | null {
-  const opportunity = opportunitiesByProjectId.get(project.id);
-  const fromOpportunity = opportunity?.measurements?.trim() || null;
-  if (fromOpportunity) return fromOpportunity;
-
+export function jobSizeLabel(project: Project, quotesByProject: Map<string, Quote[]>): string | null {
   const headline = pickHeadlineQuote(quotesByProject.get(project.id) ?? []);
   return headline ? largestLineItemLabel(headline) : null;
 }

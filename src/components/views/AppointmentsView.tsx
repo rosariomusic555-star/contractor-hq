@@ -16,12 +16,22 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FilterPills, FilterSegment, type FilterOption } from "@/components/common/FilterControls";
-import { ClientPickerDialog } from "@/components/common/ClientPicker";
+import { ClientCombobox } from "@/components/common/ClientPicker";
+import { useClientField } from "@/hooks/use-client-field";
 import { useToast } from "@/hooks/use-toast";
 import { cn, pluralize } from "@/lib/utils";
 import { appointmentStatusMeta } from "@/lib/statusMeta";
 import { invalidateAppointmentQueries } from "@/lib/appointmentQueries";
-import { allDayDateTime, appointmentDateKey, appointmentTimeLabel, localYmd } from "@/lib/appointmentTime";
+import {
+  allDayDateTime,
+  appointmentDateKey,
+  appointmentHasPassed,
+  appointmentTimeLabel,
+  localHm,
+  localYmd,
+  nextHalfHour,
+  timedDateTime,
+} from "@/lib/appointmentTime";
 import {
   listAppointments,
   createAppointment,
@@ -30,7 +40,6 @@ import {
   updateAppointment,
   createQuote,
   APPOINTMENT_TYPE_LABEL,
-  listClients,
   type Appointment,
   type AppointmentType,
 } from "@/lib/api";
@@ -111,9 +120,14 @@ export function AppointmentsView() {
 export function AppointmentRow({
   appointment,
   showClient,
+  estimateAction,
 }: {
   appointment: Appointment;
   showClient?: boolean;
+  /** Replaces the default "Start estimate →" (a new standalone quote) — the
+   * opportunity page passes its own: open the existing cost plan, or create
+   * the first one, so it never starts a second estimate. */
+  estimateAction?: { label: string; onClick: () => void; pending?: boolean };
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const qc = useQueryClient();
@@ -124,7 +138,7 @@ export function AppointmentRow({
   const dateLabel = dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   const timeLabel = appointmentTimeLabel(appointment);
   const meta = appointmentStatusMeta(appointment.status);
-  const overdue = appointment.status === "scheduled" && dateOf(appointment) < todayStr();
+  const overdue = appointment.status === "scheduled" && appointmentHasPassed(appointment);
 
   const cancelMut = useMutation({
     mutationFn: () => setAppointmentStatus(appointment, "cancelled"),
@@ -175,7 +189,7 @@ export function AppointmentRow({
           <span className={meta.badge}>{meta.label}</span>
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span>{dateLabel} · {timeLabel}</span>
+          <span>{timeLabel ? `${dateLabel} · ${timeLabel}` : dateLabel}</span>
           {showClient && appointment.client?.name && (
             <>
               <span>·</span>
@@ -219,10 +233,16 @@ export function AppointmentRow({
                 size="sm"
                 variant="outline"
                 className="h-7 px-2 text-xs font-semibold"
-                disabled={startEstimateMut.isPending}
-                onClick={() => startEstimateMut.mutate()}
+                disabled={estimateAction ? estimateAction.pending : startEstimateMut.isPending}
+                onClick={() => (estimateAction ? estimateAction.onClick() : startEstimateMut.mutate())}
               >
-                {startEstimateMut.isPending ? "Starting…" : "Start estimate →"}
+                {estimateAction
+                  ? estimateAction.pending
+                    ? "Opening…"
+                    : estimateAction.label
+                  : startEstimateMut.isPending
+                    ? "Starting…"
+                    : "Start estimate →"}
               </Button>
             )}
           </div>
@@ -250,12 +270,15 @@ export function EditAppointmentDialog({
   const { toast } = useToast();
   const [type, setType] = useState<AppointmentType>(appointment.type);
   const [date, setDate] = useState(appointmentDateKey(appointment));
+  // "" for a date-only appointment — adding a time makes it a timed one.
+  const [time, setTime] = useState(appointment.all_day ? "" : localHm(new Date(appointment.date_time)));
   const [notes, setNotes] = useState(appointment.notes ?? "");
 
   useEffect(() => {
     if (open) {
       setType(appointment.type);
       setDate(appointmentDateKey(appointment));
+      setTime(appointment.all_day ? "" : localHm(new Date(appointment.date_time)));
       setNotes(appointment.notes ?? "");
     }
     // Reset only when the dialog opens — a background refetch of
@@ -264,15 +287,13 @@ export function EditAppointmentDialog({
   }, [open]);
 
   const saveMut = useMutation({
-    mutationFn: () => {
-      let date_time = allDayDateTime(date);
-      if (!appointment.all_day) {
-        const old = new Date(appointment.date_time);
-        const [y, m, d] = date.split("-").map(Number);
-        date_time = new Date(y, m - 1, d, old.getHours(), old.getMinutes()).toISOString();
-      }
-      return updateAppointment(appointment.id, { type, date_time, notes: notes.trim() || null });
-    },
+    mutationFn: () =>
+      updateAppointment(appointment.id, {
+        type,
+        date_time: time ? timedDateTime(date, time) : allDayDateTime(date),
+        all_day: !time,
+        notes: notes.trim() || null,
+      }),
     onSuccess: () => {
       invalidateAppointmentQueries(qc, appointment.client_id, appointment.opportunity_id);
       onOpenChange(false);
@@ -302,10 +323,7 @@ export function EditAppointmentDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Date</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
+          <AppointmentDateTimeFields date={date} time={time} onDateChange={setDate} onTimeChange={setTime} />
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />
         </div>
         <Button className="w-full font-bold" disabled={!date || saveMut.isPending} onClick={() => saveMut.mutate()}>
@@ -329,47 +347,53 @@ export function CreateAppointmentDialog({
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
 
   const [type, setType] = useState<AppointmentType>("site_visit");
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(() => nextHalfHour().ymd);
+  const [time, setTime] = useState(() => nextHalfHour().hm);
   const [notes, setNotes] = useState("");
-  const [clientId, setClientId] = useState<string | null>(defaultClientId ?? null);
-  const [clientPickerOpen, setClientPickerOpen] = useState(false);
-
-  const selectedClient = clients.find((c) => c.id === clientId) ?? null;
+  const client = useClientField(defaultClientId ?? null);
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      // Fresh defaults each time it opens: today (or tomorrow, just before
+      // midnight) at the next round half hour — never midnight.
+      const next = nextHalfHour();
+      setDate(next.ymd);
+      setTime(next.hm);
+    } else {
       setType("site_visit");
-      setDate("");
       setNotes("");
-      setClientId(defaultClientId ?? null);
+      client.reset(defaultClientId ?? null);
     }
-  }, [open, defaultClientId]);
+  }, [open, defaultClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createMut = useMutation({
     mutationFn: async () => {
+      const clientId = await client.ensureClient();
+      if (!clientId) return null;
       // No address field — it's filled in automatically: the opportunity's
       // property address when scheduled from an opportunity, else (or if
       // that's blank) the selected client's address, else left empty.
       const opportunity = defaultOpportunityId
         ? await qc.fetchQuery({ queryKey: ["opportunity", defaultOpportunityId], queryFn: () => getOpportunity(defaultOpportunityId) })
         : null;
-      const address = opportunity?.address?.trim() || selectedClient?.address?.trim() || null;
+      const clientAddress = client.selectedClient?.address ?? client.draft?.address ?? null;
+      const address = opportunity?.address?.trim() || clientAddress?.trim() || null;
       return createAppointment({
-        client_id: clientId!,
+        client_id: clientId,
         opportunity_id: defaultOpportunityId ?? null,
         type,
-        // Date-only (0092): no time or duration is asked for; duration
-        // keeps its 60-minute default for anything that needs a length.
-        date_time: allDayDateTime(date),
-        all_day: true,
+        // Start time only — no duration/end (duration keeps its 60-minute
+        // default). A cleared time saves a date-only appointment (0092).
+        date_time: time ? timedDateTime(date, time) : allDayDateTime(date),
+        all_day: !time,
         address,
         notes: notes.trim() || null,
       });
     },
-    onSuccess: () => {
+    onSuccess: (appt) => {
+      if (!appt) return;
       invalidateAppointmentQueries(qc, defaultClientId, defaultOpportunityId);
       onOpenChange(false);
     },
@@ -399,37 +423,60 @@ export function CreateAppointmentDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
+            <AppointmentDateTimeFields date={date} time={time} onDateChange={setDate} onTimeChange={setTime} />
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />
             {!defaultClientId && (
-              <div className="space-y-1.5">
-                <Label>Customer</Label>
-                <button
-                  type="button"
-                  onClick={() => setClientPickerOpen(true)}
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm hover:bg-muted/50"
-                >
-                  <span className={selectedClient ? "text-foreground" : "text-muted-foreground"}>
-                    {selectedClient ? selectedClient.name : "Pick a client"}
-                  </span>
-                  <span className="text-xs font-semibold text-primary">Change</span>
-                </button>
-              </div>
+              <ClientCombobox
+                field={client}
+                label="Customer"
+                onCreateAnyway={() => {
+                  client.acceptDuplicate();
+                  createMut.mutate();
+                }}
+              />
             )}
           </div>
           <Button
             className="w-full font-bold"
-            disabled={!clientId || !date || createMut.isPending}
+            disabled={!client.hasClient || !date || createMut.isPending}
             onClick={() => createMut.mutate()}
           >
             {createMut.isPending ? "Creating…" : "Create appointment"}
           </Button>
         </DialogContent>
       </Dialog>
-      <ClientPickerDialog open={clientPickerOpen} onOpenChange={setClientPickerOpen} onSelect={setClientId} />
     </>
+  );
+}
+
+/**
+ * Date + start time for the New / Edit appointment dialogs: native pickers
+ * (the phone's own date and time wheels), side by side from `sm`, stacked
+ * on phones. The time steps in 15 minutes and shows in the device's
+ * 12-hour format on US devices; it's optional — leave it blank for a
+ * date-only appointment.
+ */
+function AppointmentDateTimeFields({
+  date,
+  time,
+  onDateChange,
+  onTimeChange,
+}: {
+  date: string;
+  time: string;
+  onDateChange: (v: string) => void;
+  onTimeChange: (v: string) => void;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1.5">
+        <Label htmlFor="appointment-date">Date</Label>
+        <Input id="appointment-date" type="date" value={date} onChange={(e) => onDateChange(e.target.value)} className="h-11" />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="appointment-time">Time</Label>
+        <Input id="appointment-time" type="time" step={900} value={time} onChange={(e) => onTimeChange(e.target.value)} className="h-11" />
+      </div>
+    </div>
   );
 }

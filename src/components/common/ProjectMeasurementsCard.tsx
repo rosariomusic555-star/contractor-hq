@@ -1,41 +1,68 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useSectionCollapse } from "@/hooks/use-section-collapse";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { listCategories, listProjectMeasurements, saveProjectMeasurements } from "@/lib/api";
+import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
+import { CollapsibleBody } from "@/components/common/CollapsibleBody";
+import { DraftSaveBar } from "@/components/common/DraftSaveBar";
+import { FeatureCard } from "@/components/measurements/FeatureCard";
 import {
-  FREE_ROW_UNITS,
+  listCategories,
+  listFeatureMeasurements,
+  listProjectMeasurements,
+  listSmartSectionSettings,
+  saveProjectMeasurements,
+} from "@/lib/api";
+import { findSmartSectionSettings, findSmartSectionTemplate, resolveTunableValue } from "@/lib/smartSections";
+import {
+  DEFAULT_FIRE_PIT_HEIGHT_IN,
+  DEFAULT_KITCHEN_HEIGHT_IN,
+  FIRE_PIT_HEIGHT_TUNABLE,
+  KITCHEN_HEIGHT_TUNABLE,
   GENERAL_GROUP,
   GENERAL_GROUP_KEY,
-  fieldVisible,
+  blankData,
+  computeTotals,
+  featureKindOf,
+  featureSummary,
+  groupHasData,
   groupKeyOf,
-  isFreeRowKey,
+  instanceHasData,
   measurementGroupsFor,
-  totalAreaSqft,
-  unitSuffix,
-  type MeasurementField,
+  newCustomFieldKey,
+  newId,
+  normalizeData,
+  totalSurfaceSqft,
+  type FeatureData,
+  type FeatureInstance,
+  type MeasurementDefaults,
   type MeasurementGroup,
   type MeasurementRow,
 } from "@/lib/measurements";
 
-const FIELD_LABEL = "text-[11px] font-semibold text-muted-foreground";
-// Stable empty default — a fresh [] per render would re-fire the reseed effect forever.
+// Stable empty defaults — a fresh [] per render would re-fire the reseed effect forever.
+const NO_INSTANCES: FeatureInstance[] = [];
 const NO_ROWS: MeasurementRow[] = [];
 
 /**
- * The project's measurements, one group per selected Project type — fields
- * per build type come from src/lib/measurements.ts. Shared by the project
- * page and the opportunity page, so both read/write the same rows
- * (project_measurements, 0091).
+ * The project's measurements: one purpose-built card per selected Project
+ * type (src/components/measurements/*), custom label/qty/unit rows as a
+ * secondary option on each. Shared by the project page and the opportunity
+ * page, so both read and write the same rows:
+ *   project_feature_measurements (0098) — typed instances + computed totals
+ *   project_measurements (0091)         — custom measurements
  *
  * Draft + explicit Save (the app's editor convention): edits stay local
  * until Save, which diffs against the stored rows. `ensureProjectId` covers
  * the opportunity page before its project exists — the first save lazily
  * creates it, same as the first photo/sheet/quote there.
+ *
+ * Deselecting a Project type only hides its card; the data stays and comes
+ * back when it's re-added (the type pickers confirm first — see
+ * useConfirmTypeRemoval).
  */
 export function ProjectMeasurementsCard({
   projectId,
@@ -56,14 +83,31 @@ export function ProjectMeasurementsCard({
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  const { data: serverRows = NO_ROWS } = useQuery({
+  const { data: categories = [], isSuccess: categoriesLoaded } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const { data: serverInstances = NO_INSTANCES, isSuccess: instancesLoaded } = useQuery({
+    queryKey: ["project-feature-measurements", projectId],
+    queryFn: () => listFeatureMeasurements(projectId!),
+    enabled: !!projectId,
+  });
+  const { data: serverCustom = NO_ROWS, isSuccess: customLoaded } = useQuery({
     queryKey: ["project-measurements", projectId],
     queryFn: () => listProjectMeasurements(projectId!),
     enabled: !!projectId,
   });
+  const { data: smartSettings = [] } = useQuery({ queryKey: ["smart-section-settings"], queryFn: listSmartSectionSettings });
+  // Contractor default heights live as Smart Section tunables (Settings ›
+  // Smart Section templates).
+  const tunable = (buildType: string, key: string, fallback: number) => {
+    const template = findSmartSectionTemplate(buildType);
+    return template ? resolveTunableValue(template, findSmartSectionSettings(smartSettings, buildType), key) || fallback : fallback;
+  };
+  const defaults: Required<MeasurementDefaults> = {
+    firePitHeightIn: tunable("fire_pit", FIRE_PIT_HEIGHT_TUNABLE, DEFAULT_FIRE_PIT_HEIGHT_IN),
+    kitchenHeightIn: tunable("outdoor_kitchen", KITCHEN_HEIGHT_TUNABLE, DEFAULT_KITCHEN_HEIGHT_IN),
+  };
 
-  const [draft, setDraft] = useState<MeasurementRow[]>([]);
+  const [instances, setInstances] = useState<FeatureInstance[]>([]);
+  const [custom, setCustom] = useState<MeasurementRow[]>([]);
   const dirty = useRef(false);
   const [isDirty, setIsDirty] = useState(false);
   const markDirty = () => {
@@ -71,266 +115,278 @@ export function ProjectMeasurementsCard({
     setIsDirty(true);
   };
   const reseed = () => {
-    setDraft(serverRows.map((r) => ({ ...r })));
+    setInstances(
+      serverInstances
+        .filter((i) => featureKindOf(i.build_type))
+        .map((i) => ({ ...i, data: normalizeData(featureKindOf(i.build_type)!, i.data) })),
+    );
+    setCustom(serverCustom.map((r) => ({ ...r })));
+    blanks.current = {};
     dirty.current = false;
     setIsDirty(false);
   };
   useEffect(() => {
     if (!dirty.current) reseed();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverRows]);
+  }, [serverInstances, serverCustom]);
 
   const typeGroups = useMemo(() => measurementGroupsFor(categoryIds, categories), [categoryIds, categories]);
-  const hasGeneralRows = draft.some((r) => groupKeyOf(r) === GENERAL_GROUP_KEY);
+  const hasGeneralRows = custom.some((r) => groupKeyOf(r) === GENERAL_GROUP_KEY);
   const groups: MeasurementGroup[] =
     hasGeneralRows || typeGroups.length === 0 ? [...typeGroups, GENERAL_GROUP] : typeGroups;
 
-  const rowsOf = (g: MeasurementGroup) => draft.filter((r) => groupKeyOf(r) === g.key);
-
-  const newRow = (g: MeasurementGroup, fieldKey: string, unit: string | null): MeasurementRow => ({
-    id: crypto.randomUUID(),
+  // Every card shows at least one instance to type into. Until it's edited
+  // it's a placeholder (not in the draft), cached per group so its ids —
+  // and so the inputs' React keys — stay stable while typing.
+  const blanks = useRef<Record<string, FeatureInstance>>({});
+  const newInstance = (g: MeasurementGroup): FeatureInstance => ({
+    id: newId(),
     project_id: projectId ?? "",
-    build_type: g.build_type,
-    category_id: g.category_id,
-    field_key: fieldKey,
+    build_type: g.build_type!,
     label: null,
-    value: null,
-    value_text: null,
-    unit,
-    sort_order: draft.length,
+    data: blankData(g.kind!),
+    totals: {},
+    sort_order: 0,
   });
+  const instancesOf = (g: MeasurementGroup): FeatureInstance[] => {
+    const own = instances.filter((i) => groupKeyOf(i) === g.key);
+    if (own.length > 0 || !g.kind || !g.build_type) return own;
+    blanks.current[g.key] ??= newInstance(g);
+    return [blanks.current[g.key]];
+  };
 
-  const setField = (g: MeasurementGroup, field: MeasurementField, patch: Partial<MeasurementRow>) => {
+  const updateInstance = (g: MeasurementGroup, id: string, patch: { label?: string; data?: FeatureData }) => {
     markDirty();
-    setDraft((d) => {
-      const i = d.findIndex((r) => groupKeyOf(r) === g.key && r.field_key === field.key);
-      if (i >= 0) return d.map((r, j) => (j === i ? { ...r, ...patch } : r));
-      return [...d, { ...newRow(g, field.key, field.unit), ...patch }];
+    setInstances((list) => {
+      if (list.some((i) => i.id === id)) return list.map((i) => (i.id === id ? { ...i, ...patch } : i));
+      // First edit of the placeholder — it joins the draft.
+      const blank = blanks.current[g.key];
+      return blank?.id === id ? [...list, { ...blank, ...patch }] : list;
     });
   };
 
-  const addFreeRow = (g: MeasurementGroup, patch: Partial<MeasurementRow> = {}) => {
+  const addInstance = (g: MeasurementGroup) => {
+    if (!g.kind || !g.build_type) return;
     markDirty();
-    setDraft((d) => [...d, { ...newRow(g, `custom_${crypto.randomUUID().replace(/-/g, "")}`, "sq_ft"), ...patch }]);
+    const added = newInstance(g);
+    setInstances((list) => {
+      // Materialize the placeholder first so "+ Add another" always adds a second card.
+      const blank = blanks.current[g.key];
+      const hasOwn = list.some((i) => groupKeyOf(i) === g.key);
+      return [...list, ...(!hasOwn && blank ? [blank] : []), added];
+    });
   };
-  const updateRow = (id: string, patch: Partial<MeasurementRow>) => {
+
+  const removeInstance = (g: MeasurementGroup, id: string) => {
     markDirty();
-    setDraft((d) => d.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    if (blanks.current[g.key]?.id === id) delete blanks.current[g.key];
+    setInstances((list) => list.filter((i) => i.id !== id));
   };
-  const removeRow = (id: string) => {
+
+  const addCustom = (g: MeasurementGroup, patch: Partial<MeasurementRow> = {}) => {
     markDirty();
-    setDraft((d) => d.filter((r) => r.id !== id));
+    setCustom((rows) => [
+      ...rows,
+      {
+        id: newId(),
+        project_id: projectId ?? "",
+        build_type: g.build_type,
+        category_id: g.category_id,
+        field_key: newCustomFieldKey(),
+        label: null,
+        value: null,
+        value_text: null,
+        unit: "sq_ft",
+        sort_order: rows.length,
+        ...patch,
+      },
+    ]);
+  };
+  const updateCustom = (id: string, patch: Partial<MeasurementRow>) => {
+    markDirty();
+    setCustom((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+  const removeCustom = (id: string) => {
+    markDirty();
+    setCustom((rows) => rows.filter((r) => r.id !== id));
   };
 
   const saveMut = useMutation({
     mutationFn: async () => {
       const id = projectId ?? (await ensureProjectId!());
-      // Empty rows aren't stored: a config field with no value, or a free
-      // row with neither a label nor a value.
-      const keep = draft.filter((r) =>
-        isFreeRowKey(r.field_key) ? !!r.label?.trim() || r.value != null : r.value != null || !!r.value_text,
+
+      // Instances: drop empty ones, recompute totals, number them per group.
+      const orderInGroup = new Map<string, number>();
+      const keepInstances = instances
+        .filter((i) => instanceHasData(featureKindOf(i.build_type)!, i.data, i.label))
+        .map((i) => {
+          const key = groupKeyOf(i);
+          const sort_order = orderInGroup.get(key) ?? 0;
+          orderInGroup.set(key, sort_order + 1);
+          return {
+            ...i,
+            project_id: id,
+            label: i.label?.trim() || null,
+            totals: computeTotals(featureKindOf(i.build_type)!, i.data, defaults),
+            sort_order,
+          };
+        });
+      const serverInstById = new Map(serverInstances.map((i) => [i.id, i]));
+      const keepInstIds = new Set(keepInstances.map((i) => i.id));
+      const changedInstances = keepInstances.filter((i) => JSON.stringify(i) !== JSON.stringify(serverInstById.get(i.id)));
+      // Instances of a build type without a card aren't loaded into the
+      // draft — never delete those.
+      const deleteInstanceIds = serverInstances
+        .filter((i) => featureKindOf(i.build_type) && !keepInstIds.has(i.id))
+        .map((i) => i.id);
+
+      // Custom rows: empty = neither a label nor a value.
+      const keepCustom = custom
+        .filter((r) => !!r.label?.trim() || r.value != null)
+        .map((r) => ({ ...r, project_id: id, label: r.label?.trim() || null }));
+      const serverCustomById = new Map(serverCustom.map((r) => [r.id, r]));
+      const keepCustomIds = new Set(keepCustom.map((r) => r.id));
+      const changedCustom = keepCustom.filter((r) => JSON.stringify(r) !== JSON.stringify(serverCustomById.get(r.id)));
+      const deleteCustomIds = serverCustom.filter((r) => !keepCustomIds.has(r.id)).map((r) => r.id);
+
+      const visibleKeys = new Set(typeGroups.map((g) => g.key));
+      await saveProjectMeasurements(
+        id,
+        { instances: changedInstances, deleteInstanceIds, customRows: changedCustom, deleteCustomIds },
+        totalSurfaceSqft(keepInstances, visibleKeys),
       );
-      const keepIds = new Set(keep.map((r) => r.id));
-      const deleteIds = serverRows.filter((r) => !keepIds.has(r.id)).map((r) => r.id);
-      const serverById = new Map(serverRows.map((r) => [r.id, r]));
-      const changed = keep
-        .map((r) => ({ ...r, project_id: id, label: r.label?.trim() || null }))
-        .filter((r) => JSON.stringify(r) !== JSON.stringify(serverById.get(r.id)));
-      const visibleKeys = new Set([...typeGroups.map((g) => g.key), GENERAL_GROUP_KEY]);
-      await saveProjectMeasurements(id, changed, deleteIds, totalAreaSqft(keep, visibleKeys));
       return id;
     },
     onSuccess: (id) => {
       dirty.current = false;
       setIsDirty(false);
+      qc.invalidateQueries({ queryKey: ["project-feature-measurements", id] });
       qc.invalidateQueries({ queryKey: ["project-measurements", id] });
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["project", id] });
       onSaved?.();
+      toast({ title: "Measurements saved" });
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't save measurements", description: err.message, variant: "destructive" }),
   });
 
+  // --- Collapse state (pure UI, localStorage, per signed-in user) ---------
+  // The whole card is "card"; each feature is scoped to this project so two
+  // jobs' patios don't share a state.
+  const { session } = useAuth();
+  const scope = projectId ?? "unsaved";
+  const featureId = (g: MeasurementGroup) => `${scope}:${g.key}`;
+  // A feature's default: collapsed if it already had saved measurements
+  // when the page loaded, expanded if empty. Snapshotted once per feature,
+  // so typing into an empty one (or saving it) never collapses it under you.
+  // Categories too: until they load there are no type groups, and the
+  // "just added" check below would otherwise see every type appear at once.
+  const loaded = categoriesLoaded && (!projectId || (instancesLoaded && customLoaded));
+  const hadDataAtLoad = useRef(new Map<string, boolean>());
+  if (loaded) {
+    for (const g of groups) {
+      const id = featureId(g);
+      if (!hadDataAtLoad.current.has(id)) hadDataAtLoad.current.set(id, groupHasData(g, serverInstances, serverCustom));
+    }
+  }
+  const collapse = useSectionCollapse({
+    storageKey: `chq_measurements_collapse_v1:${session?.user.id ?? "anon"}`,
+    defaultCollapsed: (id) => hadDataAtLoad.current.get(id) ?? false,
+  });
+
+  // A type just added from the Project types selector opens expanded (and
+  // opens the card too) — even a re-added one that still has data.
+  const seenGroupKeys = useRef<Set<string> | null>(null);
+  const groupKeysSig = groups.map((g) => g.key).join("|");
+  useEffect(() => {
+    if (!loaded) return;
+    const keys = new Set(groups.map((g) => g.key));
+    const prev = seenGroupKeys.current;
+    seenGroupKeys.current = keys;
+    if (!prev) return; // first render: defaults apply
+    const added = groups.filter((g) => !prev.has(g.key));
+    if (added.length === 0) return;
+    collapse.expandAll(["card", ...added.map(featureId)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupKeysSig, loaded]);
+
+  const cardCollapsed = collapse.isCollapsed("card");
+  const summaries = groups.map((g) =>
+    featureSummary(g, instancesOf(g), custom.filter((r) => groupKeyOf(r) === g.key), defaults),
+  );
+  const measured = summaries.filter(Boolean).length;
+  const cardSummary = [
+    `${groups.length} ${groups.length === 1 ? "feature" : "features"}`,
+    measured ? `${measured} measured` : null,
+    groups.length - measured ? `${groups.length - measured} empty` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <section className="card-surface p-5">
-      <h3 className="text-base font-bold text-foreground">Measurements</h3>
+    <section className="card-surface p-4 sm:p-5">
+      <button
+        type="button"
+        onClick={() => collapse.toggle("card")}
+        aria-expanded={!cardCollapsed}
+        aria-controls="measurements-card-body"
+        className="-mx-2 -mt-2 flex min-h-12 w-[calc(100%+1rem)] items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-muted/40"
+      >
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", cardCollapsed && "-rotate-90")} />
+        <h3 className="text-base font-bold text-foreground">Measurements</h3>
+        {cardCollapsed && groups.length > 0 && typeGroups.length > 0 && (
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-muted-foreground">· {cardSummary}</span>
+        )}
+      </button>
       {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-      <p className="mt-1 text-[11px] text-muted-subtle">
-        Total sq ft drives the Labor page's productivity metrics (hours/100sf, cost/sf).
-      </p>
-      {typeGroups.length === 0 && (
-        <p className="mt-1 text-[11px] text-muted-subtle">Pick a project type to get its measurement fields.</p>
-      )}
 
-      <div className="mt-3 space-y-4">
-        {groups.map((g) => {
-          const rows = rowsOf(g);
-          const freeRows = rows.filter((r) => isFreeRowKey(r.field_key));
-          const visibleFields = g.fields.filter((f) => fieldVisible(f, rows));
-          // A type with no configured fields (unmapped, "Other", General)
-          // always shows at least one free row to type into.
-          const showBlankFreeRow = g.fields.length === 0 && freeRows.length === 0;
-          return (
-            <div key={g.key} className="space-y-2">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-subtle">{g.title}</div>
-              {visibleFields.length > 0 && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {visibleFields.map((f) => {
-                    const row = rows.find((r) => r.field_key === f.key);
-                    return (
-                      <div key={f.key} className="space-y-1">
-                        <div className={FIELD_LABEL}>{f.label}</div>
-                        {f.kind === "choice" ? (
-                          <div className="flex gap-1.5">
-                            {f.options!.map((o) => (
-                              <button
-                                key={o.value}
-                                type="button"
-                                onClick={() => setField(g, f, { value_text: o.value })}
-                                className={cn(
-                                  "h-9 rounded-md border px-3 text-sm font-semibold transition-colors",
-                                  row?.value_text === o.value
-                                    ? "border-primary bg-primary/15 text-foreground"
-                                    : "border-input bg-background text-muted-foreground hover:bg-muted/50",
-                                )}
-                              >
-                                {o.label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <NumberWithSuffix
-                            value={row?.value ?? null}
-                            suffix={unitSuffix(f.unit)}
-                            onChange={(value) => setField(g, f, { value })}
-                            ariaLabel={`${g.title} ${f.label}`}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+      <CollapsibleBody collapsed={cardCollapsed} id="measurements-card-body">
+        {typeGroups.length === 0 && (
+          <p className="mt-1 text-xs text-muted-subtle">Pick a project type to get its measurement card.</p>
+        )}
 
-              {freeRows.map((r) => (
-                <FreeRow
-                  key={r.id}
-                  row={r}
-                  onChange={(patch) => updateRow(r.id, patch)}
-                  onRemove={() => removeRow(r.id)}
-                />
-              ))}
-              {showBlankFreeRow && <FreeRow row={null} onChange={(patch) => addFreeRow(g, patch)} />}
+        {groups.length > 1 && (
+          <div className="mt-3">
+            <CollapseAllLinks
+              onCollapseAll={() => collapse.collapseAll(groups.map(featureId))}
+              onExpandAll={() => collapse.expandAll(groups.map(featureId))}
+            />
+          </div>
+        )}
 
-              <button
-                type="button"
-                onClick={() => addFreeRow(g)}
-                className="text-xs font-bold text-primary hover:underline"
-              >
-                + Add measurement
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {isDirty && (
-        <div className="mt-4 flex justify-end gap-2 border-t border-hairline pt-3">
-          <Button size="sm" variant="outline" onClick={reseed} disabled={saveMut.isPending}>
-            Discard
-          </Button>
-          <Button size="sm" className="font-bold" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-            {saveMut.isPending ? "Saving…" : "Save measurements"}
-          </Button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function NumberWithSuffix({
-  value,
-  suffix,
-  onChange,
-  ariaLabel,
-  className,
-}: {
-  value: number | null;
-  suffix: string;
-  onChange: (v: number | null) => void;
-  ariaLabel?: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <Input
-        type="number"
-        min="0"
-        step="any"
-        inputMode="decimal"
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-        className="h-9 w-28"
-        aria-label={ariaLabel}
-      />
-      {suffix && <span className="shrink-0 text-sm text-muted-foreground">{suffix}</span>}
-    </div>
-  );
-}
-
-/** Label + number + unit picker. `row` null renders an empty row whose first
- * edit creates it. */
-function FreeRow({
-  row,
-  onChange,
-  onRemove,
-}: {
-  row: MeasurementRow | null;
-  onChange: (patch: Partial<MeasurementRow>) => void;
-  onRemove?: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Input
-        value={row?.label ?? ""}
-        onChange={(e) => onChange({ label: e.target.value })}
-        placeholder="Label (e.g. Border)"
-        className="h-9 min-w-[140px] flex-1"
-        aria-label="Measurement label"
-      />
-      <Input
-        type="number"
-        min="0"
-        step="any"
-        inputMode="decimal"
-        value={row?.value ?? ""}
-        onChange={(e) => onChange({ value: e.target.value === "" ? null : Number(e.target.value) })}
-        className="h-9 w-24"
-        aria-label="Measurement value"
-      />
-      <Select value={row?.unit ?? "sq_ft"} onValueChange={(unit) => onChange({ unit })}>
-        <SelectTrigger className="h-9 w-[110px]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {FREE_ROW_UNITS.map((u) => (
-            <SelectItem key={u} value={u}>
-              {unitSuffix(u)}
-            </SelectItem>
+        <div className="mt-3 space-y-3">
+          {groups.map((g) => (
+            <FeatureCard
+              collapsed={collapse.isCollapsed(featureId(g))}
+              onToggleCollapse={() => collapse.toggle(featureId(g))}
+              key={g.key}
+              group={g}
+              instances={instancesOf(g)}
+              customRows={custom.filter((r) => groupKeyOf(r) === g.key)}
+              defaults={defaults}
+              onInstanceChange={(id, patch) => updateInstance(g, id, patch)}
+              onAddInstance={() => addInstance(g)}
+              onRemoveInstance={(id) => removeInstance(g, id)}
+              onCustomChange={updateCustom}
+              onAddCustom={(patch) => addCustom(g, patch)}
+              onRemoveCustom={removeCustom}
+            />
           ))}
-        </SelectContent>
-      </Select>
-      {onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="text-muted-subtle hover:text-destructive"
-          aria-label="Remove measurement"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      )}
-    </div>
+        </div>
+
+        <p className="mt-3 text-[11px] text-muted-subtle">
+          Patio, walkway and driveway sq ft add up to the job size used by the Labor page (hours/100sf, cost/sf).
+        </p>
+      </CollapsibleBody>
+
+      <DraftSaveBar
+        visible={isDirty}
+        onDiscard={reseed}
+        onSave={() => saveMut.mutate()}
+        saving={saveMut.isPending}
+        label="Unsaved measurements"
+      />
+    </section>
   );
 }

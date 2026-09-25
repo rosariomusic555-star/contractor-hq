@@ -104,7 +104,8 @@ function buildUpNext(
     return `${delivery.description} arrives ${delivery.dayLabel}`;
   }
   if (appointment) {
-    return `${APPOINTMENT_TYPE_LABEL[appointment.appointment.type]} ${appointment.dayLabel}`;
+    // "Site visit Tomorrow at 9:30 AM" (no time for a date-only appointment)
+    return `${APPOINTMENT_TYPE_LABEL[appointment.appointment.type]} ${appointment.dayLabel}${appointment.timeLabel ? ` at ${appointment.timeLabel}` : ""}`;
   }
   if (hasPendingChangeOrder) return "Change order awaiting approval";
   return null;

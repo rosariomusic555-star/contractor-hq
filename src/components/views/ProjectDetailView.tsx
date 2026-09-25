@@ -36,6 +36,7 @@ import { MoneyRow } from "@/components/common/MoneyRow";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
+import { MeasuredCategoryMultiSelect } from "@/components/measurements/MeasuredCategoryMultiSelect";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
@@ -100,6 +101,7 @@ import {
   deliveredQuantity,
   usedQuantity,
   effectiveEstimate,
+  isProjectActive,
   executionTrackedLines,
   currentBaseline,
   predictedMaterialCost,
@@ -461,7 +463,8 @@ export function ProjectDetailView() {
       <div className="md:hidden">{statusSelect}</div>
 
       <div className="max-w-sm">
-        <CategoryMultiSelect
+        <MeasuredCategoryMultiSelect
+          projectId={id}
           value={projectCategoryIds(project)}
           onChange={(ids) => categoriesMutation.mutate(ids)}
           placeholder="Project types…"
@@ -540,14 +543,18 @@ export function ProjectDetailView() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
-          <MaterialsTrackingCard
-            summary={materialCostSummary}
-            trackedLines={trackedLines}
-            usageLogs={usageLogs}
-            onOpen={() => navigate(`/projects/${id}/materials`)}
-            onLogUsage={(line) => setLogUsageLine(line)}
-            onShowHistory={(line) => setHistoryLine(line)}
-          />
+          {/* Tracking only once the job is Won / in progress — same rule as the
+              materials sheet (isProjectActive). */}
+          {isProjectActive(project) && (
+            <MaterialsTrackingCard
+              summary={materialCostSummary}
+              trackedLines={trackedLines}
+              usageLogs={usageLogs}
+              onOpen={() => navigate(`/projects/${id}/materials`)}
+              onLogUsage={(line) => setLogUsageLine(line)}
+              onShowHistory={(line) => setHistoryLine(line)}
+            />
+          )}
 
           {/* Section nav */}
           <div className="grid gap-3 sm:grid-cols-2">

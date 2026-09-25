@@ -50,6 +50,22 @@ export function projectTracksMaterials(status: Project["status"]): boolean {
   return status !== "estimating" && status !== "lost";
 }
 
+/**
+ * THE rule for showing any material-tracking UI (the per-line Est. /
+ * Ordered / Delivered / Used panel, the Tracked toggle, "Tracking X of Y ·
+ * Manage tracking", the variance summary + its badges, the project page's
+ * Material Tracker): the job is actually happening — Won and scheduled /
+ * in progress / complete. A pre-sale project (the background project
+ * behind a not-yet-Won opportunity) or an Estimating/Lost one shows none of
+ * it; the sheet is just a plain estimate. Flips on by itself when the
+ * opportunity is Won (its project leaves Estimating).
+ */
+export function isProjectActive(project: Pick<Project, "status" | "opportunities"> | null | undefined): boolean {
+  if (!project) return false;
+  if (project.opportunities?.some((o) => o.stage !== "won")) return false;
+  return projectTracksMaterials(project.status);
+}
+
 /** Track / Don't Track (0086) — the per-line flag that narrows a tracked
  * sheet's ALL lines down to just the ones the contractor wants to monitor
  * during execution (Ordered/Delivered/Used, status, alerts, the "Log
@@ -299,15 +315,25 @@ export function currentBaseline(line: Pick<MaterialsItem, "materials_item_baseli
   return { quantity: Number(latest.quantity), unit_cost: Number(latest.unit_cost), unit: latest.unit };
 }
 
-/** The number every tracking calculation treats as "planned" for a line —
- * the locked baseline once one's been snapshotted (post-Won, or once a
- * change order approves), else the sheet line's own live quantity/cost.
- * The Material Tracker shows on every project regardless of quote/status
- * (not just signed, Won ones) — before a baseline ever gets snapshotted,
- * this is what keeps "Estimated" a real number instead of $0. Once a real
- * baseline exists it always wins, so a signed job's tracker still measures
- * against the locked-in plan, never silently drifting if the sheet is
- * edited afterward. */
+/** The line's most recent explicit "Revise estimate" (a baseline with a
+ * reason) — null if the contractor never revised it. The automatic first
+ * snapshot (reason null, taken at Won / change-order approval) doesn't
+ * count: it can be taken while a line is still blank, and must never
+ * freeze "Est." at that. */
+export function revisedBaseline(line: Pick<MaterialsItem, "materials_item_baselines">): {
+  quantity: number;
+  unit_cost: number;
+  unit: string | null;
+} | null {
+  const latest = line.materials_item_baselines?.find((b) => b.reason != null);
+  if (!latest) return null;
+  return { quantity: Number(latest.quantity), unit_cost: Number(latest.unit_cost), unit: latest.unit };
+}
+
+/** The number every tracking calculation treats as "planned" for a line:
+ * the line's own live quantity (with waste) and cost — so Est. follows the
+ * sheet as it's edited — until the contractor explicitly revises the
+ * estimate ("Revise estimate"), after which that revision wins. */
 export function effectiveEstimate(
   line: Pick<MaterialsItem, "quantity" | "unit_cost" | "unit" | "materials_item_baselines"> & { waste_percent?: number | null },
 ): { quantity: number; unit_cost: number; unit: string | null } {
@@ -315,7 +341,7 @@ export function effectiveEstimate(
   // quantity the sheet's line total and materialsCogs() use, so Estimated
   // here never disagrees with the sheet (baselines snapshot the raw
   // quantity; waste is applied on top).
-  const base = currentBaseline(line) ?? { quantity: Number(line.quantity), unit_cost: Number(line.unit_cost), unit: line.unit };
+  const base = revisedBaseline(line) ?? { quantity: Number(line.quantity), unit_cost: Number(line.unit_cost), unit: line.unit };
   return { ...base, quantity: quantityWithWaste(base.quantity, line.waste_percent) };
 }
 

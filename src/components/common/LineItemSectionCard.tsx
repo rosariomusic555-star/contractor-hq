@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import { Droppable, Draggable, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { Plus, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -45,6 +46,12 @@ interface LineItemSectionCardProps {
   /** Optional content under the section name in the dark header (the Quote
    * builder's project-type + materials chips). */
   tag?: ReactNode;
+  /** Quote builder: the name field doubles as the feature picker. */
+  featurePicker?: SectionFeaturePicker;
+  /** Actions in the toolbar row under the header (the Quote builder's
+   * "Quick quote") — same slot/style as the Materials Sheet's
+   * "Calculate quantities" (SectionToolbarAction). */
+  toolbarActions?: ReactNode;
   /** Quote-only: the "Optional section" switch + per-item optional-addon
    * toggle. Omitted entirely for a builder with no optional-item concept
    * (the Change Order builder — every line unconditionally counts). */
@@ -87,6 +94,8 @@ export function LineItemSectionCard({
   priceLabel,
   optionalSection,
   tag,
+  featurePicker,
+  toolbarActions,
 }: LineItemSectionCardProps) {
   const items = section.items;
 
@@ -97,6 +106,7 @@ export function LineItemSectionCard({
       subtotal={subtotal}
       itemNames={items.map((i) => i.name)}
       tag={tag}
+      featurePicker={featurePicker}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
       isDraggingItem={isDraggingItem}
@@ -109,18 +119,19 @@ export function LineItemSectionCard({
       onMoveDown={onMoveDown}
       secondRow={
         <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
-          {optionalSection ? (
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <Switch
-                checked={optionalSection.checked}
-                onCheckedChange={optionalSection.onChange}
-                aria-label="Optional section"
-              />
-              Optional section — client can add or drop it
-            </label>
-          ) : (
-            <span />
-          )}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {toolbarActions}
+            {optionalSection && (
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Switch
+                  checked={optionalSection.checked}
+                  onCheckedChange={optionalSection.onChange}
+                  aria-label="Optional section"
+                />
+                Optional section — client can add or drop it
+              </label>
+            )}
+          </div>
 
           <AlertDialog>
             <AlertDialogTrigger asChild>

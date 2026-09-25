@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
-import { listProjects, listQuotes, listChangeOrders, listOpportunities, type ChangeOrder, type Opportunity, type Quote } from "@/lib/api";
+import { listProjects, listQuotes, listChangeOrders, type ChangeOrder, type Quote } from "@/lib/api";
 import { seasonalBookings } from "@/lib/bookings";
 import { MonthThumbnail } from "@/components/bookings/MonthThumbnail";
 
@@ -45,19 +45,14 @@ export function BookingsCard({ className }: { className?: string }) {
   const { data: projects = [], isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
-  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: () => listOpportunities() });
   const [year, setYear] = useState(CURRENT_YEAR);
   const isCurrentYear = year === CURRENT_YEAR;
   const today = new Date();
 
   const quotesByProject = groupById<Quote>(quotes);
   const changeOrdersByProject = groupById<ChangeOrder>(changeOrders);
-  const opportunitiesByProjectId = new Map<string, Opportunity>();
-  for (const o of opportunities) {
-    if (o.project_id) opportunitiesByProjectId.set(o.project_id, o);
-  }
 
-  // projects/quotes/change-orders/opportunities are already fully cached by
+  // projects/quotes/change-orders are already fully cached by
   // react-query regardless of year — seasonalBookings() just re-aggregates
   // that same cached data over a different Jan-Dec window, so flipping
   // years never triggers a refetch.
@@ -65,7 +60,6 @@ export function BookingsCard({ className }: { className?: string }) {
     projects,
     quotesByProject,
     changeOrdersByProject,
-    opportunitiesByProjectId,
     12,
     new Date(year, 0, 1),
   );

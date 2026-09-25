@@ -15,6 +15,10 @@ import {
   type QuickQuoteAnswers,
 } from "@/lib/quickQuote";
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
+import { MeasurementPrefillPicker } from "@/components/measurements/MeasurementPrefillPicker";
+import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
+import { quickQuotePrefill } from "@/lib/measurements";
+import { MOBILE_BOTTOM_SHEET } from "@/lib/dialogStyles";
 
 /** How long to wait on the AI before falling back to a templated
  * description — the flow must never get stuck waiting indefinitely. */
@@ -38,6 +42,7 @@ export function QuickQuoteFormDialog({
   rates,
   catalogItems,
   onCreate,
+  projectId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -45,6 +50,9 @@ export function QuickQuoteFormDialog({
   rates: QuickQuoteRate[];
   catalogItems: ProductCatalogItem[];
   onCreate: (result: QuickQuoteResult) => void;
+  /** The quote's project — its site measurements prefill the size question
+   * (src/lib/measurements.ts quickQuotePrefill). */
+  projectId?: string | null;
 }) {
   const [step, setStep] = useState<"form" | "preview">("form");
   const [answers, setAnswers] = useState<QuickQuoteAnswers>({});
@@ -54,17 +62,26 @@ export function QuickQuoteFormDialog({
   const [description, setDescription] = useState("");
   const [descLoading, setDescLoading] = useState(false);
   const [descIsFallback, setDescIsFallback] = useState(false);
+  const prefill = useMeasurementPrefill(projectId, template.id, open);
+  // Bumped on every prefill so AreaField re-syncs its own sq ft input.
+  const [areaPrefillV, setAreaPrefillV] = useState(0);
+  const applyPrefill = (totals: Parameters<typeof quickQuotePrefill>[1] | undefined) => {
+    if (!totals) return {};
+    setAreaPrefillV((v) => v + 1);
+    return quickQuotePrefill(template.id, totals);
+  };
 
   useEffect(() => {
     if (!open) return;
     setStep("form");
-    setAnswers({});
+    setAnswers(applyPrefill(prefill.selected?.totals));
     setRateStr(String(resolveQuickQuoteRate(template, rates)));
     setPickerFor(null);
     setDescription("");
     setDescIsFallback(false);
+    // Re-runs once the project's measurements arrive (sourcesKey).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, template.id]);
+  }, [open, template.id, prefill.sourcesKey]);
 
   const setAnswer = (key: string, value: unknown) => setAnswers((a) => ({ ...a, [key]: value }));
 
@@ -133,7 +150,7 @@ export function QuickQuoteFormDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[85vh] max-w-lg flex-col gap-4">
+        <DialogContent className={cn("flex max-h-[85vh] max-w-lg flex-col gap-4", MOBILE_BOTTOM_SHEET)}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -143,6 +160,15 @@ export function QuickQuoteFormDialog({
 
           {step === "form" ? (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+              <MeasurementPrefillPicker
+                sources={prefill.sources}
+                selected={prefill.selected}
+                onSelect={(id) => {
+                  prefill.select(id);
+                  const totals = prefill.sources.find((s) => s.id === id)?.totals;
+                  setAnswers((a) => ({ ...a, ...applyPrefill(totals) }));
+                }}
+              />
               {template.questions.map((q) => (
                 <QuestionField
                   key={q.key}
@@ -150,6 +176,7 @@ export function QuickQuoteFormDialog({
                   value={answers[q.key]}
                   onChange={(v) => setAnswer(q.key, v)}
                   onPickCatalog={() => setPickerFor(q.key)}
+                  areaPrefillV={areaPrefillV}
                 />
               ))}
 
@@ -248,15 +275,17 @@ function QuestionField({
   value,
   onChange,
   onPickCatalog,
+  areaPrefillV,
 }: {
   question: QuickQuoteQuestion;
   value: unknown;
   onChange: (v: unknown) => void;
   onPickCatalog: () => void;
+  areaPrefillV: number;
 }) {
   switch (question.type) {
     case "area":
-      return <AreaField label={question.label} value={value as number | undefined} onChange={onChange} />;
+      return <AreaField label={question.label} value={value as number | undefined} onChange={onChange} prefillV={areaPrefillV} />;
 
     case "number":
       return (
@@ -306,21 +335,38 @@ function AreaField({
   label,
   value,
   onChange,
+  prefillV,
 }: {
   label: string;
   value: number | undefined;
   onChange: (v: number) => void;
+  /** Bumped when the parent prefilled `value` from site measurements —
+   * switches back to the Square footage input to show it. */
+  prefillV: number;
 }) {
+  // Controlled by `value` (the answer) — the sq ft text only mirrors it,
+  // kept locally so "12." can be typed. Changes are reported only from the
+  // user's own edits, never from a mount/sync effect (an effect reporting
+  // "0" on mount used to race the measurements prefill and wipe it).
   const [mode, setMode] = useState<"sqft" | "dimensions">("sqft");
-  const [sqft, setSqft] = useState("");
+  const [sqft, setSqft] = useState(value ? String(value) : "");
   const [length, setLength] = useState("");
   const [width, setWidth] = useState("");
 
+  // Follow outside changes (prefill, re-open) without clobbering typing.
   useEffect(() => {
-    if (mode === "sqft") onChange(parseFloat(sqft) || 0);
-    else onChange((parseFloat(length) || 0) * (parseFloat(width) || 0));
+    if (mode === "sqft" && (parseFloat(sqft) || 0) !== (value ?? 0)) setSqft(value ? String(value) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, sqft, length, width]);
+  }, [value]);
+  useEffect(() => {
+    if (prefillV) setMode("sqft");
+  }, [prefillV]);
+
+  const dimsArea = (l: string, w: string) => (parseFloat(l) || 0) * (parseFloat(w) || 0);
+  const switchMode = (next: "sqft" | "dimensions") => {
+    setMode(next);
+    onChange(next === "sqft" ? parseFloat(sqft) || 0 : dimsArea(length, width));
+  };
 
   return (
     <div className="space-y-2">
@@ -328,7 +374,7 @@ function AreaField({
       <div className="flex gap-2 text-xs">
         <button
           type="button"
-          onClick={() => setMode("sqft")}
+          onClick={() => switchMode("sqft")}
           className={cn(
             "rounded-full px-3 py-1 font-semibold transition-colors",
             mode === "sqft" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
@@ -338,7 +384,7 @@ function AreaField({
         </button>
         <button
           type="button"
-          onClick={() => setMode("dimensions")}
+          onClick={() => switchMode("dimensions")}
           className={cn(
             "rounded-full px-3 py-1 font-semibold transition-colors",
             mode === "dimensions" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
@@ -354,7 +400,10 @@ function AreaField({
           inputMode="decimal"
           placeholder="e.g. 300"
           value={sqft}
-          onChange={(e) => setSqft(e.target.value)}
+          onChange={(e) => {
+            setSqft(e.target.value);
+            onChange(parseFloat(e.target.value) || 0);
+          }}
         />
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -363,14 +412,20 @@ function AreaField({
             inputMode="decimal"
             placeholder="Length (ft)"
             value={length}
-            onChange={(e) => setLength(e.target.value)}
+            onChange={(e) => {
+              setLength(e.target.value);
+              onChange(dimsArea(e.target.value, width));
+            }}
           />
           <Input
             type="number"
             inputMode="decimal"
             placeholder="Width (ft)"
             value={width}
-            onChange={(e) => setWidth(e.target.value)}
+            onChange={(e) => {
+              setWidth(e.target.value);
+              onChange(dimsArea(length, e.target.value));
+            }}
           />
         </div>
       )}

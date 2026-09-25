@@ -113,8 +113,15 @@ export function UpcomingAppointmentsCard({ className }: { className?: string }) 
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <p className="text-sm font-bold text-foreground">{row.timeLabel}</p>
-                      <span className="text-xs text-muted-foreground">· {APPOINTMENT_TYPE_LABEL[a.type]}</span>
+                      {/* Date-only appointments have no time — the type leads. */}
+                      {row.timeLabel ? (
+                        <>
+                          <p className="text-sm font-bold text-foreground">{row.timeLabel}</p>
+                          <span className="text-xs text-muted-foreground">· {APPOINTMENT_TYPE_LABEL[a.type]}</span>
+                        </>
+                      ) : (
+                        <p className="text-sm font-bold text-foreground">{APPOINTMENT_TYPE_LABEL[a.type]}</p>
+                      )}
                       {rainFlag && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" aria-label="Rain risk" />}
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">

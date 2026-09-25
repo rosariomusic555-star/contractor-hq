@@ -15,7 +15,8 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { FilterPills, FilterSegment, type FilterOption } from "@/components/common/FilterControls";
-import { ClientPickerDialog } from "@/components/common/ClientPicker";
+import { ClientCombobox } from "@/components/common/ClientPicker";
+import { useClientField } from "@/hooks/use-client-field";
 import { useToast } from "@/hooks/use-toast";
 import { cn, pluralize } from "@/lib/utils";
 import {
@@ -24,7 +25,6 @@ import {
   setTaskCompleted,
   TASK_TYPE_LABEL,
   CREATABLE_TASK_TYPES,
-  listClients,
   type Task,
   type TaskType,
   type TaskPriority,
@@ -165,16 +165,12 @@ export function CreateTaskDialog({
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
 
   const [title, setTitle] = useState("");
   const [taskType, setTaskType] = useState<TaskType>("general_task");
   const [priority, setPriority] = useState<TaskPriority>("normal");
   const [dueAt, setDueAt] = useState("");
-  const [clientId, setClientId] = useState<string | null>(defaultClientId ?? null);
-  const [clientPickerOpen, setClientPickerOpen] = useState(false);
-
-  const selectedClient = clients.find((c) => c.id === clientId) ?? null;
+  const client = useClientField(defaultClientId ?? null);
 
   useEffect(() => {
     if (!open) {
@@ -182,13 +178,15 @@ export function CreateTaskDialog({
       setTaskType("general_task");
       setPriority("normal");
       setDueAt("");
-      setClientId(defaultClientId ?? null);
+      client.reset(defaultClientId ?? null);
     }
-  }, [open, defaultClientId]);
+  }, [open, defaultClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createMut = useMutation({
-    mutationFn: () =>
-      createTask({
+    mutationFn: async () => {
+      const clientId = await client.ensureClient();
+      if (clientId === undefined) return null;
+      return createTask({
         title: title.trim(),
         task_type: taskType,
         priority,
@@ -196,8 +194,10 @@ export function CreateTaskDialog({
         client_id: clientId,
         opportunity_id: defaultOpportunityId ?? null,
         project_id: defaultProjectId ?? null,
-      }),
-    onSuccess: () => {
+      });
+    },
+    onSuccess: (task) => {
+      if (!task) return;
       qc.invalidateQueries({ queryKey: ["tasks"] });
       if (defaultClientId) qc.invalidateQueries({ queryKey: ["client-tasks", defaultClientId] });
       if (defaultOpportunityId) qc.invalidateQueries({ queryKey: ["opportunity-tasks", defaultOpportunityId] });
@@ -248,27 +248,22 @@ export function CreateTaskDialog({
               </Select>
             </div>
             {!defaultClientId && (
-              <div className="space-y-1.5">
-                <Label>Customer (optional)</Label>
-                <button
-                  type="button"
-                  onClick={() => setClientPickerOpen(true)}
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm hover:bg-muted/50"
-                >
-                  <span className={selectedClient ? "text-foreground" : "text-muted-foreground"}>
-                    {selectedClient ? selectedClient.name : "No customer"}
-                  </span>
-                  <span className="text-xs font-semibold text-primary">Change</span>
-                </button>
-              </div>
+              <ClientCombobox
+                field={client}
+                label="Customer"
+                optional
+                onCreateAnyway={() => {
+                  client.acceptDuplicate();
+                  createMut.mutate();
+                }}
+              />
             )}
           </div>
-          <Button className="w-full font-bold" disabled={!title.trim() || createMut.isPending} onClick={() => createMut.mutate()}>
+          <Button className="w-full font-bold" disabled={!title.trim() || (!!client.draft && !client.hasClient) || createMut.isPending} onClick={() => createMut.mutate()}>
             {createMut.isPending ? "Creating…" : "Create task"}
           </Button>
         </DialogContent>
       </Dialog>
-      <ClientPickerDialog open={clientPickerOpen} onOpenChange={setClientPickerOpen} onSelect={setClientId} allowClear />
     </>
   );
 }

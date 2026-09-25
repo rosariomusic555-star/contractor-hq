@@ -1,5 +1,5 @@
 import type { Appointment, Opportunity, Project } from "./api";
-import { appointmentTimeLabel } from "./appointmentTime";
+import { appointmentTimeLabel, compareAppointments } from "./appointmentTime";
 
 export interface UpcomingAppointmentRow {
   appointment: Appointment;
@@ -8,8 +8,8 @@ export interface UpcomingAppointmentRow {
   dayKey: string;
   /** "Today" / "Tomorrow" / "Wed, Sep 23" */
   dayLabel: string;
-  /** "9:00 AM", or "All day" for date-only appointments */
-  timeLabel: string;
+  /** "9:00 AM", or null for date-only appointments (no time to show) */
+  timeLabel: string | null;
   isToday: boolean;
   projectId: string | null;
   projectName: string | null;
@@ -67,11 +67,6 @@ export function upcomingAppointmentRows(
     });
   }
 
-  // By day, all-day items first within a day, then by time.
-  return rows.sort(
-    (a, b) =>
-      a.dayKey.localeCompare(b.dayKey) ||
-      Number(b.appointment.all_day) - Number(a.appointment.all_day) ||
-      a.appointment.date_time.localeCompare(b.appointment.date_time),
-  );
+  // By day, date-only items first within a day, then by time.
+  return rows.sort((a, b) => compareAppointments(a.appointment, b.appointment));
 }
