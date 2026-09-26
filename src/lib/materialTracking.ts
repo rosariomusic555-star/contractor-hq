@@ -361,13 +361,20 @@ export const LINE_STATUS_LABEL: Record<LineStatus, string> = {
  * "Over estimate" (used already exceeds the baseline) always wins, since
  * it's the one that needs attention regardless of where the line otherwise
  * sits in its lifecycle. */
-export function lineStatus(estimated: number, ordered: number, delivered: number, used: number): LineStatus {
+export function lineStatus(estimated: number, ordered: number, delivered: number, used: number, hasOrder = false): LineStatus {
   if (estimated > 0 && used > estimated) return "over_estimate";
   if (delivered > 0 && used >= delivered) return "used_up";
   if (used > 0) return "in_use";
   if (delivered > 0) return "delivered";
-  if (ordered > 0) return "ordered";
+  if (ordered > 0 || hasOrder) return "ordered";
   return "not_ordered";
+}
+
+/** Whether any order line is matched to this sheet line — "an order was
+ * placed", even one logged in a unit that still needs converting (whose
+ * converted quantity reads 0). What "not ordered" means everywhere. */
+export function hasAnyOrder(line: Pick<MaterialsItem, "id">, deliveries: DeliveryLineWithOrderStatus[]): boolean {
+  return deliveries.some((d) => d.item.materials_item_id === line.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -454,7 +461,7 @@ export function sheetCostSummary(
     const ordered = orderedQuantity(line, deliveries);
     const delivered = deliveredQuantity(line, deliveries);
     const used = usedQuantity(line, usageLogs);
-    const status = lineStatus(estQty, ordered, delivered, used);
+    const status = lineStatus(estQty, ordered, delivered, used, hasAnyOrder(line, deliveries));
     if (status === "not_ordered") notOrderedCount++;
     if (status === "over_estimate") overEstimateCount++;
   }
@@ -473,12 +480,28 @@ export function sheetCostSummary(
 // Early warnings (Phase 5) — informational only, never blocking.
 // ---------------------------------------------------------------------------
 
-export type MaterialAlertKind = "burn_rate" | "over_order" | "not_ordered";
+/** Ranked most urgent first — the summary line follows this order. */
+export type MaterialAlertKind = "over_estimate" | "over_order" | "burn_rate" | "delivery_overdue" | "not_ordered";
+export const MATERIAL_ALERT_ORDER: MaterialAlertKind[] = ["over_estimate", "over_order", "burn_rate", "delivery_overdue", "not_ordered"];
 
 export interface MaterialAlert {
   key: MaterialAlertKind;
+  /** The sheet line (null for a delivery-overdue alert, which is per order). */
+  lineId: string | null;
+  /** The line's Cost plan section — groups alerts by feature. */
+  sectionId: string | null;
+  /** delivery_overdue: the material order. */
+  orderId?: string;
   lineName: string;
   label: string;
+}
+
+/** A material order, for delivery-overdue alerts. */
+export interface AlertOrder {
+  id: string;
+  supplier: string | null;
+  expected_delivery_date: string | null;
+  status: MaterialOrderStatus;
 }
 
 /** How far ahead of job progress a line's usage % needs to be before it's
@@ -486,62 +509,108 @@ export interface MaterialAlert {
  * over-order margin and not-ordered days are). */
 const BURN_RATE_ALERT_MARGIN_PP = 20;
 
-/** Every alert currently live for a tracked sheet's lines. Burn-rate only
- * evaluates once the project actually has an estimated duration AND has
- * started (projectDurationStatus's 'in_progress' state) — no estimate, no
- * start date, no burn-rate read, per spec. Not-ordered needs a scheduled
- * start date to measure "within N days of" against; no date, no alert. */
+const localISO = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const daysBetween = (fromISO: string, toISO: string) =>
+  Math.round((new Date(`${toISO}T00:00:00`).getTime() - new Date(`${fromISO}T00:00:00`).getTime()) / 86_400_000);
+
+/**
+ * Every alert currently live for a tracked sheet's lines (tracking-on
+ * material lines only), most urgent kind first:
+ *   over_estimate    — more used than estimated
+ *   over_order       — ordered past the estimate + the contractor's margin
+ *   burn_rate        — usage running ahead of job progress (needs a started
+ *                      job with an estimated duration)
+ *   delivery_overdue — an order past its expected delivery date, not delivered
+ *   not_ordered      — nothing ordered for a line with an estimate > 0, once
+ *                      the scheduled start is within the lead-time window
+ *                      (notOrderedAlertDays) or has passed; no start date,
+ *                      no alert
+ */
 export function materialAlerts(
   project: Pick<Project, "estimated_duration_days" | "actual_start_date" | "actual_end_date" | "scheduled_start_date">,
-  trackedLines: MaterialsItem[],
+  trackedLines: (MaterialsItem & { section_id?: string })[],
   deliveries: DeliveryLineWithOrderStatus[],
   usageLogs: MaterialsUsageLog[],
   settings: { overOrderMarginPct: number; notOrderedAlertDays: number },
   now: Date = new Date(),
+  orders: AlertOrder[] = [],
 ): MaterialAlert[] {
   const alerts: MaterialAlert[] = [];
   const duration = projectDurationStatus(project, now);
   const jobProgressPct = duration.state === "in_progress" ? (duration.elapsedDays / duration.estimateDays) * 100 : null;
-
-  const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const daysUntilStart = project.scheduled_start_date
-    ? Math.round((new Date(`${project.scheduled_start_date}T00:00:00`).getTime() - new Date(`${todayISO}T00:00:00`).getTime()) / 86_400_000)
-    : null;
+  const todayISO = localISO(now);
+  const daysUntilStart = project.scheduled_start_date ? daysBetween(todayISO, project.scheduled_start_date) : null;
 
   for (const line of executionTrackedLines(trackedLines)) {
     const estimated = effectiveEstimate(line).quantity;
     const ordered = orderedQuantity(line, deliveries);
     const used = usedQuantity(line, usageLogs);
+    const name = materialLineLabel(line);
+    const base = { lineId: line.id, sectionId: line.section_id ?? null, lineName: name };
 
+    if (estimated > 0 && used > estimated) {
+      alerts.push({ ...base, key: "over_estimate", label: `${name} used ${Math.round(((used - estimated) / estimated) * 100)}% over estimate` });
+    }
+    if (estimated > 0 && ordered > estimated * (1 + settings.overOrderMarginPct / 100)) {
+      alerts.push({ ...base, key: "over_order", label: `${name} ordered ${Math.round(((ordered - estimated) / estimated) * 100)}% over estimate` });
+    }
     if (jobProgressPct != null && estimated > 0) {
       const usagePct = (used / estimated) * 100;
       if (usagePct - jobProgressPct > BURN_RATE_ALERT_MARGIN_PP) {
-        alerts.push({
-          key: "burn_rate",
-          lineName: materialLineLabel(line),
-          label: `${materialLineLabel(line)} ${Math.round(usagePct)}% used, job ${Math.round(jobProgressPct)}% through`,
-        });
+        alerts.push({ ...base, key: "burn_rate", label: `${name} ${Math.round(usagePct)}% used, job ${Math.round(jobProgressPct)}% through` });
       }
     }
-
-    if (estimated > 0 && ordered > estimated * (1 + settings.overOrderMarginPct / 100)) {
-      const overPct = Math.round(((ordered - estimated) / estimated) * 100);
-      alerts.push({ key: "over_order", lineName: materialLineLabel(line), label: `${materialLineLabel(line)} ordered ${overPct}% over estimate` });
-    }
-
-    if (ordered === 0 && daysUntilStart != null && daysUntilStart <= settings.notOrderedAlertDays) {
-      alerts.push({
-        key: "not_ordered",
-        lineName: materialLineLabel(line),
-        label:
-          daysUntilStart < 0
-            ? `${materialLineLabel(line)} still not ordered — job started ${Math.abs(daysUntilStart)}d ago`
-            : `${materialLineLabel(line)} still not ordered — starts in ${daysUntilStart}d`,
-      });
+    if (
+      estimated > 0 &&
+      !hasAnyOrder(line, deliveries) &&
+      daysUntilStart != null &&
+      daysUntilStart <= settings.notOrderedAlertDays
+    ) {
+      alerts.push({ ...base, key: "not_ordered", label: `${name} not ordered` });
     }
   }
 
-  return alerts;
+  for (const o of orders) {
+    if (o.status === "delivered" || !o.expected_delivery_date || o.expected_delivery_date >= todayISO) continue;
+    const late = daysBetween(o.expected_delivery_date, todayISO);
+    alerts.push({
+      key: "delivery_overdue",
+      lineId: null,
+      sectionId: null,
+      orderId: o.id,
+      lineName: o.supplier || "Delivery",
+      label: `${o.supplier || "Delivery"} ${late}d overdue`,
+    });
+  }
+
+  return alerts.sort((a, b) => MATERIAL_ALERT_ORDER.indexOf(a.key) - MATERIAL_ALERT_ORDER.indexOf(b.key));
+}
+
+const ALERT_WORDS: Record<MaterialAlertKind, [string, string]> = {
+  over_estimate: ["over estimate", "over estimate"],
+  over_order: ["over-ordered", "over-ordered"],
+  burn_rate: ["using fast", "using fast"],
+  delivery_overdue: ["delivery overdue", "deliveries overdue"],
+  not_ordered: ["not ordered", "not ordered"],
+};
+
+/** "2 over estimate · 1 delivery overdue · 30 not ordered", most urgent
+ * first — the same line on the project page and the Cost plan. */
+export function materialAlertSummary(alerts: MaterialAlert[]): { key: MaterialAlertKind; count: number; text: string }[] {
+  return MATERIAL_ALERT_ORDER.map((key) => {
+    const count = alerts.filter((a) => a.key === key).length;
+    return { key, count, text: `${count} ${ALERT_WORDS[key][count === 1 ? 0 : 1]}` };
+  }).filter((x) => x.count > 0);
+}
+
+/** "job started 1d ago" / "job starts in 2d" / "job starts today" — the
+ * context after a not-ordered count. */
+export function startContext(scheduledStart: string | null | undefined, now: Date = new Date()): string | null {
+  if (!scheduledStart) return null;
+  const d = daysBetween(localISO(now), scheduledStart);
+  if (d === 0) return "job starts today";
+  return d < 0 ? `job started ${-d}d ago` : `job starts in ${d}d`;
 }
 
 // ---------------------------------------------------------------------------
