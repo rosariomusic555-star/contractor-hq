@@ -2,7 +2,17 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
+import {
+  Navigate,
+  Outlet,
+  Route,
+  RouterProvider,
+  createBrowserRouter,
+  createRoutesFromElements,
+  useLocation,
+  useParams,
+} from "react-router-dom";
+import { UnsavedChangesProvider } from "@/components/common/UnsavedChangesProvider";
 import { AuthProvider } from "@/lib/auth";
 import { PortalAuthProvider } from "@/lib/portalAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -89,119 +99,133 @@ function CostPlanRedirect() {
   return <Navigate to={`/projects/${id}/materials`} replace />;
 }
 
+/** Every route's shell: scroll-to-top on navigation, and the app-wide
+ * unsaved-changes guard (needs a data router for useBlocker). */
+function RootLayout() {
+  return (
+    <UnsavedChangesProvider>
+      <ScrollToTop />
+      <Outlet />
+    </UnsavedChangesProvider>
+  );
+}
+
+const router = createBrowserRouter(
+  createRoutesFromElements(
+    <Route element={<RootLayout />}>
+      {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
+      <Route path="/quote/:token" element={<SharedQuotePage />} />
+      <Route path="/change-order/:token" element={<SharedChangeOrderPage />} />
+      <Route path="/invoice/:token" element={<SharedInvoicePage />} />
+
+      {/* Client Hub (/portal) — its own auth entirely (PortalAuthProvider,
+          backed by portalSupabase's separate session), never the
+          contractor AuthProvider above. PortalLayout renders the sign-in
+          screen in place when there's no portal session, same convention
+          AppLayout uses for the contractor side. */}
+      <Route
+        path="/portal"
+        element={
+          <PortalAuthProvider>
+            <PortalLayout />
+          </PortalAuthProvider>
+        }
+      >
+        <Route index element={<PortalHome />} />
+        <Route path="projects/:id" element={<PortalProjectOverview />} />
+        <Route path="projects/:projectId/documents/:kind/:id" element={<PortalDocumentView />} />
+      </Route>
+
+      <Route element={<AppLayout />}>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardView />} />
+        <Route path="/needs-you" element={<NeedsYouView />} />
+        <Route path="/bookings" element={<BookingsView />} />
+        <Route path="/backlog" element={<BacklogRedirect />} />
+        <Route path="/projects" element={<ProjectsView />} />
+        <Route path="/projects/new" element={<NewProjectView />} />
+        <Route path="/projects/:id" element={<ProjectDetailView />} />
+        {/* The old Cost Plan hub — the Cost plan is the builder now. */}
+        <Route path="/projects/:id/cost-plan" element={<CostPlanRedirect />} />
+        <Route path="/projects/:id/labor" element={<ProjectLaborView />} />
+        <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
+        <Route
+          path="/projects/:id/materials/:sheetId"
+          element={<ProjectMaterialsSheetDetailView />}
+        />
+        <Route path="/projects/:id/quotes" element={<ProjectQuotesView />} />
+        <Route path="/projects/:id/quotes/:quoteId" element={<ProjectQuoteDetailView />} />
+        <Route path="/projects/:id/invoices" element={<ProjectInvoicesView />} />
+        <Route
+          path="/projects/:id/invoices/:invoiceId"
+          element={<ProjectInvoiceDetailView />}
+        />
+        <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
+        <Route path="/projects/:id/change-orders" element={<ProjectChangeOrdersView />} />
+        <Route path="/projects/:id/change-orders/:coId" element={<ProjectChangeOrderDetailView />} />
+        <Route path="/projects/:id/material-orders" element={<ProjectMaterialOrdersView />} />
+        <Route path="/quotes" element={<QuotesView />} />
+        <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
+        <Route path="/invoices" element={<InvoicesView />} />
+        <Route path="/invoices/:invoiceId" element={<InvoiceDetailView />} />
+        <Route path="/materials" element={<MaterialSheetsView />} />
+        <Route path="/expenses" element={<ExpensesView />} />
+        <Route path="/revenue" element={<RevenueView />} />
+        <Route path="/revenue/invoiced" element={<RevenueInvoicedView />} />
+        <Route path="/revenue/collected" element={<RevenueCollectedView />} />
+        <Route path="/revenue/margin" element={<RevenueMarginView />} />
+        <Route path="/revenue/jobs" element={<RevenueJobsView />} />
+        <Route path="/revenue/monthly" element={<RevenueMonthlyView />} />
+        <Route path="/revenue/categories" element={<RevenueCategoriesView />} />
+        <Route path="/revenue/clients" element={<RevenueClientsView />} />
+        <Route path="/clients" element={<ClientsView />} />
+        <Route path="/clients/new" element={<ClientFormView />} />
+        <Route path="/clients/:clientId" element={<ClientDetailView />} />
+        <Route path="/clients/:clientId/edit" element={<ClientFormView />} />
+        <Route path="/pipeline" element={<PipelineView />} />
+        <Route path="/pipeline/:id" element={<OpportunityDetailView />} />
+        <Route path="/tasks" element={<TasksView />} />
+        <Route path="/appointments" element={<AppointmentsView />} />
+        <Route path="/communications" element={<CommunicationsView />} />
+        <Route path="/settings" element={<SettingsView />} />
+        <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
+        <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
+        <Route path="/settings/categories" element={<SettingsCategoriesView />} />
+        <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
+        <Route path="/settings/material-categories" element={<SettingsMaterialCategoriesView />} />
+        <Route
+          path="/settings/expense-categories"
+          element={<SettingsExpenseCategoriesView />}
+        />
+        <Route path="/settings/suppliers" element={<SettingsSuppliersView />} />
+        <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
+        <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
+        <Route path="/settings/smart-sections" element={<SettingsSmartSectionsView />} />
+        <Route path="/settings/quick-quote-rates" element={<SettingsQuickQuoteRatesView />} />
+        <Route path="/settings/team" element={<SettingsTeamView />} />
+        <Route path="/settings/employees" element={<SettingsEmployeesView />} />
+        <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
+        <Route path="/settings/billing" element={<SettingsBillingView />} />
+
+        {/* Employee-only mode (0043) — a completely separate, restricted
+            shell; AppLayout renders EmployeeLayout instead of Sidebar/
+            BottomTabBar for these when role === "employee". */}
+        <Route path="/employee" element={<EmployeeProjectsView />} />
+        <Route path="/employee/projects/:id" element={<EmployeeProjectDetailView />} />
+        <Route path="/employee/account" element={<EmployeeAccountView />} />
+      </Route>
+      <Route path="*" element={<NotFound />} />
+    </Route>,
+  ),
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
-          <ScrollToTop />
-          <Routes>
-            {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
-            <Route path="/quote/:token" element={<SharedQuotePage />} />
-            <Route path="/change-order/:token" element={<SharedChangeOrderPage />} />
-            <Route path="/invoice/:token" element={<SharedInvoicePage />} />
-
-            {/* Client Hub (/portal) — its own auth entirely (PortalAuthProvider,
-                backed by portalSupabase's separate session), never the
-                contractor AuthProvider above. PortalLayout renders the sign-in
-                screen in place when there's no portal session, same convention
-                AppLayout uses for the contractor side. */}
-            <Route
-              path="/portal"
-              element={
-                <PortalAuthProvider>
-                  <PortalLayout />
-                </PortalAuthProvider>
-              }
-            >
-              <Route index element={<PortalHome />} />
-              <Route path="projects/:id" element={<PortalProjectOverview />} />
-              <Route path="projects/:projectId/documents/:kind/:id" element={<PortalDocumentView />} />
-            </Route>
-
-            <Route element={<AppLayout />}>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<DashboardView />} />
-              <Route path="/needs-you" element={<NeedsYouView />} />
-              <Route path="/bookings" element={<BookingsView />} />
-              <Route path="/backlog" element={<BacklogRedirect />} />
-              <Route path="/projects" element={<ProjectsView />} />
-              <Route path="/projects/new" element={<NewProjectView />} />
-              <Route path="/projects/:id" element={<ProjectDetailView />} />
-              {/* The old Cost Plan hub — the Cost plan is the builder now. */}
-              <Route path="/projects/:id/cost-plan" element={<CostPlanRedirect />} />
-              <Route path="/projects/:id/labor" element={<ProjectLaborView />} />
-              <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
-              <Route
-                path="/projects/:id/materials/:sheetId"
-                element={<ProjectMaterialsSheetDetailView />}
-              />
-              <Route path="/projects/:id/quotes" element={<ProjectQuotesView />} />
-              <Route path="/projects/:id/quotes/:quoteId" element={<ProjectQuoteDetailView />} />
-              <Route path="/projects/:id/invoices" element={<ProjectInvoicesView />} />
-              <Route
-                path="/projects/:id/invoices/:invoiceId"
-                element={<ProjectInvoiceDetailView />}
-              />
-              <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
-              <Route path="/projects/:id/change-orders" element={<ProjectChangeOrdersView />} />
-              <Route path="/projects/:id/change-orders/:coId" element={<ProjectChangeOrderDetailView />} />
-              <Route path="/projects/:id/material-orders" element={<ProjectMaterialOrdersView />} />
-              <Route path="/quotes" element={<QuotesView />} />
-              <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
-              <Route path="/invoices" element={<InvoicesView />} />
-              <Route path="/invoices/:invoiceId" element={<InvoiceDetailView />} />
-              <Route path="/materials" element={<MaterialSheetsView />} />
-              <Route path="/expenses" element={<ExpensesView />} />
-              <Route path="/revenue" element={<RevenueView />} />
-              <Route path="/revenue/invoiced" element={<RevenueInvoicedView />} />
-              <Route path="/revenue/collected" element={<RevenueCollectedView />} />
-              <Route path="/revenue/margin" element={<RevenueMarginView />} />
-              <Route path="/revenue/jobs" element={<RevenueJobsView />} />
-              <Route path="/revenue/monthly" element={<RevenueMonthlyView />} />
-              <Route path="/revenue/categories" element={<RevenueCategoriesView />} />
-              <Route path="/revenue/clients" element={<RevenueClientsView />} />
-              <Route path="/clients" element={<ClientsView />} />
-              <Route path="/clients/new" element={<ClientFormView />} />
-              <Route path="/clients/:clientId" element={<ClientDetailView />} />
-              <Route path="/clients/:clientId/edit" element={<ClientFormView />} />
-              <Route path="/pipeline" element={<PipelineView />} />
-              <Route path="/pipeline/:id" element={<OpportunityDetailView />} />
-              <Route path="/tasks" element={<TasksView />} />
-              <Route path="/appointments" element={<AppointmentsView />} />
-              <Route path="/communications" element={<CommunicationsView />} />
-              <Route path="/settings" element={<SettingsView />} />
-              <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
-              <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
-              <Route path="/settings/categories" element={<SettingsCategoriesView />} />
-              <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
-              <Route path="/settings/material-categories" element={<SettingsMaterialCategoriesView />} />
-              <Route
-                path="/settings/expense-categories"
-                element={<SettingsExpenseCategoriesView />}
-              />
-              <Route path="/settings/suppliers" element={<SettingsSuppliersView />} />
-              <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
-              <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
-              <Route path="/settings/smart-sections" element={<SettingsSmartSectionsView />} />
-              <Route path="/settings/quick-quote-rates" element={<SettingsQuickQuoteRatesView />} />
-              <Route path="/settings/team" element={<SettingsTeamView />} />
-              <Route path="/settings/employees" element={<SettingsEmployeesView />} />
-              <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
-              <Route path="/settings/billing" element={<SettingsBillingView />} />
-
-              {/* Employee-only mode (0043) — a completely separate, restricted
-                  shell; AppLayout renders EmployeeLayout instead of Sidebar/
-                  BottomTabBar for these when role === "employee". */}
-              <Route path="/employee" element={<EmployeeProjectsView />} />
-              <Route path="/employee/projects/:id" element={<EmployeeProjectDetailView />} />
-              <Route path="/employee/account" element={<EmployeeAccountView />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
+        <RouterProvider router={router} />
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>

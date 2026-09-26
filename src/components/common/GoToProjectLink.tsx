@@ -1,25 +1,12 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 interface GoToProjectLinkProps {
   projectId: string;
-  /** The builder's own unsaved-changes flag (e.g. `dirty.current`) — a
-   * plain left-click while dirty is intercepted with a confirm dialog
-   * instead of silently discarding. cmd/ctrl/middle-click (new tab) always
-   * goes straight through since nothing in this tab gets discarded. */
-  isDirty: boolean;
+  /** Kept for callers; leaving with unsaved edits is now guarded app-wide
+   * ("Save changes before leaving?" — UnsavedChangesProvider). */
+  isDirty?: boolean;
   /** "dark" sits on the Quote builder's Client/Project card; "light" sits
    * in a plain page header (Materials Sheet / Invoice builders). Same
    * component, same behavior — just matching the surrounding surface. */
@@ -38,23 +25,15 @@ interface GoToProjectLinkProps {
  * Sheet builder, and Invoice builder, only once the document actually has
  * a project (never for a standalone quote/invoice). A real <Link> (proper
  * href), so cmd/ctrl-click opens the project in a new tab like any other
- * link — only a plain click while the builder is dirty is intercepted.
+ * link. Unsaved edits are covered by the app-wide leave guard.
  */
-export function GoToProjectLink({ projectId, isDirty, tone = "light", variant = "link", className }: GoToProjectLinkProps) {
-  const navigate = useNavigate();
-  const [confirmOpen, setConfirmOpen] = useState(false);
+export function GoToProjectLink({ projectId, tone = "light", variant = "link", className }: GoToProjectLinkProps) {
   const href = `/projects/${projectId}`;
 
   return (
     <>
       <Link
         to={href}
-        onClick={(e) => {
-          if (isDirty && e.button === 0 && !e.metaKey && !e.ctrlKey) {
-            e.preventDefault();
-            setConfirmOpen(true);
-          }
-        }}
         // Links only activate on Enter natively — Space works too for the card.
         onKeyDown={
           variant === "overlay"
@@ -85,21 +64,6 @@ export function GoToProjectLink({ projectId, isDirty, tone = "light", variant = 
           </>
         )}
       </Link>
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You have unsaved changes here. Leaving for the project now will discard them.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Stay</AlertDialogCancel>
-            <AlertDialogAction onClick={() => navigate(href)}>Discard and leave</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
