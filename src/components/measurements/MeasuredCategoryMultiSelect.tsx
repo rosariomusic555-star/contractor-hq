@@ -11,6 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
+import { FeatureTypeChips } from "@/components/common/FeatureTypeChips";
 import { listCategories, listFeatureMeasurements, listProjectMeasurements } from "@/lib/api";
 import { groupHasData, measurementGroupsFor } from "@/lib/measurements";
 
@@ -27,6 +28,7 @@ export function MeasuredCategoryMultiSelect({
   onChange,
   placeholder,
   className,
+  variant = "field",
 }: {
   /** The project holding the measurements (null before an opportunity has one). */
   projectId: string | null;
@@ -34,6 +36,9 @@ export function MeasuredCategoryMultiSelect({
   onChange: (ids: string[]) => void;
   placeholder?: string;
   className?: string;
+  /** "compact": inline chips with a small label + Edit (project header,
+   * opportunity Details). "field": the bordered multi-select. */
+  variant?: "field" | "compact";
 }) {
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   // Same query keys as ProjectMeasurementsCard — shared cache.
@@ -67,7 +72,11 @@ export function MeasuredCategoryMultiSelect({
 
   return (
     <>
-      <CategoryMultiSelect value={value} onChange={request} placeholder={placeholder} className={className} />
+      {variant === "compact" ? (
+        <FeatureTypeChips value={value} onChange={request} className={className} />
+      ) : (
+        <CategoryMultiSelect value={value} onChange={request} placeholder={placeholder} className={className} />
+      )}
       <AlertDialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -53,3 +53,11 @@ export const activeFeatures = (features: ProjectFeature[]) => liveFeatures(featu
  * when it belongs to no feature (General) or to an active one. */
 export const countsTowardTotals = (s: { feature?: { status: FeatureStatus } | null }) =>
   !s.feature || s.feature.status === "active";
+
+/** A catch-all Job Category ("Other / Uncategorized", "General", "Misc") —
+ * not a customer-facing feature; project-wide costs live in the Cost plan's
+ * General section. Hidden from the feature pickers. */
+export function isCatchAllCategoryName(name: string): boolean {
+  const n = name.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+  return /^(other|uncategori[sz]ed|general|misc|miscellaneous)( |$)/.test(n) || n === "other uncategorized";
+}

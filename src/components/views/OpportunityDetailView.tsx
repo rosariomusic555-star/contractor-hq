@@ -83,6 +83,7 @@ import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { MeasuredCategoryMultiSelect } from "@/components/measurements/MeasuredCategoryMultiSelect";
+import { addonQuoteNumbers } from "@/lib/featureFinancials";
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog, EditAppointmentDialog } from "@/components/views/AppointmentsView";
 import { overdueSiteVisit, siteVisitDateLabel } from "@/lib/siteVisitCheck";
@@ -461,15 +462,12 @@ export function OpportunityDetailView() {
                   </button>
                 )}
               </div>
-              <div className="space-y-1">
-                <div className={FIELD_LABEL}>Project types</div>
-                <MeasuredCategoryMultiSelect
-                  projectId={opportunity.project_id}
-                  value={categoryIds}
-                  onChange={(ids) => categoriesMut.mutate(ids)}
-                  placeholder="Select types…"
-                />
-              </div>
+              <MeasuredCategoryMultiSelect
+                projectId={opportunity.project_id}
+                value={categoryIds}
+                onChange={(ids) => categoriesMut.mutate(ids)}
+                variant="compact"
+              />
               <LeadSourceField
                 value={opportunity.lead_source}
                 onChange={(v) => updateMut.mutate({ lead_source: v })}
@@ -879,6 +877,11 @@ function EstimateCard({
               <div className="flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5 shrink-0 text-muted-subtle" />
                 <span className="text-sm font-bold text-foreground">{formatCurrency(quoteTotal(quote.quote_sections))}</span>
+                {quote.kind === "addon" && (
+                  <span className="rounded-full bg-info/15 px-2 py-0.5 text-[11px] font-bold text-info">
+                    Add-on #{addonQuoteNumbers(quotes).get(quote.id)}
+                  </span>
+                )}
               </div>
               <span className={quoteStatusMeta(quote.status).badge}>{quoteStatusMeta(quote.status).label}</span>
             </Link>

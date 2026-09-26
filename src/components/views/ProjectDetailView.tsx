@@ -531,12 +531,14 @@ export function ProjectDetailView() {
 
       <div className="md:hidden">{statusSelect}</div>
 
-      <div className="max-w-sm">
+      {/* Features — compact inline chips, about half the header width on
+          desktop / tablet, full width on phones. */}
+      <div className="w-full md:w-1/2">
         <MeasuredCategoryMultiSelect
           projectId={id}
           value={projectCategoryIds(project)}
           onChange={(ids) => categoriesMutation.mutate(ids)}
-          placeholder="Project types…"
+          variant="compact"
         />
       </div>
 

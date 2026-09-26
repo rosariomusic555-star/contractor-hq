@@ -1,11 +1,16 @@
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 
 /**
  * Sticky "you have unsaved changes" bar used by the draft-editing screens
  * (Materials sheet, Quote builder, Invoice editor). Sits above the mobile
  * bottom tab bar and clears the desktop sidebar. Render it unconditionally
  * and pass `visible` — it animates nothing, it just un-hides.
+ *
+ * It also guards leaving the page while visible (useUnsavedChangesGuard):
+ * every screen with this bar gets the "Save changes before leaving?" prompt
+ * and the browser's own tab-close warning, tied to the same dirty flag.
  */
 export function DraftSaveBar({
   visible,
@@ -20,6 +25,7 @@ export function DraftSaveBar({
   saving: boolean;
   label?: string;
 }) {
+  useUnsavedChangesGuard(visible, onSave, onDiscard, saving);
   if (!visible) return null;
 
   return (

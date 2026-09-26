@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { useAuth } from "@/lib/auth";
 import {
   getBusinessProfile,
@@ -72,6 +73,17 @@ export function SettingsBusinessProfileView() {
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
+
+  // Leaving with unsaved edits asks first (same guard as every builder).
+  useUnsavedChangesGuard(
+    dirty.current,
+    () => saveMut.mutate(),
+    () => {
+      dirty.current = false;
+      setDraft(seed());
+    },
+    saveMut.isPending,
+  );
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
