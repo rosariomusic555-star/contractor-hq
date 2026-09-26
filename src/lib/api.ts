@@ -6,6 +6,7 @@ import type { FeatureSectionSeed } from "./sectionFeatures";
 import type { CostBucket, LaborMode, LineCostType } from "./costPlanMath";
 import type { FeatureStatus, ProjectFeature } from "./features";
 import type { CostChangeKind } from "./changeOrderCost";
+import { OVERHEAD_SETTINGS_DEFAULTS, burdenPerHour, type OverheadSettings } from "./overhead";
 import { LUMP_SUM_UNIT } from "./costPlanMath";
 import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
@@ -103,6 +104,10 @@ interface ProjectRef {
 export interface Project {
   id: string;
   user_id: string;
+  /** The overhead burden ($/man-hour) and target margin it was sold with —
+   * copied from the signed quote (0110). Actual fully loaded profit uses it. */
+  overhead_rate?: number | null;
+  target_margin_pct?: number | null;
   client_id: string | null;
   name: string;
   /** Site address — copied once from the opportunity at lazy-creation
@@ -298,6 +303,10 @@ export interface Quote {
   /** 'original' (the job's quote, and its revisions) or 'addon' (0108) — new
    * features added to a Won job. An add-on never replaces the original; its
    * approval adds to the contract. Undefined before 0108 = original. */
+  /** The overhead burden ($/man-hour) and target margin this quote is
+   * priced with (0110) — refreshable while draft, frozen once sent. */
+  overhead_rate?: number | null;
+  target_margin_pct?: number | null;
   kind?: "original" | "addon";
   status: QuoteStatus;
   deposit_percentage: number;
@@ -629,6 +638,8 @@ export interface MaterialsItem {
    * executionTrackedLines() in materialTracking.ts. Defaults true so every
    * existing line keeps tracking exactly as it did before this flag existed. */
   tracked: boolean;
+  /** "Looks like overhead" dismissed for this line (0110). */
+  overhead_warning_dismissed?: boolean;
   /** Only populated where the select asks for it (tracked-sheet reads) —
    * every baseline ever snapshotted for this line, newest first. The
    * CURRENT baseline is materials_item_baselines[0]; empty = never
@@ -661,6 +672,8 @@ export interface SectionLaborFields {
   labor_rate: number | null;
   labor_lump_sum: number | null;
   labor_notes: string | null;
+  /** hours mode's man-hours / a lump sum's optional man-hours (0110). */
+  labor_man_hours?: number | null;
 }
 
 export interface MaterialsSection {
@@ -701,6 +714,7 @@ export interface MaterialsSection {
   labor_rate?: number | null;
   labor_lump_sum?: number | null;
   labor_notes?: string | null;
+  labor_man_hours?: number | null;
   materials_items: MaterialsItem[];
 }
 
@@ -1482,6 +1496,43 @@ export const BUSINESS_PROFILE_FALLBACK: BusinessProfile = {
   material_not_ordered_alert_days: 5,
   default_labor_rate: 45,
 };
+
+// ---------------------------------------------------------------------------
+// Overhead (0110) — see src/lib/overhead.ts for the math. Null = not set up
+// (or before 0110): every screen reads exactly as before.
+// ---------------------------------------------------------------------------
+
+export async function getOverheadSettings(): Promise<OverheadSettings | null> {
+  const { data, error } = await supabase.from("overhead_settings").select("*").maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205") return null;
+    throw error;
+  }
+  if (!data) return null;
+  const n = (v: unknown) => (v == null ? null : Number(v));
+  return {
+    items: Array.isArray(data.items) && data.items.length ? data.items : OVERHEAD_SETTINGS_DEFAULTS.items,
+    field_workers: n(data.field_workers),
+    weeks_per_year: n(data.weeks_per_year),
+    days_per_week: n(data.days_per_week),
+    hours_per_day: n(data.hours_per_day),
+    utilization_pct: n(data.utilization_pct),
+    crew_size: Number(data.crew_size ?? 3),
+    manual_man_hours: n(data.manual_man_hours),
+    manual_crew_days: n(data.manual_crew_days),
+    display_unit: data.display_unit === "crew_days" ? "crew_days" : "hours",
+    target_margin_pct: n(data.target_margin_pct),
+  };
+}
+
+export async function saveOverheadSettings(s: OverheadSettings): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in");
+  const { error } = await supabase.from("overhead_settings").upsert({ user_id: user.id, ...s }, { onConflict: "user_id" });
+  if (error) throw error;
+}
 
 export async function getBusinessProfile(): Promise<BusinessProfile> {
   const { data, error } = await supabase.from("business_profile").select("*").maybeSingle();
@@ -2387,6 +2438,7 @@ export async function updateMaterialsItem(
       | "conversion_unit"
       | "conversion_factor"
       | "tracked"
+      | "overhead_warning_dismissed"
       | "color"
       | "material_category_id"
       | "cost_type"
@@ -2727,9 +2779,13 @@ export async function createQuote(
   } = {},
 ): Promise<Quote> {
   const defaults = await getQuoteDefaults();
+  // The overhead rate it's priced with (0110) — refreshable while it's a draft.
+  const overhead = await getOverheadSettings().catch(() => null);
+  const rate = burdenPerHour(overhead);
   const { data: quote, error } = await supabase
     .from("quotes")
     .insert({
+      ...(rate != null ? { overhead_rate: Math.round(rate * 100) / 100, target_margin_pct: overhead?.target_margin_pct ?? null } : {}),
       project_id: input.project_id ?? null,
       client_id: input.client_id ?? null,
       deposit_percentage: input.deposit_percentage ?? defaults.deposit_pct,
@@ -2757,6 +2813,8 @@ export async function updateQuote(
       | "signed_at"
       | "signed_by"
       | "material_sheet_id"
+      | "overhead_rate"
+      | "target_margin_pct"
     >
   >,
 ): Promise<void> {

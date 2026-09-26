@@ -30,6 +30,7 @@ export interface CostChangeLabor {
   labor_hours_per_day: number | null;
   labor_rate: number | null;
   labor_lump_sum: number | null;
+  labor_man_hours?: number | null;
 }
 
 export interface CostChangeLike {

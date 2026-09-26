@@ -3,7 +3,7 @@ import { HardHat, Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { cn, formatCurrency } from "@/lib/utils";
-import { laborFormula, sectionLaborCost, type LaborMode } from "@/lib/costPlanMath";
+import { laborFormula, sectionLaborCost, sectionLaborHours, type LaborMode } from "@/lib/costPlanMath";
 
 export interface LaborDraft {
   labor_mode: LaborMode | null;
@@ -13,6 +13,8 @@ export interface LaborDraft {
   labor_rate: number | null;
   labor_lump_sum: number | null;
   labor_notes: string;
+  /** hours mode's man-hours / a lump sum's optional man-hours (0110). */
+  labor_man_hours?: number | null;
 }
 
 const LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
@@ -62,6 +64,7 @@ export function SectionLaborBlock({
           {(
             [
               ["crew", "Crew × days"],
+              ["hours", "Man-hours"],
               ["lump_sum", "Lump sum"],
             ] as const
           ).map(([mode, label]) => (
@@ -74,7 +77,13 @@ export function SectionLaborBlock({
                 onChange(
                   mode === "lump_sum"
                     ? { labor_mode: "lump_sum", labor_lump_sum: value.labor_lump_sum ?? (cost || null) }
-                    : { labor_mode: "crew", labor_hours_per_day: value.labor_hours_per_day ?? 8, labor_rate: value.labor_rate ?? defaultRate },
+                    : mode === "hours"
+                      ? {
+                          labor_mode: "hours",
+                          labor_man_hours: value.labor_man_hours ?? (sectionLaborHours(value) || null),
+                          labor_rate: value.labor_rate ?? defaultRate,
+                        }
+                      : { labor_mode: "crew", labor_hours_per_day: value.labor_hours_per_day ?? 8, labor_rate: value.labor_rate ?? defaultRate },
                 )
               }
               className={cn("min-h-9 rounded-md px-3", value.labor_mode === mode ? "bg-primary/15 text-foreground" : "text-muted-foreground")}
@@ -94,6 +103,7 @@ export function SectionLaborBlock({
               labor_hours_per_day: null,
               labor_rate: null,
               labor_lump_sum: null,
+              labor_man_hours: null,
               labor_notes: "",
             })
           }
@@ -112,9 +122,19 @@ export function SectionLaborBlock({
           <NumInput label="Hours / day" value={value.labor_hours_per_day} onChange={(v) => onChange({ labor_hours_per_day: v })} />
           <NumInput label="Rate / person" prefix="$" suffix="/hr" value={value.labor_rate} onChange={(v) => onChange({ labor_rate: v })} />
         </div>
+      ) : value.labor_mode === "hours" ? (
+        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+          <NumInput label="Man-hours" value={value.labor_man_hours ?? null} onChange={(v) => onChange({ labor_man_hours: v })} />
+          <NumInput label="Rate / hour" prefix="$" suffix="/hr" value={value.labor_rate} onChange={(v) => onChange({ labor_rate: v })} />
+        </div>
       ) : (
-        <div className="max-w-48">
+        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
           <NumInput label="Labor total" prefix="$" value={value.labor_lump_sum} onChange={(v) => onChange({ labor_lump_sum: v })} />
+          <NumInput
+            label="Man-hours (for overhead)"
+            value={value.labor_man_hours ?? null}
+            onChange={(v) => onChange({ labor_man_hours: v })}
+          />
         </div>
       )}
 
