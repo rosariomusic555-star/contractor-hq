@@ -35,6 +35,8 @@ import {
   getPortalMessages,
   sendPortalMessage,
   uploadPortalProjectImage,
+  portalQuoteLabel,
+  portalChangeOrderLabel,
   type PortalQuote,
   type PortalChangeOrder,
 } from "@/lib/portalApi";
@@ -86,14 +88,15 @@ export function PortalProjectOverview() {
   const progress = portalProgressLabel(detail.project);
   const pendingQuotes = detail.quotes.filter((q) => q.status === "sent");
   const pendingChangeOrders = detail.change_orders.filter((c) => c.status === "sent");
-  const approvedQuote = detail.quotes.find((q) => q.status === "approved") ?? null;
+  // The job's scope comes from the original quote; add-ons are extra work.
+  const approvedQuote = detail.quotes.find((q) => q.status === "approved" && q.kind !== "addon") ?? null;
   const documents = [
     ...detail.quotes
       .filter((q) => q.status !== "sent")
-      .map((q) => ({ kind: "quote" as const, id: q.id, label: "Quote", status: q.status, date: null as string | null })),
+      .map((q) => ({ kind: "quote" as const, id: q.id, label: portalQuoteLabel(q), status: q.status, date: null as string | null })),
     ...detail.change_orders
       .filter((c) => c.status !== "sent")
-      .map((c) => ({ kind: "change-order" as const, id: c.id, label: c.title, status: c.status, date: c.created_at })),
+      .map((c) => ({ kind: "change-order" as const, id: c.id, label: `${portalChangeOrderLabel(c)} · ${c.title}`, status: c.status, date: c.created_at })),
     ...detail.invoices.map((inv) => ({
       kind: "invoice" as const,
       id: inv.id,
@@ -133,7 +136,9 @@ export function PortalProjectOverview() {
             >
               <AlertTriangle className="h-5 w-5 shrink-0 text-primary" />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-bold text-foreground">A quote is waiting for your review</span>
+                <span className="block text-sm font-bold text-foreground">
+                  {q.kind === "addon" ? `${portalQuoteLabel(q)} — new work — is waiting for your review` : "A quote is waiting for your review"}
+                </span>
                 <span className="block text-xs text-muted-foreground">Tap to review and approve</span>
               </span>
               <ChevronRight className="h-4 w-4 shrink-0 text-primary" />

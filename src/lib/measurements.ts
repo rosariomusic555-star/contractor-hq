@@ -652,6 +652,8 @@ export interface FeatureInstance {
   id: string;
   project_id: string;
   build_type: string;
+  /** The project feature this instance measures (0105). */
+  feature_id?: string | null;
   label: string | null;
   data: FeatureData;
   totals: FeatureTotals;

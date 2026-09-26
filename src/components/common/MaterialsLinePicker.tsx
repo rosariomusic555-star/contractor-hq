@@ -5,6 +5,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils";
 import type { MaterialsItem, MaterialsSection } from "@/lib/api";
 import { materialLineLabel } from "@/lib/materialsMath";
+import { countsTowardTotals } from "@/lib/features";
 
 interface MaterialsLinePickerProps {
   sections: MaterialsSection[];
@@ -30,7 +31,8 @@ export function MaterialsLinePicker({ sections, value, onChange, suggested = [],
   const [search, setSearch] = useState("");
 
   // Deliveries only ever match MATERIAL lines (not sub / equipment / other).
-  const allItems = sections.flatMap((s) =>
+  // …and only lines that count: never a proposed add-on's or removed feature's.
+  const allItems = sections.filter(countsTowardTotals).flatMap((s) =>
     s.materials_items.filter((item) => (item.cost_type ?? "material") === "material").map((item) => ({ item, sectionName: s.name })),
   );
   const selected = allItems.find((r) => r.item.id === value);

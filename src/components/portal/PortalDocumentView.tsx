@@ -2,7 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Loader2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getPortalProjectDetail, type PortalQuote, type PortalChangeOrder, type PortalInvoice } from "@/lib/portalApi";
+import { getPortalProjectDetail, portalChangeOrderLabel, portalQuoteLabel, type PortalQuote, type PortalChangeOrder, type PortalInvoice } from "@/lib/portalApi";
 import { BackLink } from "@/components/common/BackLink";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -84,7 +84,7 @@ function QuoteDocument({ quote }: { quote: PortalQuote }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between border-b border-hairline pb-3">
-        <h2 className="text-lg font-bold text-foreground">Quote</h2>
+        <h2 className="text-lg font-bold text-foreground">{portalQuoteLabel(quote)}</h2>
         <span className="text-sm font-bold text-foreground">
           {quote.status === "approved" ? "Approved" : quote.status === "declined" ? "Declined" : "Pending"}
         </span>
@@ -134,7 +134,7 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between border-b border-hairline pb-3">
-        <h2 className="text-lg font-bold text-foreground">Change order</h2>
+        <h2 className="text-lg font-bold text-foreground">{portalChangeOrderLabel(changeOrder)}</h2>
         <span className="text-sm font-bold text-foreground">
           {changeOrder.status === "approved" ? "Approved" : changeOrder.status === "declined" ? "Declined" : "Sent"}
         </span>
@@ -148,6 +148,7 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
           {changeOrder.sections.map((section) => (
             <div key={section.id}>
               {section.name && <p className="text-sm font-bold text-foreground">{section.name}</p>}
+              {section.scope_note && <p className="text-xs text-muted-foreground">Change: {section.scope_note}</p>}
               <div className="mt-1.5 space-y-2">
                 {section.items.map((item) => {
                   const lineTotal = item.price * (item.quantity ?? 1);

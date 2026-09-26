@@ -33,9 +33,16 @@ import {
   updateExpense,
   deleteExpense,
   logProjectEvent,
+  listProjectFeatures,
+  listCategories,
+  type Category,
   type Expense,
   type ExpenseCategory,
 } from "@/lib/api";
+import { activeFeatures, type ProjectFeature } from "@/lib/features";
+import { expenseBucket } from "@/lib/costPlan";
+import type { CostBucket } from "@/lib/costPlanMath";
+import { CostTypeSelect, FeatureSelect } from "@/components/expenses/FeatureTypeSelects";
 import { BackLink } from "@/components/common/BackLink";
 import { ExpenseCategoryPill } from "@/components/expenses/ExpenseCategoryPill";
 import { ExpenseSplitDialog } from "@/components/expenses/ExpenseSplitDialog";
@@ -62,6 +69,8 @@ export function ProjectExpensesView() {
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [featureId, setFeatureId] = useState<string | null>(null);
+  const [costType, setCostType] = useState<CostBucket | null>(null);
 
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
   const {
@@ -77,6 +86,11 @@ export function ProjectExpensesView() {
     queryKey: ["expense-categories"],
     queryFn: listExpenseCategories,
   });
+  // Spend by feature (0105) — only active features (a proposed add-on's
+  // can't have spend yet).
+  const { data: allFeatures = [] } = useQuery({ queryKey: ["project-features", id], queryFn: () => listProjectFeatures(id) });
+  const features = activeFeatures(allFeatures);
+  const { data: jobCategories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["expenses", { project: id }] });
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
@@ -89,6 +103,8 @@ export function ProjectExpensesView() {
         amount: parseFloat(amount) || 0,
         date: date || null,
         expense_category_id: categoryId,
+        feature_id: featureId,
+        cost_type: costType,
       }),
     onSuccess: (expense) => {
       invalidate();
@@ -102,7 +118,16 @@ export function ProjectExpensesView() {
       setAmount("");
       setDate("");
       setCategoryId(null);
+      setFeatureId(null);
+      setCostType(null);
     },
+    onError,
+  });
+
+  const retagMut = useMutation({
+    mutationFn: ({ expenseId, patch }: { expenseId: string; patch: { feature_id?: string | null; cost_type?: CostBucket | null } }) =>
+      updateExpense(expenseId, patch),
+    onSuccess: invalidate,
     onError,
   });
 
@@ -201,6 +226,20 @@ export function ProjectExpensesView() {
             {addMut.isPending ? "Saving…" : "Save"}
           </Button>
         </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Feature</Label>
+            <FeatureSelect value={featureId} onChange={setFeatureId} features={features} categories={jobCategories} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Cost type</Label>
+            <CostTypeSelect
+              value={costType}
+              onChange={setCostType}
+              categoryType={categoryId ? expenseBucket(categoryId, expenseCategories) : null}
+            />
+          </div>
+        </div>
       </div>
 
       {isLoading && <p className="text-muted-foreground">Loading expenses…</p>}
@@ -235,6 +274,9 @@ export function ProjectExpensesView() {
                 onDateChange={(date) => redateMut.mutate({ expenseId: expense.id, date })}
                 onSplit={() => setSplitExpense(expense)}
                 onDelete={() => deleteMut.mutate(expense.id)}
+                features={features}
+                jobCategories={jobCategories}
+                onRetag={(patch) => retagMut.mutate({ expenseId: expense.id, patch })}
               />
             ))}
           </ul>
@@ -251,6 +293,8 @@ export function ProjectExpensesView() {
           onOpenChange={(open) => !open && setSplitExpense(null)}
           expense={splitExpense}
           categories={expenseCategories}
+          features={features}
+          jobCategories={jobCategories}
           invalidateKeys={[["expenses"]]}
         />
       )}
@@ -265,6 +309,9 @@ function ExpenseRow({
   onDateChange,
   onSplit,
   onDelete,
+  features,
+  jobCategories,
+  onRetag,
 }: {
   expense: Expense;
   expenseCategories: ExpenseCategory[];
@@ -272,7 +319,11 @@ function ExpenseRow({
   onDateChange: (date: string | null) => void;
   onSplit: () => void;
   onDelete: () => void;
+  features: ProjectFeature[];
+  jobCategories: Category[];
+  onRetag: (patch: { feature_id?: string | null; cost_type?: CostBucket | null }) => void;
 }) {
+  const split = (expense.expense_lines ?? []).length > 1;
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 text-sm sm:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_9.5rem_7rem_2.5rem] sm:py-2">
       <span className="min-w-0 truncate font-medium text-foreground">{expense.name}</span>
@@ -309,6 +360,28 @@ function ExpenseRow({
           </AlertDialogContent>
         </AlertDialog>
       </div>
+      {/* Feature + cost type (a split expense sets them per line). */}
+      {split ? (
+        <p className="col-span-2 text-xs text-muted-foreground sm:order-6 sm:col-span-5">Split — feature and type are set per line.</p>
+      ) : (
+        <div className="col-span-2 grid grid-cols-2 gap-2 sm:order-6 sm:col-span-5 sm:max-w-md">
+          <FeatureSelect
+            value={expense.feature_id}
+            onChange={(feature_id) => onRetag({ feature_id })}
+            features={features}
+            categories={jobCategories}
+            className="h-8 text-xs"
+            ariaLabel={`Feature for ${expense.name}`}
+          />
+          <CostTypeSelect
+            value={expense.cost_type}
+            onChange={(cost_type) => onRetag({ cost_type })}
+            categoryType={expense.expense_category_id ? expenseBucket(expense.expense_category_id, expenseCategories) : null}
+            className="h-8 text-xs"
+            ariaLabel={`Cost type for ${expense.name}`}
+          />
+        </div>
+      )}
     </li>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
-import { costPlanTotal } from "@/lib/costPlanMath";
+import { costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -56,9 +56,12 @@ import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
+import { featureName, liveFeatures } from "@/lib/features";
+import { addonQuoteNumbers } from "@/lib/featureFinancials";
 import {
   categoryForSectionName,
   sectionFeatureOptions,
+  featurePickerOptions,
   withCommittedSectionName,
   withSectionType,
   type SectionFeatureOption,
@@ -72,12 +75,10 @@ import {
 import { ReorderControls } from "@/components/common/ReorderControls";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { revokeLocalImageUrls, type DraftLineImage } from "@/lib/draftLineItem";
-import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
-import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
 import { compressImageFile } from "@/lib/imageUpload";
@@ -86,9 +87,11 @@ import {
   listProjects,
   listMaterials,
   listMaterialsSheets,
+  listProjectFeatures,
+  createProjectFeature,
+  ensureFeatureSections,
   listMaterialsBySheet,
   listQuotes,
-  linkQuoteToMaterialSheet,
   listCategories,
   updateQuote,
   addQuoteSection,
@@ -160,6 +163,12 @@ interface DraftSection {
   is_optional: boolean;
   /** Project-type tag (0095) — same chip as materials sheet sections. */
   job_category_id: string | null;
+  /** The project feature this section prices (0105) — its cost is that
+   * feature's Cost plan section. Null on standalone quotes / non-feature
+   * sections. */
+  feature_id: string | null;
+  /** Picked "new feature of this type" — the feature is created on Save. */
+  new_feature_category_id?: string | null;
   /** How this section's materials are found (0095): 'auto' = matched live
    * by project type / name; 'manual' = materialIds. */
   materials_link_mode: "auto" | "manual";
@@ -183,6 +192,7 @@ const seed = (quote: Quote): QuoteDraft => ({
     name: s.name,
     is_optional: s.is_optional,
     job_category_id: s.job_category_id ?? null,
+    feature_id: s.feature_id ?? null,
     materials_link_mode: s.materials_link_mode ?? "auto",
     materialIds: (s.quote_section_material_links ?? []).map((l) => l.materials_section_id),
     items: s.quote_items.map((i) => ({
@@ -296,8 +306,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     queryFn: () => listMaterials(projectId!),
     enabled: !!projectId,
   });
-  // Sibling documents in this project (0042) — drive the "more than one
-  // sheet or quote" ambiguity check for Estimated Cost, below.
+  // The project's one Cost plan (0106) — whether it exists yet.
   const { data: materialsSheets = [] } = useQuery({
     queryKey: ["materials-sheets", { project: projectId }],
     queryFn: () => listMaterialsSheets(projectId!),
@@ -308,24 +317,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     queryFn: () => listQuotes(projectId!),
     enabled: !!projectId,
   });
-  const { data: linkedSheetSections = [] } = useQuery({
-    queryKey: ["materials", { sheet: quote.material_sheet_id }],
-    queryFn: () => listMaterialsBySheet(quote.material_sheet_id!),
-    enabled: !!quote.material_sheet_id,
-  });
-  const [linkSheetPickerOpen, setLinkSheetPickerOpen] = useState(false);
-
-  // The materials sheet sections this quote's sections can link to (0095):
-  // the explicitly linked sheet once linking is required (>1 sheet or
-  // >1 quote on the project), else the project's only sheet. Empty when
-  // there's no sheet — or an ambiguous, unlinked one.
-  const sheetSectionsForLinking = useMemo(() => {
-    if (!projectId || materialsSheets.length === 0) return [];
-    if (needsExplicitDocumentLink(materialsSheets.length, projectQuotes.length)) {
-      return quote.material_sheet_id ? linkedSheetSections : [];
-    }
-    return materials;
-  }, [projectId, materialsSheets.length, projectQuotes.length, quote.material_sheet_id, linkedSheetSections, materials]);
+  const addonNumber = addonQuoteNumbers(projectQuotes).get(quote.id);
+  // The plan sections this quote's sections compare against: the project's
+  // one Cost plan (features make the pairing automatic).
+  const sheetSectionsForLinking = materials;
   const currentSheetSectionIds = useMemo(() => new Set(sheetSectionsForLinking.map((s) => s.id)), [sheetSectionsForLinking]);
 
   // Section project-type tags — the project's own types (or every category
@@ -391,7 +386,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     const id = tmpId();
     setSections((s) => [
       ...s,
-      { id, name: "", is_optional: false, job_category_id: null, materials_link_mode: "auto", materialIds: [], items: [] },
+      { id, name: "", is_optional: false, job_category_id: null, feature_id: null, materials_link_mode: "auto", materialIds: [], items: [] },
     ]);
     setAutoOpenSectionId(id);
   };
@@ -417,19 +412,26 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     images: [],
   });
   const addQuickQuoteSection = (result: QuickQuoteResult, buildType: string) =>
-    setSections((s) => [
+    setSections((s) => {
+      // Quick Quote knows its feature — tag it like a Smart Section is, and
+      // price the project's first feature of that type without a section.
+      const job_category_id = categoryForSectionName(result.name, projectTypeOptions, categories);
+      const used = new Set(s.map((x) => x.feature_id).filter(Boolean));
+      const feature = liveFeatures(projectFeatures).find((f) => f.category_id === job_category_id && !used.has(f.id));
+      return [
       ...s,
       {
         id: tmpId(),
         name: result.name,
         is_optional: false,
-        // Quick Quote knows its feature — tag it like a Smart Section is.
-        job_category_id: categoryForSectionName(result.name, projectTypeOptions, categories),
+        job_category_id,
+        feature_id: feature?.id ?? null,
         materials_link_mode: "auto",
         materialIds: [],
         items: [quickQuoteLine(result, buildType)],
       },
-    ]);
+      ];
+    });
 
   // --- Quick Quote on an existing section (its toolbar action) -----------
   // Which section the open Quick Quote is for (null = the page-level
@@ -495,9 +497,26 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // autofilled one (see withSectionType); a hand-typed name is left alone.
   const setSectionType = (sid: string, job_category_id: string | null) =>
     setSections((s) => s.map((x) => (x.id === sid ? withSectionType(x, job_category_id, categories) : x)));
-  // The name field's feature picker: name + type in one step.
+  // The name field's feature picker: name + type (+ feature) in one step —
+  // an existing feature, a new feature of a type (created on Save), or a
+  // bare type / build type.
   const pickSectionFeature = (sid: string, o: SectionFeatureOption) =>
-    setSections((s) => s.map((x) => (x.id === sid ? { ...x, name: o.label, job_category_id: o.categoryId ?? x.job_category_id } : x)));
+    setSections((s) =>
+      s.map((x) => {
+        if (x.id !== sid) return x;
+        const typeName = categories.find((c) => c.id === o.categoryId)?.name;
+        return {
+          ...x,
+          name: o.newFeature ? (typeName ?? o.label) : o.label,
+          job_category_id: o.categoryId ?? x.job_category_id,
+          ...(o.featureId
+            ? { feature_id: o.featureId, new_feature_category_id: null }
+            : o.newFeature
+              ? { feature_id: null, new_feature_category_id: o.categoryId }
+              : {}),
+        };
+      }),
+    );
   // Typed name committed: an untyped section whose name matches a feature
   // gets that type. Only touches the draft when something changes.
   const commitSectionName = (sid: string) => {
@@ -507,9 +526,28 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     if (next !== section) setSections((s) => s.map((x) => (x.id === sid ? next : x)));
   };
   const featureOptions = useMemo(() => sectionFeatureOptions(projectTypeOptions, categories), [projectTypeOptions, categories]);
+  // Project quotes pick the project's features (0105); standalone quotes
+  // (and projects before 0105) pick types.
+  const { data: projectFeatures = [] } = useQuery({
+    queryKey: ["project-features", projectId],
+    queryFn: () => listProjectFeatures(projectId!),
+    enabled: !!projectId,
+  });
+  const hasFeatures = projectFeatures.length > 0;
+  // An add-on quote (0108) prices only its own (proposed) features.
+  const isAddon = quote.kind === "addon";
+  const pickableFeatures = isAddon ? projectFeatures.filter((f) => f.source_quote_id === quote.id) : projectFeatures;
   const featurePickerFor = (sid: string): SectionFeaturePicker => ({
-    ...featureOptions,
-    usedCategoryIds: new Set(draft.sections.filter((x) => x.id !== sid && x.job_category_id).map((x) => x.job_category_id!)),
+    ...(hasFeatures
+      ? featurePickerOptions(
+          pickableFeatures,
+          categories,
+          new Set(draft.sections.filter((x) => x.id !== sid && x.feature_id).map((x) => x.feature_id!)),
+        )
+      : featureOptions),
+    usedCategoryIds: hasFeatures
+      ? new Set<string>()
+      : new Set(draft.sections.filter((x) => x.id !== sid && x.job_category_id).map((x) => x.job_category_id!)),
     onPick: (o) => pickSectionFeature(sid, o),
     onCommit: () => commitSectionName(sid),
     autoOpen: autoOpenSectionId === sid,
@@ -589,18 +627,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     onSuccess: invalidate,
     onError,
   });
-  // Which materials sheet this quote's Estimated Cost pulls from — only
-  // shown/used once the project has more than one sheet or more than one
-  // quote (see needsExplicitMaterialsLink below). Sets sheetId null to unlink.
-  const linkMaterialSheetMut = useMutation({
-    mutationFn: (sheetId: string | null) => linkQuoteToMaterialSheet(quote.id, sheetId),
-    onSuccess: () => {
-      invalidate();
-      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
-    },
-    onError,
-  });
-
   // Diff the draft against the server quote and write only what changed.
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -617,6 +643,25 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
       const serverSections = new Map(quote.quote_sections.map((s) => [s.id, s]));
       const draftSectionIds = new Set(draft.sections.map((s) => s.id));
+
+      // New features picked in a section header are created first, and get
+      // their Cost plan section after the save (ensureFeatureSections).
+      let featuresAdded = false;
+      for (const ds of draft.sections) {
+        if (ds.feature_id || !ds.new_feature_category_id || !quote.project_id) continue;
+        try {
+          const f = await createProjectFeature(
+            quote.project_id,
+            isAddon
+              ? { category_id: ds.new_feature_category_id, status: "proposed", source_quote_id: quote.id }
+              : { category_id: ds.new_feature_category_id },
+          );
+          ds.feature_id = f.id;
+          featuresAdded = true;
+        } catch {
+          // before 0105: the section just keeps its type
+        }
+      }
 
       // 1. deletes — server sections no longer in the draft (cascades items)
       for (const s of quote.quote_sections) {
@@ -636,6 +681,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             is_optional: ds.is_optional,
             sort_order: si,
             job_category_id: ds.job_category_id,
+            feature_id: ds.feature_id,
             materials_link_mode: ds.materials_link_mode,
           });
           sectionId = created.id;
@@ -659,6 +705,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             job_category_id: ds.job_category_id,
             materials_link_mode: ds.materials_link_mode,
           });
+        }
+        if (server && (server.feature_id ?? null) !== ds.feature_id) {
+          await updateQuoteSection(server.id, { feature_id: ds.feature_id });
         }
         // Manual materials picks: keep only sections that still exist on the
         // quote's current materials sheet (stale ones are pruned here), and
@@ -759,12 +808,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       if (Number(quote.deposit_percentage) !== draft.depositPct)
         patch.deposit_percentage = draft.depositPct;
       if (Object.keys(patch).length) await updateQuote(quote.id, patch);
+      if (featuresAdded && quote.project_id) await ensureFeatureSections(quote.project_id);
 
       return { wasApproved };
     },
     onSuccess: ({ wasApproved }) => {
       dirty.current = false;
       invalidate();
+      qc.invalidateQueries({ queryKey: ["project-features", projectId] });
+      qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId] });
       if (wasApproved) {
         void logProjectEvent(
@@ -879,39 +931,23 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       s.items.reduce((a, i) => a + (itemIsAddon(s, i) && !i.client_selected ? lineTotal(i) : 0), 0),
     0,
   );
-  // Ambiguous once this project has more than one materials sheet or more
-  // than one quote — below that, this quote's cost pairs automatically with
-  // the project's single (or only) sheet, exactly as before this feature
-  // (costPlanTotal(materials) is the whole-project aggregate, which equals
-  // "that one sheet" whenever there's at most one).
-  const needsExplicitMaterialsLink = !!projectId && needsExplicitDocumentLink(materialsSheets.length, projectQuotes.length);
-  const linkedSheet = materialsSheets.find((s) => s.id === quote.material_sheet_id);
-  // No sheet at all yet → no cost source: "Not available", never a $0 cost
-  // (which used to read as a 100% margin).
+  // Est. cost = the project's Cost plan total (active features + General;
+  // proposed add-on and removed features never count). No plan yet → "Not
+  // available", never a $0 cost (which used to read as a 100% margin).
   const hasMaterialsSheet = materialsSheets.length > 0;
+  // An add-on's cost is just its own features' sections (proposed until
+  // approved, so not in the project total).
+  const addonFeatureIds = new Set(pickableFeatures.map((f) => f.id));
   const materialsCost = !hasMaterialsSheet
     ? null
-    : needsExplicitMaterialsLink
-      ? quote.material_sheet_id
-        ? costPlanTotal(linkedSheetSections)
-        : null
+    : isAddon
+      ? sumSectionTotals(materials.filter((m) => m.feature_id && addonFeatureIds.has(m.feature_id)), { all: true }).total
       : costPlanTotal(materials);
-  // The one materials action shown by Est. cost — a sheet is where real
-  // cost and margin come from, so getting one attached is a primary action
-  // until it exists, then a quiet "View" link.
-  const effectiveSheet = needsExplicitMaterialsLink ? linkedSheet : materialsSheets.length === 1 ? materialsSheets[0] : undefined;
   const materialsAction: MaterialsAction = !projectId
     ? { label: "Create project to add a cost plan", onClick: () => handleCreateProjectClick(), primary: true }
     : !hasMaterialsSheet
       ? { label: "Add cost plan", onClick: () => openMaterialsPage(`/projects/${projectId}/materials`), primary: true }
-      : needsExplicitMaterialsLink && !linkedSheet
-        ? { label: "Link cost plan", onClick: () => setLinkSheetPickerOpen(true), primary: true }
-        : {
-            label: "View cost plan",
-            onClick: () =>
-              openMaterialsPage(effectiveSheet ? `/projects/${projectId}/materials/${effectiveSheet.id}` : `/projects/${projectId}/materials`),
-            primary: false,
-          };
+      : { label: "View cost plan", onClick: () => openMaterialsPage(`/projects/${projectId}/materials`), primary: false };
   // The headline figure — required + whatever optional items the client has
   // currently selected, no tax (sales tax was a fabricated demo estimate,
   // never a real figure — removed). Matches quoteTotal() (api.ts) — a
@@ -1072,6 +1108,29 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         </div>
       </div>
 
+      {isAddon && (
+        <div className="rounded-card border border-info/40 bg-info/5 p-4">
+          <div className="text-sm font-bold text-foreground">
+            Add-on quote{addonNumber ? ` #${addonNumber}` : ""} · new work on this job
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {pickableFeatures.map((f) => featureName(f, categories)).join(", ") || "No features yet"} — proposed until the
+            client approves; then they join the job, its totals and its contract.
+          </p>
+          {projectId && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold">
+              <Link to={`/projects/${projectId}`} className="text-primary hover:underline">
+                1 · Measure it (project page)
+              </Link>
+              <Link to={`/projects/${projectId}/materials`} className="text-primary hover:underline">
+                2 · Price it in the Cost plan
+              </Link>
+              <span className="text-muted-foreground">3 · Price each section here and send</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <ClientShareCard
         clientId={quote.client_id}
         clients={clients}
@@ -1086,11 +1145,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         onShare={() => ensureLinkMut.mutate("share")}
         onCopy={() => ensureLinkMut.mutate("copy")}
         actionsDisabled={isDirty || ensureLinkMut.isPending}
-        needsMaterialsLink={needsExplicitMaterialsLink}
-        linkedSheet={linkedSheet ? { id: linkedSheet.id, name: linkedSheet.name } : null}
-        onOpenLinkedSheet={() => linkedSheet && navigate(`/projects/${projectId}/materials/${linkedSheet.id}`)}
-        onLinkMaterialsSheet={() => setLinkSheetPickerOpen(true)}
-        onUnlinkMaterialsSheet={() => linkMaterialSheetMut.mutate(null)}
       />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
@@ -1271,7 +1325,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             cost={estCost}
             profit={margin}
             marginPct={marginPct}
-            needsMaterialsLink={needsExplicitMaterialsLink}
             materialsAction={materialsAction}
             depositPct={draft.depositPct}
             deposit={depositAmount}
@@ -1307,7 +1360,6 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           cost={estCost}
           profit={margin}
           marginPct={marginPct}
-          needsMaterialsLink={needsExplicitMaterialsLink}
           materialsAction={materialsAction}
           depositPct={draft.depositPct}
           deposit={depositAmount}
@@ -1439,62 +1491,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           );
         })()}
 
-      {needsExplicitMaterialsLink && (
-        <LinkMaterialsSheetDialog
-          open={linkSheetPickerOpen}
-          onOpenChange={setLinkSheetPickerOpen}
-          sheets={materialsSheets}
-          onSelect={(sheetId) => linkMaterialSheetMut.mutate(sheetId)}
-        />
-      )}
     </div>
-  );
-}
-
-/** The quote builder's own "Link a materials sheet" picker — lists sheets
- * within this quote's project only (project-scoped, not app-wide), mirroring
- * the materials sheet builder's own "Link a quote" picker. */
-function LinkMaterialsSheetDialog({
-  open,
-  onOpenChange,
-  sheets,
-  onSelect,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  sheets: { id: string; name: string }[];
-  onSelect: (sheetId: string) => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-4">
-        <DialogHeader>
-          <DialogTitle>Link a cost plan</DialogTitle>
-        </DialogHeader>
-        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
-          {sheets.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No cost plans on this project yet.
-            </p>
-          ) : (
-            sheets.map((sheet) => (
-              <button
-                key={sheet.id}
-                type="button"
-                onClick={() => {
-                  onSelect(sheet.id);
-                  onOpenChange(false);
-                }}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 pl-3.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
-              >
-                <span className="text-sm font-semibold text-foreground">{sheet.name}</span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
-              </button>
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1527,19 +1524,12 @@ interface QuoteSummaryCardProps {
    * hidden (baseTotal would just equal total, redundantly). */
   optionalTotal: number;
   optionalCount: number;
-  /** Null for a standalone quote, or a project-linked quote with an
-   * ambiguous, unlinked materials sheet (see needsMaterialsLink) — either
-   * way there's no real cost source yet, so this and profit/marginPct show
-   * "Not available" rather than a guessed number. */
+  /** Null for a standalone quote, or a project without a Cost plan yet —
+   * no real cost source, so this and profit/marginPct show "Not
+   * available" rather than a guessed number. */
   cost: number | null;
   profit: number | null;
   marginPct: number | null;
-  /** True once this quote's project has more than one materials sheet or
-   * more than one quote — the single-document implicit pairing no longer
-   * applies, so a null cost can't be resolved with "Create project" (that's
-   * only for a truly standalone quote); linking now happens via the
-   * LinkedDocumentBar on the Client Share Card instead. */
-  needsMaterialsLink: boolean;
   materialsAction: MaterialsAction;
   depositPct: number;
   deposit: number;
@@ -1567,7 +1557,6 @@ function QuoteSummaryCard({
   cost,
   profit,
   marginPct,
-  needsMaterialsLink,
   materialsAction,
   depositPct,
   deposit,
@@ -1790,15 +1779,6 @@ interface ClientShareCardProps {
   onShare: () => void;
   onCopy: () => void;
   actionsDisabled?: boolean;
-  /** True once this quote's project has more than one materials sheet or
-   * more than one quote (see needsExplicitDocumentLink) — shows the link
-   * bar at all; false hides it entirely (implicit single-sheet pairing, or
-   * a standalone quote with no project). */
-  needsMaterialsLink: boolean;
-  linkedSheet: { id: string; name: string } | null;
-  onOpenLinkedSheet: () => void;
-  onLinkMaterialsSheet: () => void;
-  onUnlinkMaterialsSheet: () => void;
 }
 
 /**
@@ -1819,11 +1799,6 @@ function ClientShareCard({
   onShare,
   onCopy,
   actionsDisabled,
-  needsMaterialsLink,
-  linkedSheet,
-  onOpenLinkedSheet,
-  onLinkMaterialsSheet,
-  onUnlinkMaterialsSheet,
   onCreateProject,
 }: ClientShareCardProps) {
   const clientName = clients.find((c) => c.id === clientId)?.name;
@@ -1914,16 +1889,6 @@ function ClientShareCard({
           </Select>
         </div>
       </div>
-
-      {needsMaterialsLink && (
-        <LinkedDocumentBar
-          targetLabel="cost plan"
-          linked={linkedSheet ? { label: linkedSheet.name, onOpen: onOpenLinkedSheet } : null}
-          onLink={onLinkMaterialsSheet}
-          onUnlink={onUnlinkMaterialsSheet}
-          className="bg-foreground/95"
-        />
-      )}
 
       {/* White footer — link status + url + Share/Copy */}
       <div className="flex flex-wrap items-center gap-3.5 bg-card p-4">
@@ -2061,6 +2026,31 @@ function QuoteSectionHeaderTags({
   const cost = sheetSectionsCost(linked);
   const { marginPct } = sectionMargin(price, cost);
   const autoIds = autoMatchedSheetSections(section, sheetSections).map((s) => s.id);
+  const marginTag = linked.length > 0 && marginPct != null && (
+    <span
+      className={cn("text-[11px] font-semibold tabular-nums", marginPct < 0 ? "text-destructive-foreground" : "text-background")}
+    >
+      Margin {marginPct.toFixed(0)}%
+    </span>
+  );
+
+  // A feature's section (0105): its cost is that feature's Cost plan
+  // section — fixed, nothing to pick.
+  if (section.feature_id) {
+    const typeName = allCategories.find((c) => c.id === section.job_category_id)?.name ?? "Feature";
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="rounded-full bg-white/[0.16] px-2.5 py-0.5 text-[11px] font-semibold text-background">
+          {typeName}
+          <span className={cn("font-normal", linked.length === 0 && "text-background/60")}>
+            {" · "}
+            {linked.length > 0 ? `Cost ${formatCurrency(cost)}` : "No cost plan section yet"}
+          </span>
+        </span>
+        {marginTag}
+      </div>
+    );
+  }
 
   // One chip: "Outdoor Kitchen · Materials $1,240 ▾" (type + linked
   // materials together); the margin stays beside it.
@@ -2080,16 +2070,7 @@ function QuoteSectionHeaderTags({
           onChange: onMaterialsChange,
         }}
       />
-      {linked.length > 0 && marginPct != null && (
-        <span
-          className={cn(
-            "text-[11px] font-semibold tabular-nums",
-            marginPct < 0 ? "text-destructive-foreground" : "text-background",
-          )}
-        >
-          Margin {marginPct.toFixed(0)}%
-        </span>
-      )}
+      {marginTag}
     </div>
   );
 }

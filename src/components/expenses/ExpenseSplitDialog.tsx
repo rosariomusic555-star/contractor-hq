@@ -7,7 +7,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
-import { saveExpenseLines, type Expense, type ExpenseCategory } from "@/lib/api";
+import { saveExpenseLines, type Category, type Expense, type ExpenseCategory } from "@/lib/api";
+import type { CostBucket } from "@/lib/costPlanMath";
+import type { ProjectFeature } from "@/lib/features";
+import { expenseBucket } from "@/lib/costPlan";
+import { CostTypeSelect, FeatureSelect } from "@/components/expenses/FeatureTypeSelects";
 import { splitAllocation } from "@/lib/expenseSplit";
 
 const NONE = "__none__";
@@ -17,6 +21,8 @@ interface DraftLine {
   categoryId: string | null;
   amount: string;
   description: string;
+  featureId: string | null;
+  costType: CostBucket | null;
 }
 
 const newKey = () => crypto.randomUUID();
@@ -34,11 +40,17 @@ export function ExpenseSplitDialog({
   expense,
   categories,
   invalidateKeys,
+  features,
+  jobCategories = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   expense: Expense;
   categories: ExpenseCategory[];
+  /** The project's active features — a line per feature (e.g. one supplier
+   * invoice across the patio and the fire pit). Omitted: no feature picker. */
+  features?: ProjectFeature[];
+  jobCategories?: Category[];
   /** Queries to refresh after saving (the page's expense lists). */
   invalidateKeys: unknown[][];
 }) {
@@ -59,10 +71,19 @@ export function ExpenseSplitDialog({
             categoryId: l.expense_category_id,
             amount: String(l.amount),
             description: l.description ?? "",
+            featureId: l.feature_id ?? null,
+            costType: l.cost_type ?? null,
           }))
         : [
-            { key: newKey(), categoryId: expense.expense_category_id, amount: String(total), description: "" },
-            { key: newKey(), categoryId: null, amount: "", description: "" },
+            {
+              key: newKey(),
+              categoryId: expense.expense_category_id,
+              amount: String(total),
+              description: "",
+              featureId: expense.feature_id ?? null,
+              costType: expense.cost_type ?? null,
+            },
+            { key: newKey(), categoryId: null, amount: "", description: "", featureId: null, costType: null },
           ],
     );
   }, [open, expense, total]);
@@ -88,7 +109,13 @@ export function ExpenseSplitDialog({
         expense.id,
         lines
           .filter((l) => (parseFloat(l.amount) || 0) !== 0 || l.categoryId)
-          .map((l) => ({ expense_category_id: l.categoryId, amount: parseFloat(l.amount) || 0, description: l.description.trim() || null })),
+          .map((l) => ({
+            expense_category_id: l.categoryId,
+            amount: parseFloat(l.amount) || 0,
+            description: l.description.trim() || null,
+            feature_id: l.featureId,
+            cost_type: l.costType,
+          })),
       ),
     onSuccess: () => {
       for (const key of invalidateKeys) qc.invalidateQueries({ queryKey: key });
@@ -151,9 +178,26 @@ export function ExpenseSplitDialog({
                 placeholder="Description (optional)"
                 className="col-span-3 h-10 sm:col-span-1"
               />
+              <div className={cn("col-span-3 grid gap-2 sm:col-span-4", features ? "grid-cols-2" : "grid-cols-1")}>
+                {features && (
+                  <FeatureSelect
+                    value={l.featureId}
+                    onChange={(featureId) => edit(l.key, { featureId })}
+                    features={features}
+                    categories={jobCategories}
+                    ariaLabel={`Line ${i + 1} feature`}
+                  />
+                )}
+                <CostTypeSelect
+                  value={l.costType}
+                  onChange={(costType) => edit(l.key, { costType })}
+                  categoryType={l.categoryId ? expenseBucket(l.categoryId, categories) : null}
+                  ariaLabel={`Line ${i + 1} cost type`}
+                />
+              </div>
             </div>
           ))}
-          <Button type="button" variant="outline" size="sm" onClick={() => setLines((ls) => [...ls, { key: newKey(), categoryId: null, amount: "", description: "" }])}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setLines((ls) => [...ls, { key: newKey(), categoryId: null, amount: "", description: "", featureId: null, costType: null }])}>
             <Plus className="mr-1.5 h-4 w-4" />
             Add line
           </Button>
