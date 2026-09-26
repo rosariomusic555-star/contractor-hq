@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   listSmartSectionSettings,
@@ -23,6 +24,7 @@ import {
   resetSmartSectionSettings,
   type SmartSectionLineItemSetting,
 } from "@/lib/api";
+import { COST_TYPE_LABEL, LINE_COST_TYPES, type LineCostType } from "@/lib/costPlanMath";
 import {
   findSmartSectionTemplate,
   findSmartSectionSettings,
@@ -60,6 +62,8 @@ export function SmartSectionTemplateEditorDialog({
 
   const [lineItems, setLineItems] = useState<SmartSectionLineItemSetting[]>([]);
   const [tunables, setTunables] = useState<Record<string, number>>({});
+  const [laborCrew, setLaborCrew] = useState("");
+  const [laborDays, setLaborDays] = useState("");
 
   useEffect(() => {
     if (!open || !template) return;
@@ -67,6 +71,8 @@ export function SmartSectionTemplateEditorDialog({
     const seeded: Record<string, number> = {};
     for (const t of template.tunables) seeded[t.key] = resolveTunableValue(template, settings, t.key);
     setTunables(seeded);
+    setLaborCrew(settings?.labor_default?.crew_size != null ? String(settings.labor_default.crew_size) : "");
+    setLaborDays(settings?.labor_default?.days != null ? String(settings.labor_default.days) : "");
     // Re-seeds once the settings query resolves too — on a fresh page
     // load the dialog can mount before listSmartSectionSettings returns,
     // and without allSettings here the draft would stay stuck on app
@@ -79,6 +85,10 @@ export function SmartSectionTemplateEditorDialog({
       saveSmartSectionSettings(buildTypeId, {
         line_items: lineItems.filter((li) => li.name.trim() !== ""),
         tunables,
+        labor_default:
+          laborCrew || laborDays
+            ? { crew_size: laborCrew ? Number(laborCrew) : null, days: laborDays ? Number(laborDays) : null }
+            : null,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["smart-section-settings"] });
@@ -110,6 +120,10 @@ export function SmartSectionTemplateEditorDialog({
     });
   const renameLineItem = (index: number, name: string) =>
     setLineItems((items) => items.map((li, i) => (i === index ? { ...li, name } : li)));
+  const setLineItemType = (index: number, cost_type: LineCostType) =>
+    setLineItems((items) =>
+      items.map((li, i) => (i === index ? (cost_type === "material" ? { slot_key: li.slot_key, name: li.name } : { ...li, cost_type }) : li)),
+    );
   const removeLineItem = (index: number) => setLineItems((items) => items.filter((_, i) => i !== index));
   const addLineItem = () => setLineItems((items) => [...items, { slot_key: null, name: "" }]);
 
@@ -142,8 +156,27 @@ export function SmartSectionTemplateEditorDialog({
                     value={li.name}
                     onChange={(e) => renameLineItem(i, e.target.value)}
                     placeholder="Item name"
-                    className="h-9"
+                    className="h-9 min-w-0"
                   />
+                  {li.slot_key ? (
+                    // A calculator slot always computes a material quantity.
+                    <span className="flex h-9 w-[112px] shrink-0 items-center px-3 text-xs font-semibold text-muted-foreground">
+                      Material
+                    </span>
+                  ) : (
+                    <Select value={li.cost_type ?? "material"} onValueChange={(v) => setLineItemType(i, v as LineCostType)}>
+                      <SelectTrigger aria-label="Line type" className="h-9 w-[112px] shrink-0 text-xs font-semibold">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LINE_COST_TYPES.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {COST_TYPE_LABEL[t]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <button
                     type="button"
                     onClick={() => moveLineItem(i, -1)}
@@ -183,7 +216,44 @@ export function SmartSectionTemplateEditorDialog({
             </button>
             <p className="text-[11px] text-muted-subtle">
               A line item added here with no matching calculator slot is name-only, same as step 1 today
-              — the calculator will never fill in a quantity for it.
+              — the calculator will never fill in a quantity for it. Added lines can be a subcontractor,
+              equipment or other cost instead of a material.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-muted-subtle">Labor default</h3>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Crew size</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  value={laborCrew}
+                  onChange={(e) => setLaborCrew(e.target.value)}
+                  placeholder="—"
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Days</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  value={laborDays}
+                  onChange={(e) => setLaborDays(e.target.value)}
+                  placeholder="—"
+                  className="h-9"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-subtle">
+              Pre-fills a new section&apos;s labor block (8 hrs/day at your default labor rate). Leave both
+              blank for no labor.
             </p>
           </div>
 
@@ -220,7 +290,7 @@ export function SmartSectionTemplateEditorDialog({
                 </div>
               ))}
               <p className="text-[11px] text-muted-subtle">
-                Waste % is set per line item on the Materials Sheet itself, not here.
+                Waste % is set per line item on the cost plan itself, not here.
               </p>
             </div>
           )}
@@ -238,8 +308,8 @@ export function SmartSectionTemplateEditorDialog({
               <AlertDialogHeader>
                 <AlertDialogTitle>Reset "{template.label}" to default?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Restores the app's standard line items and calculator numbers for this build type.
-                  Materials Sheets you've already created are not affected.
+                  Restores the app's standard line items, calculator numbers and labor default for this
+                  build type. Cost plans you've already created are not affected.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

@@ -1,78 +1,66 @@
 /**
- * Cost Plan (0085) — the project's predicted job cost, the source of truth
- * every other "predicted cost" figure in the app should agree with:
+ * Cost plan roll-up for a project's Profit Summary — planned vs actual, by
+ * cost type:
  *
- *   Quote -> Cost Plan -> Material Plan / Labor Plan -> Actual Materials +
- *   Labor + Expenses -> Actual Profit
+ *   Quote -> Cost plan (sections: typed lines + labor blocks) -> Actual
+ *   materials + labor + expenses -> Actual profit
  *
- * Materials and Labor are never re-entered here — they're read live from
- * the Materials Sheet (materialTracking.ts's predictedMaterialCost) and
- * the Labor Plan (laborPlan.ts's laborTotals) respectively. This module
- * only owns the three manual groups (Subcontractor/Equipment/Other,
- * cost_plan_items) and the roll-up math that combines all five into one
- * summary. Pure functions over already-fetched data, same convention as
- * financials.ts/materialTracking.ts, so the project page's compact card
- * and the full Cost Plan page can never disagree.
+ * Planned = the project's Cost plan sections (costPlanMath.sumSectionTotals).
+ * Actual  = expenses matched to a type through their expense category's
+ *           cost_type (0103; split expenses per line), + actual labor logged
+ *           on the Labor log, + reconciled material cost once a job is
+ *           Complete. Pure functions over already-fetched data.
  */
 
-import type { ChangeOrder, CostPlanGroup, CostPlanItem, Quote } from "./api";
+import type { ChangeOrder, Expense, ExpenseCategory, Quote } from "./api";
 import { projectContractValue } from "./api";
+import { COST_BUCKETS, sumSectionTotals, type CostBucket, type CostSection, type CostTotals } from "./costPlanMath";
 
-export const COST_PLAN_GROUPS: CostPlanGroup[] = ["subcontractor", "equipment", "other"];
+const zero = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0 });
 
-export const COST_PLAN_GROUP_LABELS: Record<CostPlanGroup, string> = {
-  subcontractor: "Subcontractors",
-  equipment: "Equipment",
-  other: "Other",
-};
-
-export function costPlanGroupItems(items: CostPlanItem[], group: CostPlanGroup): CostPlanItem[] {
-  return items.filter((i) => i.group === group);
+/** Which bucket an expense category's spend counts toward. Uncategorized
+ * spend (or a category from before 0103) counts as "other" — it's real
+ * money out, just not attributable. */
+export function expenseBucket(categoryId: string | null, categories: Pick<ExpenseCategory, "id" | "cost_type">[]): CostBucket {
+  if (!categoryId) return "other";
+  return categories.find((c) => c.id === categoryId)?.cost_type ?? "material";
 }
 
-export function costPlanGroupTotal(items: CostPlanItem[], group: CostPlanGroup): number {
-  return costPlanGroupItems(items, group).reduce((s, i) => s + Number(i.planned_cost), 0);
+/** Actual cost by type: expenses (split per line when split), actual labor
+ * entries, and — once reconciled — the tracked material actual. */
+export function actualCostByType(
+  expenses: Pick<Expense, "amount" | "expense_category_id" | "expense_lines">[],
+  categories: Pick<ExpenseCategory, "id" | "cost_type">[],
+  laborActual = 0,
+  materialActual = 0,
+): CostTotals {
+  const t = zero();
+  for (const e of expenses) {
+    const lines = e.expense_lines ?? [];
+    if (lines.length > 1) {
+      for (const l of lines) t[expenseBucket(l.expense_category_id, categories)] += Number(l.amount) || 0;
+    } else {
+      t[expenseBucket(e.expense_category_id, categories)] += Number(e.amount) || 0;
+    }
+  }
+  t.labor += laborActual;
+  t.material += materialActual;
+  t.total = COST_BUCKETS.reduce((s, k) => s + t[k], 0);
+  return t;
 }
 
 export interface CostPlanSummary {
   contractValue: number;
-  /** Null = no materials sheet started yet ("not started," never $0 —
-   * see predictedMaterialCost's own doc comment). */
-  materialCost: number | null;
-  laborCost: number;
-  subcontractorCost: number;
-  equipmentCost: number;
-  otherCost: number;
-  totalPlannedCost: number;
+  planned: CostTotals;
   /** Null when there's no contract value yet to compare against. */
   projectedProfit: number | null;
   projectedMarginPct: number | null;
 }
 
-export function costPlanSummary(
-  quotes: Quote[],
-  changeOrders: ChangeOrder[],
-  materialCost: number | null,
-  laborPlannedCost: number,
-  costPlanItems: CostPlanItem[],
-): CostPlanSummary {
+export function costPlanSummary(quotes: Quote[], changeOrders: ChangeOrder[], sections: CostSection[]): CostPlanSummary {
   const contractValue = projectContractValue(quotes, changeOrders);
-  const subcontractorCost = costPlanGroupTotal(costPlanItems, "subcontractor");
-  const equipmentCost = costPlanGroupTotal(costPlanItems, "equipment");
-  const otherCost = costPlanGroupTotal(costPlanItems, "other");
-  const totalPlannedCost = (materialCost ?? 0) + laborPlannedCost + subcontractorCost + equipmentCost + otherCost;
-  const projectedProfit = contractValue > 0 ? contractValue - totalPlannedCost : null;
+  const planned = sumSectionTotals(sections);
+  const projectedProfit = contractValue > 0 ? contractValue - planned.total : null;
   const projectedMarginPct = projectedProfit !== null && contractValue > 0 ? (projectedProfit / contractValue) * 100 : null;
-
-  return {
-    contractValue,
-    materialCost,
-    laborCost: laborPlannedCost,
-    subcontractorCost,
-    equipmentCost,
-    otherCost,
-    totalPlannedCost,
-    projectedProfit,
-    projectedMarginPct,
-  };
+  return { contractValue, planned, projectedProfit, projectedMarginPct };
 }

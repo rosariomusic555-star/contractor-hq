@@ -75,7 +75,7 @@ export function SectionTypeChip({
       {materials && (
         <span className={cn("font-normal", !hasMaterials && "text-background/60")}>
           {" · "}
-          {hasMaterials ? `Materials ${formatCurrency(materials.cost)}` : "No materials"}
+          {hasMaterials ? `Cost ${formatCurrency(materials.cost)}` : "No cost linked"}
         </span>
       )}
     </>
@@ -106,12 +106,12 @@ export function SectionTypeChip({
       {materials && (
         <>
           <div className="my-1 border-t border-hairline" />
-          <Group title="Linked materials">
+          <Group title="Linked cost plan sections">
             <Row selected={materials.mode === "auto"} onClick={() => materials.onChange({ mode: "auto", ids: [] })}>
               Auto <span className="ml-1 text-[11px] text-muted-foreground">(match by project type)</span>
             </Row>
             {materials.sheetSections.length === 0 ? (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">This quote's materials sheet has no sections yet.</p>
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">This quote's cost plan has no sections yet.</p>
             ) : (
               materials.sheetSections.map((s) => (
                 <label
@@ -138,7 +138,7 @@ export function SectionTypeChip({
   const trigger = (
     <button
       type="button"
-      aria-label={materials ? "Project type and linked materials" : "Project type"}
+      aria-label={materials ? "Project type and linked cost" : "Project type"}
       title={removed ? `${name} is no longer one of this project's types` : undefined}
       onClick={isMobile ? () => setOpen(true) : undefined}
       className={cn(

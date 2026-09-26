@@ -7,7 +7,7 @@ import {
   wastePercentToReach,
   sortItemsByCost,
 } from "./materialsMath";
-import { materialsCogs } from "./api";
+import { costPlanTotal } from "./costPlanMath";
 import { nextOrderableQuantity } from "./catalogOrdering";
 
 describe("waste math", () => {
@@ -18,10 +18,10 @@ describe("waste math", () => {
     expect(quantityWithWaste("", 5)).toBe(0);
   });
 
-  it("drives the line total and materialsCogs", () => {
+  it("drives the line total and the cost plan total", () => {
     expect(materialsLineTotal({ quantity: 100, unit_cost: 2, waste_percent: 10 })).toBeCloseTo(220);
     const sections = [{ materials_items: [{ quantity: 100, unit_cost: 2, waste_percent: 10 }, { quantity: 5, unit_cost: 7, waste_percent: 0 }] }];
-    expect(materialsCogs(sections as never)).toBeCloseTo(255);
+    expect(costPlanTotal(sections)).toBeCloseTo(255);
   });
 
   it("'Use N' picks the waste % that lands on N, and the nudge then goes away", () => {

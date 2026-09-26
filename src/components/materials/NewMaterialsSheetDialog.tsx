@@ -53,7 +53,7 @@ export function NewMaterialsSheetDialog({
   const createMut = useMutation({
     mutationFn: () =>
       createMaterialsSheetWithSections(projectId, {
-        name: "New materials sheet",
+        name: "New cost plan",
         // Keep the project's order, whatever order they were ticked in.
         seeds: featureSectionSeeds(typeIds.filter((id) => picked.has(id)), categories, smartSettings),
         projectTypeIds: typeIds,
@@ -79,7 +79,7 @@ export function NewMaterialsSheetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm gap-4">
         <DialogHeader>
-          <DialogTitle>New materials sheet</DialogTitle>
+          <DialogTitle>New cost plan</DialogTitle>
           <DialogDescription>
             {types.length > 0
               ? "Which features does this sheet cover? Each one starts as its own section."

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import type { SmartSectionLaborDefault } from "@/lib/api";
+import type { LineCostType } from "@/lib/costPlanMath";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Settings2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -25,7 +27,14 @@ export function SmartSectionDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (buildTypeId: string, label: string, lineItems: string[]) => void;
+  /** The template's lines (names + cost types, this contractor's version)
+   * and its labor default, if any. */
+  onCreate: (
+    buildTypeId: string,
+    label: string,
+    lineItems: { name: string; cost_type: LineCostType }[],
+    labor: SmartSectionLaborDefault | null,
+  ) => void;
 }) {
   const [editingBuildType, setEditingBuildType] = useState<string | null>(null);
   const { data: allSettings = [] } = useQuery({
@@ -45,7 +54,10 @@ export function SmartSectionDialog({
           <div className="space-y-2">
             {SMART_SECTION_TEMPLATES.map((template) => {
               const settings = findSmartSectionSettings(allSettings, template.id);
-              const lineItems = resolveEffectiveLineItems(template, settings).map((li) => li.name);
+              const lineItems = resolveEffectiveLineItems(template, settings).map((li) => ({
+                name: li.name,
+                cost_type: li.cost_type ?? ("material" as const),
+              }));
               return (
                 <div
                   key={template.id}
@@ -54,7 +66,7 @@ export function SmartSectionDialog({
                   <button
                     type="button"
                     onClick={() => {
-                      onCreate(template.id, template.label, lineItems);
+                      onCreate(template.id, template.label, lineItems, settings?.labor_default ?? null);
                       onOpenChange(false);
                     }}
                     className="flex flex-1 items-center justify-between gap-3"

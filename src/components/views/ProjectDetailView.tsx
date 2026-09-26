@@ -48,6 +48,7 @@ import {
   listMaterials,
   listMaterialsSheets,
   listExpenses,
+  listExpenseCategories,
   listChangeOrders,
   listMaterialOrders,
   listProjectEvents,
@@ -58,7 +59,6 @@ import {
   projectContractValue,
   approvedChangeOrderTotal,
   isDepositOverdue,
-  materialsCogs,
   listProjectNotes,
   deleteProjectNote,
   updateClient,
@@ -72,8 +72,6 @@ import {
   reconcileMaterialsItem,
   recordMaterialLearningSnapshot,
   getOpportunityByProjectId,
-  listCostPlanItems,
-  listLaborPlanEntries,
   listLaborEntries,
   listCategories,
   isPreSaleProject,
@@ -104,14 +102,13 @@ import {
   isProjectActive,
   executionTrackedLines,
   currentBaseline,
-  predictedMaterialCost,
   type DeliveryLineWithOrderStatus,
 } from "@/lib/materialTracking";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
 import { demoJobMeta } from "@/lib/demoData";
-import { costPlanSummary } from "@/lib/costPlan";
-import { laborRollupsByScope, laborTotals } from "@/lib/laborPlan";
+import { actualCostByType, costPlanSummary } from "@/lib/costPlan";
+import { COST_BUCKETS, COST_TYPE_GROUP_LABEL, sectionLaborHours, type CostTotals } from "@/lib/costPlanMath";
 import { materialLineLabel } from "@/lib/materialsMath";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -155,7 +152,9 @@ export function ProjectDetailView() {
   // approval or project status — see effectiveEstimate()'s doc comment for
   // how "Estimated" stays a real number (live sheet values) before a real
   // baseline ever gets snapshotted at Won.
-  const trackedLines: MaterialsItem[] = materials.flatMap((s) => s.materials_items);
+  // Tracking is about material lines only (the cost plan also has sub /
+  // equipment / other lines).
+  const trackedLines: MaterialsItem[] = materials.flatMap((s) => s.materials_items).filter((i) => (i.cost_type ?? "material") === "material");
   const trackedLineIds = trackedLines.map((l) => l.id);
   const { data: usageLogs = [] } = useQuery({
     queryKey: ["materials-usage-logs", trackedLineIds],
@@ -167,14 +166,7 @@ export function ProjectDetailView() {
     queryKey: ["opportunity-by-project", id],
     queryFn: () => getOpportunityByProjectId(id),
   });
-  const { data: costPlanItems = [] } = useQuery({
-    queryKey: ["cost-plan-items", { project: id }],
-    queryFn: () => listCostPlanItems(id),
-  });
-  const { data: laborPlanEntries = [] } = useQuery({
-    queryKey: ["labor-plan-entries", { project: id }],
-    queryFn: () => listLaborPlanEntries(id),
-  });
+  const { data: expenseCategories = [] } = useQuery({ queryKey: ["expense-categories"], queryFn: listExpenseCategories });
   const { data: laborEntries = [] } = useQuery({
     queryKey: ["labor-entries", { project: id }],
     queryFn: () => listLaborEntries(id),
@@ -327,16 +319,14 @@ export function ProjectDetailView() {
       })
     : [];
 
-  const materialCost = predictedMaterialCost(materials, materialCostSummary);
   const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
   const laborActualTotal = laborEntries.reduce((s, e) => s + Number(e.cost), 0);
+  const laborActualHours = laborEntries.reduce((s, e) => s + Number(e.hours), 0);
+  const laborPlannedHours = materials.reduce((s, sec) => s + sectionLaborHours(sec), 0);
 
-  // Cost Plan (0085) — the source of truth for predicted cost. Materials
-  // (above) and Labor (laborTotalsResult.plannedCost) are read live, never
-  // re-entered; costPlanItems only ever holds Subcontractor/Equipment/Other.
-  const laborRollups = laborRollupsByScope(laborPlanEntries, laborEntries, categories);
-  const laborTotalsResult = laborTotals(laborRollups);
-  const costPlan = costPlanSummary(quotes, changeOrders, materialCost, laborTotalsResult.plannedCost, costPlanItems);
+  // The Cost plan is the source of truth for predicted cost — every
+  // section's typed lines + labor blocks, by type.
+  const costPlan = costPlanSummary(quotes, changeOrders, materials);
 
   // "Actual" folds in every actual-cost source that's been logged so far —
   // reconciled material cost only once Complete (see materialActualCost's
@@ -345,12 +335,15 @@ export function ProjectDetailView() {
   // has been logged yet ("unknown," never a silent $0 — same convention
   // resolveCost() already documents).
   const hasActualCostData = (project.status === "complete" && materialsFullyReconciled) || expenses.length > 0 || laborEntries.length > 0;
-  const actualCost = hasActualCostData
-    ? (project.status === "complete" && materialsFullyReconciled ? materialCostSummary.actualCost : 0) +
-      expensesTotal +
-      laborActualTotal
-    : null;
-  const predictedCost = costPlan.totalPlannedCost > 0 ? costPlan.totalPlannedCost : null;
+  // Actual, by type — expenses matched through their category's cost type.
+  const actualByType = actualCostByType(
+    expenses,
+    expenseCategories,
+    laborActualTotal,
+    project.status === "complete" && materialsFullyReconciled ? materialCostSummary.actualCost : 0,
+  );
+  const actualCost = hasActualCostData ? actualByType.total : null;
+  const predictedCost = costPlan.planned.total > 0 ? costPlan.planned.total : null;
   const realCost = resolveCost(actualCost, predictedCost);
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
   const marginProfit = realCost != null ? contract - realCost : null;
@@ -370,12 +363,6 @@ export function ProjectDetailView() {
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 5);
 
-  const materialsSummary =
-    materials.length === 0
-      ? "Not started"
-      : materialsSheets.length > 1
-        ? `${pluralize(materialsSheets.length, "sheet")} · ${formatCurrency(materialsCogs(materials))} cost`
-        : `${pluralize(materials.length, "section")} · ${formatCurrency(materialsCogs(materials))} cost`;
   const quotesSummary =
     quotes.length === 0
       ? "Not started"
@@ -398,13 +385,15 @@ export function ProjectDetailView() {
   const materialOrdersSummary =
     materialOrders.length === 0 ? "None yet" : `${pluralize(materialOrders.length, "order")} · ${pendingDeliveryCount} pending`;
   const costPlanSummaryLine =
-    costPlan.totalPlannedCost === 0
+    materialsSheets.length === 0
       ? "Not started"
-      : `${formatCurrency(costPlan.totalPlannedCost)} planned${costPlan.projectedMarginPct != null ? ` · ${costPlan.projectedMarginPct.toFixed(0)}% margin` : ""}`;
+      : `${materialsSheets.length > 1 ? `${pluralize(materialsSheets.length, "cost plan")} · ` : ""}${formatCurrency(costPlan.planned.total)} planned${
+          costPlan.projectedMarginPct != null ? ` · ${costPlan.projectedMarginPct.toFixed(0)}% margin` : ""
+        }`;
   const laborSummary =
-    laborTotalsResult.plannedHours === 0 && laborTotalsResult.actualHours === 0
-      ? "Not started"
-      : `${pluralize(Math.round(laborTotalsResult.plannedHours), "hr")} planned${laborTotalsResult.actualHours > 0 ? ` · ${Math.round(laborTotalsResult.actualHours)} actual` : ""}`;
+    laborPlannedHours === 0 && laborActualHours === 0
+      ? "Nothing logged"
+      : `${pluralize(Math.round(laborPlannedHours), "hr")} planned${laborActualHours > 0 ? ` · ${Math.round(laborActualHours)} actual` : ""}`;
 
   const statusSelect = (
     <Select value={project.status} onValueChange={(v) => statusMutation.mutate(v as ProjectStatus)}>
@@ -544,7 +533,7 @@ export function ProjectDetailView() {
         {/* Main column */}
         <div className="space-y-5 lg:col-span-2">
           {/* Tracking only once the job is Won / in progress — same rule as the
-              materials sheet (isProjectActive). */}
+              cost plan (isProjectActive). */}
           {isProjectActive(project) && (
             <MaterialsTrackingCard
               summary={materialCostSummary}
@@ -558,9 +547,8 @@ export function ProjectDetailView() {
 
           {/* Section nav */}
           <div className="grid gap-3 sm:grid-cols-2">
-            <HubCard title="Cost Plan" summary={costPlanSummaryLine} onOpen={() => navigate(`/projects/${id}/cost-plan`)} />
-            <HubCard title="Labor" summary={laborSummary} onOpen={() => navigate(`/projects/${id}/labor`)} />
-            <HubCard title="Materials sheet" summary={materialsSummary} onOpen={() => navigate(`/projects/${id}/materials`)} />
+            <HubCard title="Cost plan" summary={costPlanSummaryLine} onOpen={() => navigate(`/projects/${id}/materials`)} />
+            <HubCard title="Labor log" summary={laborSummary} onOpen={() => navigate(`/projects/${id}/labor`)} />
             <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
             <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
             <HubCard title="Expenses" summary={expensesSummary} onOpen={() => navigate(`/projects/${id}/expenses`)} />
@@ -584,6 +572,8 @@ export function ProjectDetailView() {
             quoted={contract || null}
             predictedCost={predictedCost}
             actualCost={actualCost}
+            planned={costPlan.planned}
+            actual={hasActualCostData ? actualByType : null}
           />
 
           {/* Costs to date — real logged expenses only */}
@@ -958,11 +948,18 @@ function ProfitSummaryCard({
   quoted,
   predictedCost,
   actualCost,
+  planned,
+  actual,
 }: {
   quoted: number | null;
   predictedCost: number | null;
   actualCost: number | null;
+  /** Cost plan by type (estimated side). */
+  planned: CostTotals;
+  /** Actual spend by type — null until anything's been logged. */
+  actual: CostTotals | null;
 }) {
+  const typeRows = COST_BUCKETS.filter((k) => planned[k] > 0 || (actual?.[k] ?? 0) > 0);
   const money = (v: number | null) => (v === null ? "—" : formatCurrency(v));
   const predictedProfit = quoted !== null && predictedCost !== null ? quoted - predictedCost : null;
   const actualProfit = quoted !== null && actualCost !== null ? quoted - actualCost : null;
@@ -982,6 +979,32 @@ function ProfitSummaryCard({
         <Metric label="Predicted cost" value={money(predictedCost)} />
         <Metric label="Actual cost" value={money(actualCost)} />
       </div>
+      {/* By cost type: the Cost plan's estimate vs actual spend (expenses
+          matched through their category's cost type + logged labor). */}
+      {typeRows.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-hairline text-sm">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+            <span>Type</span>
+            <span className="w-20 text-right">Planned</span>
+            <span className="w-20 text-right">Actual</span>
+            <span className="w-20 text-right">Variance</span>
+          </div>
+          {typeRows.map((k) => {
+            const a = actual?.[k] ?? null;
+            const v = a !== null ? planned[k] - a : null;
+            return (
+              <div key={k} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-t border-hairline px-3 py-1.5 tabular-nums">
+                <span className="font-semibold text-foreground">{COST_TYPE_GROUP_LABEL[k]}</span>
+                <span className="w-20 text-right">{formatCurrency(planned[k])}</span>
+                <span className="w-20 text-right">{a === null ? "—" : formatCurrency(a)}</span>
+                <span className={cn("w-20 text-right font-semibold", v === null ? "text-muted-foreground" : v >= 0 ? "text-success" : "text-destructive")}>
+                  {v === null ? "—" : `${v >= 0 ? "+" : "−"}${formatCurrency(Math.abs(v))}`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {(predictedProfit !== null || actualProfit !== null) && (
         <div className="grid grid-cols-1 gap-4 border-t border-hairline pt-3 sm:grid-cols-2">
           {predictedProfit !== null && (
@@ -1087,11 +1110,11 @@ function MaterialsTrackingCard({
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-bold text-foreground">Materials</h3>
         <button type="button" onClick={onOpen} className="shrink-0 text-xs font-semibold text-primary">
-          Open sheet →
+          Open cost plan →
         </button>
       </div>
       {rows.length === 0 ? (
-        <p className="mt-2 text-sm text-muted-foreground">No tracked materials yet — add lines on the materials sheet.</p>
+        <p className="mt-2 text-sm text-muted-foreground">No tracked materials yet — add lines on the cost plan.</p>
       ) : (
         <>
           <p className="mt-1 text-xs text-muted-foreground">

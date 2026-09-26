@@ -17,7 +17,11 @@
 import {
   approvedChangeOrderTotal,
   invoiceDaysLate,
-  materialsCogs,
+  costPlanTotals,
+  actualCostByType,
+  nonZeroBuckets,
+  type CostSectionLike,
+  type ExpenseLike,
   momChange,
   monthlyRevenue,
   pickHeadlineQuote,
@@ -52,7 +56,7 @@ export const TOOLS = [
   {
     name: "get_project_financials",
     description:
-      "Get the contract total (headline quote + approved change orders), predicted cost (from the Materials Sheet), actual cost-to-date (from logged expenses), and predicted/actual profit and margin for one project. This is the tool for any 'margin', 'profit', or 'how much have I spent on X job' question.",
+      "Get the contract total (headline quote + approved change orders), predicted cost (the project's Cost plan: material, subcontractor, equipment and other lines plus each section's labor), actual cost-to-date (logged expenses matched to a cost type through their expense category, plus labor logged on the Labor log), both broken down by type, and predicted/actual profit and margin for one project. This is the tool for any 'margin', 'profit', or 'how much have I spent on X job' question.",
     input_schema: {
       type: "object",
       properties: { project_id: { type: "string" } },
@@ -296,24 +300,32 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
   const quoted =
     quoteBase != null ? quoteBase + approvedChangeOrderTotal((changeOrders ?? []) as ChangeOrderLike[]) : null;
 
-  const { data: materialsSections, error: mErr } = await sb
+  const { data: costSections, error: mErr } = await sb
     .from("materials_sections")
-    .select("materials_items(quantity,unit_cost,waste_percent)")
+    .select(
+      "labor_mode,labor_crew_size,labor_days,labor_hours_per_day,labor_rate,labor_lump_sum,materials_items(quantity,unit_cost,waste_percent,cost_type)",
+    )
     .eq("project_id", input.project_id);
   if (mErr) throw mErr;
-  // deno-lint-ignore no-explicit-any
-  const materialsItemCount = (materialsSections ?? []).reduce((s: number, sec: any) => s + (sec.materials_items?.length ?? 0), 0);
-  const predictedCost = materialsItemCount > 0 ? materialsCogs(materialsSections ?? []) : null;
+  const sections = (costSections ?? []) as CostSectionLike[];
+  const planned = costPlanTotals(sections);
+  const hasPlan = sections.some((sec) => (sec.materials_items?.length ?? 0) > 0 || !!sec.labor_mode);
+  const predictedCost = hasPlan ? planned.total : null;
 
   const { data: expenses, error: eErr } = await sb
     .from("expenses")
-    .select("name,amount,date,created_at")
+    .select("name,amount,date,created_at,expense_category_id,expense_lines(amount,expense_category_id)")
     .eq("project_id", input.project_id)
     .order("created_at", { ascending: false });
   if (eErr) throw eErr;
+  const { data: expenseCategories, error: ecErr } = await sb.from("expense_categories").select("id,cost_type");
+  if (ecErr) throw ecErr;
+  const { data: laborEntries, error: lErr } = await sb.from("labor_entries").select("cost").eq("project_id", input.project_id);
+  if (lErr) throw lErr;
   // deno-lint-ignore no-explicit-any
-  const expensesTotal = (expenses ?? []).reduce((s: number, e: any) => s + Number(e.amount), 0);
-  const actualCost = (expenses ?? []).length > 0 ? expensesTotal : null;
+  const laborActual = (laborEntries ?? []).reduce((s: number, e: any) => s + Number(e.cost), 0);
+  const actual = actualCostByType((expenses ?? []) as ExpenseLike[], expenseCategories ?? [], laborActual);
+  const actualCost = (expenses ?? []).length > 0 || (laborEntries ?? []).length > 0 ? actual.total : null;
 
   const marginPct = (cost: number | null) =>
     quoted != null && quoted > 0 && cost != null ? Math.round(((quoted - cost) / quoted) * 100) : null;
@@ -328,7 +340,9 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
     // value" every other screen in the app shows for this project.
     contract_total: quoted,
     predicted_cost: predictedCost,
+    predicted_cost_by_type: hasPlan ? nonZeroBuckets(planned) : null,
     actual_cost_to_date: actualCost,
+    actual_cost_by_type: actualCost != null ? nonZeroBuckets(actual) : null,
     predicted_profit: quoted != null && predictedCost != null ? quoted - predictedCost : null,
     predicted_margin_pct: marginPct(predictedCost),
     actual_profit: quoted != null && actualCost != null ? quoted - actualCost : null,

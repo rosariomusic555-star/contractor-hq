@@ -168,7 +168,7 @@ export function RevenueMarginView() {
         <KpiCard
           label="Jobs excluded"
           value={excludedCount}
-          sub="cost unknown — no expenses or materials sheet"
+          sub="cost unknown — no expenses or cost plan"
           subTone={excludedCount > 0 ? "negative" : "muted"}
         />
       </div>

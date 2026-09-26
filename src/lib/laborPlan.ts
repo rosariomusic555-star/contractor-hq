@@ -1,7 +1,6 @@
 /**
- * Labor Plan + Labor Tracking (0085) — planned labor hours/cost per job
- * category ("scope"), the actual hours logged against it once the job
- * runs, and the planned-vs-actual/productivity math both the Labor page
+ * Labor log — planned labor hours/cost per job category ("scope"), the
+ * actual hours logged against it once the job runs, and the planned-vs-actual/productivity math both the Labor page
  * and the project page's compact cards read. Pure functions over
  * already-fetched data, same convention as materialTracking.ts, so a card
  * and its detail page can never disagree.
@@ -9,13 +8,38 @@
  * Scope = the project's existing Job Categories (public.categories) —
  * category_id null reads as "General" (whole-job labor not tied to one
  * scope), not a special/uncategorized case to filter out.
+ *
+ * Planning lives in the Cost plan (0103): each section's labor block is the
+ * plan for that section's job category; the General section (or a section
+ * with no category) plans General labor. See plannedLaborFromSections.
  */
 
-import type { Category, LaborEntry, LaborPlanEntry } from "./api";
+import type { Category, LaborEntry } from "./api";
+import { sectionLaborCost, sectionLaborHours, type LaborBlock } from "./costPlanMath";
 
 export const GENERAL_SCOPE_KEY = "__general__";
 
 const scopeKey = (categoryId: string | null): string => categoryId ?? GENERAL_SCOPE_KEY;
+
+/** Planned labor for one scope. */
+export interface PlannedLabor {
+  category_id: string | null;
+  planned_hours: number | null;
+  planned_cost: number;
+}
+
+/** The Cost plan sections' labor blocks as per-scope planned labor. */
+export function plannedLaborFromSections(
+  sections: (LaborBlock & { job_category_id?: string | null; is_general?: boolean | null })[],
+): PlannedLabor[] {
+  return sections
+    .filter((s) => s.labor_mode)
+    .map((s) => ({
+      category_id: s.is_general ? null : (s.job_category_id ?? null),
+      planned_hours: sectionLaborHours(s),
+      planned_cost: sectionLaborCost(s),
+    }));
+}
 
 export interface ScopeLaborRollup {
   categoryId: string | null;
@@ -31,12 +55,12 @@ export interface ScopeLaborRollup {
   variancePct: number | null;
 }
 
-/** One rollup per scope that has EITHER a plan entry or at least one
+/** One rollup per scope that has EITHER planned labor or at least one
  * actual labor entry — a scope with neither never appears (nothing to
  * show). Sorted by planned cost descending, with the General ("no scope")
  * row always last since it reads as the catch-all, not a primary scope. */
 export function laborRollupsByScope(
-  planEntries: LaborPlanEntry[],
+  planEntries: PlannedLabor[],
   actualEntries: LaborEntry[],
   categories: Category[],
 ): ScopeLaborRollup[] {

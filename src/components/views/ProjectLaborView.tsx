@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Trash2, Plus, X } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,74 +17,27 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { KpiCard } from "@/components/common/KpiCard";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import {
   getProject,
   listCategories,
-  projectCategoryIds,
   listEmployees,
   getBusinessProfile,
-  listLaborPlanEntries,
-  upsertLaborPlanEntry,
-  deleteLaborPlanEntry,
+  listMaterials,
   listLaborEntries,
   createLaborEntry,
   deleteLaborEntry,
   logProjectEvent,
-  type Category,
-  type LaborPlanEntry,
 } from "@/lib/api";
-import { laborRollupsByScope, laborTotals, productivityMetrics, GENERAL_SCOPE_KEY, type ScopeLaborRollup } from "@/lib/laborPlan";
+import { laborRollupsByScope, laborTotals, plannedLaborFromSections, productivityMetrics, GENERAL_SCOPE_KEY, type ScopeLaborRollup } from "@/lib/laborPlan";
 import { BackLink } from "@/components/common/BackLink";
 
 const CUSTOM_WORKER = "__custom__";
 
 const formatDate = (iso: string) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-
-// ---------------------------------------------------------------------------
-// Draft rows for the Labor Plan editor
-// ---------------------------------------------------------------------------
-
-interface DraftRow {
-  key: string; // category id, or GENERAL_SCOPE_KEY
-  categoryId: string | null;
-  serverId: string | null; // existing labor_plan_entries.id, null if unsaved
-  plannedHours: string;
-  hourlyRate: string;
-  plannedCost: string;
-  notes: string;
-}
-
-function seedRows(categories: Category[], projectCatIds: string[], entries: LaborPlanEntry[]): DraftRow[] {
-  const byCategory = new Map(entries.map((e) => [e.category_id ?? GENERAL_SCOPE_KEY, e]));
-  const keys = new Set<string>([...projectCatIds, ...entries.map((e) => e.category_id ?? GENERAL_SCOPE_KEY)]);
-  const rows = [...keys].map((key): DraftRow => {
-    const categoryId = key === GENERAL_SCOPE_KEY ? null : key;
-    const entry = byCategory.get(key);
-    return {
-      key,
-      categoryId,
-      serverId: entry?.id ?? null,
-      plannedHours: entry?.planned_hours != null ? String(entry.planned_hours) : "",
-      hourlyRate: entry?.hourly_rate != null ? String(entry.hourly_rate) : "",
-      plannedCost: entry?.planned_cost != null ? String(entry.planned_cost) : "",
-      notes: entry?.notes ?? "",
-    };
-  });
-  // General always available, even with nothing planned yet.
-  if (!rows.some((r) => r.categoryId === null)) {
-    rows.push({ key: GENERAL_SCOPE_KEY, categoryId: null, serverId: null, plannedHours: "", hourlyRate: "", plannedCost: "", notes: "" });
-  }
-  return rows.sort((a, b) => (a.categoryId === null ? 1 : b.categoryId === null ? -1 : 0));
-}
-
-function rowIsBlank(row: DraftRow): boolean {
-  return !row.plannedHours && !row.hourlyRate && !row.plannedCost && !row.notes.trim();
-}
 
 export function ProjectLaborView() {
   const { id = "" } = useParams();
@@ -95,98 +48,14 @@ export function ProjectLaborView() {
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: employees = [] } = useQuery({ queryKey: ["employees"], queryFn: listEmployees });
   const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
-  const {
-    data: planEntries = [],
-    isLoading: planLoading,
-  } = useQuery({ queryKey: ["labor-plan-entries", { project: id }], queryFn: () => listLaborPlanEntries(id) });
+  // Planned labor = the Cost plan sections' labor blocks.
+  const { data: costPlanSections = [] } = useQuery({ queryKey: ["materials", { project: id }], queryFn: () => listMaterials(id) });
   const { data: actualEntries = [] } = useQuery({
     queryKey: ["labor-entries", { project: id }],
     queryFn: () => listLaborEntries(id),
   });
 
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
-  const projectCatIds = project ? projectCategoryIds(project) : [];
-
-  // Draft + explicit Save (this app's convention for any multi-field
-  // line-item editor — see src/lib/laborPlan.ts's doc comment and
-  // DraftSaveBar). One row per scope, keyed by category id (or
-  // GENERAL_SCOPE_KEY) rather than a synthetic tmp-id — a scope is
-  // naturally unique per project, so there's nothing to diff by identity.
-  const [draft, setDraft] = useState<DraftRow[]>([]);
-  const dirty = useRef(false);
-  const [seeded, setSeeded] = useState(false);
-
-  useEffect(() => {
-    if (dirty.current || !project) return;
-    setDraft(seedRows(categories, projectCatIds, planEntries));
-    setSeeded(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planEntries, project?.id, categories.length]);
-
-  const updateRow = (key: string, patch: Partial<DraftRow>) => {
-    dirty.current = true;
-    setDraft((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  };
-
-  const removeRow = (key: string) => {
-    dirty.current = true;
-    setDraft((rows) => rows.filter((r) => r.key !== key));
-  };
-
-  const addScopeRow = (categoryId: string) => {
-    if (draft.some((r) => r.categoryId === categoryId)) return;
-    dirty.current = true;
-    setDraft((rows) => [
-      ...rows.filter((r) => r.categoryId !== null),
-      { key: categoryId, categoryId, serverId: null, plannedHours: "", hourlyRate: "", plannedCost: "", notes: "" },
-      ...rows.filter((r) => r.categoryId === null),
-    ]);
-  };
-
-  const discardDraft = () => {
-    dirty.current = false;
-    setDraft(seedRows(categories, projectCatIds, planEntries));
-  };
-
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      const serverByKey = new Map(planEntries.map((e) => [e.category_id ?? GENERAL_SCOPE_KEY, e]));
-      for (const row of draft) {
-        const server = serverByKey.get(row.key);
-        const plannedHours = row.plannedHours ? Number(row.plannedHours) : null;
-        const hourlyRate = row.hourlyRate ? Number(row.hourlyRate) : null;
-        const plannedCost = hourlyRate != null && plannedHours != null ? plannedHours * hourlyRate : Number(row.plannedCost) || 0;
-        const changed =
-          !server ||
-          server.planned_hours !== plannedHours ||
-          server.hourly_rate !== hourlyRate ||
-          Number(server.planned_cost) !== plannedCost ||
-          (server.notes ?? "") !== row.notes;
-        if (!changed) continue;
-        if (!server && rowIsBlank(row)) continue; // never persist an empty new row
-        await upsertLaborPlanEntry({
-          project_id: id,
-          category_id: row.categoryId,
-          planned_hours: plannedHours,
-          hourly_rate: hourlyRate,
-          planned_cost: plannedCost,
-          notes: row.notes.trim() || null,
-        });
-      }
-      // A row the user removed that had a server-backed entry — delete it.
-      const draftKeys = new Set(draft.map((r) => r.key));
-      for (const entry of planEntries) {
-        const key = entry.category_id ?? GENERAL_SCOPE_KEY;
-        if (!draftKeys.has(key)) await deleteLaborPlanEntry(entry.id);
-      }
-    },
-    onSuccess: () => {
-      dirty.current = false;
-      qc.invalidateQueries({ queryKey: ["labor-plan-entries", { project: id }] });
-      toast({ title: "Labor Plan saved" });
-    },
-    onError: (err: Error) => toast({ title: "Couldn't save Labor Plan", description: err.message, variant: "destructive" }),
-  });
 
   // ---------------------------------------------------------------------
   // Actual labor log
@@ -251,20 +120,24 @@ export function ProjectLaborView() {
   // Rollups
   // ---------------------------------------------------------------------
 
-  const rollups = laborRollupsByScope(planEntries, actualEntries, categories);
+  const rollups = laborRollupsByScope(plannedLaborFromSections(costPlanSections), actualEntries, categories);
   const totals = laborTotals(rollups);
   const productivity = productivityMetrics(project?.size_sqft, totals);
-
-  const availableCategoriesToAdd = categories.filter((c) => !draft.some((r) => r.categoryId === c.id));
-  const canSave = seeded && dirty.current;
 
   return (
     <div className="animate-fade-in max-w-4xl space-y-6 pb-40 md:pb-24">
       <BackLink to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Back to project</BackLink>
 
       <div>
-        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Labor Plan &amp; Tracking</h1>
+        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Labor log</h1>
         <p className="mt-1 text-muted-foreground">{project?.name ?? " "}</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Planned labor comes from each section&apos;s labor block in the{" "}
+          <Link to={`/projects/${id}/materials`} className="font-semibold text-primary hover:underline">
+            cost plan
+          </Link>
+          .
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -294,44 +167,6 @@ export function ProjectLaborView() {
           </div>
         </div>
       )}
-
-      {/* Labor Plan editor */}
-      <div className="card-surface p-5">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-base font-bold text-foreground">Labor Plan</h3>
-          {availableCategoriesToAdd.length > 0 && (
-            <Select onValueChange={addScopeRow}>
-              <SelectTrigger className="h-8 w-auto gap-1.5 rounded-full border-none bg-muted px-3 text-xs font-semibold text-foreground">
-                <Plus className="h-3.5 w-3.5" />
-                <SelectValue placeholder="Add scope" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableCategoriesToAdd.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-
-        {planLoading ? (
-          <p className="mt-3 text-sm text-muted-foreground">Loading…</p>
-        ) : (
-          <div className="mt-3 space-y-3">
-            {draft.map((row) => (
-              <LaborPlanRow
-                key={row.key}
-                row={row}
-                scopeName={row.categoryId ? (categoryNameById.get(row.categoryId) ?? "Uncategorized") : "General"}
-                onChange={(patch) => updateRow(row.key, patch)}
-                onRemove={row.categoryId === null && draft.length === 1 ? undefined : () => removeRow(row.key)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* Planned vs Actual by scope */}
       {rollups.length > 0 && (
@@ -482,83 +317,6 @@ export function ProjectLaborView() {
         )}
       </div>
 
-      <DraftSaveBar
-        visible={canSave}
-        onDiscard={discardDraft}
-        onSave={() => saveMut.mutate()}
-        saving={saveMut.isPending}
-        label="Unsaved Labor Plan changes"
-      />
-    </div>
-  );
-}
-
-function LaborPlanRow({
-  row,
-  scopeName,
-  onChange,
-  onRemove,
-}: {
-  row: DraftRow;
-  scopeName: string;
-  onChange: (patch: Partial<DraftRow>) => void;
-  onRemove?: () => void;
-}) {
-  const computedCost = row.plannedHours && row.hourlyRate ? Number(row.plannedHours) * Number(row.hourlyRate) : null;
-
-  return (
-    <div className="rounded-xl border border-hairline p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-bold text-foreground">{scopeName}</span>
-        {onRemove && (
-          <button onClick={onRemove} className="text-muted-foreground hover:text-destructive" aria-label={`Remove ${scopeName}`}>
-            <X className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground">Hours</Label>
-          <Input
-            type="number"
-            step="0.5"
-            min="0"
-            value={row.plannedHours}
-            onChange={(e) => onChange({ plannedHours: e.target.value })}
-            className="h-9"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground">Rate $/hr</Label>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            value={row.hourlyRate}
-            onChange={(e) => onChange({ hourlyRate: e.target.value })}
-            className="h-9"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground">Cost</Label>
-          {computedCost != null ? (
-            <p className="flex h-9 items-center text-sm font-semibold text-foreground">{formatCurrency(computedCost)}</p>
-          ) : (
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={row.plannedCost}
-              onChange={(e) => onChange({ plannedCost: e.target.value })}
-              className="h-9"
-            />
-          )}
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[11px] text-muted-foreground">Notes</Label>
-          <Input value={row.notes} onChange={(e) => onChange({ notes: e.target.value })} className="h-9" />
-        </div>
-      </div>
     </div>
   );
 }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { Category, LaborEntry, LaborPlanEntry } from "./api";
-import { GENERAL_SCOPE_KEY, laborRollupsByScope, laborTotals, productivityMetrics } from "./laborPlan";
+import type { Category, LaborEntry } from "./api";
+import {
+  GENERAL_SCOPE_KEY,
+  laborRollupsByScope,
+  laborTotals,
+  plannedLaborFromSections,
+  productivityMetrics,
+  type PlannedLabor,
+} from "./laborPlan";
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${++idCounter}`;
@@ -16,19 +23,8 @@ function makeCategory(overrides: Partial<Category> = {}): Category {
   };
 }
 
-function makePlanEntry(overrides: Partial<LaborPlanEntry> = {}): LaborPlanEntry {
-  return {
-    id: nextId("lpe"),
-    project_id: "project-1",
-    category_id: null,
-    planned_hours: 40,
-    hourly_rate: 75,
-    planned_cost: 3000,
-    notes: null,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-    ...overrides,
-  };
+function makePlanEntry(overrides: Partial<PlannedLabor> = {}): PlannedLabor {
+  return { category_id: null, planned_hours: 40, planned_cost: 3000, ...overrides };
 }
 
 function makeActual(overrides: Partial<LaborEntry> = {}): LaborEntry {
@@ -90,6 +86,24 @@ describe("laborRollupsByScope", () => {
     const plans = [makePlanEntry({ category_id: "ghost", planned_hours: 5, planned_cost: 100 })];
     const rollups = laborRollupsByScope(plans, [], []);
     expect(rollups[0].categoryName).toBe("Uncategorized");
+  });
+});
+
+describe("plannedLaborFromSections", () => {
+  it("reads each Cost plan section's labor block as its scope's plan", () => {
+    const planned = plannedLaborFromSections([
+      { job_category_id: "patio", labor_mode: "crew", labor_crew_size: 3, labor_days: 4, labor_hours_per_day: 8, labor_rate: 30 },
+      { job_category_id: "wall", labor_mode: "lump_sum", labor_lump_sum: 1200 },
+      { job_category_id: "wall", labor_mode: null },
+      { job_category_id: "patio", is_general: true, labor_mode: "crew", labor_crew_size: 1, labor_days: 1, labor_hours_per_day: 8, labor_rate: 50 },
+    ]);
+    expect(planned).toEqual([
+      { category_id: "patio", planned_hours: 96, planned_cost: 2880 },
+      { category_id: "wall", planned_hours: 0, planned_cost: 1200 },
+      { category_id: null, planned_hours: 8, planned_cost: 400 },
+    ]);
+    const rollups = laborRollupsByScope(planned, [], []);
+    expect(rollups.map((r) => r.categoryId)).toEqual(["patio", "wall", null]);
   });
 });
 

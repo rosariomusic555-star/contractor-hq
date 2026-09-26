@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { PortalAuthProvider } from "@/lib/portalAuth";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -18,7 +18,6 @@ import { ProjectsView } from "@/components/views/ProjectsView";
 import { NewProjectView } from "@/components/views/NewProjectView";
 import { ProjectDetailView } from "@/components/views/ProjectDetailView";
 import { ProjectMaterialsView, ProjectMaterialsSheetDetailView } from "@/components/views/ProjectMaterialsView";
-import { ProjectCostPlanView } from "@/components/views/ProjectCostPlanView";
 import { ProjectLaborView } from "@/components/views/ProjectLaborView";
 import { ProjectQuotesView } from "@/components/views/ProjectQuotesView";
 import { ProjectQuoteDetailView } from "@/components/views/ProjectQuoteDetailView";
@@ -84,6 +83,12 @@ function BacklogRedirect() {
   return <Navigate to={`/bookings${location.search}`} replace />;
 }
 
+/** /projects/:id/cost-plan (the removed hub) → the Cost plan builder. */
+function CostPlanRedirect() {
+  const { id = "" } = useParams();
+  return <Navigate to={`/projects/${id}/materials`} replace />;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -125,7 +130,8 @@ const App = () => (
               <Route path="/projects" element={<ProjectsView />} />
               <Route path="/projects/new" element={<NewProjectView />} />
               <Route path="/projects/:id" element={<ProjectDetailView />} />
-              <Route path="/projects/:id/cost-plan" element={<ProjectCostPlanView />} />
+              {/* The old Cost Plan hub — the Cost plan is the builder now. */}
+              <Route path="/projects/:id/cost-plan" element={<CostPlanRedirect />} />
               <Route path="/projects/:id/labor" element={<ProjectLaborView />} />
               <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
               <Route

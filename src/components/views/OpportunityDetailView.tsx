@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { costPlanTotal } from "@/lib/costPlanMath";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -56,7 +57,6 @@ import {
   listMaterialsBySheet,
   listQuotes,
   quoteTotal,
-  materialsCogs,
   createQuoteFromOpportunity,
   addQuoteSection,
   listProjectImages,
@@ -215,7 +215,7 @@ export function OpportunityDetailView() {
         ]);
         const typeIds = projectCategoryIds(project);
         const sheet = await createMaterialsSheetWithSections(projectId, {
-          name: "Materials sheet",
+          name: "Cost plan",
           seeds: costPlanSectionPerType ? featureSectionSeeds(typeIds, allCategories, smartSettings) : [],
           projectTypeIds: typeIds,
         });
@@ -882,7 +882,7 @@ function EstimateCard({
       <h3 className="text-base font-bold text-foreground">Estimate</h3>
 
       {!hasSheet && !hasQuote ? (
-        <p className="text-sm text-muted-foreground">No material sheet or quote yet.</p>
+        <p className="text-sm text-muted-foreground">No cost plan or quote yet.</p>
       ) : (
         <div className="space-y-2">
           {sheets.map((sheet) => (
@@ -914,7 +914,7 @@ function EstimateCard({
         </div>
       )}
 
-      {hasQuote && !hasSheet && <p className="text-xs text-muted-subtle">No material sheet — margin won't be visible.</p>}
+      {hasQuote && !hasSheet && <p className="text-xs text-muted-subtle">No cost plan — margin won't be visible.</p>}
 
       <div className="flex flex-col gap-2 pt-1">
         <Button
@@ -993,7 +993,7 @@ function SheetCostBadge({ sheetId }: { sheetId: string }) {
     queryKey: ["materials-sections", { sheet: sheetId }],
     queryFn: () => listMaterialsBySheet(sheetId),
   });
-  const cost = materialsCogs(sections);
+  const cost = costPlanTotal(sections);
   return <span className="text-sm font-bold tabular-nums text-foreground">{formatCurrency(cost)}</span>;
 }
 

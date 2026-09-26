@@ -11,7 +11,8 @@
  * ========================================================================== */
 
 import type { ChangeOrder, Invoice, MaterialsSection, Project, Quote } from "./api";
-import { approvedChangeOrderTotal, materialsCogs, pickHeadlineQuote, quoteTotal } from "./api";
+import { costPlanHasEntries, costPlanTotal } from "./costPlanMath";
+import { approvedChangeOrderTotal, pickHeadlineQuote, quoteTotal } from "./api";
 import { ALL_TIME_RANGE, invoicedTotal, collectedTotal } from "./financials";
 
 export interface ProjectImpact {
@@ -92,8 +93,8 @@ export function computeProjectImpact(input: {
   const paidToDate = collectedTotal(invoices, ALL_TIME_RANGE);
   const remainingToBill = Math.max(0, revisedContractTotal - invoicedToDate);
 
-  const totalMaterialsItems = materialsSections.reduce((n, s) => n + s.materials_items.length, 0);
-  const costBefore = totalMaterialsItems > 0 ? materialsCogs(materialsSections) : null;
+  // Any planned cost at all (lines or labor) — else "unknown", not $0.
+  const costBefore = costPlanHasEntries(materialsSections) ? costPlanTotal(materialsSections) : null;
   const unknownCostItemCount = thisChangeOrderItemCount;
   // This change order's own new scope is never counted into cost (no cost
   // data source for it — see costAfter's own doc comment above), so

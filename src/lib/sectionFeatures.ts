@@ -1,4 +1,5 @@
-import type { Category, SmartSectionSettings } from "./api";
+import type { Category, SmartSectionLaborDefault, SmartSectionSettings } from "./api";
+import type { LineCostType } from "./costPlanMath";
 import { findSmartSectionSettings, findSmartSectionTemplate, resolveEffectiveLineItems } from "./smartSections";
 import { BUILD_TYPES } from "./buildTypes";
 import { buildTypeForCategoryName } from "./measurements";
@@ -107,8 +108,11 @@ export interface FeatureSectionSeed {
    * (so its header gets the calculator) — null for a feature without a
    * template (Walkway, Drainage…), which starts as a plain named section. */
   smart_section_build_type: string | null;
-  /** Line item names only — blank quantity/price, as Smart Sections start. */
-  itemNames: string[];
+  /** Template lines — names + cost type only, blank quantity/price, as
+   * Smart Sections start. */
+  items: { name: string; cost_type: LineCostType }[];
+  /** The template's labor default (Settings), if any. */
+  labor: SmartSectionLaborDefault | null;
 }
 
 /**
@@ -132,9 +136,13 @@ export function featureSectionSeeds(
       name: cat.name,
       job_category_id: cat.id,
       smart_section_build_type: template?.id ?? null,
-      itemNames: template
-        ? resolveEffectiveLineItems(template, findSmartSectionSettings(smartSettings, template.id)).map((li) => li.name)
+      items: template
+        ? resolveEffectiveLineItems(template, findSmartSectionSettings(smartSettings, template.id)).map((li) => ({
+            name: li.name,
+            cost_type: li.cost_type ?? "material",
+          }))
         : [],
+      labor: template ? (findSmartSectionSettings(smartSettings, template.id)?.labor_default ?? null) : null,
     });
   }
   return seeds;

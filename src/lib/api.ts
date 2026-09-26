@@ -3,6 +3,8 @@ import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
 import type { FeatureInstance, MeasurementRow } from "./measurements";
 import type { FeatureSectionSeed } from "./sectionFeatures";
+import type { CostBucket, LaborMode, LineCostType } from "./costPlanMath";
+import { LUMP_SUM_UNIT } from "./costPlanMath";
 import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
 /** Private Storage bucket (0023) holding both quote-item and project
@@ -409,6 +411,10 @@ export interface ExpenseCategory {
   name: string;
   sort_order: number;
   created_at: string;
+  /** Which cost-plan bucket this category's spend counts toward (0103) —
+   * defaulted from the name, editable in Settings. Null/undefined before
+   * 0103 reads as material. */
+  cost_type?: CostBucket | null;
 }
 
 /** A user's own saved material (Settings > Price Book), picked from the
@@ -553,6 +559,13 @@ export interface MaterialsItem {
   quantity: number;
   unit_cost: number;
   sort_order: number;
+  /** Cost plan line type (0103): material (default — every line before
+   * 0103), subcontractor, equipment, other. Only material lines have
+   * waste %, Catalog, tracking and the order sheet. Undefined before 0103
+   * reads as material. */
+  cost_type?: LineCostType;
+  /** Vendor / sub name for a non-material line (0103). */
+  vendor?: string | null;
   /** Optional cost category (Settings > Expense categories). Null = uncategorized. */
   expense_category_id: string | null;
   /** Order Sheet material category (0089) — see ORDER_SHEET_CATEGORIES.
@@ -630,6 +643,17 @@ export interface MaterialsItemBaseline {
   created_at: string;
 }
 
+/** A Cost plan section's labor block columns (0103). */
+export interface SectionLaborFields {
+  labor_mode: LaborMode | null;
+  labor_crew_size: number | null;
+  labor_days: number | null;
+  labor_hours_per_day: number | null;
+  labor_rate: number | null;
+  labor_lump_sum: number | null;
+  labor_notes: string | null;
+}
+
 export interface MaterialsSection {
   id: string;
   // Denormalized whole-project key (0003) — unchanged meaning, still what
@@ -651,6 +675,18 @@ export interface MaterialsSection {
   /** Project-type tag (0094) — one of the project's own Job Categories
    * (Settings > Categories). Null = untagged. Undefined before 0094. */
   job_category_id?: string | null;
+  /** The cost plan's one project-wide section (0103) — pinned last, can't
+   * be deleted. */
+  is_general?: boolean;
+  /** Labor block (0103) — see costPlanMath.sectionLaborCost. Null mode =
+   * no labor planned. */
+  labor_mode?: LaborMode | null;
+  labor_crew_size?: number | null;
+  labor_days?: number | null;
+  labor_hours_per_day?: number | null;
+  labor_rate?: number | null;
+  labor_lump_sum?: number | null;
+  labor_notes?: string | null;
   materials_items: MaterialsItem[];
 }
 
@@ -1080,17 +1116,6 @@ export function isDepositOverdue(
   return paidTotal < depositAmount;
 }
 
-/** Materials cost of goods = sum of every line's waste-adjusted quantity ×
- * unit_cost (materialsLineTotal). */
-export function materialsCogs(sections: MaterialsSection[] = []): number {
-  let total = 0;
-  for (const section of sections) {
-    for (const item of section.materials_items ?? []) {
-      total += materialsLineTotal(item);
-    }
-  }
-  return total;
-}
 
 /** A customer's realized revenue — paid invoices only (0048), same
  * revenue-recognition rule as everywhere else in the app that talks
@@ -1720,7 +1745,7 @@ export async function createExpenseCategory(input: {
 
 export async function updateExpenseCategory(
   id: string,
-  patch: Partial<Pick<ExpenseCategory, "name" | "sort_order">>,
+  patch: Partial<Pick<ExpenseCategory, "name" | "sort_order" | "cost_type">>,
 ): Promise<void> {
   const { error } = await supabase.from("expense_categories").update(patch).eq("id", id);
   if (error) throw error;
@@ -1940,7 +1965,7 @@ export async function createMaterialsSheet(
     .from("materials_sheets")
     .insert({
       project_id: projectId,
-      name: input.name?.trim() || "Materials sheet",
+      name: input.name?.trim() || "Cost plan",
       sort_order: input.sort_order ?? 0,
       // Only sent when given, so creating a sheet still works before 0100.
       ...(input.feature_category_ids ? { feature_category_ids: input.feature_category_ids } : {}),
@@ -1960,8 +1985,20 @@ export async function createMaterialsSheet(
  */
 export async function createMaterialsSheetWithSections(
   projectId: string,
-  input: { name?: string; sort_order?: number; seeds: FeatureSectionSeed[]; projectTypeIds: string[] },
+  input: {
+    name?: string;
+    sort_order?: number;
+    seeds: FeatureSectionSeed[];
+    projectTypeIds: string[];
+    /** For a template's labor default — the contractor's labor rate.
+     * Read from the business profile when not passed. */
+    laborRate?: number;
+  },
 ): Promise<MaterialsSheet> {
+  let laborRate = input.laborRate;
+  if (laborRate == null && input.seeds.some((s) => s.labor && (s.labor.crew_size || s.labor.days))) {
+    laborRate = (await getBusinessProfile().catch(() => null))?.default_labor_rate ?? undefined;
+  }
   const sheet = await createMaterialsSheet(projectId, {
     name: input.name,
     sort_order: input.sort_order,
@@ -1973,21 +2010,33 @@ export async function createMaterialsSheetWithSections(
       sort_order: i,
       smart_section_build_type: seed.smart_section_build_type,
       job_category_id: seed.job_category_id,
+      ...(seed.labor && (seed.labor.crew_size || seed.labor.days)
+        ? {
+            labor_mode: "crew" as const,
+            labor_crew_size: seed.labor.crew_size,
+            labor_days: seed.labor.days,
+            labor_hours_per_day: 8,
+            labor_rate: laborRate ?? null,
+          }
+        : {}),
     });
-    if (seed.itemNames.length === 0) continue;
+    if (seed.items.length === 0) continue;
     const { error } = await supabase.from("materials_items").insert(
-      seed.itemNames.map((name, j) => ({
+      seed.items.map((item, j) => ({
         section_id: section.id,
-        name,
-        quantity: 0,
+        name: item.name,
+        quantity: item.cost_type === "material" ? 0 : 1,
         unit_cost: 0,
         sort_order: j,
         waste_percent: 0,
-        tracked: true,
+        tracked: item.cost_type === "material",
+        ...(item.cost_type !== "material" ? { cost_type: item.cost_type, unit: LUMP_SUM_UNIT } : {}),
       })),
     );
     if (error) throw error;
   }
+  // Every cost plan has its one project-wide section, pinned last.
+  await createMaterialsSection(projectId, sheet.id, { name: "General", sort_order: input.seeds.length, is_general: true });
   return sheet;
 }
 
@@ -2033,17 +2082,26 @@ export async function listMaterialsBySheet(sheetId: string): Promise<MaterialsSe
 export async function createMaterialsSection(
   projectId: string,
   sheetId: string,
-  input: { name: string; sort_order?: number; smart_section_build_type?: string | null; job_category_id?: string | null },
+  input: {
+    name: string;
+    sort_order?: number;
+    smart_section_build_type?: string | null;
+    job_category_id?: string | null;
+    is_general?: boolean;
+  } & Partial<SectionLaborFields>,
 ): Promise<MaterialsSection> {
+  const { name, sort_order, smart_section_build_type, job_category_id, is_general, ...labor } = input;
   const { data, error } = await supabase
     .from("materials_sections")
     .insert({
       project_id: projectId,
       sheet_id: sheetId,
-      name: input.name,
-      sort_order: input.sort_order ?? 0,
-      smart_section_build_type: input.smart_section_build_type ?? null,
-      ...(input.job_category_id ? { job_category_id: input.job_category_id } : {}),
+      name,
+      sort_order: sort_order ?? 0,
+      smart_section_build_type: smart_section_build_type ?? null,
+      ...(job_category_id ? { job_category_id } : {}),
+      ...(is_general ? { is_general: true } : {}),
+      ...labor,
     })
     .select("*, materials_items(*)")
     .single();
@@ -2053,7 +2111,7 @@ export async function createMaterialsSection(
 
 export async function updateMaterialsSection(
   id: string,
-  patch: Partial<Pick<MaterialsSection, "name" | "sort_order" | "job_category_id">>,
+  patch: Partial<Pick<MaterialsSection, "name" | "sort_order" | "job_category_id"> & SectionLaborFields>,
 ): Promise<void> {
   const { error } = await supabase.from("materials_sections").update(patch).eq("id", id);
   if (error) throw error;
@@ -2082,6 +2140,8 @@ export async function addMaterialsItem(
     tracked?: boolean;
     color?: string | null;
     material_category_id?: string | null;
+    cost_type?: LineCostType;
+    vendor?: string | null;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -2105,6 +2165,8 @@ export async function addMaterialsItem(
       // 0093 (which adds the column) has been run.
       ...(input.color ? { color: input.color } : {}),
       ...(input.material_category_id ? { material_category_id: input.material_category_id } : {}),
+      ...(input.cost_type && input.cost_type !== "material" ? { cost_type: input.cost_type } : {}),
+      ...(input.vendor ? { vendor: input.vendor } : {}),
     })
     .select()
     .single();
@@ -2132,6 +2194,8 @@ export async function updateMaterialsItem(
       | "tracked"
       | "color"
       | "material_category_id"
+      | "cost_type"
+      | "vendor"
     >
   >,
 ): Promise<void> {
@@ -2210,18 +2274,28 @@ export async function recordMaterialLearningSnapshot(input: {
 export interface SmartSectionLineItemSetting {
   slot_key: string | null;
   name: string;
+  /** Non-material template lines (e.g. "Skid steer rental" as equipment).
+   * Absent = material. */
+  cost_type?: LineCostType;
+}
+
+/** A Smart Section template's optional labor default (0103). */
+export interface SmartSectionLaborDefault {
+  crew_size: number | null;
+  days: number | null;
 }
 
 export interface SmartSectionSettings {
   build_type: string;
   line_items: SmartSectionLineItemSetting[] | null;
   tunables: Record<string, number>;
+  labor_default?: SmartSectionLaborDefault | null;
 }
 
 export async function listSmartSectionSettings(): Promise<SmartSectionSettings[]> {
   const { data, error } = await supabase
     .from("smart_section_settings")
-    .select("build_type, line_items, tunables");
+    .select("build_type, line_items, tunables, labor_default");
   if (error) {
     if (error.code === "PGRST205") return [];
     throw error;
@@ -2230,12 +2304,17 @@ export async function listSmartSectionSettings(): Promise<SmartSectionSettings[]
     build_type: r.build_type,
     line_items: r.line_items ?? null,
     tunables: r.tunables ?? {},
+    labor_default: r.labor_default ?? null,
   }));
 }
 
 export async function saveSmartSectionSettings(
   buildType: string,
-  patch: { line_items?: SmartSectionLineItemSetting[]; tunables?: Record<string, number> },
+  patch: {
+    line_items?: SmartSectionLineItemSetting[];
+    tunables?: Record<string, number>;
+    labor_default?: SmartSectionLaborDefault | null;
+  },
 ): Promise<void> {
   const { error } = await supabase
     .from("smart_section_settings")
@@ -5386,162 +5465,12 @@ export async function saveProjectMeasurements(
 }
 
 // ---------------------------------------------------------------------------
-// Cost Plan (0085) — the project's predicted job cost. Materials and Labor
-// are never stored here (see the migration's header comment) — this table
-// only ever holds the three manual groups. See src/lib/costPlan.ts for the
-// pure math that rolls this up alongside the live Materials/Labor figures
-// into one Cost Plan summary.
-// ---------------------------------------------------------------------------
-
-export type CostPlanGroup = "subcontractor" | "equipment" | "other";
-
-export interface CostPlanItem {
-  id: string;
-  project_id: string;
-  group: CostPlanGroup;
-  name: string;
-  planned_cost: number;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export async function listCostPlanItems(projectId: string): Promise<CostPlanItem[]> {
-  const { data, error } = await supabase
-    .from("cost_plan_items")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("sort_order")
-    .order("created_at");
-  if (error) {
-    if (error.code === "PGRST205") return [];
-    throw error;
-  }
-  return (data ?? []).map((row) => ({ ...row, group: row.group as CostPlanGroup }));
-}
-
-export async function createCostPlanItem(input: {
-  project_id: string;
-  group: CostPlanGroup;
-  name: string;
-  planned_cost: number;
-}): Promise<CostPlanItem> {
-  const { data, error } = await supabase
-    .from("cost_plan_items")
-    .insert({
-      project_id: input.project_id,
-      group: input.group,
-      name: input.name,
-      planned_cost: input.planned_cost,
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return { ...data, group: data.group as CostPlanGroup };
-}
-
-export async function updateCostPlanItem(
-  id: string,
-  patch: Partial<Pick<CostPlanItem, "name" | "planned_cost">>,
-): Promise<void> {
-  const { error } = await supabase.from("cost_plan_items").update(patch).eq("id", id);
-  if (error) throw error;
-}
-
-export async function deleteCostPlanItem(id: string): Promise<void> {
-  const { error } = await supabase.from("cost_plan_items").delete().eq("id", id);
-  if (error) throw error;
-}
-
-// ---------------------------------------------------------------------------
-// Labor Plan + Labor Tracking (0085) — planned hours/cost per job category
-// ("scope"), and the actual hours logged against it once the job runs. See
+// Labor log (0085) — actual hours logged against a job category ("scope")
+// once the job runs. Planned labor lives on the Cost plan sections' labor
+// blocks (0103); the old cost_plan_items / labor_plan_entries tables were
+// moved into the cost plan by 0104 and are no longer read. See
 // src/lib/laborPlan.ts for the planned-vs-actual and productivity math.
 // ---------------------------------------------------------------------------
-
-/** One row per (project, scope) — category_id null = "General" (whole-job
- * labor not tied to a single job category). planned_hours/hourly_rate are
- * optional helpers; planned_cost is always the number every other screen
- * reads (see the migration's header comment). */
-export interface LaborPlanEntry {
-  id: string;
-  project_id: string;
-  category_id: string | null;
-  planned_hours: number | null;
-  hourly_rate: number | null;
-  planned_cost: number;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export async function listLaborPlanEntries(projectId: string): Promise<LaborPlanEntry[]> {
-  const { data, error } = await supabase
-    .from("labor_plan_entries")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("created_at");
-  if (error) {
-    if (error.code === "PGRST205") return [];
-    throw error;
-  }
-  return data ?? [];
-}
-
-/** At most one plan row per scope per project (see the migration's unique
- * indexes) — select-then-write rather than a DB-level upsert so this works
- * uniformly whether category_id is a real id or null ("General"), which
- * `.upsert()`'s single-column conflict target can't express cleanly. A
- * planned_hours/hourly_rate/planned_cost of 0 with empty notes still
- * writes an explicit zero row (the caller — the Labor Plan draft save —
- * decides whether a blank row is worth persisting at all). */
-export async function upsertLaborPlanEntry(input: {
-  project_id: string;
-  category_id: string | null;
-  planned_hours: number | null;
-  hourly_rate: number | null;
-  planned_cost: number;
-  notes: string | null;
-}): Promise<LaborPlanEntry> {
-  let existing = supabase
-    .from("labor_plan_entries")
-    .select("id")
-    .eq("project_id", input.project_id);
-  existing = input.category_id ? existing.eq("category_id", input.category_id) : existing.is("category_id", null);
-  const { data: existingRow, error: findError } = await existing.maybeSingle();
-  if (findError) throw findError;
-
-  const values = {
-    planned_hours: input.planned_hours,
-    hourly_rate: input.hourly_rate,
-    planned_cost: input.planned_cost,
-    notes: input.notes,
-  };
-
-  if (existingRow) {
-    const { data, error } = await supabase
-      .from("labor_plan_entries")
-      .update(values)
-      .eq("id", existingRow.id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
-  }
-
-  const { data, error } = await supabase
-    .from("labor_plan_entries")
-    .insert({ project_id: input.project_id, category_id: input.category_id, ...values })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-export async function deleteLaborPlanEntry(id: string): Promise<void> {
-  const { error } = await supabase.from("labor_plan_entries").delete().eq("id", id);
-  if (error) throw error;
-}
 
 /** Actual labor logged in the field. `employee_id` links a real
  * Employee-Only Mode login; `worker_name` is free text for a crew member
