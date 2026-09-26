@@ -1,4 +1,5 @@
 import { materialsLineTotal } from "./materialsMath";
+import { countsTowardTotals, type FeatureStatus } from "./features";
 
 /**
  * The Cost plan's money math — one module every screen reads, so the
@@ -122,6 +123,10 @@ export interface CostSection extends LaborBlock {
   /** DB rows call it materials_items; the builder draft calls it items. */
   materials_items?: CostLine[];
   items?: CostLine[];
+  /** The section's feature (0105), when it has one. A proposed (add-on not
+   * yet approved) or removed feature's section never counts toward the
+   * project's totals — see countsTowardTotals. */
+  feature?: { status: FeatureStatus } | null;
 }
 
 /** One section's planned cost, by type. */
@@ -134,10 +139,12 @@ export function sectionTotals(section: CostSection): CostTotals {
 }
 
 /** Several sections (a whole cost plan, or a quote section's linked
- * sections), by type. */
-export function sumSectionTotals(sections: CostSection[]): CostTotals {
+ * sections), by type. Proposed / removed features' sections are left out
+ * unless `all` — the add-on quote's own cost is the one place that wants
+ * them. */
+export function sumSectionTotals(sections: CostSection[], opts: { all?: boolean } = {}): CostTotals {
   const t = emptyTotals();
-  for (const s of sections) {
+  for (const s of opts.all ? sections : sections.filter(countsTowardTotals)) {
     const st = sectionTotals(s);
     for (const k of COST_BUCKETS) t[k] += st[k];
   }
@@ -153,7 +160,7 @@ export function costPlanTotal(sections: CostSection[] = []): number {
 
 /** Whether a cost plan has anything planned in it at all. */
 export function costPlanHasEntries(sections: CostSection[] = []): boolean {
-  return sections.some((s) => (s.materials_items ?? s.items ?? []).length > 0 || hasLabor(s));
+  return sections.filter(countsTowardTotals).some((s) => (s.materials_items ?? s.items ?? []).length > 0 || hasLabor(s));
 }
 
 /** "Materials $4,200 · Labor $2,880 · Subs $1,500 · Equip $900" — only the

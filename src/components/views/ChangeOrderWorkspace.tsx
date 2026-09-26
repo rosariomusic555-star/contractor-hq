@@ -34,7 +34,6 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
-import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
@@ -48,7 +47,6 @@ import {
   listInvoices,
   listMaterials,
   listMaterialsSheets,
-  linkMaterialSheetToChangeOrder,
   listCategories,
   getQuoteDefaults,
   QUOTE_DEFAULTS_FALLBACK,
@@ -161,29 +159,6 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: projectId }], queryFn: () => listInvoices(projectId) });
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: projectId }], queryFn: () => listMaterials(projectId) });
-  const { data: sheets = [] } = useQuery({
-    queryKey: ["materials-sheets", { project: projectId }],
-    queryFn: () => listMaterialsSheets(projectId),
-  });
-  const linkedSheet = sheets.find((s) => s.id === changeOrder.material_sheet_id);
-  const [linkSheetOpen, setLinkSheetOpen] = useState(false);
-  const linkSheetMut = useMutation({
-    mutationFn: (sheetId: string) => linkMaterialSheetToChangeOrder(changeOrder.id, sheetId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["change-order", changeOrder.id] });
-      qc.invalidateQueries({ queryKey: ["change-orders"] });
-      setLinkSheetOpen(false);
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-  const unlinkSheetMut = useMutation({
-    mutationFn: () => linkMaterialSheetToChangeOrder(changeOrder.id, null),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["change-order", changeOrder.id] });
-      qc.invalidateQueries({ queryKey: ["change-orders"] });
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
 
   // --- draft state --------------------------------------------------------
   const [draft, setDraft] = useState<ChangeOrderDraft>(() => seed(changeOrder));
@@ -596,40 +571,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             </button>
           </div>
         </div>
-        <LinkedDocumentBar
-          targetLabel="cost plan"
-          linked={linkedSheet ? { label: `Linked to "${linkedSheet.name}"` } : null}
-          onLink={() => setLinkSheetOpen(true)}
-          onUnlink={() => unlinkSheetMut.mutate()}
-        />
       </div>
-
-      <Dialog open={linkSheetOpen} onOpenChange={setLinkSheetOpen}>
-        <DialogContent className="max-w-sm gap-4">
-          <DialogHeader>
-            <DialogTitle>Link a cost plan</DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-muted-foreground">
-            Approving this change order starts tracking the linked sheet's estimate against real deliveries and usage.
-          </p>
-          <div className="max-h-[50vh] space-y-2 overflow-y-auto">
-            {sheets.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No cost plans on this project yet.</p>
-            ) : (
-              sheets.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => linkSheetMut.mutate(s.id)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-primary/5"
-                >
-                  <span className="text-sm font-semibold text-foreground">{s.name}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         {/* Left column — sections + reason/notes/schedule */}

@@ -49,7 +49,8 @@ import {
   listCategories,
   listMaterialsSheets,
   listSmartSectionSettings,
-  createMaterialsSheetWithSections,
+  getOrCreateCostPlan,
+  addFeatureQuoteSections,
   pickHeadlineQuote,
   type MaterialsSheet,
   type Quote,
@@ -69,7 +70,7 @@ import {
   listAppointmentsForOpportunity,
   opportunityCategoryIds,
   setOpportunityCategories,
-  setProjectCategories,
+  setProjectFeatureTypes,
   type Opportunity,
   type OpportunityStage,
   type ActivityKind,
@@ -86,7 +87,6 @@ import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog, EditAppointmentDialog } from "@/components/views/AppointmentsView";
 import { overdueSiteVisit, siteVisitDateLabel } from "@/lib/siteVisitCheck";
 import { appointmentWhenLabel } from "@/lib/appointmentTime";
-import { featureSectionSeeds } from "@/lib/sectionFeatures";
 import { invalidateAppointmentQueries } from "@/lib/appointmentQueries";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -149,6 +149,8 @@ export function OpportunityDetailView() {
     invalidate();
     qc.invalidateQueries({ queryKey: ["opportunities"] });
     qc.invalidateQueries({ queryKey: ["projects"] });
+    qc.invalidateQueries({ queryKey: ["project-features"] });
+    qc.invalidateQueries({ queryKey: ["materials"] });
   };
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
@@ -192,50 +194,26 @@ export function OpportunityDetailView() {
   // Lazily creates the project the first time anything job-related happens
   // here (first cost plan, quote, photo or measurement) — see
   // getOrCreateOpportunityProject's own doc comment (api.ts). Shared by the
-  // Estimate card and the stage banner's "Create cost plan" action. A cost
-  // plan isn't its own record — every project has one (it rolls up the
-  // project's Materials + Labor), so "creating" it means making sure the
-  // project exists, starting its first materials sheet if it has none yet,
-  // and opening the project's Cost Plan page. The sheet starts with one
-  // Smart Section per project type unless the Estimate card's
-  // "Start the cost plan with a section per project type" box is unticked.
-  const [costPlanSectionPerType, setCostPlanSectionPerType] = useState(true);
+  // Estimate card and the stage banner's "Create cost plan" action. Every
+  // project has exactly one Cost plan (0106); the first open creates it with
+  // one section per project feature plus General (getOrCreateCostPlan).
   const openCostPlanMut = useMutation({
     mutationFn: async () => {
       const projectId = await getOrCreateOpportunityProject(id);
-      // Re-checked here, not just from the cache, so a double click or a
-      // stale page can never create a second sheet.
-      const sheets = await listMaterialsSheets(projectId);
-      if (sheets.length > 0) return { projectId, sheets };
-      {
-        const [project, allCategories, smartSettings] = await Promise.all([
-          getProject(projectId),
-          qc.fetchQuery({ queryKey: ["categories"], queryFn: listCategories }),
-          qc.fetchQuery({ queryKey: ["smart-section-settings"], queryFn: listSmartSectionSettings }),
-        ]);
-        const typeIds = projectCategoryIds(project);
-        const sheet = await createMaterialsSheetWithSections(projectId, {
-          name: "Cost plan",
-          seeds: costPlanSectionPerType ? featureSectionSeeds(typeIds, allCategories, smartSettings) : [],
-          projectTypeIds: typeIds,
-        });
-        return { projectId, sheets: [sheet] };
-      }
+      await getOrCreateCostPlan(projectId);
+      return projectId;
     },
-    onSuccess: ({ projectId, sheets }) => {
+    onSuccess: (projectId) => {
       invalidateProjectLink();
       qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
       qc.invalidateQueries({ queryKey: ["materials", { project: projectId }] });
-      openSheet(projectId, sheets);
+      navigate(`/projects/${projectId}/materials`);
     },
     onError,
   });
-  // One sheet → straight into it; several → the project's sheet list.
-  const openSheet = (projectId: string, sheets: { id: string }[]) =>
-    navigate(sheets.length === 1 ? `/projects/${projectId}/materials/${sheets[0].id}` : `/projects/${projectId}/materials`);
   /** "Create cost plan" / "Open cost plan" everywhere on this page. */
   const openOrCreateCostPlan = () =>
-    opportunity?.project_id && hasCostPlan ? openSheet(opportunity.project_id, estimateSheets) : openCostPlanMut.mutate();
+    opportunity?.project_id && hasCostPlan ? navigate(`/projects/${opportunity.project_id}/materials`) : openCostPlanMut.mutate();
   /** "Create quote" / "Open quote": the headline quote once one exists. */
   const openOrCreateQuote = (withSectionPerType: boolean) => {
     const headline = pickHeadlineQuote(estimateQuotes);
@@ -271,13 +249,16 @@ export function OpportunityDetailView() {
     mutationFn: async (withSectionPerType: boolean) => {
       const quote = await createQuoteFromOpportunity(opportunity!);
       if (withSectionPerType) {
-        // Computed here (not from the render-scope categoryIds, which is
-        // defined below the page's loading return).
-        const types = opportunityCategoryIds(opportunity!)
-          .map((cid) => categories.find((c) => c.id === cid))
-          .filter((c): c is NonNullable<typeof c> => !!c);
-        for (const [i, t] of types.entries()) {
-          await addQuoteSection(quote.id, { name: t.name, sort_order: i, job_category_id: t.id });
+        // One section per project feature (0105); before 0105 (no feature
+        // records yet) one per project type, as before.
+        const added = quote.project_id ? await addFeatureQuoteSections(quote.id, quote.project_id, categories) : 0;
+        if (added === 0) {
+          const types = opportunityCategoryIds(opportunity!)
+            .map((cid) => categories.find((c) => c.id === cid))
+            .filter((c): c is NonNullable<typeof c> => !!c);
+          for (const [i, t] of types.entries()) {
+            await addQuoteSection(quote.id, { name: t.name, sort_order: i, job_category_id: t.id });
+          }
         }
       }
       return quote;
@@ -294,7 +275,7 @@ export function OpportunityDetailView() {
   const categoriesMut = useMutation({
     mutationFn: (categoryIds: string[]) =>
       opportunity?.project_id
-        ? setProjectCategories(opportunity.project_id, categoryIds)
+        ? setProjectFeatureTypes(opportunity.project_id, categoryIds)
         : setOpportunityCategories(id, categoryIds),
     onSuccess: invalidateProjectLink,
     onError,
@@ -555,8 +536,6 @@ export function OpportunityDetailView() {
             sheets={estimateSheets}
             quotes={estimateQuotes}
             categoryNames={categoryNames}
-            costPlanSectionPerType={costPlanSectionPerType}
-            onCostPlanSectionPerTypeChange={setCostPlanSectionPerType}
             openingCostPlan={openCostPlanMut.isPending}
             creatingQuote={createQuoteMut.isPending}
             onCostPlan={openOrCreateCostPlan}
@@ -826,8 +805,8 @@ function LeadSourceField({ value, onChange }: { value: string | null; onChange: 
  * (with its total, and the quote's status). The buttons follow what
  * exists — useEstimateDocs(), the one check shared with the stage banner
  * and the Appointments card:
- *   - "Create cost plan" → "Open cost plan" once a sheet exists (never a
- *     second sheet by accident).
+ *   - "Create cost plan" → "Open cost plan" once it exists (a project has
+ *     exactly one; it starts with a section per project feature).
  *   - "Create quote" → "Open quote" once a quote exists.
  * Extra sheets/quotes are added from the project and the builders, not here.
  *   - Exactly one green primary, the next step: no sheet → Create cost plan;
@@ -841,8 +820,6 @@ function EstimateCard({
   sheets,
   quotes,
   categoryNames,
-  costPlanSectionPerType,
-  onCostPlanSectionPerTypeChange,
   openingCostPlan,
   creatingQuote,
   onCostPlan,
@@ -855,10 +832,6 @@ function EstimateCard({
   /** Selected job types (Details card's Project types field), offered as a
    * starting structure — see the "start with a section per type" boxes. */
   categoryNames: string[];
-  /** "Start the cost plan with a section per project type" — owned by the
-   * page so the stage banner's "Create cost plan" honors it too. */
-  costPlanSectionPerType: boolean;
-  onCostPlanSectionPerTypeChange: (v: boolean) => void;
   openingCostPlan: boolean;
   creatingQuote: boolean;
   /** Open the existing sheet, or create the first one. */
@@ -873,7 +846,6 @@ function EstimateCard({
   // are almost always a revision or a second option.
   const [preAddSections, setPreAddSections] = useState(true);
   const offerPreAdd = categoryNames.length > 0 && !hasQuote;
-  const offerCostPlanSections = categoryNames.length > 0 && !hasSheet;
   // The single primary: the next step.
   const primary: "cost_plan" | "quote" = !hasSheet ? "cost_plan" : "quote";
 
@@ -888,7 +860,7 @@ function EstimateCard({
           {sheets.map((sheet) => (
             <Link
               key={sheet.id}
-              to={`/projects/${projectId}/materials/${sheet.id}`}
+              to={`/projects/${projectId}/materials`}
               className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
             >
               <div className="flex items-center gap-2">
@@ -927,16 +899,6 @@ function EstimateCard({
           <Calculator className="mr-2 h-3.5 w-3.5" />
           {openingCostPlan ? "Opening…" : hasSheet ? "Open cost plan" : "Create cost plan"}
         </Button>
-        {offerCostPlanSections && (
-          <label className="flex items-start gap-2 pb-1 text-xs text-muted-foreground">
-            <Checkbox
-              checked={costPlanSectionPerType}
-              onCheckedChange={(v) => onCostPlanSectionPerTypeChange(v === true)}
-              className="mt-0.5"
-            />
-            Start the cost plan with a section per project type ({categoryNames.join(", ")})
-          </label>
-        )}
 
         <Button
           size="sm"

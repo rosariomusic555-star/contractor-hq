@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { getProject, listQuotes, createQuote, quoteTotal } from "@/lib/api";
+import { getProject, listQuotes, createQuote, quoteTotal, addFeatureQuoteSections, listCategories } from "@/lib/api";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -29,9 +29,15 @@ export function ProjectQuotesView() {
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
   // Auto-populate the client from the project, if it has one — the
-  // contractor can still change it inside the quote builder.
+  // contractor can still change it inside the quote builder. The first
+  // quote starts with one section per project feature.
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const addMut = useMutation({
-    mutationFn: () => createQuote({ project_id: id, client_id: project?.client_id ?? null }),
+    mutationFn: async () => {
+      const quote = await createQuote({ project_id: id, client_id: project?.client_id ?? null });
+      if (quotes.length === 0) await addFeatureQuoteSections(quote.id, id, categories);
+      return quote;
+    },
     onSuccess: (quote) => {
       qc.invalidateQueries({ queryKey: ["quotes", { project: id }] });
       qc.invalidateQueries({ queryKey: ["quotes"] });

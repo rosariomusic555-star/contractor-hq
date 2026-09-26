@@ -11,13 +11,17 @@ import { sumSectionTotals, type CostSection } from "./costPlanMath";
  * anything else (deleted, or on a sheet the quote is no longer linked to)
  * simply drops out and is pruned on the next save.
  *
+ * A section that prices a project feature (0105, feature_id) is simply
+ * that feature's Cost plan section(s) — no matching, no manual picks.
+ *
  * The quote's overall Estimated Cost is NOT built from these — it stays
- * the whole linked sheet (materialsCogs), unchanged.
+ * the whole Cost plan (costPlanTotal).
  */
 
 export interface QuoteSectionLike {
   name: string;
   job_category_id?: string | null;
+  feature_id?: string | null;
   materials_link_mode?: "auto" | "manual";
 }
 
@@ -25,6 +29,7 @@ export interface SheetSectionLike extends CostSection {
   id: string;
   name: string;
   job_category_id?: string | null;
+  feature_id?: string | null;
   materials_items: NonNullable<CostSection["materials_items"]>;
 }
 
@@ -46,6 +51,7 @@ export function linkedSheetSections<S extends SheetSectionLike>(
   manualIds: string[],
   sheetSections: S[],
 ): S[] {
+  if (quoteSection.feature_id) return sheetSections.filter((s) => s.feature_id === quoteSection.feature_id);
   if (quoteSection.materials_link_mode === "manual") {
     const ids = new Set(manualIds);
     return sheetSections.filter((s) => ids.has(s.id));
@@ -56,7 +62,9 @@ export function linkedSheetSections<S extends SheetSectionLike>(
 /** The linked cost plan sections' full cost — every line type + labor
  * (costPlanMath), what the quote section chip and margin compare against. */
 export function sheetSectionsCost(sections: SheetSectionLike[]): number {
-  return sumSectionTotals(sections).total;
+  // A feature's own cost, whatever its status (an add-on quote prices a
+  // proposed feature) — project totals are what leave those out.
+  return sumSectionTotals(sections, { all: true }).total;
 }
 
 /** Section profit and margin % against the quote section's own price.

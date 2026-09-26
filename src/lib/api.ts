@@ -4,6 +4,7 @@ import { compressImageFile, randomImageFilename } from "./imageUpload";
 import type { FeatureInstance, MeasurementRow } from "./measurements";
 import type { FeatureSectionSeed } from "./sectionFeatures";
 import type { CostBucket, LaborMode, LineCostType } from "./costPlanMath";
+import type { FeatureStatus, ProjectFeature } from "./features";
 import { LUMP_SUM_UNIT } from "./costPlanMath";
 import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
@@ -243,6 +244,9 @@ export interface QuoteSection {
   /** 'auto' = matched live to the quote's materials sheet sections (see
    * src/lib/quoteSectionMaterials.ts); 'manual' = quote_section_material_links. */
   materials_link_mode?: QuoteSectionMaterialsLinkMode;
+  /** The project feature this section prices (0105). Null on standalone
+   * quotes and on a section that isn't a feature. */
+  feature_id?: string | null;
   /** Manual picks (0095) — only on getQuote()'s read. */
   quote_section_material_links?: { materials_section_id: string }[];
   quote_items: QuoteItem[];
@@ -678,6 +682,11 @@ export interface MaterialsSection {
   /** The cost plan's one project-wide section (0103) — pinned last, can't
    * be deleted. */
   is_general?: boolean;
+  /** The project feature this section plans (0105). Null = General. */
+  feature_id?: string | null;
+  /** Read-through of the feature's status (listMaterials*) — a proposed or
+   * removed feature's section never counts toward project totals. */
+  feature?: { status: FeatureStatus; source_quote_id: string | null } | null;
   /** Labor block (0103) — see costPlanMath.sectionLaborCost. Null mode =
    * no labor planned. */
   labor_mode?: LaborMode | null;
@@ -1946,15 +1955,12 @@ function sortMaterialsSections(sections: MaterialsSection[]): MaterialsSection[]
 }
 
 export async function listAllMaterialsSections(): Promise<MaterialsSection[]> {
-  const { data, error } = await supabase
-    .from("materials_sections")
-    .select(`*, materials_items(${MATERIALS_ITEM_WITH_BASELINES})`)
-    .order("sort_order");
+  const { data, error } = await selectMaterialsSections(null);
   if (error) {
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return sortMaterialsSections(data ?? []);
+  return sortMaterialsSections((data ?? []) as unknown as MaterialsSection[]);
 }
 
 export async function createMaterialsSheet(
@@ -1983,44 +1989,32 @@ export async function createMaterialsSheet(
  * project type the user saw (chosen or not) is recorded as accounted for,
  * so none of them raise the "was added" banner later.
  */
-export async function createMaterialsSheetWithSections(
+/** One seeded Cost plan section: named/tagged after its feature, with the
+ * contractor's Smart Section template lines and labor default. */
+async function insertSeededSection(
   projectId: string,
-  input: {
-    name?: string;
-    sort_order?: number;
-    seeds: FeatureSectionSeed[];
-    projectTypeIds: string[];
-    /** For a template's labor default — the contractor's labor rate.
-     * Read from the business profile when not passed. */
-    laborRate?: number;
-  },
-): Promise<MaterialsSheet> {
-  let laborRate = input.laborRate;
-  if (laborRate == null && input.seeds.some((s) => s.labor && (s.labor.crew_size || s.labor.days))) {
-    laborRate = (await getBusinessProfile().catch(() => null))?.default_labor_rate ?? undefined;
-  }
-  const sheet = await createMaterialsSheet(projectId, {
-    name: input.name,
-    sort_order: input.sort_order,
-    feature_category_ids: input.projectTypeIds,
+  sheetId: string,
+  seed: FeatureSectionSeed,
+  sortOrder: number,
+  laborRate: number | undefined,
+): Promise<MaterialsSection> {
+  const section = await createMaterialsSection(projectId, sheetId, {
+    name: seed.name,
+    sort_order: sortOrder,
+    smart_section_build_type: seed.smart_section_build_type,
+    job_category_id: seed.job_category_id,
+    feature_id: seed.feature_id ?? null,
+    ...(seed.labor && (seed.labor.crew_size || seed.labor.days)
+      ? {
+          labor_mode: "crew" as const,
+          labor_crew_size: seed.labor.crew_size,
+          labor_days: seed.labor.days,
+          labor_hours_per_day: 8,
+          labor_rate: laborRate ?? null,
+        }
+      : {}),
   });
-  for (const [i, seed] of input.seeds.entries()) {
-    const section = await createMaterialsSection(projectId, sheet.id, {
-      name: seed.name,
-      sort_order: i,
-      smart_section_build_type: seed.smart_section_build_type,
-      job_category_id: seed.job_category_id,
-      ...(seed.labor && (seed.labor.crew_size || seed.labor.days)
-        ? {
-            labor_mode: "crew" as const,
-            labor_crew_size: seed.labor.crew_size,
-            labor_days: seed.labor.days,
-            labor_hours_per_day: 8,
-            labor_rate: laborRate ?? null,
-          }
-        : {}),
-    });
-    if (seed.items.length === 0) continue;
+  if (seed.items.length > 0) {
     const { error } = await supabase.from("materials_items").insert(
       seed.items.map((item, j) => ({
         section_id: section.id,
@@ -2035,9 +2029,175 @@ export async function createMaterialsSheetWithSections(
     );
     if (error) throw error;
   }
+  return section;
+}
+
+const laborRateFor = async (seeds: FeatureSectionSeed[], given?: number) =>
+  given ?? (seeds.some((s) => s.labor && (s.labor.crew_size || s.labor.days))
+    ? ((await getBusinessProfile().catch(() => null))?.default_labor_rate ?? undefined)
+    : undefined);
+
+export async function createMaterialsSheetWithSections(
+  projectId: string,
+  input: {
+    name?: string;
+    sort_order?: number;
+    seeds: FeatureSectionSeed[];
+    projectTypeIds: string[];
+    /** For a template's labor default — the contractor's labor rate.
+     * Read from the business profile when not passed. */
+    laborRate?: number;
+  },
+): Promise<MaterialsSheet> {
+  const laborRate = await laborRateFor(input.seeds, input.laborRate);
+  const sheet = await createMaterialsSheet(projectId, {
+    name: input.name,
+    sort_order: input.sort_order,
+    feature_category_ids: input.projectTypeIds,
+  });
+  for (const [i, seed] of input.seeds.entries()) {
+    await insertSeededSection(projectId, sheet.id, seed, i, laborRate);
+  }
   // Every cost plan has its one project-wide section, pinned last.
   await createMaterialsSection(projectId, sheet.id, { name: "General", sort_order: input.seeds.length, is_general: true });
   return sheet;
+}
+
+/**
+ * The project's one Cost plan (0106), created on first use: one section per
+ * live feature (prefilled from the contractor's Smart Section templates)
+ * plus General.
+ */
+export async function getOrCreateCostPlan(projectId: string): Promise<MaterialsSheet> {
+  const [existing] = await listMaterialsSheets(projectId);
+  if (existing) {
+    await ensureFeatureSections(projectId);
+    return existing;
+  }
+  try {
+    const sheet = await createMaterialsSheetWithSections(projectId, { name: "Cost plan", seeds: [], projectTypeIds: [] });
+    await ensureFeatureSections(projectId);
+    return sheet;
+  } catch (err) {
+    // Another tab created it first (unique per project since 0106).
+    const [raced] = await listMaterialsSheets(projectId);
+    if (raced) return raced;
+    throw err;
+  }
+}
+
+/**
+ * Every live feature (active + proposed) gets its Cost plan section — the
+ * automatic "one section per feature" rule. Idempotent; a no-op before the
+ * project has a plan or before 0105. New sections land just above General.
+ */
+export async function ensureFeatureSections(projectId: string): Promise<number> {
+  const [sheet] = await listMaterialsSheets(projectId);
+  if (!sheet) return 0;
+  const features = await listProjectFeatures(projectId);
+  const sections = await listMaterialsBySheet(sheet.id);
+  const covered = new Set(sections.map((s) => s.feature_id).filter(Boolean));
+  const missing = features.filter((f) => f.status !== "removed" && !covered.has(f.id));
+  if (missing.length === 0) return 0;
+
+  const [{ featureSeeds }, categories, smartSettings] = await Promise.all([
+    import("./sectionFeatures"),
+    listCategories(),
+    listSmartSectionSettings(),
+  ]);
+  const seeds = featureSeeds(missing, categories, smartSettings);
+  const laborRate = await laborRateFor(seeds);
+  const general = sections.find((s) => s.is_general);
+  let order = Math.max(-1, ...sections.filter((s) => !s.is_general).map((s) => s.sort_order)) + 1;
+  for (const seed of seeds) await insertSeededSection(projectId, sheet.id, seed, order++, laborRate);
+  if (general && general.sort_order < order) await updateMaterialsSection(general.id, { sort_order: order });
+  return seeds.length;
+}
+
+// ---------------------------------------------------------------------------
+// Project features (0105) — see src/lib/features.ts. Reads degrade to []
+// before 0105 so every screen keeps working.
+// ---------------------------------------------------------------------------
+
+export async function listProjectFeatures(projectId: string): Promise<ProjectFeature[]> {
+  const { data, error } = await supabase
+    .from("project_features")
+    .select("id, project_id, category_id, label, status, source_quote_id, sort_order, created_at")
+    .eq("project_id", projectId)
+    .order("sort_order")
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []) as ProjectFeature[];
+}
+
+export async function createProjectFeature(
+  projectId: string,
+  input: { category_id: string | null; label?: string | null; status?: FeatureStatus; source_quote_id?: string | null },
+): Promise<ProjectFeature> {
+  const existing = await listProjectFeatures(projectId);
+  const { data, error } = await supabase
+    .from("project_features")
+    .insert({
+      project_id: projectId,
+      category_id: input.category_id,
+      label: input.label?.trim() || null,
+      status: input.status ?? "active",
+      source_quote_id: input.source_quote_id ?? null,
+      sort_order: existing.length ? Math.max(...existing.map((f) => f.sort_order)) + 1 : 0,
+    })
+    .select("id, project_id, category_id, label, status, source_quote_id, sort_order, created_at")
+    .single();
+  if (error) throw error;
+  return data as ProjectFeature;
+}
+
+export async function updateProjectFeature(
+  id: string,
+  patch: Partial<Pick<ProjectFeature, "label" | "status" | "sort_order">>,
+): Promise<void> {
+  const { error } = await supabase.from("project_features").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** A new quote's starting sections: one per feature (named after it, tagged
+ * with its type and feature_id). `onlyIds` limits it to those features (an
+ * add-on quote); otherwise every active feature. Returns how many. */
+export async function addFeatureQuoteSections(
+  quoteId: string,
+  projectId: string,
+  categories: Category[],
+  onlyIds?: string[],
+): Promise<number> {
+  const { featureName: nameOf, activeFeatures, liveFeatures } = await import("./features");
+  const all = await listProjectFeatures(projectId);
+  const features = onlyIds ? liveFeatures(all).filter((f) => onlyIds.includes(f.id)) : activeFeatures(all);
+  for (const [i, f] of features.entries()) {
+    await addQuoteSection(quoteId, {
+      name: nameOf(f, categories),
+      sort_order: i,
+      job_category_id: f.category_id,
+      feature_id: f.id,
+    });
+  }
+  return features.length;
+}
+
+/**
+ * The Project type multi-selects on a project: its active types become
+ * exactly `categoryIds` (a deselected type's features are marked removed,
+ * data kept; a re-selected one comes back), then each new feature gets its
+ * Cost plan section. Before 0105 it writes project_categories directly.
+ */
+export async function setProjectFeatureTypes(projectId: string, categoryIds: string[]): Promise<void> {
+  const { error } = await supabase.rpc("set_project_feature_types", { p_project_id: projectId, p_category_ids: categoryIds });
+  if (error) {
+    if (error.code === "PGRST202") return setProjectCategories(projectId, categoryIds);
+    throw error;
+  }
+  await ensureFeatureSections(projectId);
 }
 
 export async function updateMaterialsSheet(
@@ -2058,25 +2218,31 @@ export async function deleteMaterialsSheet(id: string): Promise<void> {
 }
 
 const MATERIALS_ITEM_WITH_BASELINES = "*, materials_item_baselines(*)";
+const MATERIALS_SECTION_SELECT = `*, materials_items(${MATERIALS_ITEM_WITH_BASELINES})`;
+
+/** Sections with their feature's status embedded (0105); falls back to the
+ * plain read before 0105 so nothing breaks while it isn't applied. */
+async function selectMaterialsSections(column: "project_id" | "sheet_id" | null, value?: string) {
+  const run = (select: string) => {
+    let q = supabase.from("materials_sections").select(select);
+    if (column) q = q.eq(column, value!);
+    return q.order("sort_order");
+  };
+  let res = await run(`${MATERIALS_SECTION_SELECT}, feature:project_features(status, source_quote_id)`);
+  if (res.error && ["PGRST200", "PGRST205", "42703"].includes(res.error.code)) res = await run(MATERIALS_SECTION_SELECT);
+  return res;
+}
 
 export async function listMaterials(projectId: string): Promise<MaterialsSection[]> {
-  const { data, error } = await supabase
-    .from("materials_sections")
-    .select(`*, materials_items(${MATERIALS_ITEM_WITH_BASELINES})`)
-    .eq("project_id", projectId)
-    .order("sort_order");
+  const { data, error } = await selectMaterialsSections("project_id", projectId);
   if (error) throw error;
-  return sortMaterialsSections(data ?? []);
+  return sortMaterialsSections((data ?? []) as unknown as MaterialsSection[]);
 }
 
 export async function listMaterialsBySheet(sheetId: string): Promise<MaterialsSection[]> {
-  const { data, error } = await supabase
-    .from("materials_sections")
-    .select(`*, materials_items(${MATERIALS_ITEM_WITH_BASELINES})`)
-    .eq("sheet_id", sheetId)
-    .order("sort_order");
+  const { data, error } = await selectMaterialsSections("sheet_id", sheetId);
   if (error) throw error;
-  return sortMaterialsSections(data ?? []);
+  return sortMaterialsSections((data ?? []) as unknown as MaterialsSection[]);
 }
 
 export async function createMaterialsSection(
@@ -2088,9 +2254,10 @@ export async function createMaterialsSection(
     smart_section_build_type?: string | null;
     job_category_id?: string | null;
     is_general?: boolean;
+    feature_id?: string | null;
   } & Partial<SectionLaborFields>,
 ): Promise<MaterialsSection> {
-  const { name, sort_order, smart_section_build_type, job_category_id, is_general, ...labor } = input;
+  const { name, sort_order, smart_section_build_type, job_category_id, is_general, feature_id, ...labor } = input;
   const { data, error } = await supabase
     .from("materials_sections")
     .insert({
@@ -2101,6 +2268,7 @@ export async function createMaterialsSection(
       smart_section_build_type: smart_section_build_type ?? null,
       ...(job_category_id ? { job_category_id } : {}),
       ...(is_general ? { is_general: true } : {}),
+      ...(feature_id ? { feature_id } : {}),
       ...labor,
     })
     .select("*, materials_items(*)")
@@ -2111,7 +2279,7 @@ export async function createMaterialsSection(
 
 export async function updateMaterialsSection(
   id: string,
-  patch: Partial<Pick<MaterialsSection, "name" | "sort_order" | "job_category_id"> & SectionLaborFields>,
+  patch: Partial<Pick<MaterialsSection, "name" | "sort_order" | "job_category_id" | "feature_id"> & SectionLaborFields>,
 ): Promise<void> {
   const { error } = await supabase.from("materials_sections").update(patch).eq("id", id);
   if (error) throw error;
@@ -2571,28 +2739,6 @@ export async function deleteQuote(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/**
- * Sets (or clears, with sheetId null) which materials sheet a quote's
- * Estimated Cost pulls from. One-to-one, enforced by a partial unique index
- * on quotes.material_sheet_id (0042): linking steals the sheet away from
- * whichever other quote currently holds it, so the same function works
- * from either direction — the quote builder's own "Link materials sheet"
- * picker, and the materials sheet builder's "Link quote" picker — since
- * both end up as the same single-column write on the quote being linked.
- */
-export async function linkQuoteToMaterialSheet(quoteId: string, sheetId: string | null): Promise<void> {
-  if (sheetId) {
-    const { error: stealError } = await supabase
-      .from("quotes")
-      .update({ material_sheet_id: null })
-      .eq("material_sheet_id", sheetId)
-      .neq("id", quoteId);
-    if (stealError) throw stealError;
-  }
-  const { error } = await supabase.from("quotes").update({ material_sheet_id: sheetId }).eq("id", quoteId);
-  if (error) throw error;
-}
-
 // ---------------------------------------------------------------------------
 // Quote sections & items
 // ---------------------------------------------------------------------------
@@ -2604,6 +2750,7 @@ export async function addQuoteSection(
     is_optional?: boolean;
     sort_order?: number;
     job_category_id?: string | null;
+    feature_id?: string | null;
     materials_link_mode?: QuoteSectionMaterialsLinkMode;
   },
 ): Promise<QuoteSection> {
@@ -2616,6 +2763,7 @@ export async function addQuoteSection(
       sort_order: input.sort_order ?? 0,
       // Only sent when set, so adding a section still works before 0095.
       ...(input.job_category_id ? { job_category_id: input.job_category_id } : {}),
+      ...(input.feature_id ? { feature_id: input.feature_id } : {}),
       ...(input.materials_link_mode === "manual" ? { materials_link_mode: "manual" } : {}),
     })
     // No quote_item_images embed here (unlike the QUOTE_SELECT read path) —
@@ -2631,7 +2779,7 @@ export async function addQuoteSection(
 
 export async function updateQuoteSection(
   id: string,
-  patch: Partial<Pick<QuoteSection, "name" | "is_optional" | "sort_order" | "job_category_id" | "materials_link_mode">>,
+  patch: Partial<Pick<QuoteSection, "name" | "is_optional" | "sort_order" | "job_category_id" | "feature_id" | "materials_link_mode">>,
 ): Promise<void> {
   const { error } = await supabase.from("quote_sections").update(patch).eq("id", id);
   if (error) throw error;
@@ -3151,23 +3299,6 @@ export async function updateChangeOrder(
   >,
 ): Promise<void> {
   const { error } = await supabase.from("change_orders").update(patch).eq("id", id);
-  if (error) throw error;
-}
-
-/** Same one-to-one "linking steals the sheet from whoever holds it" shape
- * as linkQuoteToMaterialSheet (0042) — a sheet feeds at most one change
- * order's cost, enforced by the partial unique index (0080). Approving a
- * linked change order is what starts it tracking (see the DB trigger). */
-export async function linkMaterialSheetToChangeOrder(changeOrderId: string, sheetId: string | null): Promise<void> {
-  if (sheetId) {
-    const { error: stealError } = await supabase
-      .from("change_orders")
-      .update({ material_sheet_id: null })
-      .eq("material_sheet_id", sheetId)
-      .neq("id", changeOrderId);
-    if (stealError) throw stealError;
-  }
-  const { error } = await supabase.from("change_orders").update({ material_sheet_id: sheetId }).eq("id", changeOrderId);
   if (error) throw error;
 }
 
@@ -5401,7 +5532,7 @@ export function findPossibleDuplicates(
 export async function listFeatureMeasurements(projectId: string): Promise<FeatureInstance[]> {
   const { data, error } = await supabase
     .from("project_feature_measurements")
-    .select("id, project_id, build_type, label, data, totals, sort_order")
+    .select("*")
     .eq("project_id", projectId)
     .order("sort_order")
     .order("created_at");

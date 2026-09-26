@@ -65,7 +65,7 @@ import {
   listProjectMessages,
   sendProjectMessage,
   getSignedImageUrls,
-  setProjectCategories,
+  setProjectFeatureTypes,
   projectCategoryIds,
   listUsageLogsForItems,
   getBusinessProfile,
@@ -216,8 +216,10 @@ export function ProjectDetailView() {
   };
 
   const categoriesMutation = useMutation({
-    mutationFn: (categoryIds: string[]) => setProjectCategories(id, categoryIds),
+    mutationFn: (categoryIds: string[]) => setProjectFeatureTypes(id, categoryIds),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-features", id] });
+      qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["projects", id] });
     },

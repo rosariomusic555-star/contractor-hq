@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import {
@@ -36,12 +36,10 @@ import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { StatusPill } from "@/components/common/StatusPill";
 import { ReorderControls } from "@/components/common/ReorderControls";
 import { SectionCard } from "@/components/common/SectionCard";
-import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
-import { needsExplicitDocumentLink } from "@/lib/documentLink";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,7 +53,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
-import { quoteStatusMeta } from "@/lib/statusMeta";
 import {
   getProject,
   getBusinessProfile,
@@ -63,12 +60,11 @@ import {
   listMaterialsBySheet,
   listMaterialsSheets,
   listSmartSectionSettings,
+  listProjectFeatures,
+  createProjectFeature,
+  updateProjectFeature,
+  ensureFeatureSections,
   createMaterialsSheet,
-  updateMaterialsSheet,
-  deleteMaterialsSheet,
-  listQuotes,
-  linkQuoteToMaterialSheet,
-  quoteTotal,
   listExpenseCategories,
   listPriceBookItems,
   listProductCatalog,
@@ -105,7 +101,7 @@ import {
   type CatalogPriceOverride,
 } from "@/lib/api";
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
-import { NewMaterialsSheetDialog } from "@/components/materials/NewMaterialsSheetDialog";
+import { liveFeatures, type FeatureStatus } from "@/lib/features";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectionCalculatorDialog";
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
@@ -148,6 +144,8 @@ import {
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import {
   featureSectionSeeds,
+  featureSeeds,
+  featurePickerOptions,
   sectionFeatureOptions,
   withCommittedSectionName,
   withSectionType,
@@ -170,6 +168,7 @@ import {
 import { BackLink } from "@/components/common/BackLink";
 
 const NONE = "__none__";
+const NO_SECTIONS: MaterialsSection[] = [];
 
 // ---------------------------------------------------------------------------
 // Draft model — the whole sheet is edited locally and only written to
@@ -231,6 +230,14 @@ interface DraftSection extends LaborDraft {
   smart_section_build_type: string | null;
   /** Project-type tag (0094) — one of the project's own Job Categories. */
   job_category_id: string | null;
+  /** The project feature this section plans (0105). Null = General, or a
+   * section from before features. */
+  feature_id: string | null;
+  /** Read-through of the feature's status — a proposed / removed feature's
+   * section shows but never counts toward the plan total. */
+  feature: { status: FeatureStatus; source_quote_id: string | null } | null;
+  /** Picked "new feature of this type" — the feature is created on Save. */
+  new_feature_category_id?: string | null;
   items: DraftItem[];
 }
 
@@ -274,6 +281,8 @@ const blankDraftSection = (name: string, extra: Partial<DraftSection> = {}): Dra
   is_general: false,
   smart_section_build_type: null,
   job_category_id: null,
+  feature_id: null,
+  feature: null,
   items: [],
   ...NO_LABOR,
   ...extra,
@@ -286,6 +295,7 @@ const draftSectionFromSeed = (
   seed: {
     name: string;
     job_category_id: string | null;
+    feature_id?: string | null;
     smart_section_build_type: string | null;
     items: { name: string; cost_type: LineCostType }[];
     labor?: { crew_size: number | null; days: number | null } | null;
@@ -295,6 +305,7 @@ const draftSectionFromSeed = (
   blankDraftSection(seed.name, {
     smart_section_build_type: seed.smart_section_build_type,
     job_category_id: seed.job_category_id,
+    feature_id: seed.feature_id ?? null,
     items: seed.items.map((i) => blankDraftItem(i.cost_type, i.name)),
     ...(seed.labor && (seed.labor.crew_size || seed.labor.days)
       ? {
@@ -350,6 +361,8 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
     is_general: !!s.is_general,
     smart_section_build_type: s.smart_section_build_type ?? null,
     job_category_id: s.job_category_id ?? null,
+    feature_id: s.feature_id ?? null,
+    feature: s.feature ?? null,
     ...laborOf(s),
     items: s.materials_items.map((i) => ({
       id: i.id,
@@ -406,12 +419,9 @@ const itemChanged = (
   a.vendor !== b.vendor;
 
 /**
- * Route entry for /projects/:id/materials. Most projects have exactly one
- * materials sheet — go straight into its builder, indistinguishable from
- * how this screen has always worked (no visible "sheet" chrome). Once a
- * project's scope has grown enough to have more than one sheet, this
- * becomes ambiguous — show the sheet list instead (mirrors ProjectQuotesView
- * for quotes) and let the user pick one, or add another.
+ * Route entry for /projects/:id/materials — the project's one Cost plan
+ * (0106). With no plan yet it opens straight into an unsaved draft with a
+ * section per project feature; Save creates it.
  */
 export function ProjectMaterialsView() {
   const { id = "" } = useParams();
@@ -422,10 +432,6 @@ export function ProjectMaterialsView() {
   });
 
   if (isLoading) return <p className="text-muted-foreground">Loading cost plan…</p>;
-
-  if (sheets.length > 1) {
-    return <MaterialsSheetsListView projectId={id} projectName={project?.name} sheets={sheets} />;
-  }
 
   return (
     <MaterialsSheetBuilder
@@ -438,101 +444,19 @@ export function ProjectMaterialsView() {
   );
 }
 
-/** Route entry for /projects/:id/materials/:sheetId — reached from the
- * sheet list above when a project has more than one sheet. */
+/** Old links to /projects/:id/materials/:sheetId land on the same builder. */
 export function ProjectMaterialsSheetDetailView() {
   const { id = "", sheetId = "" } = useParams();
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
 
   return (
-    <div className="space-y-4">
-      <MaterialsSheetBuilder
-        projectId={id}
-        projectName={project?.name}
-        sheetId={sheetId}
-        backHref={`/projects/${id}/materials`}
-        backLabel="Back to cost plans"
-      />
-    </div>
-  );
-}
-
-function MaterialsSheetsListView({
-  projectId,
-  projectName,
-  sheets,
-}: {
-  projectId: string;
-  projectName: string | undefined;
-  sheets: MaterialsSheet[];
-}) {
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  const qc = useQueryClient();
-
-  const { data: allSections = [] } = useQuery({
-    queryKey: ["materials", { project: projectId }],
-    queryFn: () => listMaterials(projectId),
-  });
-  const { data: quotes = [] } = useQuery({
-    queryKey: ["quotes", { project: projectId }],
-    queryFn: () => listQuotes(projectId),
-  });
-
-  // Added scope: pick which features the new sheet starts sections for.
-  const [newSheetOpen, setNewSheetOpen] = useState(false);
-
-  return (
-    <div className="mx-auto max-w-4xl animate-fade-in space-y-6">
-      <BackLink
-        to={`/projects/${projectId}`}
-        className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >Back to project</BackLink>
-
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div>
-          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Cost plans</h1>
-          <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
-        </div>
-        <Button onClick={() => setNewSheetOpen(true)} className="font-bold">
-          <Plus className="mr-2 h-4 w-4" />
-          Add cost plan
-        </Button>
-      </div>
-      <NewMaterialsSheetDialog
-        open={newSheetOpen}
-        onOpenChange={setNewSheetOpen}
-        projectId={projectId}
-        onCreated={(sheet) => navigate(`/projects/${projectId}/materials/${sheet.id}`)}
-      />
-
-      <div className="space-y-3">
-        {sheets.map((sheet) => {
-          const sections = allSections.filter((s) => s.sheet_id === sheet.id);
-          const cost = costPlanTotal(sections);
-          const linkedQuote = quotes.find((q) => q.material_sheet_id === sheet.id);
-          return (
-            <Link
-              key={sheet.id}
-              to={`/projects/${projectId}/materials/${sheet.id}`}
-              className="card-surface flex items-center justify-between gap-3 p-5 transition-shadow hover:shadow-card-hover"
-            >
-              <div className="min-w-0">
-                <div className="truncate font-bold text-foreground">{sheet.name}</div>
-                <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {pluralize(sections.length, "section")}
-                  {linkedQuote ? ` · Linked to ${formatCurrency(quoteTotal(linkedQuote.quote_sections))} quote` : ""}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <span className="font-bold text-foreground">{formatCurrency(cost)}</span>
-                <ChevronRight className="h-4 w-4 text-muted-subtle" />
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
+    <MaterialsSheetBuilder
+      projectId={id}
+      projectName={project?.name}
+      sheetId={sheetId}
+      backHref={`/projects/${id}`}
+      backLabel="Back to project"
+    />
   );
 }
 
@@ -551,21 +475,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data: sections = [], isLoading, isError, error } = useQuery({
+  // A stable empty default — a fresh [] per render would re-fire the
+  // draft-seeding effect below on every render while this loads (or
+  // forever, for a project with no plan yet).
+  const { data: sections = NO_SECTIONS, isLoading, isError, error } = useQuery({
     queryKey: ["materials", { sheet: sheetId }],
     queryFn: () => listMaterialsBySheet(sheetId!),
     enabled: !!sheetId,
     refetchOnWindowFocus: false,
-  });
-  // Sibling documents in this project — drive the "more than one sheet or
-  // quote" ambiguity check and the Link-a-quote picker below.
-  const { data: sheets = [] } = useQuery({
-    queryKey: ["materials-sheets", { project: projectId }],
-    queryFn: () => listMaterialsSheets(projectId),
-  });
-  const { data: projectQuotes = [] } = useQuery({
-    queryKey: ["quotes", { project: projectId }],
-    queryFn: () => listQuotes(projectId),
   });
   const { data: expenseCategories = [] } = useQuery({
     queryKey: ["expense-categories"],
@@ -690,10 +607,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const [orderSheetOpen, setOrderSheetOpen] = useState(false);
   const dirty = useRef(false);
 
-  // Seed the draft from the server — but never clobber unsaved edits.
+  // Seed the draft from the server — but never clobber unsaved edits. Save
+  // only deletes server sections that were in the draft when it was seeded,
+  // so a section created meanwhile (another tab, a new feature) survives.
+  const seededSectionIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (dirty.current) return;
     setDraft(seed(sections));
+    seededSectionIds.current = new Set(sections.map((s) => s.id));
   }, [sections]);
 
   const markDirty = () => {
@@ -740,6 +661,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const discard = () => {
     dirty.current = false;
     setDraft(seed(sections));
+    seededSectionIds.current = new Set(sections.map((s) => s.id));
   };
 
   // --- local mutators -------------------------------------------------------
@@ -750,9 +672,26 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // autofilled one (see withSectionType); a hand-typed name is left alone.
   const setSectionType = (sid: string, job_category_id: string | null) =>
     edit((d) => d.map((s) => (s.id === sid ? withSectionType(s, job_category_id, jobCategories) : s)));
-  // The name field's feature picker: name + type in one step.
+  // The name field's feature picker: name + type (+ feature) in one step.
+  // An existing feature → the section plans it; "new feature of a type" →
+  // created on Save; a bare build type → just the name.
   const pickSectionFeature = (sid: string, o: SectionFeatureOption) =>
-    edit((d) => d.map((s) => (s.id === sid ? { ...s, name: o.label, job_category_id: o.categoryId ?? s.job_category_id } : s)));
+    edit((d) =>
+      d.map((s) => {
+        if (s.id !== sid) return s;
+        const typeName = jobCategories.find((c) => c.id === o.categoryId)?.name;
+        return {
+          ...s,
+          name: o.newFeature ? (typeName ?? o.label) : o.label,
+          job_category_id: o.categoryId ?? s.job_category_id,
+          ...(o.featureId
+            ? { feature_id: o.featureId, feature: featureStatusOf(o.featureId), new_feature_category_id: null }
+            : o.newFeature
+              ? { feature_id: null, feature: null, new_feature_category_id: o.categoryId }
+              : {}),
+        };
+      }),
+    );
   // Typed name committed: an untyped section whose name matches a feature
   // gets that type. Only touches the draft when something changes.
   const commitSectionName = (sid: string) => {
@@ -761,7 +700,26 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     const next = withCommittedSectionName(section, projectTypeOptions, jobCategories);
     if (next !== section) edit((d) => d.map((s) => (s.id === sid ? next : s)));
   };
-  const featureOptions = useMemo(() => sectionFeatureOptions(projectTypeOptions, jobCategories), [projectTypeOptions, jobCategories]);
+  // Features (0105): the project's things being built. Before 0105 the
+  // list is empty and the picker falls back to project types.
+  const { data: features = [], isSuccess: featuresLoaded } = useQuery({
+    queryKey: ["project-features", projectId],
+    queryFn: () => listProjectFeatures(projectId),
+  });
+  const hasFeatures = features.length > 0;
+  const featureStatusOf = (fid: string) => {
+    const f = features.find((x) => x.id === fid);
+    return f ? { status: f.status, source_quote_id: f.source_quote_id } : null;
+  };
+  const typeOptions = useMemo(() => sectionFeatureOptions(projectTypeOptions, jobCategories), [projectTypeOptions, jobCategories]);
+  const pickerOptionsFor = (sid: string) =>
+    hasFeatures
+      ? featurePickerOptions(
+          features,
+          jobCategories,
+          new Set(draft.filter((s) => s.id !== sid && s.feature_id).map((s) => s.feature_id!)),
+        )
+      : typeOptions;
   // "Add blank section" opens the new section's picker straight away.
   const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(null);
   const addSection = () => {
@@ -770,8 +728,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     setAutoOpenSectionId(id);
   };
   const featurePickerFor = (sid: string): SectionFeaturePicker => ({
-    ...featureOptions,
-    usedCategoryIds: new Set(draft.filter((s) => s.id !== sid && s.job_category_id).map((s) => s.job_category_id!)),
+    ...pickerOptionsFor(sid),
+    usedCategoryIds: hasFeatures
+      ? new Set<string>()
+      : new Set(draft.filter((s) => s.id !== sid && s.job_category_id).map((s) => s.job_category_id!)),
     onPick: (o) => pickSectionFeature(sid, o),
     onCommit: () => commitSectionName(sid),
     autoOpen: autoOpenSectionId === sid,
@@ -811,44 +771,44 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     queryFn: listSmartSectionSettings,
   });
   const projectTypeIds = useMemo(() => (project ? projectCategoryIds(project) : []), [project]);
-  // A project with no sheet yet opens straight into this builder: start
-  // the (unsaved) draft with one section per project type, once. Discard
-  // empties it; Save creates the sheet with them.
+  // A project with no plan yet opens straight into this builder: start the
+  // (unsaved) draft with one section per project feature (per project type
+  // before 0105), once. Discard empties it; Save creates the plan.
   const prefilled = useRef(false);
   useEffect(() => {
-    if (sheetId || prefilled.current || dirty.current || !project || !smartSettingsLoaded || jobCategories.length === 0) return;
+    if (sheetId || prefilled.current || dirty.current || !project || !smartSettingsLoaded || !featuresLoaded || jobCategories.length === 0)
+      return;
     prefilled.current = true;
-    const seeds = featureSectionSeeds(projectTypeIds, jobCategories, smartSettings);
-    if (seeds.length > 0) edit(() => seeds.map((sd) => draftSectionFromSeed(sd, laborRate)));
+    const seeds = hasFeatures
+      ? featureSeeds(liveFeatures(features), jobCategories, smartSettings)
+      : featureSectionSeeds(projectTypeIds, jobCategories, smartSettings);
+    if (seeds.length > 0) {
+      edit(() =>
+        seeds.map((sd) => ({
+          ...draftSectionFromSeed(sd, laborRate),
+          feature: sd.feature_id ? featureStatusOf(sd.feature_id) : null,
+        })),
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetId, project, smartSettingsLoaded, jobCategories]);
+  }, [sheetId, project, smartSettingsLoaded, featuresLoaded, jobCategories]);
 
-  // Project types added since this sheet was made — a non-blocking banner
-  // per type ("X was added to this project · Add section"), never added
-  // silently. `feature_category_ids` (0100) is what the sheet has accounted
-  // for; undefined before 0100, and no sheet yet → no banner.
-  const currentSheet = sheets.find((sh) => sh.id === sheetId);
-  const [ackPending, setAckPending] = useState<string[]>([]);
-  const newProjectTypes = currentSheet?.feature_category_ids
-    ? projectTypeOptions.filter(
-        (c) =>
-          !currentSheet.feature_category_ids!.includes(c.id) &&
-          !ackPending.includes(c.id) &&
-          !draft.some((sec) => sec.job_category_id === c.id),
-      )
-    : [];
-  const addFeatureSection = (categoryId: string) => {
-    const [seedFor] = featureSectionSeeds([categoryId], jobCategories, smartSettings);
-    if (seedFor) edit((d) => [...d, draftSectionFromSeed(seedFor, laborRate)]);
-    // Recorded as accounted for when the sheet is saved (with the section).
-    setAckPending((p) => [...p, categoryId]);
-  };
-  const dismissFeatureMut = useMutation({
-    mutationFn: (categoryId: string) =>
-      updateMaterialsSheet(sheetId!, { feature_category_ids: [...(currentSheet?.feature_category_ids ?? []), categoryId] }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] }),
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
+  // One section per feature, automatically: a feature added since the plan
+  // was made (Project types, "+ Add another" on measurements…) gets its
+  // section written straight away. Only while nothing's unsaved, so the new
+  // section can't collide with an open draft.
+  const ensuringFor = useRef("");
+  useEffect(() => {
+    if (!sheetId || dirty.current || isLoading) return;
+    const covered = new Set(sections.map((sec) => sec.feature_id).filter(Boolean));
+    const missing = liveFeatures(features).filter((f) => !covered.has(f.id)).map((f) => f.id).join(",");
+    if (!missing || ensuringFor.current === missing) return;
+    ensuringFor.current = missing;
+    ensureFeatureSections(projectId)
+      .then((n) => n > 0 && qc.invalidateQueries({ queryKey: ["materials"] }))
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetId, isLoading, sections, features]);
   // Step 2 — the calculator writes quantities into the section's existing
   // line items, matched purely by name against the build type's fixed
   // template (never by position). A line the calculator doesn't return
@@ -912,19 +872,32 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       // like a brand-new section/item's tmp- id resolves to a real row here.
       const currentSheetId =
         sheetId ?? (await createMaterialsSheet(projectId, { name: "Cost plan", feature_category_ids: projectTypeIds })).id;
-      // Types added from the "was added" banner are now accounted for.
-      if (sheetId && ackPending.length > 0 && currentSheet?.feature_category_ids) {
-        await updateMaterialsSheet(sheetId, {
-          feature_category_ids: [...new Set([...currentSheet.feature_category_ids, ...ackPending])],
-        });
-      }
 
       const serverSections = new Map(sections.map((s) => [s.id, s]));
       const draftSectionIds = new Set(draft.map((s) => s.id));
+      const draftFeatureIds = new Set(draft.map((s) => s.feature_id).filter(Boolean));
 
-      // 1. deletes — server sections no longer in the draft (cascades their items)
+      // 0. features picked as "new <type>" are created first
+      for (const ds of draft) {
+        if (ds.feature_id || !ds.new_feature_category_id) continue;
+        try {
+          const f = await createProjectFeature(projectId, { category_id: ds.new_feature_category_id });
+          ds.feature_id = f.id;
+        } catch {
+          // before 0105: the section just keeps its type
+        }
+      }
+
+      // 1. deletes — server sections no longer in the draft (cascades their
+      //    items). A deleted feature section takes its feature out of the
+      //    project (marked removed, not deleted) unless another section
+      //    still plans it — otherwise it would just be recreated.
       for (const s of sections) {
-        if (!draftSectionIds.has(s.id)) await deleteMaterialsSection(s.id);
+        if (draftSectionIds.has(s.id) || !seededSectionIds.current.has(s.id)) continue;
+        await deleteMaterialsSection(s.id);
+        if (s.feature_id && !draftFeatureIds.has(s.feature_id) && s.feature?.status === "active") {
+          await updateProjectFeature(s.feature_id, { status: "removed" });
+        }
       }
 
       // 2. per section: create / rename, then its items
@@ -950,6 +923,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             smart_section_build_type: ds.smart_section_build_type,
             job_category_id: ds.job_category_id,
             is_general: ds.is_general,
+            feature_id: ds.feature_id,
             ...(ds.labor_mode ? labor : {}),
           });
           sectionId = created.id;
@@ -958,6 +932,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         }
         if (server && (server.job_category_id ?? null) !== ds.job_category_id) {
           await updateMaterialsSection(server.id, { job_category_id: ds.job_category_id });
+        }
+        if (server && (server.feature_id ?? null) !== ds.feature_id) {
+          await updateMaterialsSection(server.id, { feature_id: ds.feature_id });
         }
         if (server && laborChanged(ds, laborOf(server))) {
           await updateMaterialsSection(server.id, labor);
@@ -1050,7 +1027,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     },
     onSuccess: () => {
       dirty.current = false;
-      setAckPending([]);
+      qc.invalidateQueries({ queryKey: ["project-features", projectId] });
       qc.invalidateQueries({ queryKey: ["materials", { sheet: sheetId }] });
       qc.invalidateQueries({ queryKey: ["materials", { project: projectId }] });
       qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
@@ -1060,47 +1037,6 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
-
-  // --- sibling-document linking (0042) ------------------------------------
-  // Only ambiguous — and only shown — once this project has more than one
-  // materials sheet or more than one quote. Below that, a single sheet's
-  // cost feeds a single quote's Estimated Cost automatically, no link needed.
-  const needsExplicitLink = needsExplicitDocumentLink(sheets.length, projectQuotes.length);
-  const linkedQuote = projectQuotes.find((q) => q.material_sheet_id === sheetId);
-  const [linkQuoteOpen, setLinkQuoteOpen] = useState(false);
-
-  const linkQuoteMut = useMutation({
-    mutationFn: (quoteId: string) => linkQuoteToMaterialSheet(quoteId, sheetId!),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["quotes"] }),
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-  const unlinkQuoteMut = useMutation({
-    mutationFn: (quoteId: string) => linkQuoteToMaterialSheet(quoteId, null),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["quotes"] }),
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-
-  const renameSheetMut = useMutation({
-    mutationFn: (name: string) => updateMaterialsSheet(sheetId!, { name }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] }),
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-
-  const navigate = useNavigate();
-  const [newSheetOpen, setNewSheetOpen] = useState(false);
-  const deleteSheetMut = useMutation({
-    mutationFn: () => deleteMaterialsSheet(sheetId!),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
-      qc.invalidateQueries({ queryKey: ["quotes"] });
-      toast({ title: "Cost plan deleted" });
-      navigate(`/projects/${projectId}/materials`);
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-
-  const [nameDraft, setNameDraft] = useState(currentSheet?.name ?? "");
-  useEffect(() => setNameDraft(currentSheet?.name ?? ""), [currentSheet?.name]);
 
   // The Total cost card: every section, broken down by cost type.
   const planTotals = useMemo(() => sumSectionTotals(draft), [draft]);
@@ -1187,21 +1123,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          {needsExplicitLink && sheetId ? (
-            <Input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onBlur={() => {
-                const trimmed = nameDraft.trim() || "Cost plan";
-                setNameDraft(trimmed);
-                if (trimmed !== currentSheet?.name) renameSheetMut.mutate(trimmed);
-              }}
-              className="h-auto border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0"
-              aria-label="Sheet name"
-            />
-          ) : (
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground">Cost plan</h1>
-          )}
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Cost plan</h1>
           <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
           <GoToProjectLink projectId={projectId} isDirty={isDirty} className="mt-1.5" />
         </div>
@@ -1218,70 +1140,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               <FileDown className="mr-1.5 h-3.5 w-3.5" />
               Generate Order Sheet
             </Button>
-            <button
-              type="button"
-              onClick={() => setNewSheetOpen(true)}
-              className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
-            >
-              + Add another cost plan
-            </button>
-            <NewMaterialsSheetDialog
-              open={newSheetOpen}
-              onOpenChange={setNewSheetOpen}
-              projectId={projectId}
-              onCreated={(sheet) => navigate(`/projects/${projectId}/materials/${sheet.id}`)}
-            />
-            {sheets.length > 1 && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-muted-foreground hover:text-destructive"
-                  >
-                    Delete sheet
-                  </button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete "{currentSheet?.name || "this sheet"}"?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Removes this sheet and all its sections/items.
-                      {linkedQuote ? " Its linked quote's Estimated Cost will show \"Not available\" again." : ""}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      onClick={() => deleteSheetMut.mutate()}
-                    >
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
           </div>
         )}
       </div>
-
-      {/* Quote link stays up top; the total itself lives at the bottom,
-          after every section. */}
-      {needsExplicitLink && sheetId && (
-        <div className="overflow-hidden rounded-card shadow-card">
-          <LinkedDocumentBar
-            targetLabel="quote"
-            linked={
-              linkedQuote
-                ? { label: `Linked to ${formatCurrency(quoteTotal(linkedQuote.quote_sections))} quote` }
-                : null
-            }
-            onLink={() => setLinkQuoteOpen(true)}
-            onUnlink={() => unlinkQuoteMut.mutate(linkedQuote!.id)}
-            className="bg-sidebar/95"
-          />
-        </div>
-      )}
 
       {costSummary && (
         <div className="card-surface grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
@@ -1357,30 +1218,6 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           Add a section to get started.
         </div>
       )}
-
-      {/* Project types added since this sheet was made — offered, never added silently. */}
-      {newProjectTypes.map((c) => (
-        <div
-          key={c.id}
-          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-primary/30 bg-primary/5 px-4 py-2 text-sm"
-        >
-          <span className="min-w-0 flex-1 text-foreground">
-            <span className="font-semibold">{c.name}</span> was added to this project
-          </span>
-          <button type="button" onClick={() => addFeatureSection(c.id)} className="min-h-9 font-bold text-primary hover:underline">
-            Add section
-          </button>
-          <button
-            type="button"
-            onClick={() => dismissFeatureMut.mutate(c.id)}
-            aria-label={`Dismiss — don't add a ${c.name} section to this sheet`}
-            title="Dismiss"
-            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
 
       {draft.length > 0 && (
         <CollapseAllLinks onCollapseAll={() => collapseAll(draft.map((s) => s.id))} onExpandAll={() => expandAll(draft.map((s) => s.id))} />
@@ -1480,15 +1317,6 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         priceBookItems={priceBookItems}
       />
 
-      {needsExplicitLink && sheetId && (
-        <LinkQuoteDialog
-          open={linkQuoteOpen}
-          onOpenChange={setLinkQuoteOpen}
-          quotes={projectQuotes}
-          onSelect={(quoteId) => linkQuoteMut.mutate(quoteId)}
-        />
-      )}
-
       {logUsageLine && (
         <LogUsageDialog
           open={!!logUsageLine}
@@ -1582,54 +1410,6 @@ function UnplannedMaterialsCard({
   );
 }
 
-function LinkQuoteDialog({
-  open,
-  onOpenChange,
-  quotes,
-  onSelect,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  quotes: Quote[];
-  onSelect: (quoteId: string) => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-4">
-        <DialogHeader>
-          <DialogTitle>Link a quote</DialogTitle>
-        </DialogHeader>
-        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
-          {quotes.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No quotes on this project yet.
-            </p>
-          ) : (
-            quotes.map((q) => (
-              <button
-                key={q.id}
-                type="button"
-                onClick={() => {
-                  onSelect(q.id);
-                  onOpenChange(false);
-                }}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 pl-3.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
-              >
-                <span className="text-sm font-semibold text-foreground">
-                  {formatCurrency(quoteTotal(q.quote_sections))}
-                </span>
-                <span className="flex items-center gap-2">
-                  <StatusPill meta={quoteStatusMeta(q.status)} />
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ---------------------------------------------------------------------------
 
@@ -1765,6 +1545,21 @@ function MaterialsSectionCard({
       tag={
         section.is_general ? (
           <span className="text-[11px] font-semibold text-background/70">Project-wide costs — dumpster, permits, mobilization…</span>
+        ) : section.feature_id ? (
+          // A feature's section: its type is the feature's (fixed here).
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-white/[0.16] px-2.5 py-0.5 text-[11px] font-semibold text-background">
+              {jobCategories.find((c) => c.id === section.job_category_id)?.name ?? "Feature"}
+            </span>
+            {section.feature?.status === "proposed" && (
+              <span className="rounded-full bg-info/25 px-2.5 py-0.5 text-[11px] font-bold text-background">Proposed · not counted yet</span>
+            )}
+            {section.feature?.status === "removed" && (
+              <span className="rounded-full bg-destructive/30 px-2.5 py-0.5 text-[11px] font-bold text-background">
+                Removed from project · not counted
+              </span>
+            )}
+          </span>
         ) : (
           <SectionTypeChip
             value={section.job_category_id}
@@ -1821,6 +1616,9 @@ function MaterialsSectionCard({
                   {section.items.length > 0 || totals.labor > 0
                     ? `Removes ${section.items.length} line${section.items.length === 1 ? "" : "s"}${totals.labor > 0 ? " and its labor" : ""} totaling ${formatCurrency(subtotal)} from the cost plan. Nothing is saved until you press Save changes.`
                     : "This section is empty."}
+                  {section.feature_id && section.feature?.status === "active" && (
+                    <span className="mt-2 block">It also takes this feature off the project (its measurements are kept).</span>
+                  )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

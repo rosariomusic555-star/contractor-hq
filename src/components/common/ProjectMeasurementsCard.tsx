@@ -10,16 +10,22 @@ import { CollapsibleBody } from "@/components/common/CollapsibleBody";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { FeatureCard } from "@/components/measurements/FeatureCard";
 import {
+  createProjectFeature,
+  ensureFeatureSections,
   listCategories,
   listFeatureMeasurements,
+  listProjectFeatures,
+  updateProjectFeature,
   listProjectMeasurements,
   listSmartSectionSettings,
   saveProjectMeasurements,
 } from "@/lib/api";
+import { liveFeatures } from "@/lib/features";
 import { findSmartSectionSettings, findSmartSectionTemplate, resolveTunableValue } from "@/lib/smartSections";
 import {
   DEFAULT_FIRE_PIT_HEIGHT_IN,
   DEFAULT_KITCHEN_HEIGHT_IN,
+  buildTypeForCategoryName,
   FIRE_PIT_HEIGHT_TUNABLE,
   KITCHEN_HEIGHT_TUNABLE,
   GENERAL_GROUP,
@@ -233,12 +239,46 @@ export function ProjectMeasurementsCard({
         });
       const serverInstById = new Map(serverInstances.map((i) => [i.id, i]));
       const keepInstIds = new Set(keepInstances.map((i) => i.id));
-      const changedInstances = keepInstances.filter((i) => JSON.stringify(i) !== JSON.stringify(serverInstById.get(i.id)));
       // Instances of a build type without a card aren't loaded into the
       // draft — never delete those.
       const deleteInstanceIds = serverInstances
         .filter((i) => featureKindOf(i.build_type) && !keepInstIds.has(i.id))
         .map((i) => i.id);
+
+      // Every measured instance is one project feature (0105): the first of
+      // a type measures that type's feature, "+ Add another" makes a new
+      // feature, removing an extra instance removes its feature, and the
+      // instance's label is the feature's label. Skipped before 0105 (no
+      // feature records).
+      const features = await listProjectFeatures(id);
+      let featuresAdded = false;
+      if (features.length > 0) {
+        const live = liveFeatures(features);
+        const categoryFor = (bt: string) =>
+          categoryIds.find((cid) => buildTypeForCategoryName(categories.find((c) => c.id === cid)?.name ?? "")?.id === bt) ?? null;
+        const claimed = new Set(keepInstances.map((i) => i.feature_id).filter(Boolean) as string[]);
+        for (const inst of keepInstances) {
+          const own = inst.feature_id ? features.find((f) => f.id === inst.feature_id) : undefined;
+          if (own) {
+            if ((own.label ?? null) !== inst.label) await updateProjectFeature(own.id, { label: inst.label });
+            continue;
+          }
+          const categoryId = categoryFor(inst.build_type);
+          const free = live.find((f) => f.category_id === categoryId && !claimed.has(f.id));
+          const feature = free ?? (await createProjectFeature(id, { category_id: categoryId, label: inst.label }));
+          if (free && inst.label && free.label !== inst.label) await updateProjectFeature(free.id, { label: inst.label });
+          if (!free) featuresAdded = true;
+          claimed.add(feature.id);
+          inst.feature_id = feature.id;
+        }
+        for (const removedId of deleteInstanceIds) {
+          const f = features.find((x) => x.id === serverInstById.get(removedId)?.feature_id);
+          const othersOfType = live.some((o) => o.id !== f?.id && o.category_id === f?.category_id);
+          if (f && f.status !== "removed" && othersOfType) await updateProjectFeature(f.id, { status: "removed" });
+        }
+      }
+
+      const changedInstances = keepInstances.filter((i) => JSON.stringify(i) !== JSON.stringify(serverInstById.get(i.id)));
 
       // Custom rows: empty = neither a label nor a value.
       const keepCustom = custom
@@ -255,6 +295,7 @@ export function ProjectMeasurementsCard({
         { instances: changedInstances, deleteInstanceIds, customRows: changedCustom, deleteCustomIds },
         totalSurfaceSqft(keepInstances, visibleKeys),
       );
+      if (featuresAdded) await ensureFeatureSections(id);
       return id;
     },
     onSuccess: (id) => {
@@ -262,6 +303,8 @@ export function ProjectMeasurementsCard({
       setIsDirty(false);
       qc.invalidateQueries({ queryKey: ["project-feature-measurements", id] });
       qc.invalidateQueries({ queryKey: ["project-measurements", id] });
+      qc.invalidateQueries({ queryKey: ["project-features", id] });
+      qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["project", id] });
       onSaved?.();

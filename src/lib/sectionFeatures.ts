@@ -1,4 +1,5 @@
 import type { Category, SmartSectionLaborDefault, SmartSectionSettings } from "./api";
+import { featureName, liveFeatures, typeNameOf, type ProjectFeature } from "./features";
 import type { LineCostType } from "./costPlanMath";
 import { findSmartSectionSettings, findSmartSectionTemplate, resolveEffectiveLineItems } from "./smartSections";
 import { BUILD_TYPES } from "./buildTypes";
@@ -18,6 +19,12 @@ export interface SectionFeatureOption {
   /** The Job Category to tag the section with — null for a build type the
    * contractor has no category for yet (sets the name only). */
   categoryId: string | null;
+  /** A project feature (0105) this option is — the section then plans /
+   * prices exactly that feature. */
+  featureId?: string | null;
+  /** Picking it adds a new feature of `categoryId` to the project (created
+   * on Save). */
+  newFeature?: boolean;
 }
 
 const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "").replace(/s$/, "");
@@ -37,6 +44,37 @@ export function sectionFeatureOptions(
     .filter((c) => !primaryIds.has(c.id))
     .map((c) => ({ key: c.id, label: c.name, categoryId: c.id }));
   // Build types already covered by a category (by name or alias) aren't repeated.
+  const coveredBuildTypes = new Set(
+    allCategories.map((c) => buildTypeForCategoryName(c.name)?.id).filter(Boolean) as string[],
+  );
+  for (const b of BUILD_TYPES) {
+    if (!coveredBuildTypes.has(b.id)) other.push({ key: `bt:${b.id}`, label: b.label, categoryId: null });
+  }
+  return { primary, other };
+}
+
+/**
+ * The picker for a project's sections once it has feature records (0105):
+ * its features without a section yet first, then "Other features…" — any
+ * Job Category as a new feature ("Another Paver Patio" when it already has
+ * one), plus build types no category covers (name only).
+ */
+export function featurePickerOptions(
+  features: ProjectFeature[],
+  allCategories: Category[],
+  usedFeatureIds: Set<string>,
+): { primary: SectionFeatureOption[]; other: SectionFeatureOption[] } {
+  const live = liveFeatures(features);
+  const primary = live
+    .filter((f) => !usedFeatureIds.has(f.id))
+    .map((f) => ({ key: f.id, label: featureName(f, allCategories), categoryId: f.category_id, featureId: f.id }));
+  const typesOnProject = new Set(live.map((f) => f.category_id));
+  const other: SectionFeatureOption[] = allCategories.map((c) => ({
+    key: `new:${c.id}`,
+    label: typesOnProject.has(c.id) ? `Another ${c.name}` : c.name,
+    categoryId: c.id,
+    newFeature: true,
+  }));
   const coveredBuildTypes = new Set(
     allCategories.map((c) => buildTypeForCategoryName(c.name)?.id).filter(Boolean) as string[],
   );
@@ -103,7 +141,9 @@ export function withCommittedSectionName<S extends { name: string; job_category_
 /** A section a new materials sheet starts with. */
 export interface FeatureSectionSeed {
   name: string;
-  job_category_id: string;
+  job_category_id: string | null;
+  /** The project feature this section plans (0105). */
+  feature_id?: string | null;
   /** The Smart Section template it came from, when the feature has one
    * (so its header gets the calculator) — null for a feature without a
    * template (Walkway, Drainage…), which starts as a plain named section. */
@@ -146,4 +186,28 @@ export function featureSectionSeeds(
     });
   }
   return seeds;
+}
+
+/** The same seeds, one per project feature (0105): named after the feature
+ * ("Paver Patio · Back patio"), tagged with its type and feature_id. */
+export function featureSeeds(
+  features: ProjectFeature[],
+  allCategories: Category[],
+  smartSettings: SmartSectionSettings[],
+): FeatureSectionSeed[] {
+  return features.map((f) => {
+    const typeName = typeNameOf(f, allCategories);
+    const template = findSmartSectionTemplate(buildTypeForCategoryName(typeName)?.id ?? null);
+    const settings = template ? findSmartSectionSettings(smartSettings, template.id) : null;
+    return {
+      name: featureName(f, allCategories),
+      job_category_id: f.category_id,
+      feature_id: f.id,
+      smart_section_build_type: template?.id ?? null,
+      items: template
+        ? resolveEffectiveLineItems(template, settings).map((li) => ({ name: li.name, cost_type: li.cost_type ?? "material" }))
+        : [],
+      labor: settings?.labor_default ?? null,
+    };
+  });
 }
