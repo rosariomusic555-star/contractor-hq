@@ -16,6 +16,7 @@ import {
   EyeOff,
   FileDown,
   History,
+  AlertTriangle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +64,9 @@ import {
   listSmartSectionSettings,
   listProjectFeatures,
   listPendingCostChanges,
+  getOverheadSettings,
+  pickHeadlineQuote,
+  projectContractValue,
   listFeatureHistory,
   listExpenses,
   listLaborEntries,
@@ -112,6 +116,8 @@ import { addonQuoteNumbers, changeOrderNumbers, featurePrice, featureReports } f
 import { FeatureReportStrip } from "@/components/projects/FeatureReport";
 import { costChangeDelta, describeCostChange } from "@/lib/changeOrderCost";
 import { FeatureHistoryDialog } from "@/components/materials/FeatureHistoryDialog";
+import { TrueCostSummary } from "@/components/overhead/TrueCostCard";
+import { averageLaborRate, burdenPerHour, looksLikeOverhead, lumpSumsWithoutHours, plannedManHours } from "@/lib/overhead";
 import { MaterialAlertsBar } from "@/components/materials/MaterialAlertsBar";
 import { markLinesOrdered } from "@/lib/materialAlertActions";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
@@ -233,6 +239,9 @@ interface DraftItem {
   cost_type: LineCostType;
   /** Vendor / sub for a non-material line. */
   vendor: string;
+  /** "Looks like overhead" dismissed (0110) — written straight away, never
+   * part of Save's diff. */
+  overhead_warning_dismissed?: boolean;
 }
 interface DraftSection extends LaborDraft {
   id: string;
@@ -266,6 +275,7 @@ const NO_LABOR: LaborDraft = {
   labor_hours_per_day: null,
   labor_rate: null,
   labor_lump_sum: null,
+  labor_man_hours: null,
   labor_notes: "",
 };
 
@@ -358,6 +368,7 @@ const laborOf = (s: MaterialsSection): LaborDraft => ({
   labor_hours_per_day: s.labor_hours_per_day == null ? null : Number(s.labor_hours_per_day),
   labor_rate: s.labor_rate == null ? null : Number(s.labor_rate),
   labor_lump_sum: s.labor_lump_sum == null ? null : Number(s.labor_lump_sum),
+  labor_man_hours: s.labor_man_hours == null ? null : Number(s.labor_man_hours),
   labor_notes: s.labor_notes ?? "",
 });
 
@@ -396,6 +407,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       rememberPrice: false,
       cost_type: i.cost_type ?? "material",
       vendor: i.vendor ?? "",
+      overhead_warning_dismissed: i.overhead_warning_dismissed ?? false,
     })),
   })));
 
@@ -832,6 +844,26 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   };
   const [historyFeatureId, setHistoryFeatureId] = useState<string | null>(null);
 
+  // True cost (0110): the job's rate is what it was sold with (project),
+  // else what its quote stores, else the current settings.
+  const { data: overheadSettings } = useQuery({ queryKey: ["overhead-settings"], queryFn: getOverheadSettings });
+  const headlineForPlan = pickHeadlineQuote(projectQuotes);
+  const planOverheadRate =
+    project?.overhead_rate != null
+      ? Number(project.overhead_rate)
+      : headlineForPlan?.overhead_rate != null
+        ? Number(headlineForPlan.overhead_rate)
+        : burdenPerHour(overheadSettings);
+  const contractForPlan = projectContractValue(projectQuotes, projectChangeOrders);
+  const planPrice = contractForPlan > 0 ? contractForPlan : null;
+  const planTargetMargin = project?.target_margin_pct ?? headlineForPlan?.target_margin_pct ?? overheadSettings?.target_margin_pct ?? null;
+  // Hide it now (without making the draft dirty), and remember it on the
+  // line if it's saved.
+  const dismissOverheadWarning = (itemId: string) => {
+    setDraft((d) => d.map((sec) => ({ ...sec, items: sec.items.map((i) => (i.id === itemId ? { ...i, overhead_warning_dismissed: true } : i)) })));
+    if (!isTmp(itemId)) void updateMaterialsItem(itemId, { overhead_warning_dismissed: true }).catch(() => undefined);
+  };
+
   // Phase E: once the job is Won, each feature section shows planned vs
   // actual (spend + labor tagged with the feature; reconciled materials
   // under the same Complete gate as the project page).
@@ -1074,6 +1106,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           labor_rate: ds.labor_rate,
           labor_lump_sum: ds.labor_lump_sum,
           labor_notes: ds.labor_notes.trim() || null,
+          // only sent when set, so saving still works before 0110
+          ...(ds.labor_man_hours != null || (serverSections.get(ds.id)?.labor_man_hours ?? null) != null
+            ? { labor_man_hours: ds.labor_man_hours ?? null }
+            : {}),
         };
         let sectionId = ds.id;
         const server = serverSections.get(ds.id);
@@ -1254,6 +1290,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         laborRate={laborRate}
                         onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
                         onDeleteItem={(iid) => deleteItem(section.id, iid)}
+                        overheadConfigured={burdenPerHour(overheadSettings) != null}
+                        onDismissOverhead={dismissOverheadWarning}
                         onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
                         projectId={projectId}
                         dragHandleProps={drag?.handle ?? null}
@@ -1478,6 +1516,29 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </div>
       </div>
 
+      {/* True cost (0110, internal) — overhead through planned labor. */}
+      <div className="card-surface p-5">
+        <TrueCostSummary
+          direct={planTotals.total}
+          manHours={plannedManHours(draft)}
+          rate={planOverheadRate}
+          price={planPrice}
+          targetMarginPct={planTargetMargin}
+          laborRate={averageLaborRate(draft)}
+          settings={overheadSettings ?? null}
+          lumpSumsWithoutHours={lumpSumsWithoutHours(draft)}
+          rateNote={
+            planOverheadRate != null
+              ? project?.overhead_rate != null
+                ? `Overhead ${formatCurrency(Number(project.overhead_rate))}/hr — the rate this job was sold with`
+                : headlineForPlan?.overhead_rate != null
+                  ? `Overhead ${formatCurrency(Number(headlineForPlan.overhead_rate))}/hr — stored on the quote`
+                  : `Current overhead ${formatCurrency(planOverheadRate)}/hr`
+              : null
+          }
+        />
+      </div>
+
       <DraftSaveBar
         visible={isDirty}
         onDiscard={discard}
@@ -1680,6 +1741,9 @@ interface SectionCardProps {
   laborRate: number;
   onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
+  /** Overhead is set up — flag lines that look like overhead (0110). */
+  overheadConfigured: boolean;
+  onDismissOverhead: (itemId: string) => void;
   onApplyCalculatedLines: (lines: CalculatedLine[]) => void;
   featurePicker: SectionFeaturePicker;
   /** For the calculator's "From site measurements" prefill. */
@@ -1718,6 +1782,8 @@ function MaterialsSectionCard({
   laborRate,
   onEditItem,
   onDeleteItem,
+  overheadConfigured,
+  onDismissOverhead,
   onApplyCalculatedLines,
   featurePicker,
   projectId,
@@ -1908,6 +1974,15 @@ function MaterialsSectionCard({
                       onMoveUp={() => onMoveItem(index, -1)}
                       onMoveDown={() => onMoveItem(index, 1)}
                     />
+                    )}
+                    {overheadConfigured && !item.overhead_warning_dismissed && looksLikeOverhead(item.name) && (
+                      <div className="mt-1.5 flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-foreground">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-strong" />
+                        <span className="min-w-0 flex-1">This looks like overhead that's already covered by your overhead rate.</span>
+                        <button type="button" onClick={() => onDismissOverhead(item.id)} className="shrink-0 font-semibold text-muted-foreground hover:text-foreground">
+                          Dismiss
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

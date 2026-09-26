@@ -6,6 +6,7 @@ import { DEMO_CREWS } from "@/lib/demoData";
 
 const SECTIONS = [
   { label: "Business profile", to: "/settings/business-profile" },
+  { label: "Overhead", to: "/settings/overhead" },
   { label: "Quote defaults", to: "/settings/quote-defaults" },
   { label: "Categories", to: "/settings/categories" },
   { label: "Lead sources", to: "/settings/lead-sources" },

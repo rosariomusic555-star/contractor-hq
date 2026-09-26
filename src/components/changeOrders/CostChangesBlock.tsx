@@ -38,6 +38,7 @@ const laborOfSection = (s: MaterialsSection | undefined): LaborDraft => ({
   labor_hours_per_day: s?.labor_hours_per_day == null ? null : Number(s.labor_hours_per_day),
   labor_rate: s?.labor_rate == null ? null : Number(s.labor_rate),
   labor_lump_sum: s?.labor_lump_sum == null ? null : Number(s.labor_lump_sum),
+  labor_man_hours: s?.labor_man_hours == null ? null : Number(s.labor_man_hours),
   labor_notes: "",
 });
 

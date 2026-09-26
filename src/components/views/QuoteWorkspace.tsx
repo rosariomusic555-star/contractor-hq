@@ -59,6 +59,18 @@ import type { SectionFeaturePicker } from "@/components/common/SectionNameField"
 import { featureName, liveFeatures } from "@/lib/features";
 import { addonQuoteNumbers } from "@/lib/featureFinancials";
 import {
+  TRUE_COST_STATUS_CLASS,
+  averageLaborRate,
+  burdenPerHour,
+  formatLabor,
+  lumpSumsWithoutHours,
+  plannedManHours,
+  trueCost,
+  type OverheadSettings,
+} from "@/lib/overhead";
+import { SetUpOverheadLink, TrueCostSummary } from "@/components/overhead/TrueCostCard";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
   categoryForSectionName,
   sectionFeatureOptions,
   featurePickerOptions,
@@ -88,6 +100,7 @@ import {
   listMaterials,
   listMaterialsSheets,
   listProjectFeatures,
+  getOverheadSettings,
   createProjectFeature,
   ensureFeatureSections,
   listMaterialsBySheet,
@@ -305,6 +318,21 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     queryKey: ["materials", { project: projectId }],
     queryFn: () => listMaterials(projectId!),
     enabled: !!projectId,
+  });
+  const { data: overheadSettings } = useQuery({ queryKey: ["overhead-settings"], queryFn: getOverheadSettings });
+  const currentOverheadRate = burdenPerHour(overheadSettings);
+  const recalcOverheadMut = useMutation({
+    mutationFn: () =>
+      updateQuote(quote.id, {
+        overhead_rate: currentOverheadRate == null ? null : Math.round(currentOverheadRate * 100) / 100,
+        target_margin_pct: overheadSettings?.target_margin_pct ?? null,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["quote", quote.id] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+      toast({ title: "Recalculated with current overhead" });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
   // The project's one Cost plan (0106) — whether it exists yet.
   const { data: materialsSheets = [] } = useQuery({
@@ -844,7 +872,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const shareQuoteMut = useMutation({
     mutationFn: async () => {
       const token = quote.share_token ?? (await generateShareLink("quotes", quote.id));
-      await updateQuote(quote.id, { status: "sent" });
+      // Sending freezes the overhead rate it's priced with (0110).
+      const freeze =
+        quote.overhead_rate == null && currentOverheadRate != null
+          ? { overhead_rate: Math.round(currentOverheadRate * 100) / 100, target_margin_pct: overheadSettings?.target_margin_pct ?? null }
+          : {};
+      await updateQuote(quote.id, { status: "sent", ...freeze });
       return token;
     },
     onSuccess: async (token) => {
@@ -970,6 +1003,51 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // materials sheet has no optional/required split of its own), so this
   // cost figure was never scoped down to "required only" to begin with.
   const estCost = projectId ? materialsCost : null;
+
+  // True cost (0110, internal): overhead applied through planned labor at
+  // the rate stored on this quote (drafts can recalculate to the current).
+  const trueCostSections = isAddon
+    ? materials.filter((m) => m.feature_id && addonFeatureIds.has(m.feature_id)).map((m) => ({ ...m, feature: null }))
+    : materials;
+  const storedRate = quote.overhead_rate == null ? null : Number(quote.overhead_rate);
+  const overheadRate = storedRate ?? currentOverheadRate;
+  const canRecalculate =
+    quote.status === "draft" && currentOverheadRate != null && (storedRate == null || Math.abs(storedRate - currentOverheadRate) >= 0.005);
+  const trueCostNode = (collapsible: boolean) =>
+    projectId && hasMaterialsSheet ? (
+      <TrueCostSummary
+        collapsible={collapsible}
+        direct={estCost ?? 0}
+        manHours={plannedManHours(trueCostSections)}
+        rate={overheadRate}
+        price={grandTotal}
+        targetMarginPct={quote.target_margin_pct ?? overheadSettings?.target_margin_pct ?? null}
+        laborRate={averageLaborRate(trueCostSections)}
+        settings={overheadSettings ?? null}
+        lumpSumsWithoutHours={lumpSumsWithoutHours(trueCostSections)}
+        rateNote={
+          overheadRate == null ? null : (
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>
+                {storedRate != null
+                  ? `Overhead ${formatCurrency(storedRate)}/hr stored on this quote`
+                  : `Using current overhead ${formatCurrency(overheadRate)}/hr (not stored on this quote yet)`}
+              </span>
+              {canRecalculate && (
+                <button
+                  type="button"
+                  onClick={() => recalcOverheadMut.mutate()}
+                  disabled={recalcOverheadMut.isPending}
+                  className="font-bold text-primary hover:underline disabled:opacity-50"
+                >
+                  Recalculate with current overhead
+                </button>
+              )}
+            </span>
+          )
+        }
+      />
+    ) : null;
   const margin = estCost == null ? null : grandTotal - estCost;
   const marginPct = estCost == null ? null : grandTotal > 0 ? (margin! / grandTotal) * 100 : 0;
 
@@ -1212,6 +1290,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                                 sheetSections={sheetSectionsForLinking}
                                 onTypeChange={(jobCategoryId) => setSectionType(section.id, jobCategoryId)}
                                 onMaterialsChange={(next) => setSectionMaterials(section.id, next)}
+                                overheadRate={overheadRate}
+                                overheadSettings={overheadSettings ?? null}
+                                targetMarginPct={quote.target_margin_pct ?? overheadSettings?.target_margin_pct ?? null}
                               />
                             }
                             optionalSection={{
@@ -1326,6 +1407,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             profit={margin}
             marginPct={marginPct}
             materialsAction={materialsAction}
+            trueCost={trueCostNode}
             depositPct={draft.depositPct}
             deposit={depositAmount}
             sendLabel={sendLabel}
@@ -1361,6 +1443,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           profit={margin}
           marginPct={marginPct}
           materialsAction={materialsAction}
+          trueCost={trueCostNode}
           depositPct={draft.depositPct}
           deposit={depositAmount}
           sendLabel={sendLabel}
@@ -1531,6 +1614,8 @@ interface QuoteSummaryCardProps {
   profit: number | null;
   marginPct: number | null;
   materialsAction: MaterialsAction;
+  /** Internal true-cost summary (overhead, break-even, fully loaded). */
+  trueCost?: (collapsible: boolean) => React.ReactNode;
   depositPct: number;
   deposit: number;
   sendLabel: string;
@@ -1558,6 +1643,7 @@ function QuoteSummaryCard({
   profit,
   marginPct,
   materialsAction,
+  trueCost,
   depositPct,
   deposit,
   sendLabel,
@@ -1654,6 +1740,8 @@ function QuoteSummaryCard({
           <SummaryRow label="Profit" value={profit == null ? "Not available" : formatCurrency(profit)} highlight />
         </div>
       )}
+
+      {trueCost?.(isMobile) && <div className="border-t border-hairline pt-3">{trueCost(isMobile)}</div>}
 
       {materialsAction.primary ? (
         <div className="flex flex-col gap-1.5 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3">
@@ -2013,6 +2101,9 @@ function QuoteSectionHeaderTags({
   sheetSections,
   onTypeChange,
   onMaterialsChange,
+  overheadRate,
+  overheadSettings,
+  targetMarginPct,
 }: {
   section: DraftSection;
   price: number;
@@ -2021,6 +2112,10 @@ function QuoteSectionHeaderTags({
   sheetSections: MaterialsSection[];
   onTypeChange: (jobCategoryId: string | null) => void;
   onMaterialsChange: (next: { mode: "auto" | "manual"; ids: string[] }) => void;
+  /** Internal true cost for the feature's details (0110) — null: not set up. */
+  overheadRate: number | null;
+  overheadSettings: OverheadSettings | null;
+  targetMarginPct: number | null;
 }) {
   const linked = linkedSheetSectionsFor(section, section.materialIds, sheetSections);
   const cost = sheetSectionsCost(linked);
@@ -2038,15 +2133,49 @@ function QuoteSectionHeaderTags({
   // section — fixed, nothing to pick.
   if (section.feature_id) {
     const typeName = allCategories.find((c) => c.id === section.job_category_id)?.name ?? "Feature";
+    const hours = plannedManHours(linked, { all: true });
+    const tc = trueCost({ direct: cost, manHours: hours, rate: overheadRate ?? 0, price, targetMarginPct });
+    const pctText = (v: number | null) => (v == null ? "—" : `${Math.round(v)}%`);
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="rounded-full bg-white/[0.16] px-2.5 py-0.5 text-[11px] font-semibold text-background">
-          {typeName}
-          <span className={cn("font-normal", linked.length === 0 && "text-background/60")}>
-            {" · "}
-            {linked.length > 0 ? `Cost ${formatCurrency(cost)}` : "No cost plan section yet"}
-          </span>
-        </span>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              className="rounded-full bg-white/[0.16] px-2.5 py-0.5 text-left text-[11px] font-semibold text-background hover:bg-white/[0.24]"
+              aria-label={`${typeName} cost details`}
+            >
+              {typeName}
+              <span className={cn("font-normal", linked.length === 0 && "text-background/60")}>
+                {" · "}
+                {linked.length > 0 ? `Cost ${formatCurrency(cost)}` : "No cost plan section yet"}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-72 space-y-1.5 p-3 text-sm tabular-nums" onClick={(e) => e.stopPropagation()}>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{typeName} · internal</div>
+            <DetailRow label="Section price" value={formatCurrency(price)} />
+            <DetailRow label="Direct cost" value={formatCurrency(cost)} />
+            <DetailRow label="Expected margin" value={pctText(sectionMargin(price, cost).marginPct)} />
+            {overheadRate != null ? (
+              <>
+                <DetailRow
+                  label="Allocated overhead"
+                  value={formatCurrency(tc.overhead)}
+                  sub={`${formatLabor(hours, overheadSettings)} × ${formatCurrency(overheadRate)}/hr`}
+                />
+                <DetailRow
+                  label="Fully loaded margin"
+                  value={`${formatCurrency(tc.fullyLoadedProfit)} · ${pctText(tc.fullyLoadedMarginPct)}`}
+                  valueClass={TRUE_COST_STATUS_CLASS[tc.status]}
+                />
+              </>
+            ) : (
+              <SetUpOverheadLink className="block pt-1" />
+            )}
+          </PopoverContent>
+        </Popover>
         {marginTag}
       </div>
     );
@@ -2102,5 +2231,17 @@ function SectionQuickQuoteAction({
       measurements={!hasQuickQuote && prefill.sources.length > 0}
       onClick={onClick}
     />
+  );
+}
+
+function DetailRow({ label, value, sub, valueClass }: { label: string; value: string; sub?: string; valueClass?: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-muted-foreground">{label}</div>
+        {sub && <div className="text-[11px] text-muted-subtle">{sub}</div>}
+      </div>
+      <div className={cn("shrink-0 text-right font-semibold text-foreground", valueClass)}>{value}</div>
+    </div>
   );
 }

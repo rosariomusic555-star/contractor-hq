@@ -76,6 +76,7 @@ import {
   recordMaterialLearningSnapshot,
   getOpportunityByProjectId,
   listLaborEntries,
+  getOverheadSettings,
   updateMaterialsItem,
   listProjectFeatures,
   listCategories,
@@ -89,6 +90,16 @@ import {
 import { countsTowardTotals } from "@/lib/features";
 import { featureReports, type FeatureReport } from "@/lib/featureFinancials";
 import { FeatureProfitTable } from "@/components/projects/FeatureReport";
+import { SetUpOverheadLink } from "@/components/overhead/TrueCostCard";
+import {
+  TRUE_COST_STATUS_CLASS,
+  burdenPerHour,
+  formatLabor,
+  plannedManHours,
+  trueCost,
+  type OverheadSettings,
+  type TrueCost,
+} from "@/lib/overhead";
 import { inviteClientToHub } from "@/lib/portalApi";
 import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost, projectBillingBadge } from "@/lib/financials";
 import {
@@ -190,6 +201,7 @@ export function ProjectDetailView() {
   });
   const { data: expenseCategories = [] } = useQuery({ queryKey: ["expense-categories"], queryFn: listExpenseCategories });
   const { data: projectFeatures = [] } = useQuery({ queryKey: ["project-features", id], queryFn: () => listProjectFeatures(id) });
+  const { data: overheadSettings } = useQuery({ queryKey: ["overhead-settings"], queryFn: getOverheadSettings });
   const { data: jobCategories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: laborEntries = [] } = useQuery({
     queryKey: ["labor-entries", { project: id }],
@@ -397,6 +409,14 @@ export function ProjectDetailView() {
     project.status === "complete" && materialsFullyReconciled ? materialCostSummary.actualCost : 0,
   );
   const actualCost = hasActualCostData ? actualByType.total : null;
+  // The overhead rate the job was sold with (0110) — else its quote's, else
+  // the current settings.
+  const projectOverheadRate =
+    project.overhead_rate != null
+      ? Number(project.overhead_rate)
+      : headlineQuote?.overhead_rate != null
+        ? Number(headlineQuote.overhead_rate)
+        : burdenPerHour(overheadSettings);
 
   // Per feature (Phase E): planned vs actual, price and margin. Reconciled
   // material cost joins per feature under the same Complete gate as above.
@@ -681,6 +701,19 @@ export function ProjectDetailView() {
             planned={costPlan.planned}
             actual={hasActualCostData ? actualByType : null}
             featureRows={featureRows}
+            overhead={{
+              rate: projectOverheadRate,
+              plannedManHours: plannedManHours(materials),
+              actualManHours: laborActualHours,
+              targetMarginPct: project.target_margin_pct ?? overheadSettings?.target_margin_pct ?? null,
+              settings: overheadSettings ?? null,
+              source:
+                project.overhead_rate != null
+                  ? "the rate this job was sold with"
+                  : headlineQuote?.overhead_rate != null
+                    ? "the rate stored on its quote"
+                    : "your current overhead (this job has no stored rate)",
+            }}
           />
 
           {/* Costs to date — real logged expenses only */}
@@ -1058,12 +1091,24 @@ function ProfitSummaryCard({
   planned,
   actual,
   featureRows,
+  overhead,
 }: {
   quoted: number | null;
   predictedCost: number | null;
   actualCost: number | null;
   /** Per-feature breakdown — rows add up to the totals above. */
   featureRows?: FeatureReport[] | null;
+  /** Fully loaded profit (0110, internal): overhead through planned /
+   * actual labor hours at the rate the job was sold with. */
+  overhead?: {
+    rate: number | null;
+    plannedManHours: number;
+    actualManHours: number;
+    targetMarginPct: number | null;
+    settings: OverheadSettings | null;
+    /** Where the rate came from, in words. */
+    source: string;
+  };
   /** Cost plan by type (estimated side). */
   planned: CostTotals;
   /** Actual spend by type — null until anything's been logged. */
@@ -1160,6 +1205,34 @@ function ProfitSummaryCard({
               </span>
             )}
           </p>
+        </div>
+      )}
+      {overhead && quoted != null && (
+        <div className="space-y-2 border-t border-hairline pt-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">Fully loaded · internal</div>
+          {overhead.rate == null ? (
+            <SetUpOverheadLink />
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {predictedCost !== null && (
+                <FullyLoaded
+                  label="Predicted"
+                  tc={trueCost({ direct: predictedCost, manHours: overhead.plannedManHours, rate: overhead.rate, price: quoted, targetMarginPct: overhead.targetMarginPct })}
+                  hoursText={`${formatLabor(overhead.plannedManHours, overhead.settings)} planned`}
+                />
+              )}
+              {actualCost !== null && (
+                <FullyLoaded
+                  label="Actual"
+                  tc={trueCost({ direct: actualCost, manHours: overhead.actualManHours, rate: overhead.rate, price: quoted, targetMarginPct: overhead.targetMarginPct })}
+                  hoursText={`${formatLabor(overhead.actualManHours, overhead.settings)} logged`}
+                />
+              )}
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                Overhead at {formatCurrency(overhead.rate)}/hr — {overhead.source}.
+              </p>
+            </div>
+          )}
         </div>
       )}
       {featureRows && featureRows.length > 1 && (
@@ -1634,5 +1707,20 @@ function FieldUpdatesCard({ projectId }: { projectId: string }) {
         </ul>
       )}
     </section>
+  );
+}
+
+function FullyLoaded({ label, tc, hoursText }: { label: string; tc: TrueCost; hoursText: string }) {
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground">{label} fully loaded profit</p>
+      <p className={cn("text-lg font-extrabold tabular-nums", TRUE_COST_STATUS_CLASS[tc.status])}>
+        {formatCurrency(tc.fullyLoadedProfit)}
+        {tc.fullyLoadedMarginPct != null && <span className="ml-1.5 text-sm font-bold">({tc.fullyLoadedMarginPct.toFixed(0)}%)</span>}
+      </p>
+      <p className="text-[11px] text-muted-subtle">
+        Overhead {formatCurrency(tc.overhead)} · {hoursText}
+      </p>
+    </div>
   );
 }

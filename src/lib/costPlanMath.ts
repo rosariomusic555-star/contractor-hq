@@ -19,7 +19,9 @@ export type LineCostType = "material" | "subcontractor" | "equipment" | "other";
 /** Everything a cost can be — a line's type, or labor. Also the type an
  * expense category's actual spend is matched to. */
 export type CostBucket = LineCostType | "labor";
-export type LaborMode = "crew" | "lump_sum";
+/** crew: crew × days × hours/day × rate · hours: man-hours × rate (0110)
+ * · lump_sum: one amount (with optional man-hours, so it carries overhead). */
+export type LaborMode = "crew" | "hours" | "lump_sum";
 
 export const LINE_COST_TYPES: LineCostType[] = ["material", "subcontractor", "equipment", "other"];
 export const COST_BUCKETS: CostBucket[] = ["material", "labor", "subcontractor", "equipment", "other"];
@@ -80,18 +82,24 @@ export interface LaborBlock {
   labor_hours_per_day?: number | string | null;
   labor_rate?: number | string | null;
   labor_lump_sum?: number | string | null;
+  /** hours mode: the man-hours; lump sum: optional man-hours (0110). */
+  labor_man_hours?: number | string | null;
 }
 
 /** crew × days × hours/day × rate, or the lump sum. 0 when no labor. */
 export function sectionLaborCost(s: LaborBlock): number {
   if (s.labor_mode === "lump_sum") return num(s.labor_lump_sum);
   if (s.labor_mode === "crew") return num(s.labor_crew_size) * num(s.labor_days) * num(s.labor_hours_per_day) * num(s.labor_rate);
+  if (s.labor_mode === "hours") return num(s.labor_man_hours) * num(s.labor_rate);
   return 0;
 }
 
-/** Planned labor hours (crew mode, or a lump sum that kept its hours). */
+/** Planned man-hours: crew × days × hours/day, the man-hours of an hours
+ * block, or a lump sum's own man-hours (else the crew figures it kept). */
 export function sectionLaborHours(s: LaborBlock): number {
   if (!s.labor_mode) return 0;
+  if (s.labor_mode === "hours") return num(s.labor_man_hours);
+  if (s.labor_mode === "lump_sum" && num(s.labor_man_hours) > 0) return num(s.labor_man_hours);
   return num(s.labor_crew_size) * num(s.labor_days) * num(s.labor_hours_per_day);
 }
 
@@ -105,7 +113,16 @@ const fmtNum = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits:
 
 /** "3 guys × 4 days × 8 hrs × $30 = $2,880" (or "Lump sum $2,500"). */
 export function laborFormula(s: LaborBlock): string | null {
-  if (s.labor_mode === "lump_sum") return s.labor_lump_sum ? `Lump sum ${fmtMoney(num(s.labor_lump_sum))}` : null;
+  if (s.labor_mode === "lump_sum") {
+    if (!s.labor_lump_sum) return null;
+    const hrs = num(s.labor_man_hours);
+    return `Lump sum ${fmtMoney(num(s.labor_lump_sum))}${hrs > 0 ? ` · ${fmtNum(hrs)} man-hours` : ""}`;
+  }
+  if (s.labor_mode === "hours") {
+    const hrs = num(s.labor_man_hours);
+    if (!hrs) return null;
+    return `${fmtNum(hrs)} man-hours × ${fmtMoney(num(s.labor_rate))} = ${fmtMoney(sectionLaborCost(s))}`;
+  }
   if (s.labor_mode !== "crew") return null;
   const crew = num(s.labor_crew_size);
   const days = num(s.labor_days);

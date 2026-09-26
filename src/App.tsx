@@ -60,6 +60,7 @@ import { AppointmentsView } from "@/components/views/AppointmentsView";
 import { CommunicationsView } from "@/components/views/CommunicationsView";
 import { ClientFormView } from "@/components/views/ClientFormView";
 import { SettingsView } from "@/components/views/SettingsView";
+import { SettingsOverheadView } from "@/components/views/SettingsOverheadView";
 import { SettingsBusinessProfileView } from "@/components/views/SettingsBusinessProfileView";
 import { SettingsQuoteDefaultsView } from "@/components/views/SettingsQuoteDefaultsView";
 import { SettingsCategoriesView } from "@/components/views/SettingsCategoriesView";
@@ -189,6 +190,7 @@ const router = createBrowserRouter(
         <Route path="/communications" element={<CommunicationsView />} />
         <Route path="/settings" element={<SettingsView />} />
         <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
+        <Route path="/settings/overhead" element={<SettingsOverheadView />} />
         <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
         <Route path="/settings/categories" element={<SettingsCategoriesView />} />
         <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
