@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -24,6 +25,7 @@ import {
   deleteExpenseCategory,
   type ExpenseCategory,
 } from "@/lib/api";
+import { COST_BUCKETS, COST_TYPE_LABEL, type CostBucket } from "@/lib/costPlanMath";
 import { BackLink } from "@/components/common/BackLink";
 
 /**
@@ -56,6 +58,12 @@ export function SettingsExpenseCategoriesView() {
 
   const renameMut = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => updateExpenseCategory(id, { name }),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const costTypeMut = useMutation({
+    mutationFn: ({ id, cost_type }: { id: string; cost_type: CostBucket }) => updateExpenseCategory(id, { cost_type }),
     onSuccess: invalidate,
     onError,
   });
@@ -121,6 +129,10 @@ export function SettingsExpenseCategoriesView() {
             category here makes its records uncategorized — it never deletes the records
             themselves.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The type decides which cost plan bucket a category&apos;s spend is compared against in a
+            project&apos;s Profit Summary (actual vs. planned materials, labor, subs, equipment, other).
+          </p>
 
           {isLoading ? (
             <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
@@ -137,6 +149,7 @@ export function SettingsExpenseCategoriesView() {
                   onMoveUp={() => move(i, -1)}
                   onMoveDown={() => move(i, 1)}
                   onRename={(name) => renameMut.mutate({ id: c.id, name })}
+                  onCostType={(cost_type) => costTypeMut.mutate({ id: c.id, cost_type })}
                   onDelete={() => deleteMut.mutate(c.id)}
                 />
               ))}
@@ -173,6 +186,7 @@ function ExpenseCategoryRow({
   onMoveUp,
   onMoveDown,
   onRename,
+  onCostType,
   onDelete,
 }: {
   category: ExpenseCategory;
@@ -181,6 +195,7 @@ function ExpenseCategoryRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRename: (name: string) => void;
+  onCostType: (type: CostBucket) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(category.name);
@@ -216,8 +231,21 @@ function ExpenseCategoryRow({
           if (trimmed && trimmed !== category.name) onRename(trimmed);
           else setName(category.name);
         }}
-        className="h-10 flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
+        className="h-10 min-w-0 flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
       />
+
+      <Select value={category.cost_type ?? "material"} onValueChange={(v) => onCostType(v as CostBucket)}>
+        <SelectTrigger aria-label={`Cost type for ${category.name}`} className="h-9 w-[128px] shrink-0 rounded-full bg-muted text-xs font-semibold">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {COST_BUCKETS.map((t) => (
+            <SelectItem key={t} value={t}>
+              {COST_TYPE_LABEL[t]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       <AlertDialog>
         <AlertDialogTrigger asChild>

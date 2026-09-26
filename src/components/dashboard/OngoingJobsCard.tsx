@@ -101,7 +101,11 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   for (const project of projects) {
     const tracked = trackedSheetIds(quotesByProject.get(project.id) ?? [], changeOrdersByProject.get(project.id) ?? []);
     if (tracked.size === 0) continue;
-    const lines = materialsSections.filter((s) => tracked.has(s.sheet_id)).flatMap((s) => s.materials_items);
+    // Material lines only — tracking never covers sub/equipment/other lines.
+    const lines = materialsSections
+      .filter((s) => tracked.has(s.sheet_id))
+      .flatMap((s) => s.materials_items)
+      .filter((i) => (i.cost_type ?? "material") === "material");
     if (lines.length > 0) trackedLinesByProject.set(project.id, lines);
   }
   const materialOrderDeliveriesByProject = new Map<string, DeliveryLineWithOrderStatus[]>();

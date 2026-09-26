@@ -28,7 +28,7 @@ export const navItems: NavItem[] = [
   { to: "/appointments", label: "Appointments", icon: CalendarClock },
   { to: "/communications", label: "Communications", icon: MessagesSquare },
   { to: "/projects", label: "Projects", icon: Briefcase },
-  { to: "/materials", label: "Material Sheets", icon: Layers },
+  { to: "/materials", label: "Cost Plans", icon: Layers },
   { to: "/quotes", label: "Quotes", icon: FileText },
   { to: "/invoices", label: "Invoices", icon: Receipt },
   { to: "/expenses", label: "Expenses", icon: Wallet },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
@@ -58,6 +58,7 @@ import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import {
   getProject,
+  getBusinessProfile,
   listMaterials,
   listMaterialsBySheet,
   listMaterialsSheets,
@@ -79,7 +80,6 @@ import {
   addMaterialsItem,
   updateMaterialsItem,
   deleteMaterialsItem,
-  materialsCogs,
   listChangeOrders,
   listMaterialOrders,
   listUsageLogsForItems,
@@ -129,6 +129,22 @@ import {
 import { OptionOrCustomField } from "@/components/materials/OptionOrCustomField";
 import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
+import { CostLineRow } from "@/components/materials/CostLineRow";
+import { SectionLaborBlock, type LaborDraft } from "@/components/materials/SectionLaborBlock";
+import { AddLineSplitButton } from "@/components/materials/AddLineSplitButton";
+import {
+  COST_BUCKETS,
+  COST_TYPE_GROUP_LABEL,
+  COST_TYPE_SHORT_LABEL,
+  LINE_COST_TYPES,
+  LUMP_SUM_UNIT,
+  costBreakdownLabel,
+  costPlanTotal,
+  groupLinesByType,
+  sectionTotals,
+  sumSectionTotals,
+  type LineCostType,
+} from "@/lib/costPlanMath";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import {
   featureSectionSeeds,
@@ -198,10 +214,17 @@ interface DraftItem {
    * item also upserts its unit_cost into catalog_price_overrides. Reset to
    * false after every save. */
   rememberPrice: boolean;
+  /** Cost plan line type (0103). Material lines keep everything above;
+   * the rest are description + vendor + lump sum / qty × rate (CostLineRow). */
+  cost_type: LineCostType;
+  /** Vendor / sub for a non-material line. */
+  vendor: string;
 }
-interface DraftSection {
+interface DraftSection extends LaborDraft {
   id: string;
   name: string;
+  /** The cost plan's one project-wide section — pinned last, not deletable. */
+  is_general: boolean;
   /** Set when this section was created via "Create Smart Section" — which
    * build type it is, so its header can show the calculator icon. Set
    * once at creation, never changes afterward. */
@@ -214,42 +237,120 @@ interface DraftSection {
 const tmpId = () => `tmp-${crypto.randomUUID()}`;
 const isTmp = (id: string) => id.startsWith("tmp-");
 
-/** A new draft section from a feature seed — named line items, blank
- * quantity/price (how Smart Sections always start). */
-const draftSectionFromSeed = (seed: {
-  name: string;
-  job_category_id: string | null;
-  smart_section_build_type: string | null;
-  itemNames: string[];
-}): DraftSection => ({
+const NO_LABOR: LaborDraft = {
+  labor_mode: null,
+  labor_crew_size: null,
+  labor_days: null,
+  labor_hours_per_day: null,
+  labor_rate: null,
+  labor_lump_sum: null,
+  labor_notes: "",
+};
+
+/** A new blank line of a given type. Non-material lines start as a lump
+ * sum (1 × amount). */
+const blankDraftItem = (cost_type: LineCostType = "material", name = ""): DraftItem => ({
   id: tmpId(),
-  name: seed.name,
-  smart_section_build_type: seed.smart_section_build_type,
-  job_category_id: seed.job_category_id,
-  items: seed.itemNames.map((itemName) => ({
-    id: tmpId(),
-    name: itemName,
-    quantity: 0,
-    unit_cost: 0,
-    expense_category_id: null,
-    category: null,
-    material_category_id: null,
-    unit: "",
-    price_book_item_id: null,
-    catalog_product_id: null,
-    waste_percent: 0,
-    color: "",
-    tracked: true,
-    rememberPrice: false,
-  })),
+  name,
+  quantity: cost_type === "material" ? 0 : 1,
+  unit_cost: 0,
+  expense_category_id: null,
+  category: null,
+  material_category_id: null,
+  unit: cost_type === "material" ? "" : LUMP_SUM_UNIT,
+  price_book_item_id: null,
+  catalog_product_id: null,
+  waste_percent: 0,
+  color: "",
+  tracked: cost_type === "material",
+  rememberPrice: false,
+  cost_type,
+  vendor: "",
 });
 
+const blankDraftSection = (name: string, extra: Partial<DraftSection> = {}): DraftSection => ({
+  id: tmpId(),
+  name,
+  is_general: false,
+  smart_section_build_type: null,
+  job_category_id: null,
+  items: [],
+  ...NO_LABOR,
+  ...extra,
+});
+
+/** A new draft section from a feature seed — typed template lines with
+ * blank quantity/price (how Smart Sections always start), plus the
+ * template's labor default at the contractor's labor rate. */
+const draftSectionFromSeed = (
+  seed: {
+    name: string;
+    job_category_id: string | null;
+    smart_section_build_type: string | null;
+    items: { name: string; cost_type: LineCostType }[];
+    labor?: { crew_size: number | null; days: number | null } | null;
+  },
+  laborRate: number,
+): DraftSection =>
+  blankDraftSection(seed.name, {
+    smart_section_build_type: seed.smart_section_build_type,
+    job_category_id: seed.job_category_id,
+    items: seed.items.map((i) => blankDraftItem(i.cost_type, i.name)),
+    ...(seed.labor && (seed.labor.crew_size || seed.labor.days)
+      ? {
+          labor_mode: "crew" as const,
+          labor_crew_size: seed.labor.crew_size,
+          labor_days: seed.labor.days,
+          labor_hours_per_day: 8,
+          labor_rate: laborRate,
+        }
+      : {}),
+  });
+
+/**
+ * The draft's invariants, applied after every edit: the General section is
+ * always last (and there's exactly one), and each section's lines are
+ * grouped by type — Materials, Subcontractors, Equipment, Other — keeping
+ * their order within a group. Drag/drop and the up/down arrows work on
+ * positions, so keeping the array itself in this shape keeps them right.
+ */
+const normalizeDraft = (sections: DraftSection[]): DraftSection[] => {
+  const typeRank = (t: LineCostType) => LINE_COST_TYPES.indexOf(t);
+  const grouped = sections.map((s) => {
+    const items = s.items.map((it, i) => ({ it, i })).sort((a, b) => typeRank(a.it.cost_type) - typeRank(b.it.cost_type) || a.i - b.i);
+    return items.every((x, i) => x.i === i) ? s : { ...s, items: items.map((x) => x.it) };
+  });
+  const general = grouped.filter((s) => s.is_general);
+  const rest = grouped.filter((s) => !s.is_general);
+  return [...rest, ...(general.length ? general.slice(0, 1) : [blankDraftSection("General", { is_general: true })])];
+};
+
+const laborOf = (s: MaterialsSection): LaborDraft => ({
+  labor_mode: s.labor_mode ?? null,
+  labor_crew_size: s.labor_crew_size == null ? null : Number(s.labor_crew_size),
+  labor_days: s.labor_days == null ? null : Number(s.labor_days),
+  labor_hours_per_day: s.labor_hours_per_day == null ? null : Number(s.labor_hours_per_day),
+  labor_rate: s.labor_rate == null ? null : Number(s.labor_rate),
+  labor_lump_sum: s.labor_lump_sum == null ? null : Number(s.labor_lump_sum),
+  labor_notes: s.labor_notes ?? "",
+});
+
+/** Cost sort applied inside each type group — groups stay Materials,
+ * Subcontractors, Equipment, Other. */
+const sortWithinTypeGroups = (items: DraftItem[], mode: ItemSortMode): DraftItem[] =>
+  groupLinesByType(items).flatMap((g) => sortItemsByCost(g.lines, mode));
+
+const laborChanged = (a: LaborDraft, b: LaborDraft) =>
+  (Object.keys(NO_LABOR) as (keyof LaborDraft)[]).some((k) => (a[k] ?? null) !== (b[k] ?? null));
+
 const seed = (sections: MaterialsSection[]): DraftSection[] =>
-  sections.map((s) => ({
+  normalizeDraft(sections.map((s) => ({
     id: s.id,
     name: s.name,
+    is_general: !!s.is_general,
     smart_section_build_type: s.smart_section_build_type ?? null,
     job_category_id: s.job_category_id ?? null,
+    ...laborOf(s),
     items: s.materials_items.map((i) => ({
       id: i.id,
       name: i.name,
@@ -265,8 +366,10 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       color: i.color ?? "",
       tracked: i.tracked ?? true,
       rememberPrice: false,
+      cost_type: i.cost_type ?? "material",
+      vendor: i.vendor ?? "",
     })),
-  }));
+  })));
 
 const itemChanged = (
   a: DraftItem,
@@ -283,6 +386,8 @@ const itemChanged = (
     waste_percent: number;
     color: string;
     tracked: boolean;
+    cost_type: LineCostType;
+    vendor: string;
   },
 ) =>
   a.name !== b.name ||
@@ -296,7 +401,9 @@ const itemChanged = (
   a.catalog_product_id !== b.catalog_product_id ||
   a.waste_percent !== b.waste_percent ||
   a.color !== b.color ||
-  a.tracked !== b.tracked;
+  a.tracked !== b.tracked ||
+  a.cost_type !== b.cost_type ||
+  a.vendor !== b.vendor;
 
 /**
  * Route entry for /projects/:id/materials. Most projects have exactly one
@@ -314,7 +421,7 @@ export function ProjectMaterialsView() {
     queryFn: () => listMaterialsSheets(id),
   });
 
-  if (isLoading) return <p className="text-muted-foreground">Loading materials sheet…</p>;
+  if (isLoading) return <p className="text-muted-foreground">Loading cost plan…</p>;
 
   if (sheets.length > 1) {
     return <MaterialsSheetsListView projectId={id} projectName={project?.name} sheets={sheets} />;
@@ -344,7 +451,7 @@ export function ProjectMaterialsSheetDetailView() {
         projectName={project?.name}
         sheetId={sheetId}
         backHref={`/projects/${id}/materials`}
-        backLabel="Back to materials sheets"
+        backLabel="Back to cost plans"
       />
     </div>
   );
@@ -384,12 +491,12 @@ function MaterialsSheetsListView({
 
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheets</h1>
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Cost plans</h1>
           <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
         </div>
         <Button onClick={() => setNewSheetOpen(true)} className="font-bold">
           <Plus className="mr-2 h-4 w-4" />
-          Add materials sheet
+          Add cost plan
         </Button>
       </div>
       <NewMaterialsSheetDialog
@@ -402,7 +509,7 @@ function MaterialsSheetsListView({
       <div className="space-y-3">
         {sheets.map((sheet) => {
           const sections = allSections.filter((s) => s.sheet_id === sheet.id);
-          const cost = materialsCogs(sections);
+          const cost = costPlanTotal(sections);
           const linkedQuote = quotes.find((q) => q.material_sheet_id === sheet.id);
           return (
             <Link
@@ -484,6 +591,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // line's own live quantity/cost, so a project still in Estimating shows
   // a real number instead of $0.
   const { data: project } = useQuery({ queryKey: ["projects", projectId], queryFn: () => getProject(projectId) });
+  // The contractor's labor rate (Settings › Business profile) — what a new
+  // section's labor block starts at.
+  const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
+  const laborRate = businessProfile?.default_labor_rate ?? 45;
   // Material categories (0094) — the line items' one category list.
   const { data: materialCategories = [] } = useQuery({
     queryKey: ["material-categories"],
@@ -511,7 +622,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
     o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
   );
-  const trackedLines: MaterialsItem[] = sections.flatMap((s) => s.materials_items);
+  // Tracking, deliveries and the order sheet are about MATERIAL lines only.
+  const trackedLines: MaterialsItem[] = sections.flatMap((s) => s.materials_items).filter((i) => (i.cost_type ?? "material") === "material");
   const isTracked = trackedLines.length > 0;
   const trackedLineIds = trackedLines.map((l) => l.id);
   const { data: usageLogs = [] } = useQuery({
@@ -587,9 +699,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const markDirty = () => {
     dirty.current = true;
   };
+  // Every edit keeps the draft's shape: General last, lines grouped by type.
   const edit = (fn: (d: DraftSection[]) => DraftSection[]) => {
     markDirty();
-    setDraft((d) => fn(d));
+    setDraft((d) => normalizeDraft(fn(d)));
   };
   const { moveSection, moveItem: moveItemRaw, onDragEnd: onDragEndRaw } = useSectionReorder<DraftItem, DraftSection>(edit);
   // Reordering an item while its section is sorted by cost: the sorted
@@ -599,7 +712,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const reorderFromSorted = (sectionIds: string[]) => {
     const sorted = sectionIds.filter((sid) => sortOf(sid) !== "manual");
     if (sorted.length === 0) return;
-    edit((d) => d.map((s) => (sorted.includes(s.id) ? { ...s, items: sortItemsByCost(s.items, sortOf(s.id)) } : s)));
+    edit((d) => d.map((s) => (sorted.includes(s.id) ? { ...s, items: sortWithinTypeGroups(s.items, sortOf(s.id)) } : s)));
     setItemSort((prev) => ({ ...prev, ...Object.fromEntries(sorted.map((sid) => [sid, "manual" as const])) }));
   };
   const moveItem = (sid: string, index: number, direction: -1 | 1) => {
@@ -653,7 +766,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(null);
   const addSection = () => {
     const id = tmpId();
-    edit((d) => [...d, { id, name: "", smart_section_build_type: null, job_category_id: null, items: [] }]);
+    edit((d) => [...d, { ...blankDraftSection(""), id }]);
     setAutoOpenSectionId(id);
   };
   const featurePickerFor = (sid: string): SectionFeaturePicker => ({
@@ -670,17 +783,26 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // from this point on, so everything below (edit, delete, add more rows,
   // Save) treats it exactly the same. The build type is remembered on the
   // section so its header can show the calculator icon (step 2).
-  const addSmartSection = (buildTypeId: string, name: string, lineItems: string[]) =>
+  const addSmartSection = (
+    buildTypeId: string,
+    name: string,
+    lineItems: { name: string; cost_type: LineCostType }[],
+    labor: { crew_size: number | null; days: number | null } | null,
+  ) =>
     edit((d) => [
       ...d,
-      draftSectionFromSeed({
-        name,
-        smart_section_build_type: buildTypeId,
-        // Auto-tag with the project type matching this build type
-        // (e.g. "Paver Patio"), when the project has one.
-        job_category_id: matchProjectTypeForBuildType(buildTypeId, projectTypeOptions),
-        itemNames: lineItems,
-      }),
+      draftSectionFromSeed(
+        {
+          name,
+          smart_section_build_type: buildTypeId,
+          // Auto-tag with the project type matching this build type
+          // (e.g. "Paver Patio"), when the project has one.
+          job_category_id: matchProjectTypeForBuildType(buildTypeId, projectTypeOptions),
+          items: lineItems,
+          labor,
+        },
+        laborRate,
+      ),
     ]);
 
   // --- one section per project feature (sectionFeatures.featureSectionSeeds)
@@ -697,7 +819,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     if (sheetId || prefilled.current || dirty.current || !project || !smartSettingsLoaded || jobCategories.length === 0) return;
     prefilled.current = true;
     const seeds = featureSectionSeeds(projectTypeIds, jobCategories, smartSettings);
-    if (seeds.length > 0) edit(() => seeds.map(draftSectionFromSeed));
+    if (seeds.length > 0) edit(() => seeds.map((sd) => draftSectionFromSeed(sd, laborRate)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetId, project, smartSettingsLoaded, jobCategories]);
 
@@ -717,7 +839,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     : [];
   const addFeatureSection = (categoryId: string) => {
     const [seedFor] = featureSectionSeeds([categoryId], jobCategories, smartSettings);
-    if (seedFor) edit((d) => [...d, draftSectionFromSeed(seedFor)]);
+    if (seedFor) edit((d) => [...d, draftSectionFromSeed(seedFor, laborRate)]);
     // Recorded as accounted for when the sheet is saved (with the section).
     setAckPending((p) => [...p, categoryId]);
   };
@@ -765,35 +887,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         };
       }),
     );
-  const addItem = (sid: string) =>
-    edit((d) =>
-      d.map((s) =>
-        s.id === sid
-          ? {
-              ...s,
-              items: [
-                ...s.items,
-                {
-                  id: tmpId(),
-                  name: "",
-                  quantity: 0,
-                  unit_cost: 0,
-                  expense_category_id: null,
-                  category: null,
-                  material_category_id: null,
-                  unit: "",
-                  price_book_item_id: null,
-                  catalog_product_id: null,
-                  waste_percent: 0,
-                  color: "",
-                  tracked: true,
-                  rememberPrice: false,
-                },
-              ],
-            }
-          : s,
-      ),
-    );
+  // A new line of the given type — lands at the end of its type's group.
+  const addItem = (sid: string, type: LineCostType = "material") =>
+    edit((d) => d.map((s) => (s.id === sid ? { ...s, items: [...s.items, blankDraftItem(type)] } : s)));
+  const editLabor = (sid: string, patch: Partial<LaborDraft>) =>
+    edit((d) => d.map((s) => (s.id === sid ? { ...s, ...patch } : s)));
   const editItem = (sid: string, iid: string, patch: Partial<DraftItem>) =>
     edit((d) =>
       d.map((s) =>
@@ -813,7 +911,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       // No sheet exists yet (brand-new project) — create it lazily, exactly
       // like a brand-new section/item's tmp- id resolves to a real row here.
       const currentSheetId =
-        sheetId ?? (await createMaterialsSheet(projectId, { name: "Materials sheet", feature_category_ids: projectTypeIds })).id;
+        sheetId ?? (await createMaterialsSheet(projectId, { name: "Cost plan", feature_category_ids: projectTypeIds })).id;
       // Types added from the "was added" banner are now accounted for.
       if (sheetId && ackPending.length > 0 && currentSheet?.feature_category_ids) {
         await updateMaterialsSheet(sheetId, {
@@ -832,7 +930,16 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       // 2. per section: create / rename, then its items
       for (let si = 0; si < draft.length; si++) {
         const ds = draft[si];
-        const name = ds.name.trim() || "New section";
+        const name = ds.name.trim() || (ds.is_general ? "General" : "New section");
+        const labor = {
+          labor_mode: ds.labor_mode,
+          labor_crew_size: ds.labor_crew_size,
+          labor_days: ds.labor_days,
+          labor_hours_per_day: ds.labor_hours_per_day,
+          labor_rate: ds.labor_rate,
+          labor_lump_sum: ds.labor_lump_sum,
+          labor_notes: ds.labor_notes.trim() || null,
+        };
         let sectionId = ds.id;
         const server = serverSections.get(ds.id);
 
@@ -842,6 +949,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             sort_order: si,
             smart_section_build_type: ds.smart_section_build_type,
             job_category_id: ds.job_category_id,
+            is_general: ds.is_general,
+            ...(ds.labor_mode ? labor : {}),
           });
           sectionId = created.id;
         } else if (server.name !== name || server.sort_order !== si) {
@@ -849,6 +958,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         }
         if (server && (server.job_category_id ?? null) !== ds.job_category_id) {
           await updateMaterialsSection(server.id, { job_category_id: ds.job_category_id });
+        }
+        if (server && laborChanged(ds, laborOf(server))) {
+          await updateMaterialsSection(server.id, labor);
         }
 
         const serverItems = new Map((server?.materials_items ?? []).map((i) => [i.id, i]));
@@ -886,6 +998,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               waste_percent: di.waste_percent,
               color: di.color.trim() || null,
               tracked: di.tracked,
+              cost_type: di.cost_type,
+              vendor: di.vendor.trim() || null,
             });
           } else if (
             itemChanged(di, {
@@ -901,6 +1015,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               waste_percent: Number(srv.waste_percent ?? 0),
               color: srv.color ?? "",
               tracked: srv.tracked ?? true,
+              cost_type: srv.cost_type ?? "material",
+              vendor: srv.vendor ?? "",
             }) ||
             srv.sort_order !== ii
           ) {
@@ -917,6 +1033,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               waste_percent: di.waste_percent,
               color: di.color.trim() || null,
               tracked: di.tracked,
+              cost_type: di.cost_type,
+              vendor: di.vendor.trim() || null,
               sort_order: ii,
             });
           }
@@ -938,7 +1056,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["catalog-price-overrides"] });
-      toast({ title: "Materials sheet saved" });
+      toast({ title: "Cost plan saved" });
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
@@ -975,7 +1093,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
       qc.invalidateQueries({ queryKey: ["quotes"] });
-      toast({ title: "Materials sheet deleted" });
+      toast({ title: "Cost plan deleted" });
       navigate(`/projects/${projectId}/materials`);
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
@@ -984,24 +1102,81 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const [nameDraft, setNameDraft] = useState(currentSheet?.name ?? "");
   useEffect(() => setNameDraft(currentSheet?.name ?? ""), [currentSheet?.name]);
 
-  const grandTotal = useMemo(
-    () =>
-      draft.reduce(
-        (sum, s) => sum + s.items.reduce((a, i) => a + materialsLineTotal(i), 0),
-        0,
-      ),
-    [draft],
-  );
+  // The Total cost card: every section, broken down by cost type.
+  const planTotals = useMemo(() => sumSectionTotals(draft), [draft]);
 
   // Track / Don't Track (0086) — live off the draft (not the server rows)
   // so the count updates the instant the contractor toggles an item, same
   // as every other field on this page.
-  const draftItems = useMemo(() => draft.flatMap((s) => s.items), [draft]);
+  const draftItems = useMemo(() => draft.flatMap((s) => s.items).filter((i) => i.cost_type === "material"), [draft]);
   const itemTrackingSummary = useMemo(() => trackingSummary(draftItems), [draftItems]);
   const setAllTracked = (tracked: boolean) =>
-    edit((d) => d.map((s) => ({ ...s, items: s.items.map((i) => ({ ...i, tracked })) })));
+    edit((d) => d.map((s) => ({ ...s, items: s.items.map((i) => (i.cost_type === "material" ? { ...i, tracked } : i)) })));
 
   const isDirty = dirty.current;
+  const renderSectionCard = (
+    section: DraftSection,
+    index: number,
+    drag: { handle: DraggableProvidedDragHandleProps | null | undefined; dragging: boolean } | null,
+  ) => (
+                      <MaterialsSectionCard
+                        section={section}
+                        materialCategories={materialCategories}
+                        expenseCategories={expenseCategories}
+                        sortMode={sortOf(section.id)}
+                        onSortChange={(mode) => setItemSort((prev) => ({ ...prev, [section.id]: mode }))}
+                        projectTypeOptions={projectTypeOptions}
+                        jobCategories={jobCategories}
+                        onTypeChange={(jobCategoryId) => setSectionType(section.id, jobCategoryId)}
+                        priceBookItems={priceBookItems}
+                        catalogItems={catalogItems}
+                        priceOverrides={priceOverrides}
+                        tracking={{
+                          active: trackingActive,
+                          byItemId: trackingByItemId,
+                          onLogUsage: (itemId) => {
+                            const line = trackedLines.find((l) => l.id === itemId);
+                            if (line) setLogUsageLine(line);
+                          },
+                          onMarkFullyUsed: (itemId) => {
+                            const line = trackedLines.find((l) => l.id === itemId);
+                            if (line) markFullyUsedMut.mutate(line);
+                          },
+                          onReviseEstimate: (itemId) => {
+                            const line = trackedLines.find((l) => l.id === itemId);
+                            if (line) setReviseTarget(line);
+                          },
+                        }}
+                        onRename={(name) => renameSection(section.id, name)}
+                        featurePicker={featurePickerFor(section.id)}
+                        onDelete={() => deleteSection(section.id)}
+                        onAddItem={(type) => addItem(section.id, type)}
+                        onEditLabor={(patch) => editLabor(section.id, patch)}
+                        laborRate={laborRate}
+                        onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
+                        onDeleteItem={(iid) => deleteItem(section.id, iid)}
+                        onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
+                        projectId={projectId}
+                        dragHandleProps={drag?.handle ?? null}
+                        dragging={drag?.dragging ?? false}
+                        canMoveUp={!section.is_general && index > 0}
+                        canMoveDown={!section.is_general && index < draftFeatureSections.length - 1}
+                        onMoveUp={() => moveSection(index, -1)}
+                        onMoveDown={() => moveSection(index, 1)}
+                        onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
+                        collapsed={isCollapsed(section.id)}
+                        onToggleCollapse={() => toggleCollapse(section.id)}
+                        isDraggingItem={isDraggingItem}
+                        onAutoExpand={() => expandSection(section.id)}
+                      />
+  );
+  // The order sheet lists material lines only.
+  const orderSheetSections = useMemo(
+    () => sections.map((sec) => ({ ...sec, materials_items: sec.materials_items.filter((i) => (i.cost_type ?? "material") === "material") })),
+    [sections],
+  );
+  const draftGeneral = draft.find((sec) => sec.is_general);
+  const draftFeatureSections = draft.filter((sec) => !sec.is_general);
 
   return (
     <div className={cn("mx-auto max-w-4xl animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
@@ -1017,7 +1192,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
               onBlur={() => {
-                const trimmed = nameDraft.trim() || "Materials sheet";
+                const trimmed = nameDraft.trim() || "Cost plan";
                 setNameDraft(trimmed);
                 if (trimmed !== currentSheet?.name) renameSheetMut.mutate(trimmed);
               }}
@@ -1025,7 +1200,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               aria-label="Sheet name"
             />
           ) : (
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground">Materials sheet</h1>
+            <h1 className="text-[28px] font-bold tracking-tight text-foreground">Cost plan</h1>
           )}
           <p className="mt-1 text-muted-foreground">{projectName ?? " "}</p>
           <GoToProjectLink projectId={projectId} isDirty={isDirty} className="mt-1.5" />
@@ -1037,7 +1212,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               size="sm"
               variant="outline"
               onClick={() => setOrderSheetOpen(true)}
-              disabled={sections.every((s) => s.materials_items.length === 0)}
+              disabled={orderSheetSections.every((s) => s.materials_items.length === 0)}
               className="font-bold"
             >
               <FileDown className="mr-1.5 h-3.5 w-3.5" />
@@ -1048,7 +1223,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               onClick={() => setNewSheetOpen(true)}
               className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
             >
-              + Add another materials sheet
+              + Add another cost plan
             </button>
             <NewMaterialsSheetDialog
               open={newSheetOpen}
@@ -1174,7 +1349,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </div>
       )}
 
-      {isLoading && <p className="text-muted-foreground">Loading materials sheet…</p>}
+      {isLoading && <p className="text-muted-foreground">Loading cost plan…</p>}
       {isError && <p className="text-destructive">Failed to load materials: {(error as Error).message}</p>}
 
       {!isLoading && !isError && draft.length === 0 && (
@@ -1221,58 +1396,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         <Droppable droppableId="materials-sections" type="section">
           {(provided) => (
             <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-5">
-              {draft.map((section, index) => (
+              {draftFeatureSections.map((section, index) => (
                 <Draggable key={section.id} draggableId={section.id} index={index}>
                   {(dragProvided, dragSnapshot) => (
                     <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
-                      <MaterialsSectionCard
-                        section={section}
-                        materialCategories={materialCategories}
-                        expenseCategories={expenseCategories}
-                        sortMode={sortOf(section.id)}
-                        onSortChange={(mode) => setItemSort((prev) => ({ ...prev, [section.id]: mode }))}
-                        projectTypeOptions={projectTypeOptions}
-                        jobCategories={jobCategories}
-                        onTypeChange={(jobCategoryId) => setSectionType(section.id, jobCategoryId)}
-                        priceBookItems={priceBookItems}
-                        catalogItems={catalogItems}
-                        priceOverrides={priceOverrides}
-                        tracking={{
-                          active: trackingActive,
-                          byItemId: trackingByItemId,
-                          onLogUsage: (itemId) => {
-                            const line = trackedLines.find((l) => l.id === itemId);
-                            if (line) setLogUsageLine(line);
-                          },
-                          onMarkFullyUsed: (itemId) => {
-                            const line = trackedLines.find((l) => l.id === itemId);
-                            if (line) markFullyUsedMut.mutate(line);
-                          },
-                          onReviseEstimate: (itemId) => {
-                            const line = trackedLines.find((l) => l.id === itemId);
-                            if (line) setReviseTarget(line);
-                          },
-                        }}
-                        onRename={(name) => renameSection(section.id, name)}
-                        featurePicker={featurePickerFor(section.id)}
-                        onDelete={() => deleteSection(section.id)}
-                        onAddItem={() => addItem(section.id)}
-                        onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
-                        onDeleteItem={(iid) => deleteItem(section.id, iid)}
-                        onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
-                        projectId={projectId}
-                        dragHandleProps={dragProvided.dragHandleProps}
-                        dragging={dragSnapshot.isDragging}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < draft.length - 1}
-                        onMoveUp={() => moveSection(index, -1)}
-                        onMoveDown={() => moveSection(index, 1)}
-                        onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
-                        collapsed={isCollapsed(section.id)}
-                        onToggleCollapse={() => toggleCollapse(section.id)}
-                        isDraggingItem={isDraggingItem}
-                        onAutoExpand={() => expandSection(section.id)}
-                      />
+                      {renderSectionCard(section, index, { handle: dragProvided.dragHandleProps, dragging: dragSnapshot.isDragging })}
                     </div>
                   )}
                 </Draggable>
@@ -1281,6 +1409,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             </div>
           )}
         </Droppable>
+        {/* General — project-wide costs, pinned last: not draggable, not deletable. */}
+        {draftGeneral && <div className="mt-5">{renderSectionCard(draftGeneral, draftFeatureSections.length, null)}</div>}
       </DragDropContext>
 
       {trackingActive && isTracked && deliveries.some((d) => d.item.materials_item_id == null) && (
@@ -1306,14 +1436,24 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </button>
       </div>
 
-      {/* Sheet total — after all sections. */}
-      <div className="flex items-center justify-between overflow-hidden rounded-card border-2 border-primary bg-sidebar px-5 py-4 shadow-card">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-background/55">
-          Total cost · {pluralize(draft.length, "section")}
-        </span>
-        <span className="text-[26px] font-extrabold tracking-tight tabular-nums text-background">
-          {formatCurrency(grandTotal)}
-        </span>
+      {/* Cost plan total — after all sections, broken down by cost type. */}
+      <div className="overflow-hidden rounded-card border-2 border-primary bg-sidebar px-5 py-4 shadow-card">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-background/55">
+            Total cost · {pluralize(draft.length, "section")}
+          </span>
+          <span className="text-[26px] font-extrabold tracking-tight tabular-nums text-background">{formatCurrency(planTotals.total)}</span>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-white/10 pt-3 sm:grid-cols-5">
+          {COST_BUCKETS.map((k) => (
+            <div key={k} className="flex items-baseline justify-between gap-2 sm:block">
+              <div className="text-[11px] font-semibold text-background/55">{COST_TYPE_GROUP_LABEL[k]}</div>
+              <div className={cn("text-sm font-bold tabular-nums", planTotals[k] > 0 ? "text-background" : "text-background/40")}>
+                {formatCurrency(planTotals[k])}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <DraftSaveBar
@@ -1335,7 +1475,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         projectId={projectId}
         projectName={projectName ?? ""}
         deliveryAddress={project?.address ?? null}
-        sections={sections}
+        sections={orderSheetSections}
         catalogItems={catalogItems}
         priceBookItems={priceBookItems}
       />
@@ -1536,7 +1676,11 @@ interface SectionCardProps {
   tracking: TrackingContext;
   onRename: (name: string) => void;
   onDelete: () => void;
-  onAddItem: () => void;
+  /** Adds a line of the given type (the split "+ Material ▾" button). */
+  onAddItem: (type: LineCostType) => void;
+  onEditLabor: (patch: Partial<LaborDraft>) => void;
+  /** The contractor's labor rate — a new labor block starts at it. */
+  laborRate: number;
   onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
   onApplyCalculatedLines: (lines: CalculatedLine[]) => void;
@@ -1573,6 +1717,8 @@ function MaterialsSectionCard({
   onRename,
   onDelete,
   onAddItem,
+  onEditLabor,
+  laborRate,
   onEditItem,
   onDeleteItem,
   onApplyCalculatedLines,
@@ -1590,7 +1736,9 @@ function MaterialsSectionCard({
   isDraggingItem,
   onAutoExpand,
 }: SectionCardProps) {
-  const subtotal = section.items.reduce((a, i) => a + materialsLineTotal(i), 0);
+  // Every cost type + labor — the header total and the collapsed breakdown.
+  const totals = sectionTotals(section);
+  const subtotal = totals.total;
   const buildType = findSmartSectionTemplate(section.smart_section_build_type);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   // "Measurements available · Fill quantities": the project has site
@@ -1601,22 +1749,30 @@ function MaterialsSectionCard({
     !!buildType && measurementPrefill.sources.length > 0 && section.items.every((i) => !i.quantity);
   // View order only — the saved manual order is untouched unless the user
   // reorders while sorted (the page handles that; see reorderFromSorted).
-  const displayItems = sortItemsByCost(section.items, sortMode);
+  // Lines stay grouped by type; the sort applies within each group.
+  const displayItems = sortWithinTypeGroups(section.items, sortMode);
+  const showGroupHeadings = new Set(displayItems.map((i) => i.cost_type)).size > 1;
 
   return (
     <SectionCard
-      name={section.name}
+      name={section.is_general ? "General" : section.name}
       onRename={onRename}
-      featurePicker={featurePicker}
+      nameReadOnly={section.is_general}
+      featurePicker={section.is_general ? undefined : featurePicker}
       subtotal={subtotal}
       itemNames={displayItems.map((i) => materialLineLabel(i))}
+      collapsedSummary={costBreakdownLabel(totals) || undefined}
       tag={
-        <SectionTypeChip
-          value={section.job_category_id}
-          options={projectTypeOptions}
-          allCategories={jobCategories}
-          onChange={onTypeChange}
-        />
+        section.is_general ? (
+          <span className="text-[11px] font-semibold text-background/70">Project-wide costs — dumpster, permits, mobilization…</span>
+        ) : (
+          <SectionTypeChip
+            value={section.job_category_id}
+            options={projectTypeOptions}
+            allCategories={jobCategories}
+            onChange={onTypeChange}
+          />
+        )
       }
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
@@ -1628,6 +1784,7 @@ function MaterialsSectionCard({
       canMoveDown={canMoveDown}
       onMoveUp={onMoveUp}
       onMoveDown={onMoveDown}
+      pinned={section.is_general}
       secondRow={
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -1648,6 +1805,8 @@ function MaterialsSectionCard({
               </Select>
             )}
           </div>
+          {/* The General section is part of every cost plan — never deleted. */}
+          {!section.is_general && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive">
@@ -1659,8 +1818,8 @@ function MaterialsSectionCard({
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete "{section.name || "this section"}"?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {section.items.length > 0
-                    ? `Removes ${section.items.length} item${section.items.length === 1 ? "" : "s"} totaling ${formatCurrency(subtotal)} from the sheet. Nothing is saved until you press Save changes.`
+                  {section.items.length > 0 || totals.labor > 0
+                    ? `Removes ${section.items.length} line${section.items.length === 1 ? "" : "s"}${totals.labor > 0 ? " and its labor" : ""} totaling ${formatCurrency(subtotal)} from the cost plan. Nothing is saved until you press Save changes.`
                     : "This section is empty."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -1675,6 +1834,7 @@ function MaterialsSectionCard({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+          )}
         </div>
       }
     >
@@ -1682,9 +1842,28 @@ function MaterialsSectionCard({
         {(provided) => (
           <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
             {displayItems.map((item, index) => (
-              <Draggable key={item.id} draggableId={item.id} index={index}>
+              <Fragment key={item.id}>
+              {showGroupHeadings && item.cost_type !== displayItems[index - 1]?.cost_type && (
+                <div className={cn("text-[11px] font-bold uppercase tracking-wider text-muted-subtle", index > 0 && "mt-2")}>
+                  {COST_TYPE_GROUP_LABEL[item.cost_type]}
+                </div>
+              )}
+              <Draggable draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
                   <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                    {item.cost_type !== "material" ? (
+                      <CostLineRow
+                        item={item}
+                        onEdit={(patch) => onEditItem(item.id, patch)}
+                        onDelete={() => onDeleteItem(item.id)}
+                        dragHandleProps={dragProvided.dragHandleProps}
+                        dragging={dragSnapshot.isDragging}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < section.items.length - 1}
+                        onMoveUp={() => onMoveItem(index, -1)}
+                        onMoveDown={() => onMoveItem(index, 1)}
+                      />
+                    ) : (
                     <ItemRow
                       item={item}
                       materialCategories={materialCategories}
@@ -1702,24 +1881,22 @@ function MaterialsSectionCard({
                       onMoveUp={() => onMoveItem(index, -1)}
                       onMoveDown={() => onMoveItem(index, 1)}
                     />
+                    )}
                   </div>
                 )}
               </Draggable>
+              </Fragment>
             ))}
             {provided.placeholder}
           </div>
         )}
       </Droppable>
-      {/* The section's primary action — tinted and solid-bordered so it
-          stands apart from Calculate quantities / Delete section. */}
-      <button
-        type="button"
-        onClick={onAddItem}
-        className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-primary/40 bg-primary/5 text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/10"
-      >
-        <Plus className="h-4 w-4" />
-        Add line item
-      </button>
+      {/* The section's primary action — "+ Material", with Subcontractor /
+          Equipment / Other behind the ▾. */}
+      <AddLineSplitButton onAdd={onAddItem} />
+
+      {/* Labor — below the lines; collapsed to "+ Add labor" while empty. */}
+      <SectionLaborBlock value={section} defaultRate={laborRate} onChange={onEditLabor} />
 
       {buildType && (
         <SmartSectionCalculatorDialog

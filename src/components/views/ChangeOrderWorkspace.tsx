@@ -597,7 +597,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           </div>
         </div>
         <LinkedDocumentBar
-          targetLabel="materials sheet"
+          targetLabel="cost plan"
           linked={linkedSheet ? { label: `Linked to "${linkedSheet.name}"` } : null}
           onLink={() => setLinkSheetOpen(true)}
           onUnlink={() => unlinkSheetMut.mutate()}
@@ -607,14 +607,14 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
       <Dialog open={linkSheetOpen} onOpenChange={setLinkSheetOpen}>
         <DialogContent className="max-w-sm gap-4">
           <DialogHeader>
-            <DialogTitle>Link a materials sheet</DialogTitle>
+            <DialogTitle>Link a cost plan</DialogTitle>
           </DialogHeader>
           <p className="text-xs text-muted-foreground">
             Approving this change order starts tracking the linked sheet's estimate against real deliveries and usage.
           </p>
           <div className="max-h-[50vh] space-y-2 overflow-y-auto">
             {sheets.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No materials sheets on this project yet.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">No cost plans on this project yet.</p>
             ) : (
               sheets.map((s) => (
                 <button

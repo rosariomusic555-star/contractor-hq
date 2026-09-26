@@ -29,7 +29,10 @@ export function MaterialsLinePicker({ sections, value, onChange, suggested = [],
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const allItems = sections.flatMap((s) => s.materials_items.map((item) => ({ item, sectionName: s.name })));
+  // Deliveries only ever match MATERIAL lines (not sub / equipment / other).
+  const allItems = sections.flatMap((s) =>
+    s.materials_items.filter((item) => (item.cost_type ?? "material") === "material").map((item) => ({ item, sectionName: s.name })),
+  );
   const selected = allItems.find((r) => r.item.id === value);
 
   const term = search.trim().toLowerCase();

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
+import { costPlanTotal } from "@/lib/costPlanMath";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -105,7 +106,6 @@ import {
   getSignedImageUrls,
   generateShareLink,
   logProjectEvent,
-  materialsCogs,
   getQuoteDefaults,
   saveQuoteDefaults,
   QUOTE_DEFAULTS_FALLBACK,
@@ -882,7 +882,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // Ambiguous once this project has more than one materials sheet or more
   // than one quote — below that, this quote's cost pairs automatically with
   // the project's single (or only) sheet, exactly as before this feature
-  // (materialsCogs(materials) is the whole-project aggregate, which equals
+  // (costPlanTotal(materials) is the whole-project aggregate, which equals
   // "that one sheet" whenever there's at most one).
   const needsExplicitMaterialsLink = !!projectId && needsExplicitDocumentLink(materialsSheets.length, projectQuotes.length);
   const linkedSheet = materialsSheets.find((s) => s.id === quote.material_sheet_id);
@@ -893,21 +893,21 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     ? null
     : needsExplicitMaterialsLink
       ? quote.material_sheet_id
-        ? materialsCogs(linkedSheetSections)
+        ? costPlanTotal(linkedSheetSections)
         : null
-      : materialsCogs(materials);
+      : costPlanTotal(materials);
   // The one materials action shown by Est. cost — a sheet is where real
   // cost and margin come from, so getting one attached is a primary action
   // until it exists, then a quiet "View" link.
   const effectiveSheet = needsExplicitMaterialsLink ? linkedSheet : materialsSheets.length === 1 ? materialsSheets[0] : undefined;
   const materialsAction: MaterialsAction = !projectId
-    ? { label: "Create project to add a materials sheet", onClick: () => handleCreateProjectClick(), primary: true }
+    ? { label: "Create project to add a cost plan", onClick: () => handleCreateProjectClick(), primary: true }
     : !hasMaterialsSheet
-      ? { label: "Add materials sheet", onClick: () => openMaterialsPage(`/projects/${projectId}/materials`), primary: true }
+      ? { label: "Add cost plan", onClick: () => openMaterialsPage(`/projects/${projectId}/materials`), primary: true }
       : needsExplicitMaterialsLink && !linkedSheet
-        ? { label: "Link materials sheet", onClick: () => setLinkSheetPickerOpen(true), primary: true }
+        ? { label: "Link cost plan", onClick: () => setLinkSheetPickerOpen(true), primary: true }
         : {
-            label: "View materials sheet",
+            label: "View cost plan",
             onClick: () =>
               openMaterialsPage(effectiveSheet ? `/projects/${projectId}/materials/${effectiveSheet.id}` : `/projects/${projectId}/materials`),
             primary: false,
@@ -930,7 +930,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // to null too rather than displaying a number built on the same guess.
   // A project-linked quote with an ambiguous, unlinked materials sheet is
   // equally undefined until the user picks one — see needsExplicitMaterialsLink.
-  // materialsCogs() already sums the whole linked sheet unconditionally (a
+  // costPlanTotal() already sums the whole linked sheet unconditionally (a
   // materials sheet has no optional/required split of its own), so this
   // cost figure was never scoped down to "required only" to begin with.
   const estCost = projectId ? materialsCost : null;
@@ -1469,12 +1469,12 @@ function LinkMaterialsSheetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm gap-4">
         <DialogHeader>
-          <DialogTitle>Link a materials sheet</DialogTitle>
+          <DialogTitle>Link a cost plan</DialogTitle>
         </DialogHeader>
         <div className="max-h-[60vh] space-y-2 overflow-y-auto">
           {sheets.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No materials sheets on this project yet.
+              No cost plans on this project yet.
             </p>
           ) : (
             sheets.map((sheet) => (
@@ -1678,7 +1678,7 @@ function QuoteSummaryCard({
             {materialsAction.label}
           </Button>
           <p className="text-center text-[11px] text-muted-foreground">
-            A materials sheet is how this quote gets a real cost, profit and margin.
+            A cost plan is how this quote gets a real cost, profit and margin.
           </p>
         </div>
       ) : (
@@ -1917,7 +1917,7 @@ function ClientShareCard({
 
       {needsMaterialsLink && (
         <LinkedDocumentBar
-          targetLabel="materials sheet"
+          targetLabel="cost plan"
           linked={linkedSheet ? { label: linkedSheet.name, onOpen: onOpenLinkedSheet } : null}
           onLink={onLinkMaterialsSheet}
           onUnlink={onUnlinkMaterialsSheet}

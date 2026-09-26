@@ -22,6 +22,11 @@ interface SectionCardProps {
   subtotal: number;
   /** Line item names, in order — used only for the collapsed summary line. */
   itemNames: string[];
+  /** Replaces the collapsed summary line (the Cost plan's
+   * "Materials $4,200 · Labor $2,880 · Subs $1,500"). */
+  collapsedSummary?: string;
+  /** A fixed section name (the Cost plan's General section). */
+  nameReadOnly?: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
   /** True while any line item (in any section) is mid-drag — hovering a
@@ -35,6 +40,8 @@ interface SectionCardProps {
   canMoveDown: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  /** A pinned section (the Cost plan's General) has no reorder controls. */
+  pinned?: boolean;
   /** The row directly under the header — the optional-section toggle in the
    * Quote builder, the Smart Section calculator link in the Materials Sheet
    * builder — plus its "Delete section" control. Differs per builder, hides
@@ -79,9 +86,12 @@ export function SectionCard({
   canMoveDown,
   onMoveUp,
   onMoveDown,
+  pinned,
   secondRow,
   tag,
   featurePicker,
+  collapsedSummary: summaryOverride,
+  nameReadOnly,
   children,
 }: SectionCardProps) {
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -140,7 +150,7 @@ export function SectionCard({
             {/* Auto-sized name — with `featurePicker`, also the feature
                 picker (see SectionNameField). Only the chevron collapses and
                 only the grip drags; the name field stops pointer events. */}
-            <SectionNameField name={name} onRename={onRename} picker={featurePicker} />
+            <SectionNameField name={name} onRename={onRename} picker={featurePicker} readOnly={nameReadOnly} />
           </div>
           <div className="shrink-0 text-right">
             <div className="text-[11px] text-background/55">{pluralize(itemNames.length, "item")}</div>
@@ -148,21 +158,23 @@ export function SectionCard({
               {formatCurrency(subtotal)}
             </div>
           </div>
-          <ReorderControls
-            tone="dark"
-            dragHandleProps={dragHandleProps}
-            onMoveUp={onMoveUp}
-            onMoveDown={onMoveDown}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-            label={name || "section"}
-          />
+          {!pinned && (
+            <ReorderControls
+              tone="dark"
+              dragHandleProps={dragHandleProps}
+              onMoveUp={onMoveUp}
+              onMoveDown={onMoveDown}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+              label={name || "section"}
+            />
+          )}
         </div>
         {tag && <div className="mt-1 pl-11">{tag}</div>}
       </div>
 
       {collapsed && (
-        <p className="truncate px-5 py-3 text-[13px] text-muted-subtle">{collapsedSummary(itemNames)}</p>
+        <p className="truncate px-5 py-3 text-[13px] text-muted-subtle">{summaryOverride ?? collapsedSummary(itemNames)}</p>
       )}
 
       <div className={cn(collapsed && "hidden")}>

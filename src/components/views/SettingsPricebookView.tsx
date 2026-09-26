@@ -171,7 +171,7 @@ export function SettingsPricebookView() {
             <div className="py-6 text-center">
               <p className="mx-auto max-w-sm text-sm text-muted-foreground">
                 Save the materials you buy most — pavers, base, sand — once, and pick them on any
-                job's Materials Sheet instead of retyping them every time. Picking one also fills
+                job's cost plan instead of retyping them every time. Picking one also fills
                 in its cost category automatically.
               </p>
               <Button onClick={openCreate} className="mt-4 h-11 rounded-xl font-bold">
@@ -417,7 +417,7 @@ function PriceBookItemDialog({
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-subtle">
-              Lets the Materials Sheet's Smart Calculator find and use this specific product.
+              Lets the cost plan's Smart Calculator find and use this specific product.
             </p>
           </div>
 
@@ -440,7 +440,7 @@ function PriceBookItemDialog({
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-subtle">
-              Prefills the category on a Materials Sheet line when this item is picked — used to
+              Prefills the category on a cost plan line when this item is picked — used to
               group a generated Order Sheet.
             </p>
           </div>
@@ -515,7 +515,7 @@ function PriceBookItemDialog({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete "{item.name}"?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Materials Sheet lines picked from this item keep their current values — they
+                    Cost plan lines picked from this item keep their current values — they
                     just become editable again instead of being locked to this entry.
                   </AlertDialogDescription>
                 </AlertDialogHeader>

@@ -75,25 +75,90 @@ export function approvedChangeOrderTotal(changeOrders: ChangeOrderLike[]): numbe
   return changeOrders.filter((co) => co.status === "approved").reduce((sum, co) => sum + Number(co.amount), 0);
 }
 
-export interface MaterialsItemLike {
+// ---------------------------------------------------------------------------
+// Cost plan (stored as materials_sheets/sections/items). Mirrors
+// src/lib/costPlanMath.ts — typed lines (material keeps waste %, every other
+// type is quantity × rate) plus each section's labor block (crew × days ×
+// hours/day × rate, or a lump sum).
+// ---------------------------------------------------------------------------
+
+export type CostBucket = "material" | "labor" | "subcontractor" | "equipment" | "other";
+export const COST_BUCKETS: CostBucket[] = ["material", "labor", "subcontractor", "equipment", "other"];
+export type CostTotals = Record<CostBucket, number> & { total: number };
+
+export interface CostLineLike {
   quantity: number;
   unit_cost: number;
   waste_percent?: number | null;
+  cost_type?: Exclude<CostBucket, "labor"> | null;
 }
-export interface MaterialsSectionLike {
-  materials_items: MaterialsItemLike[];
+export interface CostSectionLike {
+  materials_items: CostLineLike[];
+  labor_mode?: "crew" | "lump_sum" | null;
+  labor_crew_size?: number | null;
+  labor_days?: number | null;
+  labor_hours_per_day?: number | null;
+  labor_rate?: number | null;
+  labor_lump_sum?: number | null;
 }
 
-/** Mirrors materialsCogs() in src/lib/api.ts — waste-adjusted quantity ×
- * unit_cost (src/lib/materialsMath.ts materialsLineTotal). */
-export function materialsCogs(sections: MaterialsSectionLike[] = []): number {
-  let total = 0;
+const n = (v: unknown) => (isFinite(Number(v)) ? Number(v) : 0);
+const zeroTotals = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0 });
+
+export function sectionLaborCost(s: CostSectionLike): number {
+  if (s.labor_mode === "lump_sum") return n(s.labor_lump_sum);
+  if (s.labor_mode === "crew") return n(s.labor_crew_size) * n(s.labor_days) * n(s.labor_hours_per_day) * n(s.labor_rate);
+  return 0;
+}
+
+/** Mirrors sumSectionTotals() in src/lib/costPlanMath.ts. */
+export function costPlanTotals(sections: CostSectionLike[] = []): CostTotals {
+  const t = zeroTotals();
   for (const section of sections) {
     for (const item of section.materials_items ?? []) {
-      total += Number(item.quantity) * (1 + (Number(item.waste_percent) || 0) / 100) * Number(item.unit_cost);
+      const type = item.cost_type ?? "material";
+      t[type] +=
+        type === "material"
+          ? n(item.quantity) * (1 + n(item.waste_percent) / 100) * n(item.unit_cost)
+          : n(item.quantity) * n(item.unit_cost);
     }
+    t.labor += sectionLaborCost(section);
   }
-  return total;
+  t.total = COST_BUCKETS.reduce((s, k) => s + t[k], 0);
+  return t;
+}
+
+export interface ExpenseLike {
+  amount: number;
+  expense_category_id: string | null;
+  expense_lines?: { amount: number; expense_category_id: string | null }[];
+}
+
+/** Mirrors actualCostByType() in src/lib/costPlan.ts — expenses matched to a
+ * type through their category's cost_type (split expenses per line;
+ * uncategorized → other; a category with no type → material), plus actual
+ * labor logged. */
+export function actualCostByType(
+  expenses: ExpenseLike[],
+  categories: { id: string; cost_type: CostBucket | null }[],
+  laborActual = 0,
+): CostTotals {
+  const bucket = (id: string | null): CostBucket =>
+    !id ? "other" : (categories.find((c) => c.id === id)?.cost_type ?? "material");
+  const t = zeroTotals();
+  for (const e of expenses) {
+    const lines = e.expense_lines ?? [];
+    if (lines.length > 1) for (const l of lines) t[bucket(l.expense_category_id)] += n(l.amount);
+    else t[bucket(e.expense_category_id)] += n(e.amount);
+  }
+  t.labor += laborActual;
+  t.total = COST_BUCKETS.reduce((s, k) => s + t[k], 0);
+  return t;
+}
+
+/** Only the non-zero buckets — keeps the tool result small. */
+export function nonZeroBuckets(t: CostTotals): Partial<Record<CostBucket, number>> {
+  return Object.fromEntries(COST_BUCKETS.filter((k) => t[k] !== 0).map((k) => [k, Math.round(t[k] * 100) / 100]));
 }
 
 export interface InvoiceLike {

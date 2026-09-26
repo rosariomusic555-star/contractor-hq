@@ -111,12 +111,12 @@ export function SettingsMaterialCategoriesView() {
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.16] text-background">
             <Layers className="h-4 w-4" />
           </span>
-          <span className="text-[15px] font-bold text-background">Categories for materials sheet line items</span>
+          <span className="text-[15px] font-bold text-background">Categories for cost plan line items</span>
         </div>
 
         <div className="bg-card p-5">
           <p className="text-sm text-muted-foreground">
-            The "Category" on every materials sheet line item, and how a generated Order Sheet is
+            The "Category" on every cost plan line item, and how a generated Order Sheet is
             grouped. Renaming updates every line that uses it. Deleting one moves its line items to
             Uncategorized — nothing else changes.
           </p>

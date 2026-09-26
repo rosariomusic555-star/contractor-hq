@@ -376,7 +376,7 @@ export function ProjectMeasurementsCard({
         </div>
 
         <p className="mt-3 text-[11px] text-muted-subtle">
-          Patio, walkway and driveway sq ft add up to the job size used by the Labor page (hours/100sf, cost/sf).
+          Patio, walkway and driveway sq ft add up to the job size used by the Labor log (hours/100sf, cost/sf).
         </p>
       </CollapsibleBody>
 

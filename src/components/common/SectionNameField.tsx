@@ -42,10 +42,13 @@ export function SectionNameField({
   name,
   onRename,
   picker,
+  readOnly,
 }: {
   name: string;
   onRename: (name: string) => void;
   picker?: SectionFeaturePicker;
+  /** A fixed name (the Cost plan's "General" section). */
+  readOnly?: boolean;
 }) {
   const isMobile = useIsMobile();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -177,7 +180,7 @@ export function SectionNameField({
         // Phones: tapping opens the bottom sheet (which has its own input)
         // instead of typing in the header under the keyboard.
         onClick={() => isMobile && openPicker()}
-        readOnly={!!picker && isMobile}
+        readOnly={readOnly || (!!picker && isMobile)}
         onBlur={() => {
           if (open && !isMobile) close(true);
         }}

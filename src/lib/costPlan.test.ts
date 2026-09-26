@@ -1,121 +1,92 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeOrder, CostPlanItem, Quote, QuoteSection } from "./api";
-import { costPlanGroupTotal, costPlanSummary } from "./costPlan";
+import { actualCostByType, costPlanSummary, expenseBucket } from "./costPlan";
+import { costBreakdownLabel, costPlanTotal, laborFormula, lineCost, sectionLaborCost, sectionTotals } from "./costPlanMath";
 
-let idCounter = 0;
-const nextId = (prefix: string) => `${prefix}-${++idCounter}`;
+const cats = [
+  { id: "sub", cost_type: "subcontractor" as const },
+  { id: "equip", cost_type: "equipment" as const },
+  { id: "labor", cost_type: "labor" as const },
+  { id: "pavers", cost_type: "material" as const },
+  { id: "old", cost_type: null },
+];
 
-function makeQuoteSections(total: number): QuoteSection[] {
-  return [
-    {
-      id: nextId("section"),
-      quote_id: "quote-1",
-      name: "Section",
-      is_optional: false,
-      sort_order: 0,
-      quote_items: [
-        {
-          id: nextId("item"),
-          section_id: "section-1",
-          name: "Line",
-          description: null,
-          price: total,
-          quantity: 1,
-          unit: null,
-          is_optional: false,
-          client_selected: false,
-          sort_order: 0,
-          category_id: null,
-          quote_item_images: [],
-        },
+describe("cost plan math", () => {
+  it("material lines keep waste; other lines are qty × rate (lump sum = 1 × amount)", () => {
+    expect(lineCost({ quantity: 100, unit_cost: 5, waste_percent: 10 })).toBeCloseTo(550);
+    expect(lineCost({ quantity: 2, unit_cost: 450, waste_percent: 10, cost_type: "equipment" })).toBe(900);
+    expect(lineCost({ quantity: 1, unit_cost: 7000, cost_type: "subcontractor" })).toBe(7000);
+  });
+
+  it("labor: crew × days × hours × rate, or a lump sum", () => {
+    const crew = { labor_mode: "crew" as const, labor_crew_size: 3, labor_days: 4, labor_hours_per_day: 8, labor_rate: 30 };
+    expect(sectionLaborCost(crew)).toBe(2880);
+    expect(laborFormula(crew)).toBe("3 guys × 4 days × 8 hrs × $30 = $2,880");
+    expect(sectionLaborCost({ labor_mode: "lump_sum", labor_lump_sum: 2500 })).toBe(2500);
+    expect(sectionLaborCost({ labor_mode: null, labor_lump_sum: 2500 })).toBe(0);
+    // The migrated hours-only entry: 50 hrs, no rate, $0.
+    expect(sectionLaborCost({ labor_mode: "crew", labor_crew_size: 1, labor_days: 6.25, labor_hours_per_day: 8, labor_rate: null })).toBe(0);
+  });
+
+  it("section + plan totals break down by type", () => {
+    const section = {
+      labor_mode: "crew" as const,
+      labor_crew_size: 3,
+      labor_days: 4,
+      labor_hours_per_day: 8,
+      labor_rate: 30,
+      materials_items: [
+        { quantity: 100, unit_cost: 42, waste_percent: 0 },
+        { quantity: 1, unit_cost: 1500, cost_type: "subcontractor" as const },
+        { quantity: 2, unit_cost: 450, cost_type: "equipment" as const },
       ],
-    },
-  ];
-}
-
-function makeQuote(overrides: Partial<Quote> = {}): Quote {
-  return {
-    id: nextId("quote"),
-    project_id: "project-1",
-    client_id: null,
-    user_id: "user-1",
-    status: "approved",
-    deposit_percentage: 30,
-    notes: null,
-    terms: null,
-    share_token: null,
-    signed_at: null,
-    signed_by: null,
-    signed_ip: null,
-    declined_at: null,
-    decline_comment: null,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-    material_sheet_id: null,
-    quote_sections: makeQuoteSections(30_000),
-    ...overrides,
-  };
-}
-
-function makeCostPlanItem(overrides: Partial<CostPlanItem> = {}): CostPlanItem {
-  return {
-    id: nextId("cpi"),
-    project_id: "project-1",
-    group: "other",
-    name: "Line",
-    planned_cost: 0,
-    sort_order: 0,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-    ...overrides,
-  };
-}
-
-describe("costPlanGroupTotal", () => {
-  it("sums only the items in the given group", () => {
-    const items = [
-      makeCostPlanItem({ group: "subcontractor", planned_cost: 2000 }),
-      makeCostPlanItem({ group: "subcontractor", planned_cost: 500 }),
-      makeCostPlanItem({ group: "equipment", planned_cost: 1000 }),
-    ];
-    expect(costPlanGroupTotal(items, "subcontractor")).toBe(2500);
-    expect(costPlanGroupTotal(items, "equipment")).toBe(1000);
-    expect(costPlanGroupTotal(items, "other")).toBe(0);
+    };
+    const t = sectionTotals(section);
+    expect(t).toMatchObject({ material: 4200, labor: 2880, subcontractor: 1500, equipment: 900, other: 0, total: 9480 });
+    expect(costBreakdownLabel(t)).toBe("Materials $4,200 · Labor $2,880 · Subs $1,500 · Equip $900");
+    expect(costPlanTotal([section, { materials_items: [{ quantity: 1, unit_cost: 520, cost_type: "other" as const }] }])).toBe(10000);
   });
 });
 
-describe("costPlanSummary", () => {
-  it("matches the spec example: $30k contract, $19.5k planned cost, 35% margin", () => {
-    const quotes = [makeQuote()];
-    const changeOrders: ChangeOrder[] = [];
-    const items = [
-      makeCostPlanItem({ group: "equipment", planned_cost: 1000 }),
-      makeCostPlanItem({ group: "other", planned_cost: 500 }),
-    ];
-    // Materials: $12,000, Labor: $6,000 (from the spec's own example).
-    const summary = costPlanSummary(quotes, changeOrders, 12_000, 6_000, items);
-
-    expect(summary.contractValue).toBe(30_000);
-    expect(summary.materialCost).toBe(12_000);
-    expect(summary.laborCost).toBe(6_000);
-    expect(summary.subcontractorCost).toBe(0);
-    expect(summary.equipmentCost).toBe(1_000);
-    expect(summary.otherCost).toBe(500);
-    expect(summary.totalPlannedCost).toBe(19_500);
-    expect(summary.projectedProfit).toBe(10_500);
-    expect(summary.projectedMarginPct).toBeCloseTo(35);
+describe("profit summary by type", () => {
+  it("actual spend is matched to types through expense categories (split lines per line)", () => {
+    const t = actualCostByType(
+      [
+        { amount: 7000, expense_category_id: "sub", expense_lines: [] },
+        { amount: 1000, expense_category_id: null, expense_lines: [] }, // uncategorized → other
+        {
+          amount: 600,
+          expense_category_id: null,
+          expense_lines: [
+            { id: "1", expense_id: "e", expense_category_id: "pavers", amount: 400, description: null, sort_order: 0 },
+            { id: "2", expense_id: "e", expense_category_id: "equip", amount: 200, description: null, sort_order: 1 },
+          ],
+        },
+        { amount: 50, expense_category_id: "old", expense_lines: [] }, // pre-0103 category → material
+      ],
+      cats,
+      300,
+    );
+    expect(t).toMatchObject({ subcontractor: 7000, other: 1000, material: 450, equipment: 200, labor: 300, total: 8950 });
+    expect(expenseBucket("labor", cats)).toBe("labor");
   });
 
-  it("treats a null material cost (no sheet started) as zero in the total", () => {
-    const summary = costPlanSummary([makeQuote()], [], null, 0, []);
-    expect(summary.materialCost).toBeNull();
-    expect(summary.totalPlannedCost).toBe(0);
-  });
-
-  it("projected profit/margin are null with no contract value yet", () => {
-    const summary = costPlanSummary([], [], 5000, 0, []);
-    expect(summary.contractValue).toBe(0);
-    expect(summary.projectedProfit).toBeNull();
-    expect(summary.projectedMarginPct).toBeNull();
+  it("planned side is the whole cost plan; profit/margin against the contract", () => {
+    const quotes = [
+      {
+        id: "q",
+        status: "approved",
+        quote_sections: [
+          {
+            id: "s",
+            is_optional: false,
+            quote_items: [{ id: "i", price: 20000, quantity: 1, is_optional: false, client_selected: true }],
+          },
+        ],
+      },
+    ] as unknown as Parameters<typeof costPlanSummary>[0];
+    const s = costPlanSummary(quotes, [], [{ materials_items: [{ quantity: 1, unit_cost: 7000, cost_type: "subcontractor" }] }]);
+    expect(s.planned.total).toBe(7000);
+    expect(s.projectedProfit).toBe(13000);
+    expect(s.projectedMarginPct).toBeCloseTo(65);
   });
 });

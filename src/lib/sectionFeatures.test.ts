@@ -62,14 +62,29 @@ describe("new sheet: one section per project feature", () => {
       ["Drainage", "c-drain", null],
       ["Paver Patio", "c-patio", "paver_patio"],
     ]);
-    expect(seeds[0].itemNames.length).toBeGreaterThan(0);
-    expect(seeds[1].itemNames).toEqual([]);
-    expect(seeds[2].itemNames).toContain("Pavers");
+    expect(seeds[0].items.length).toBeGreaterThan(0);
+    expect(seeds[1].items).toEqual([]);
+    expect(seeds[2].items.map((i) => i.name)).toContain("Pavers");
   });
 
   it("uses the contractor's own template line items when customized", () => {
-    const settings = [{ build_type: "paver_patio", line_items: [{ slot_key: "pavers", name: "Techo-Bloc pavers" }], tunables: {} }];
-    expect(featureSectionSeeds(["c-patio"], all, settings)[0].itemNames).toEqual(["Techo-Bloc pavers"]);
+    const settings = [
+      {
+        build_type: "paver_patio",
+        line_items: [
+          { slot_key: "pavers", name: "Techo-Bloc pavers" },
+          { slot_key: null, name: "Skid steer rental", cost_type: "equipment" as const },
+        ],
+        tunables: {},
+        labor_default: { crew_size: 3, days: 4 },
+      },
+    ];
+    const [seed] = featureSectionSeeds(["c-patio"], all, settings);
+    expect(seed.items).toEqual([
+      { name: "Techo-Bloc pavers", cost_type: "material" },
+      { name: "Skid steer rental", cost_type: "equipment" },
+    ]);
+    expect(seed.labor).toEqual({ crew_size: 3, days: 4 });
   });
 
   it("no project types → no sections", () => {

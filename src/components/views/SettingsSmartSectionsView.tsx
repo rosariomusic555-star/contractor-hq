@@ -54,7 +54,7 @@ export function SettingsSmartSectionsView() {
 
       <p className="text-xs text-muted-foreground">
         Edit a build type's line items and calculator numbers for your own account — the app's standard
-        templates stay available to reset back to any time. Materials Sheets you've already created
+        templates stay available to reset back to any time. Cost plans you've already created
         aren't affected by later edits.
       </p>
 

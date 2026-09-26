@@ -47,8 +47,9 @@ import type {
   Project,
   Quote,
 } from "./api";
-import { materialsCogs, pickHeadlineQuote, projectContractValue, quoteItemIncluded, quoteLineTotal } from "./api";
+import { pickHeadlineQuote, projectContractValue, quoteItemIncluded, quoteLineTotal } from "./api";
 import type { ProjectBillingStatus } from "./statusMeta";
+import { costPlanTotal } from "./costPlanMath";
 import { sheetCostSummary, type DeliveryLineWithOrderStatus, type SheetCostSummary } from "./materialTracking";
 
 /** Actual material cost for a project's tracked sheet(s) (0080) — "flows
@@ -397,7 +398,7 @@ export function buildProjectFinancials(
     const closed = isProjectClosed(contractValue, collected);
 
     const hasMaterialsSheet = (sheetsByProject.get(project.id) ?? []).length > 0;
-    const predictedCost = hasMaterialsSheet ? materialsCogs(sectionsByProject.get(project.id) ?? []) : null;
+    const predictedCost = hasMaterialsSheet ? costPlanTotal(sectionsByProject.get(project.id) ?? []) : null;
     const hasExpenses = expenses.length > 0;
     const actualCost = hasExpenses ? expenses.reduce((s, e) => s + Number(e.amount), 0) : null;
     const cost = resolveCost(actualCost, predictedCost);

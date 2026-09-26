@@ -1,4 +1,4 @@
-import { materialsLineTotal } from "./materialsMath";
+import { sumSectionTotals, type CostSection } from "./costPlanMath";
 
 /**
  * Quote section ↔ materials sheet section links (0095) — which materials
@@ -21,11 +21,11 @@ export interface QuoteSectionLike {
   materials_link_mode?: "auto" | "manual";
 }
 
-export interface SheetSectionLike {
+export interface SheetSectionLike extends CostSection {
   id: string;
   name: string;
   job_category_id?: string | null;
-  materials_items: { quantity: number | string; unit_cost: number | string; waste_percent?: number | string | null }[];
+  materials_items: NonNullable<CostSection["materials_items"]>;
 }
 
 const normName = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
@@ -53,8 +53,10 @@ export function linkedSheetSections<S extends SheetSectionLike>(
   return autoMatchedSheetSections(quoteSection, sheetSections);
 }
 
+/** The linked cost plan sections' full cost — every line type + labor
+ * (costPlanMath), what the quote section chip and margin compare against. */
 export function sheetSectionsCost(sections: SheetSectionLike[]): number {
-  return sections.reduce((sum, s) => sum + s.materials_items.reduce((a, i) => a + materialsLineTotal(i), 0), 0);
+  return sumSectionTotals(sections).total;
 }
 
 /** Section profit and margin % against the quote section's own price.

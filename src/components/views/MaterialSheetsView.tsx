@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { costPlanTotal } from "@/lib/costPlanMath";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -7,7 +8,7 @@ import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { ListCard } from "@/components/common/ListCard";
 import { formatCurrency, pluralize } from "@/lib/utils";
-import { listMaterialsSheets, listAllMaterialsSections, materialsCogs, type MaterialsSheet } from "@/lib/api";
+import { listMaterialsSheets, listAllMaterialsSections, type MaterialsSheet } from "@/lib/api";
 
 /**
  * Every materials sheet across every project — the all-jobs rollup Quotes/
@@ -34,7 +35,7 @@ export function MaterialSheetsView() {
     if (list) list.push(section);
     else sectionsBySheet.set(section.sheet_id, [section]);
   }
-  const costFor = (sheet: MaterialsSheet) => materialsCogs(sectionsBySheet.get(sheet.id) ?? []);
+  const costFor = (sheet: MaterialsSheet) => costPlanTotal(sectionsBySheet.get(sheet.id) ?? []);
   const itemCountFor = (sheet: MaterialsSheet) =>
     (sectionsBySheet.get(sheet.id) ?? []).reduce((n, s) => n + s.materials_items.length, 0);
 
@@ -52,7 +53,7 @@ export function MaterialSheetsView() {
 
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
-      <MobilePageHeader title="Material Sheets" subtitle={`${pluralize(sheets.length, "sheet")} · ${formatCurrency(totalCost)} total cost`}>
+      <MobilePageHeader title="Cost Plans" subtitle={`${pluralize(sheets.length, "plan")} · ${formatCurrency(totalCost)} total cost`}>
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -62,8 +63,8 @@ export function MaterialSheetsView() {
       </MobilePageHeader>
 
       <PageHeader
-        title="Material Sheets"
-        subtitle={`${pluralize(sheets.length, "sheet")} across every job`}
+        title="Cost Plans"
+        subtitle={`${pluralize(sheets.length, "plan")} across every job`}
       />
 
       <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
@@ -73,8 +74,8 @@ export function MaterialSheetsView() {
 
       <SearchInput value={search} onChange={setSearch} placeholder="Search sheets or jobs" className="hidden md:flex md:max-w-xs" />
 
-      {isLoading && <p className="text-muted-foreground">Loading material sheets…</p>}
-      {isError && <p className="text-destructive">Failed to load material sheets: {(error as Error).message}</p>}
+      {isLoading && <p className="text-muted-foreground">Loading cost plans…</p>}
+      {isError && <p className="text-destructive">Failed to load cost plans: {(error as Error).message}</p>}
 
       {!isLoading && !isError && (
         <>
@@ -103,7 +104,7 @@ export function MaterialSheetsView() {
                   {filtered.length === 0 && (
                     <tr>
                       <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                        No material sheets here.
+                        No cost plans here.
                       </td>
                     </tr>
                   )}
@@ -123,7 +124,7 @@ export function MaterialSheetsView() {
                 subtitle={pluralize(itemCountFor(sheet), "item")}
               />
             ))}
-            {filtered.length === 0 && <p className="text-sm text-muted-foreground">No material sheets here.</p>}
+            {filtered.length === 0 && <p className="text-sm text-muted-foreground">No cost plans here.</p>}
           </div>
         </>
       )}

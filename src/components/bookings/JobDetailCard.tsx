@@ -82,7 +82,7 @@ export function JobDetailCard({
               to={`/projects/${job.projectId}/materials/${sheets[0].id}`}
               className="block text-xs font-semibold text-primary hover:text-primary/80"
             >
-              View materials sheet →
+              View cost plan →
             </Link>
           )}
         </div>

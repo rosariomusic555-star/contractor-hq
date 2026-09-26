@@ -247,7 +247,7 @@ export function SettingsBusinessProfileView() {
         <div className="bg-muted/50 px-5 py-3">
           <span className="text-[15px] font-bold text-foreground">Labor rates</span>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Prefills a Labor Plan or labor log entry when the worker isn't an employee with their own rate
+            Prefills the rate on new cost plan labor blocks, and on labor log entries when the worker isn't an employee with their own rate
             (Settings &gt; Employees).
           </p>
         </div>
