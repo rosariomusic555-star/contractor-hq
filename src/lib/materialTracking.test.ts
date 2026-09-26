@@ -12,6 +12,9 @@ import {
   lineActualCost,
   lineStatus,
   materialAlerts,
+  materialAlertSummary,
+  startContext,
+  hasAnyOrder,
   needsReconciliation,
   orderedQuantity,
   predictedMaterialCost,
@@ -568,5 +571,56 @@ describe("reconciliation", () => {
     const deliveries = [delivery(makeOrderItem({ materials_item_id: "mi-1", quantity: 20, unit: "ton" }), "delivered")];
     const logs = [makeUsage({ materials_item_id: "mi-1", quantity: 14 })]; // 6 leftover, but untracked
     expect(needsReconciliation([untrackedLeftover], deliveries, logs)).toEqual([]);
+  });
+});
+
+describe("material alerts — compact summary rules", () => {
+  const settings = { overOrderMarginPct: 10, notOrderedAlertDays: 3 };
+  const now = new Date("2026-06-10T09:00:00");
+  const started = { estimated_duration_days: null, actual_start_date: null, actual_end_date: null, scheduled_start_date: "2026-06-09" };
+  const dl = (item: MaterialOrderItem, orderStatus: "ordered" | "delivered" | "delayed" = "ordered") => ({ item, orderStatus });
+
+  it("not ordered needs an estimate above 0 and a start date inside the lead-time window", () => {
+    const priced = makeItem({ id: "a", quantity: 10 });
+    const blank = makeItem({ id: "b", quantity: 0 });
+    const alerts = materialAlerts(started, [priced, blank], [], [], settings, now);
+    expect(alerts.filter((a) => a.key === "not_ordered").map((a) => a.lineId)).toEqual(["a"]);
+    const noStart = { ...started, scheduled_start_date: null };
+    expect(materialAlerts(noStart, [priced], [], [], settings, now)).toEqual([]);
+    const inFourDays = { ...started, scheduled_start_date: "2026-06-14" };
+    expect(materialAlerts(inFourDays, [priced], [], [], settings, now)).toEqual([]);
+    const inThreeDays = { ...started, scheduled_start_date: "2026-06-13" };
+    expect(materialAlerts(inThreeDays, [priced], [], [], settings, now)).toHaveLength(1);
+  });
+
+  it("any matched order clears not-ordered, even one in a unit that still needs converting", () => {
+    const line = makeItem({ id: "a", quantity: 800, unit: "sq ft" });
+    const order = [dl(makeOrderItem({ materials_item_id: "a", quantity: 800, unit: "each" }))];
+    expect(materialAlerts(started, [line], order, [], settings, now)).toEqual([]);
+    expect(lineStatus(800, 0, 0, 0, hasAnyOrder(line, order))).toBe("ordered");
+  });
+
+  it("carries its section, ranks over-estimate first, and summarises in that order", () => {
+    const over = makeItem({ id: "o", section_id: "s2", quantity: 10 });
+    const notOrdered1 = makeItem({ id: "n1", section_id: "s1", quantity: 5 });
+    const notOrdered2 = makeItem({ id: "n2", section_id: "s1", quantity: 5 });
+    const logs = [makeUsage({ materials_item_id: "o", quantity: 12 })];
+    const orders = [
+      { id: "ord-late", supplier: "Stone Yard", expected_delivery_date: "2026-06-08", status: "ordered" as const },
+      { id: "ord-done", supplier: "Quarry", expected_delivery_date: "2026-06-01", status: "delivered" as const },
+    ];
+    const deliveries = [dl(makeOrderItem({ materials_item_id: "o", quantity: 10, unit: "ton", material_order_id: "ord-late" }))];
+    const alerts = materialAlerts(started, [notOrdered1, over, notOrdered2], deliveries, logs, settings, now, orders);
+    expect(alerts.map((a) => a.key)).toEqual(["over_estimate", "delivery_overdue", "not_ordered", "not_ordered"]);
+    expect(alerts[0]).toMatchObject({ lineId: "o", sectionId: "s2" });
+    expect(alerts[1]).toMatchObject({ orderId: "ord-late", label: "Stone Yard 2d overdue" });
+    expect(materialAlertSummary(alerts).map((x) => x.text).join(" · ")).toBe("1 over estimate · 1 delivery overdue · 2 not ordered");
+    expect(startContext("2026-06-09", now)).toBe("job started 1d ago");
+    expect(startContext("2026-06-12", now)).toBe("job starts in 2d");
+  });
+
+  it("a line with tracking off never alerts", () => {
+    const off = makeItem({ id: "x", quantity: 10, tracked: false });
+    expect(materialAlerts(started, [off], [], [], settings, now)).toEqual([]);
   });
 });

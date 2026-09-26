@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useLocation, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import {
@@ -112,6 +112,8 @@ import { addonQuoteNumbers, changeOrderNumbers, featurePrice, featureReports } f
 import { FeatureReportStrip } from "@/components/projects/FeatureReport";
 import { costChangeDelta, describeCostChange } from "@/lib/changeOrderCost";
 import { FeatureHistoryDialog } from "@/components/materials/FeatureHistoryDialog";
+import { MaterialAlertsBar } from "@/components/materials/MaterialAlertsBar";
+import { markLinesOrdered } from "@/lib/materialAlertActions";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectionCalculatorDialog";
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
@@ -169,6 +171,8 @@ import {
   revisedBaseline,
   lineStatus,
   sheetCostSummary,
+  materialAlerts,
+  startContext,
   needsReconciliation,
   executionTrackedLines,
   trackingSummary,
@@ -569,6 +573,24 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // plain estimate: no panels, no Tracked toggles, no summary card.
   const trackingActive = isProjectActive(project);
   const costSummary = trackingActive && isTracked ? sheetCostSummary(trackedLines, deliveries, usageLogs) : null;
+  // The same material alerts the project page shows (one story), with the
+  // same quick actions.
+  const materialAlertList =
+    trackingActive && project && businessProfile
+      ? materialAlerts(
+          project,
+          trackedLines,
+          deliveries,
+          usageLogs,
+          {
+            overOrderMarginPct: businessProfile.material_over_order_margin_pct,
+            notOrderedAlertDays: businessProfile.material_not_ordered_alert_days,
+          },
+          new Date(),
+          materialOrders,
+        )
+      : [];
+  const alertSectionNames = new Map(sections.map((sec) => [sec.id, sec.name]));
 
   // Per tracked line: what's been ordered/delivered/used, plus an explicit
   // "Revise estimate" if there is one. Est. itself is worked out live in
@@ -678,6 +700,63 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     setDraft(seed(sections));
     seededSectionIds.current = new Set(sections.map((s) => s.id));
   };
+
+  // --- material alert quick actions ------------------------------------------
+  const markOrderedMut = useMutation({
+    mutationFn: (lineIds: string[]) => markLinesOrdered(projectId, trackedLines.filter((l) => lineIds.includes(l.id))),
+    onSuccess: (_o, lineIds) => {
+      qc.invalidateQueries({ queryKey: ["material-orders"] });
+      toast({ title: `${pluralize(lineIds.length, "line")} marked ordered`, description: "Logged as one order — add the supplier and delivery date under Material orders." });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  const notNeededMut = useMutation({
+    mutationFn: (lineId: string) => updateMaterialsItem(lineId, { tracked: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials"] });
+      toast({ title: "Won't alert for that line", description: "Tracking is off for it — turn it back on with its Tracked toggle." });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  // Mid-edit, "not needed" goes into the draft (Save applies it) so a later
+  // Save can't flip it back; otherwise it's written straight away.
+  const markNotNeeded = (lineId: string) => {
+    if (dirty.current) {
+      edit((d) => d.map((sec) => ({ ...sec, items: sec.items.map((i) => (i.id === lineId ? { ...i, tracked: false } : i)) })));
+      toast({ title: "Tracking off for that line", description: "Save changes to apply." });
+    } else {
+      notNeededMut.mutate(lineId);
+    }
+  };
+
+  // Links from the alerts (…/materials#line-<id> or #section-<id>): open
+  // the section, scroll to it and flash the row.
+  const location = useLocation();
+  const handledHash = useRef("");
+  useEffect(() => {
+    const m = location.hash.match(/^#(line|section)-(.+)$/);
+    if (!m || draft.length === 0 || handledHash.current === location.hash) return;
+    const [, kind, targetId] = m;
+    const sec = kind === "section" ? draft.find((x) => x.id === targetId) : draft.find((x) => x.items.some((i) => i.id === targetId));
+    if (!sec) return;
+    handledHash.current = location.hash;
+    expandSection(sec.id);
+    // Scroll once the section has opened, then again after late-loading
+    // panels above it settle (they'd otherwise push the row back off screen).
+    const reveal = (flash: boolean) => {
+      const el = document.getElementById(`${kind}-${targetId}`);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (flash || r.top < 0 || r.bottom > window.innerHeight) el.scrollIntoView({ block: "center" });
+      if (flash) {
+        el.classList.add("ring-2", "ring-warning-strong", "ring-offset-2");
+        window.setTimeout(() => el.classList.remove("ring-2", "ring-warning-strong", "ring-offset-2"), 2400);
+      }
+    };
+    window.setTimeout(() => reveal(true), 200);
+    window.setTimeout(() => reveal(false), 900);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.hash, draft.length]);
 
   // --- local mutators -------------------------------------------------------
   const renameSection = (sid: string, name: string) =>
@@ -1138,6 +1217,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     index: number,
     drag: { handle: DraggableProvidedDragHandleProps | null | undefined; dragging: boolean } | null,
   ) => (
+    <div id={`section-${section.id}`} className="scroll-mt-24 rounded-card">
                       <MaterialsSectionCard
                         section={section}
                         materialCategories={materialCategories}
@@ -1201,6 +1281,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         }
                         onViewHistory={section.feature_id ? () => setHistoryFeatureId(section.feature_id) : undefined}
                       />
+    </div>
   );
   // The order sheet lists material lines only.
   const orderSheetSections = useMemo(
@@ -1267,18 +1348,23 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {costSummary.notOrderedCount > 0 && (
-              <span className="badge-status badge-pending">{pluralize(costSummary.notOrderedCount, "line")} not ordered</span>
-            )}
-            {costSummary.overEstimateCount > 0 && (
-              <span className="badge-status badge-overdue">{pluralize(costSummary.overEstimateCount, "line")} over estimate</span>
-            )}
+            {/* Not-ordered / over-estimate: the alerts bar below (same story as the project page). */}
             {costSummary.unplannedCount > 0 && (
               <span className="badge-status badge-pending">{pluralize(costSummary.unplannedCount, "unplanned item")}</span>
             )}
           </div>
         </div>
       )}
+
+      <MaterialAlertsBar
+        projectId={projectId}
+        alerts={materialAlertList}
+        sectionNames={alertSectionNames}
+        context={startContext(project?.scheduled_start_date)}
+        onMarkOrdered={(ids) => markOrderedMut.mutate(ids)}
+        onNotNeeded={markNotNeeded}
+        busy={markOrderedMut.isPending || notNeededMut.isPending}
+      />
 
       {trackingActive && itemTrackingSummary.totalCount > 0 && (
         <div className="flex items-center justify-between gap-3 text-sm">
@@ -1791,7 +1877,7 @@ function MaterialsSectionCard({
               )}
               <Draggable draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
-                  <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                  <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} id={`line-${item.id}`} className="scroll-mt-24 rounded-2xl transition-shadow">
                     {item.cost_type !== "material" ? (
                       <CostLineRow
                         item={item}

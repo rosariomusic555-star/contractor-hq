@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
+import { MaterialAlertsBar } from "@/components/materials/MaterialAlertsBar";
+import { markLinesOrdered } from "@/lib/materialAlertActions";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -74,6 +76,7 @@ import {
   recordMaterialLearningSnapshot,
   getOpportunityByProjectId,
   listLaborEntries,
+  updateMaterialsItem,
   listProjectFeatures,
   listCategories,
   isPreSaleProject,
@@ -99,6 +102,7 @@ import {
 import {
   sheetCostSummary,
   materialAlerts,
+  startContext,
   needsReconciliation,
   leftoverQuantity,
   deliveredQuantity,
@@ -280,6 +284,25 @@ export function ProjectDetailView() {
 
   // The Won banner's "Send deposit invoice" when no deposit invoice exists
   // (never created, or deleted) — creates a pre-filled one and opens it.
+  // Material alerts' quick actions: log the group as ordered in one tap,
+  // or stop tracking a line that isn't needed / is already on hand.
+  const markOrderedMut = useMutation({
+    mutationFn: (lineIds: string[]) => markLinesOrdered(id, trackedLines.filter((l) => lineIds.includes(l.id))),
+    onSuccess: (_o, lineIds) => {
+      qc.invalidateQueries({ queryKey: ["material-orders"] });
+      toast({ title: `${pluralize(lineIds.length, "line")} marked ordered`, description: "Logged as one order — add the supplier and delivery date under Material orders." });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  const notNeededMut = useMutation({
+    mutationFn: (lineId: string) => updateMaterialsItem(lineId, { tracked: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials"] });
+      toast({ title: "Won't alert for that line", description: "Tracking is off for it — turn it back on in the Cost plan." });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
   const createDepositMut = useMutation({
     mutationFn: () => createProjectInvoice(id, "deposit"),
     onSuccess: (invoice) => {
@@ -335,11 +358,20 @@ export function ProjectDetailView() {
   const unreconciledLines = needsReconciliation(trackedLines, deliveries, usageLogs);
   const materialsFullyReconciled = trackedLines.length > 0 && unreconciledLines.length === 0;
   const materialAlertList = businessProfile
-    ? materialAlerts(project, trackedLines, deliveries, usageLogs, {
-        overOrderMarginPct: businessProfile.material_over_order_margin_pct,
-        notOrderedAlertDays: businessProfile.material_not_ordered_alert_days,
-      })
+    ? materialAlerts(
+        project,
+        trackedLines,
+        deliveries,
+        usageLogs,
+        {
+          overOrderMarginPct: businessProfile.material_over_order_margin_pct,
+          notOrderedAlertDays: businessProfile.material_not_ordered_alert_days,
+        },
+        new Date(),
+        materialOrders,
+      )
     : [];
+  const sectionNames = new Map(materials.map((sec) => [sec.id, sec.name]));
 
   const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
   const laborActualTotal = laborEntries.reduce((s, e) => s + Number(e.cost), 0);
@@ -552,19 +584,16 @@ export function ProjectDetailView() {
         </div>
       )}
 
-      {materialAlertList.length > 0 && (
-        <div className="rounded-card border border-warning-strong/30 bg-warning/10 p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-warning-strong">Material budget alerts</p>
-          <ul className="mt-1.5 space-y-1">
-            {materialAlertList.map((a, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-strong" />
-                {a.label}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Material alerts — one slim line; Review opens them grouped by feature. */}
+      <MaterialAlertsBar
+        projectId={id}
+        alerts={materialAlertList}
+        sectionNames={sectionNames}
+        context={startContext(project.scheduled_start_date)}
+        onMarkOrdered={(ids) => markOrderedMut.mutate(ids)}
+        onNotNeeded={(lineId) => notNeededMut.mutate(lineId)}
+        busy={markOrderedMut.isPending || notNeededMut.isPending}
+      />
 
       {project.status === "complete" && unreconciledLines.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-warning-strong/30 bg-warning/10 p-4">
@@ -1248,11 +1277,10 @@ function MaterialsTrackingCard({
           )}
         </>
       )}
-      {(summary.notOrderedCount > 0 || summary.overEstimateCount > 0 || summary.unplannedCount > 0) && (
+      {/* Not-ordered / over-estimate live in the alerts bar above (one story). */}
+      {summary.unplannedCount > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {summary.notOrderedCount > 0 && <span className="badge-status badge-pending">{pluralize(summary.notOrderedCount, "line")} not ordered</span>}
-          {summary.overEstimateCount > 0 && <span className="badge-status badge-overdue">{pluralize(summary.overEstimateCount, "line")} over estimate</span>}
-          {summary.unplannedCount > 0 && <span className="badge-status badge-pending">{pluralize(summary.unplannedCount, "unplanned item")}</span>}
+          <span className="badge-status badge-pending">{pluralize(summary.unplannedCount, "unplanned item")}</span>
         </div>
       )}
     </div>
