@@ -5,6 +5,7 @@ import type { FeatureInstance, MeasurementRow } from "./measurements";
 import type { FeatureSectionSeed } from "./sectionFeatures";
 import type { CostBucket, LaborMode, LineCostType } from "./costPlanMath";
 import type { FeatureStatus, ProjectFeature } from "./features";
+import type { CostChangeKind } from "./changeOrderCost";
 import { LUMP_SUM_UNIT } from "./costPlanMath";
 import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
@@ -294,6 +295,10 @@ export interface Quote {
   // directly to override.
   client_id: string | null;
   user_id: string;
+  /** 'original' (the job's quote, and its revisions) or 'addon' (0108) — new
+   * features added to a Won job. An add-on never replaces the original; its
+   * approval adds to the contract. Undefined before 0108 = original. */
+  kind?: "original" | "addon";
   status: QuoteStatus;
   deposit_percentage: number;
   notes: string | null;
@@ -899,6 +904,10 @@ export interface Expense {
    * use these (see expenseCategoryAllocations). Empty/undefined = a normal,
    * single-category expense. */
   expense_lines?: ExpenseLine[];
+  /** The project feature this spend is for (0105) — null = General. */
+  feature_id?: string | null;
+  /** Its cost type (0109) — null = follow the expense category's type. */
+  cost_type?: CostBucket | null;
 }
 
 export interface ExpenseLine {
@@ -908,6 +917,9 @@ export interface ExpenseLine {
   amount: number;
   description: string | null;
   sort_order: number;
+  /** Per split line: feature (0105) and cost type (0109), as on Expense. */
+  feature_id?: string | null;
+  cost_type?: CostBucket | null;
 }
 
 export type ChangeOrderStatus = "draft" | "sent" | "approved" | "declined";
@@ -1005,6 +1017,10 @@ export interface ChangeOrderSection {
   change_order_id: string;
   name: string;
   sort_order: number;
+  /** The existing, active project feature this section changes (0107). */
+  feature_id?: string | null;
+  /** The scope / measurement change, e.g. "+100 sq ft" (0107). */
+  scope_note?: string | null;
   change_order_items: ChangeOrderItem[];
 }
 
@@ -1069,8 +1085,10 @@ export function quoteTotal(sections: QuoteSection[] = []): number {
  */
 export function pickHeadlineQuote(quotes: Quote[]): Quote | undefined {
   const byRecency = (a: Quote, b: Quote) => b.created_at.localeCompare(a.created_at);
+  // Add-on quotes (0108) are never "the" quote — they add to it.
+  const originals = quotes.filter((q) => (q.kind ?? "original") === "original");
   const mostRecentWithStatus = (status: QuoteStatus) =>
-    quotes.filter((q) => q.status === status).sort(byRecency)[0];
+    originals.filter((q) => q.status === status).sort(byRecency)[0];
   return (
     mostRecentWithStatus("approved") ?? mostRecentWithStatus("sent") ?? mostRecentWithStatus("draft")
   );
@@ -1086,7 +1104,8 @@ export function approvedChangeOrderTotal(changeOrders: ChangeOrder[]): number {
 }
 
 /**
- * A project's contract value = its headline quote's total, plus its
+ * A project's contract value = its headline quote's total, plus approved
+ * add-on quotes (0108), plus its
  * approved change orders. This is the single source of truth for
  * "contract value" — nothing stores it; every screen that shows a
  * project's contract (ProjectDetailView, ProjectsView, invoicing) derives
@@ -1096,7 +1115,15 @@ export function approvedChangeOrderTotal(changeOrders: ChangeOrder[]): number {
 export function projectContractValue(quotes: Quote[], changeOrders: ChangeOrder[]): number {
   const headline = pickHeadlineQuote(quotes);
   const base = headline ? quoteTotal(headline.quote_sections) : 0;
-  return base + approvedChangeOrderTotal(changeOrders);
+  return base + approvedAddonQuoteTotal(quotes) + approvedChangeOrderTotal(changeOrders);
+}
+
+/** Approved add-on quotes (0108) — new features added to a Won job. Each
+ * one adds to the contract, like an approved change order. */
+export function approvedAddonQuoteTotal(quotes: Quote[]): number {
+  return quotes
+    .filter((q) => q.kind === "addon" && q.status === "approved")
+    .reduce((sum, q) => sum + quoteTotal(q.quote_sections), 0);
 }
 
 /** Won means signed (see the Pipeline's stage meanings) — deposit is
@@ -2695,6 +2722,8 @@ export async function createQuote(
     deposit_percentage?: number;
     notes?: string | null;
     terms?: string | null;
+    /** 'addon' — see createAddonQuote. */
+    kind?: "original" | "addon";
   } = {},
 ): Promise<Quote> {
   const defaults = await getQuoteDefaults();
@@ -2706,6 +2735,7 @@ export async function createQuote(
       deposit_percentage: input.deposit_percentage ?? defaults.deposit_pct,
       notes: input.notes ?? null,
       terms: input.terms ?? defaults.terms,
+      ...(input.kind === "addon" ? { kind: "addon" } : {}),
     })
     .select("id")
     .single();
@@ -2735,8 +2765,36 @@ export async function updateQuote(
 }
 
 export async function deleteQuote(id: string): Promise<void> {
+  // A deleted add-on's proposed features go with it (hidden, kept).
+  await supabase.from("project_features").update({ status: "removed" }).eq("source_quote_id", id).eq("status", "proposed");
   const { error } = await supabase.from("quotes").delete().eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * "Add new work" on a Won job (0108): new features — status proposed, tied
+ * to a new add-on quote — each with a quote section and a Cost plan section
+ * (marked proposed, not counted until the client approves). Returns the
+ * add-on quote.
+ */
+export async function createAddonQuote(
+  projectId: string,
+  input: { client_id: string | null; features: { category_id: string; label?: string | null }[] },
+): Promise<Quote> {
+  const quote = await createQuote({ project_id: projectId, client_id: input.client_id, kind: "addon" });
+  const created: string[] = [];
+  for (const f of input.features) {
+    const feature = await createProjectFeature(projectId, {
+      category_id: f.category_id,
+      label: f.label ?? null,
+      status: "proposed",
+      source_quote_id: quote.id,
+    });
+    created.push(feature.id);
+  }
+  await addFeatureQuoteSections(quote.id, projectId, await listCategories(), created);
+  await getOrCreateCostPlan(projectId);
+  return getQuote(quote.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -3083,7 +3141,9 @@ export async function createProjectInvoice(
   const hasDeposit = invoices.some((i) => i.notes === DEPOSIT_INVOICE_NOTE);
   const asDeposit = kind === "deposit" || (kind === "auto" && !hasDeposit && depositPct > 0 && contract > 0);
   const alreadyInvoiced = invoices.reduce((sum, i) => sum + Number(i.amount), 0);
-  const amount = asDeposit ? contract * (depositPct / 100) : Math.max(0, contract - alreadyInvoiced);
+  // The deposit is on the original quote; add-ons draft their own (0108).
+  const depositBase = headline ? quoteTotal(headline.quote_sections) : contract;
+  const amount = asDeposit ? depositBase * (depositPct / 100) : Math.max(0, contract - alreadyInvoiced);
 
   const invoice = await createInvoice({
     project_id: projectId,
@@ -3152,17 +3212,36 @@ export async function listExpenses(projectId?: string): Promise<Expense[]> {
  */
 export async function saveExpenseLines(
   expenseId: string,
-  lines: { expense_category_id: string | null; amount: number; description: string | null }[],
+  lines: {
+    expense_category_id: string | null;
+    amount: number;
+    description: string | null;
+    feature_id?: string | null;
+    cost_type?: CostBucket | null;
+  }[],
 ): Promise<void> {
   const { error: delError } = await supabase.from("expense_lines").delete().eq("expense_id", expenseId);
   if (delError) throw delError;
   if (lines.length <= 1) {
-    await updateExpense(expenseId, { expense_category_id: lines[0]?.expense_category_id ?? null });
+    await updateExpense(expenseId, {
+      expense_category_id: lines[0]?.expense_category_id ?? null,
+      ...(lines[0] && "feature_id" in lines[0] ? { feature_id: lines[0].feature_id ?? null } : {}),
+      ...(lines[0]?.cost_type ? { cost_type: lines[0].cost_type } : {}),
+    });
     return;
   }
-  const { error } = await supabase
-    .from("expense_lines")
-    .insert(lines.map((l, i) => ({ expense_id: expenseId, ...l, sort_order: i })));
+  const { error } = await supabase.from("expense_lines").insert(
+    lines.map((l, i) => {
+      const { feature_id, cost_type, ...rest } = l;
+      return {
+        expense_id: expenseId,
+        ...rest,
+        sort_order: i,
+        ...(feature_id ? { feature_id } : {}),
+        ...(cost_type ? { cost_type } : {}),
+      };
+    }),
+  );
   if (error) throw error;
   // The expense's own single category no longer applies once it's split.
   await updateExpense(expenseId, { expense_category_id: null });
@@ -3179,6 +3258,8 @@ export async function createExpense(input: {
   amount: number;
   date?: string | null;
   expense_category_id?: string | null;
+  feature_id?: string | null;
+  cost_type?: CostBucket | null;
 }): Promise<Expense> {
   const {
     data: { user },
@@ -3196,6 +3277,8 @@ export async function createExpense(input: {
       amount: input.amount,
       date: input.date ?? null,
       expense_category_id: input.expense_category_id ?? null,
+      ...(input.feature_id ? { feature_id: input.feature_id } : {}),
+      ...(input.cost_type ? { cost_type: input.cost_type } : {}),
     })
     .select()
     .single();
@@ -3208,7 +3291,7 @@ export async function createExpense(input: {
  * re-adding it. */
 export async function updateExpense(
   id: string,
-  patch: Partial<Pick<Expense, "expense_category_id" | "date">>,
+  patch: Partial<Pick<Expense, "expense_category_id" | "date" | "feature_id" | "cost_type">>,
 ): Promise<void> {
   const { error } = await supabase.from("expenses").update(patch).eq("id", id);
   if (error) throw error;
@@ -3228,11 +3311,17 @@ export async function deleteExpense(id: string): Promise<void> {
  * projects — used by ProjectsView to fold approved totals into its bulk
  * per-project contract Map. */
 export async function listChangeOrders(projectId?: string): Promise<ChangeOrder[]> {
-  let query = supabase.from("change_orders").select("*").order("created_at", { ascending: false });
-  if (projectId) query = query.eq("project_id", projectId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  // Sections carry each change's feature + price lines (0107) — what a
+  // feature's price and history read. Falls back to the bare rows.
+  const run = (select: string) => {
+    let query = supabase.from("change_orders").select(select).order("created_at", { ascending: false });
+    if (projectId) query = query.eq("project_id", projectId);
+    return query;
+  };
+  let res = await run("*, change_order_sections(id, feature_id, scope_note, change_order_items(price, quantity))");
+  if (res.error && ["PGRST200", "42703"].includes(res.error.code)) res = await run("*");
+  if (res.error) throw res.error;
+  return (res.data ?? []) as unknown as ChangeOrder[];
 }
 
 /** Always created as "pending" — status only ever changes via updateChangeOrder(). */
@@ -3341,6 +3430,117 @@ export async function deleteChangeOrder(id: string): Promise<void> {
 /** Change order total = every line item across every section — mirrors
  * quoteTotal(). The builder writes this to change_orders.amount on save;
  * nothing else should ever compute a change order's total independently. */
+// ---------------------------------------------------------------------------
+// Change order planned-cost changes (0107) — add / edit / remove a feature's
+// Cost plan lines, or change its labor. Applied by SQL when the change order
+// is approved; see src/lib/changeOrderCost.ts for the deltas.
+// ---------------------------------------------------------------------------
+
+export interface ChangeOrderCostChange {
+  id: string;
+  change_order_id: string;
+  section_id: string | null;
+  feature_id: string | null;
+  kind: CostChangeKind;
+  materials_item_id: string | null;
+  materials_section_id: string | null;
+  line: Record<string, unknown>;
+  before: Record<string, unknown> | null;
+  applied_item_id: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function listChangeOrderCostChanges(changeOrderId: string): Promise<ChangeOrderCostChange[]> {
+  const { data, error } = await supabase
+    .from("change_order_cost_changes")
+    .select("*")
+    .eq("change_order_id", changeOrderId)
+    .order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []) as ChangeOrderCostChange[];
+}
+
+/** Every not-yet-decided (draft / sent) change order's cost changes on a
+ * project — the Cost plan's "Pending CO" overlay. */
+export async function listPendingCostChanges(
+  projectId: string,
+): Promise<(ChangeOrderCostChange & { change_order: { id: string; title: string; status: string; created_at: string } })[]> {
+  const { data, error } = await supabase
+    .from("change_order_cost_changes")
+    .select("*, change_order:change_orders!inner(id, title, status, created_at, project_id)")
+    .eq("change_order.project_id", projectId)
+    .in("change_order.status", ["draft", "sent"])
+    .order("sort_order");
+  if (error) {
+    if (["PGRST205", "PGRST200"].includes(error.code)) return [];
+    throw error;
+  }
+  return (data ?? []) as never;
+}
+
+export async function createChangeOrderCostChange(
+  input: Omit<ChangeOrderCostChange, "id" | "applied_item_id" | "created_at">,
+): Promise<ChangeOrderCostChange> {
+  const { data, error } = await supabase.from("change_order_cost_changes").insert(input).select("*").single();
+  if (error) throw error;
+  return data as ChangeOrderCostChange;
+}
+
+export async function updateChangeOrderCostChange(
+  id: string,
+  patch: Partial<Pick<ChangeOrderCostChange, "line" | "before" | "sort_order" | "section_id" | "feature_id" | "materials_section_id">>,
+): Promise<void> {
+  const { error } = await supabase.from("change_order_cost_changes").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteChangeOrderCostChange(id: string): Promise<void> {
+  const { error } = await supabase.from("change_order_cost_changes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** A feature's life after its original scope (0107/0108): approved or
+ * declined change orders and add-on quotes, with cost / price before and
+ * after. */
+export interface FeatureHistoryEvent {
+  id: string;
+  feature_id: string;
+  project_id: string;
+  change_order_id: string | null;
+  quote_id: string | null;
+  event: "change_order_approved" | "change_order_declined" | "addon_approved" | "addon_declined";
+  label: string | null;
+  cost_before: number;
+  cost_after: number;
+  price_before: number;
+  price_after: number;
+  details: { title?: string; scope?: string | null; changes?: { kind: CostChangeKind; line: Record<string, unknown>; before: Record<string, unknown> | null }[] };
+  created_at: string;
+}
+
+export async function listFeatureHistory(projectId: string): Promise<FeatureHistoryEvent[]> {
+  const { data, error } = await supabase
+    .from("feature_history")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({
+    ...r,
+    cost_before: Number(r.cost_before),
+    cost_after: Number(r.cost_after),
+    price_before: Number(r.price_before),
+    price_after: Number(r.price_after),
+  })) as FeatureHistoryEvent[];
+}
+
 export function changeOrderTotal(sections: ChangeOrderSection[] = []): number {
   let total = 0;
   for (const section of sections) {
@@ -3353,11 +3553,17 @@ export function changeOrderTotal(sections: ChangeOrderSection[] = []): number {
 
 export async function addChangeOrderSection(
   changeOrderId: string,
-  input: { name: string; sort_order?: number },
+  input: { name: string; sort_order?: number; feature_id?: string | null; scope_note?: string | null },
 ): Promise<ChangeOrderSection> {
   const { data, error } = await supabase
     .from("change_order_sections")
-    .insert({ change_order_id: changeOrderId, name: input.name, sort_order: input.sort_order ?? 0 })
+    .insert({
+      change_order_id: changeOrderId,
+      name: input.name,
+      sort_order: input.sort_order ?? 0,
+      ...(input.feature_id ? { feature_id: input.feature_id } : {}),
+      ...(input.scope_note ? { scope_note: input.scope_note } : {}),
+    })
     .select("*, change_order_items(*)")
     .single();
   if (error) throw error;
@@ -3366,7 +3572,7 @@ export async function addChangeOrderSection(
 
 export async function updateChangeOrderSection(
   id: string,
-  patch: Partial<Pick<ChangeOrderSection, "name" | "sort_order">>,
+  patch: Partial<Pick<ChangeOrderSection, "name" | "sort_order" | "feature_id" | "scope_note">>,
 ): Promise<void> {
   const { error } = await supabase.from("change_order_sections").update(patch).eq("id", id);
   if (error) throw error;
@@ -5612,6 +5818,8 @@ export interface LaborEntry {
   id: string;
   project_id: string;
   category_id: string | null;
+  /** The project feature the hours were for (0105) — null = General. */
+  feature_id?: string | null;
   employee_id: string | null;
   worker_name: string | null;
   entry_date: string;
@@ -5647,12 +5855,14 @@ export async function createLaborEntry(input: {
   hourly_rate: number | null;
   cost: number;
   note?: string | null;
+  feature_id?: string | null;
 }): Promise<LaborEntry> {
   const { data, error } = await supabase
     .from("labor_entries")
     .insert({
       project_id: input.project_id,
       category_id: input.category_id,
+      ...(input.feature_id ? { feature_id: input.feature_id } : {}),
       employee_id: input.employee_id,
       worker_name: input.worker_name,
       entry_date: input.entry_date,

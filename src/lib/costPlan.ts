@@ -6,8 +6,8 @@
  *   materials + labor + expenses -> Actual profit
  *
  * Planned = the project's Cost plan sections (costPlanMath.sumSectionTotals).
- * Actual  = expenses matched to a type through their expense category's
- *           cost_type (0103; split expenses per line), + actual labor logged
+ * Actual  = expenses by their own cost_type (0109) or else their expense
+ *           category's cost_type (0103; split expenses per line), + actual labor logged
  *           on the Labor log, + reconciled material cost once a job is
  *           Complete. Pure functions over already-fetched data.
  */
@@ -29,7 +29,7 @@ export function expenseBucket(categoryId: string | null, categories: Pick<Expens
 /** Actual cost by type: expenses (split per line when split), actual labor
  * entries, and — once reconciled — the tracked material actual. */
 export function actualCostByType(
-  expenses: Pick<Expense, "amount" | "expense_category_id" | "expense_lines">[],
+  expenses: Pick<Expense, "amount" | "expense_category_id" | "expense_lines" | "cost_type">[],
   categories: Pick<ExpenseCategory, "id" | "cost_type">[],
   laborActual = 0,
   materialActual = 0,
@@ -38,9 +38,9 @@ export function actualCostByType(
   for (const e of expenses) {
     const lines = e.expense_lines ?? [];
     if (lines.length > 1) {
-      for (const l of lines) t[expenseBucket(l.expense_category_id, categories)] += Number(l.amount) || 0;
+      for (const l of lines) t[l.cost_type ?? expenseBucket(l.expense_category_id, categories)] += Number(l.amount) || 0;
     } else {
-      t[expenseBucket(e.expense_category_id, categories)] += Number(e.amount) || 0;
+      t[e.cost_type ?? expenseBucket(e.expense_category_id, categories)] += Number(e.amount) || 0;
     }
   }
   t.labor += laborActual;

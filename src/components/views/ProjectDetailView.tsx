@@ -1,5 +1,6 @@
-import { useRef, useState, type ReactNode } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -73,6 +74,7 @@ import {
   recordMaterialLearningSnapshot,
   getOpportunityByProjectId,
   listLaborEntries,
+  listProjectFeatures,
   listCategories,
   isPreSaleProject,
   createProjectInvoice,
@@ -81,6 +83,9 @@ import {
   type MaterialsItem,
   type MaterialsUsageLog,
 } from "@/lib/api";
+import { countsTowardTotals } from "@/lib/features";
+import { featureReports, type FeatureReport } from "@/lib/featureFinancials";
+import { FeatureProfitTable } from "@/components/projects/FeatureReport";
 import { inviteClientToHub } from "@/lib/portalApi";
 import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost, projectBillingBadge } from "@/lib/financials";
 import {
@@ -124,6 +129,16 @@ export function ProjectDetailView() {
   const qc = useQueryClient();
   const [estimateDraft, setEstimateDraft] = useState("");
   const [reconcileOpen, setReconcileOpen] = useState(false);
+  // "Add new work" — also opened from a change order's "new feature" hint
+  // (?add-new-work=1).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [addWorkOpen, setAddWorkOpen] = useState(false);
+  useEffect(() => {
+    if (searchParams.get("add-new-work")) {
+      setAddWorkOpen(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [logUsageLine, setLogUsageLine] = useState<MaterialsItem | null>(null);
   const [historyLine, setHistoryLine] = useState<MaterialsItem | null>(null);
 
@@ -154,7 +169,10 @@ export function ProjectDetailView() {
   // baseline ever gets snapshotted at Won.
   // Tracking is about material lines only (the cost plan also has sub /
   // equipment / other lines).
-  const trackedLines: MaterialsItem[] = materials.flatMap((s) => s.materials_items).filter((i) => (i.cost_type ?? "material") === "material");
+  const trackedLines: MaterialsItem[] = materials
+    .filter(countsTowardTotals)
+    .flatMap((s) => s.materials_items)
+    .filter((i) => (i.cost_type ?? "material") === "material");
   const trackedLineIds = trackedLines.map((l) => l.id);
   const { data: usageLogs = [] } = useQuery({
     queryKey: ["materials-usage-logs", trackedLineIds],
@@ -167,6 +185,8 @@ export function ProjectDetailView() {
     queryFn: () => getOpportunityByProjectId(id),
   });
   const { data: expenseCategories = [] } = useQuery({ queryKey: ["expense-categories"], queryFn: listExpenseCategories });
+  const { data: projectFeatures = [] } = useQuery({ queryKey: ["project-features", id], queryFn: () => listProjectFeatures(id) });
+  const { data: jobCategories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: laborEntries = [] } = useQuery({
     queryKey: ["labor-entries", { project: id }],
     queryFn: () => listLaborEntries(id),
@@ -345,6 +365,32 @@ export function ProjectDetailView() {
     project.status === "complete" && materialsFullyReconciled ? materialCostSummary.actualCost : 0,
   );
   const actualCost = hasActualCostData ? actualByType.total : null;
+
+  // Per feature (Phase E): planned vs actual, price and margin. Reconciled
+  // material cost joins per feature under the same Complete gate as above.
+  const materialActualByFeature =
+    project.status === "complete" && materialsFullyReconciled
+      ? materials.filter(countsTowardTotals).reduce((m, sec) => {
+          const lines = sec.materials_items.filter((i) => (i.cost_type ?? "material") === "material");
+          const k = sec.feature_id ?? null;
+          m.set(k, (m.get(k) ?? 0) + sheetCostSummary(lines, deliveries, usageLogs).actualCost);
+          return m;
+        }, new Map<string | null, number>())
+      : undefined;
+  const featureRows: FeatureReport[] | null =
+    projectFeatures.some((f) => f.status === "active")
+      ? featureReports({
+          features: projectFeatures,
+          categories: jobCategories,
+          sections: materials,
+          quotes,
+          changeOrders,
+          expenses,
+          expenseCategories,
+          laborEntries,
+          materialActual: materialActualByFeature,
+        })
+      : null;
   const predictedCost = costPlan.planned.total > 0 ? costPlan.planned.total : null;
   const realCost = resolveCost(actualCost, predictedCost);
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
@@ -547,6 +593,33 @@ export function ProjectDetailView() {
             />
           )}
 
+          {/* Changing a Won job: an existing feature changes → change order;
+              a completely new feature → add-on quote. */}
+          {isProjectActive(project) && (
+            <div className="card-surface p-5">
+              <h3 className="text-base font-bold text-foreground">Change the job</h3>
+              <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/projects/${id}/change-orders`)}
+                  className="flex min-h-14 flex-col items-start justify-center rounded-xl border border-border px-4 py-2.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
+                >
+                  <span className="text-sm font-bold text-foreground">Change order</span>
+                  <span className="text-xs text-muted-foreground">Change an existing feature — bigger, upgraded, removed or credited</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddWorkOpen(true)}
+                  className="flex min-h-14 flex-col items-start justify-center rounded-xl border border-border px-4 py-2.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
+                >
+                  <span className="text-sm font-bold text-foreground">Add new work</span>
+                  <span className="text-xs text-muted-foreground">A completely new feature — priced on an add-on quote</span>
+                </button>
+              </div>
+            </div>
+          )}
+          <AddNewWorkDialog open={addWorkOpen} onOpenChange={setAddWorkOpen} projectId={id} clientId={project.client_id ?? null} />
+
           {/* Section nav */}
           <div className="grid gap-3 sm:grid-cols-2">
             <HubCard title="Cost plan" summary={costPlanSummaryLine} onOpen={() => navigate(`/projects/${id}/materials`)} />
@@ -576,6 +649,7 @@ export function ProjectDetailView() {
             actualCost={actualCost}
             planned={costPlan.planned}
             actual={hasActualCostData ? actualByType : null}
+            featureRows={featureRows}
           />
 
           {/* Costs to date — real logged expenses only */}
@@ -952,10 +1026,13 @@ function ProfitSummaryCard({
   actualCost,
   planned,
   actual,
+  featureRows,
 }: {
   quoted: number | null;
   predictedCost: number | null;
   actualCost: number | null;
+  /** Per-feature breakdown — rows add up to the totals above. */
+  featureRows?: FeatureReport[] | null;
   /** Cost plan by type (estimated side). */
   planned: CostTotals;
   /** Actual spend by type — null until anything's been logged. */
@@ -985,21 +1062,21 @@ function ProfitSummaryCard({
           matched through their category's cost type + logged labor). */}
       {typeRows.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-hairline text-sm">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-2 sm:gap-x-4 bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
             <span>Type</span>
-            <span className="w-20 text-right">Planned</span>
-            <span className="w-20 text-right">Actual</span>
-            <span className="w-20 text-right">Variance</span>
+            <span className="w-[4.5rem] text-right sm:w-20">Planned</span>
+            <span className="w-[4.5rem] text-right sm:w-20">Actual</span>
+            <span className="w-[4.5rem] text-right sm:w-20">Variance</span>
           </div>
           {typeRows.map((k) => {
             const a = actual?.[k] ?? null;
             const v = a !== null ? planned[k] - a : null;
             return (
-              <div key={k} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-t border-hairline px-3 py-1.5 tabular-nums">
+              <div key={k} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-2 sm:gap-x-4 border-t border-hairline px-3 py-1.5 tabular-nums">
                 <span className="font-semibold text-foreground">{COST_TYPE_GROUP_LABEL[k]}</span>
-                <span className="w-20 text-right">{formatCurrency(planned[k])}</span>
-                <span className="w-20 text-right">{a === null ? "—" : formatCurrency(a)}</span>
-                <span className={cn("w-20 text-right font-semibold", v === null ? "text-muted-foreground" : v >= 0 ? "text-success" : "text-destructive")}>
+                <span className="w-[4.5rem] text-right sm:w-20">{formatCurrency(planned[k])}</span>
+                <span className="w-[4.5rem] text-right sm:w-20">{a === null ? "—" : formatCurrency(a)}</span>
+                <span className={cn("w-[4.5rem] text-right sm:w-20 font-semibold", v === null ? "text-muted-foreground" : v >= 0 ? "text-success" : "text-destructive")}>
                   {v === null ? "—" : `${v >= 0 ? "+" : "−"}${formatCurrency(Math.abs(v))}`}
                 </span>
               </div>
@@ -1052,6 +1129,11 @@ function ProfitSummaryCard({
               </span>
             )}
           </p>
+        </div>
+      )}
+      {featureRows && featureRows.length > 1 && (
+        <div className="border-t border-hairline pt-3">
+          <FeatureProfitTable reports={featureRows} />
         </div>
       )}
     </section>

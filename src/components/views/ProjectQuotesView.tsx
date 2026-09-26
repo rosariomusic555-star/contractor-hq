@@ -8,6 +8,10 @@ import { formatCurrency } from "@/lib/utils";
 import { getProject, listQuotes, createQuote, quoteTotal, addFeatureQuoteSections, listCategories } from "@/lib/api";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { BackLink } from "@/components/common/BackLink";
+import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
+import { isProjectActive } from "@/lib/materialTracking";
+import { addonQuoteNumbers } from "@/lib/featureFinancials";
+import { useState } from "react";
 
 export function ProjectQuotesView() {
   const { id = "" } = useParams();
@@ -47,6 +51,10 @@ export function ProjectQuotesView() {
     onError,
   });
 
+  const [addWorkOpen, setAddWorkOpen] = useState(false);
+  const won = isProjectActive(project);
+  const addonNumbers = addonQuoteNumbers(quotes);
+
   if (isLoading) return <p className="text-muted-foreground">Loading quotes…</p>;
   if (isError || !project)
     return <p className="text-destructive">Failed to load quotes: {(error as Error)?.message}</p>;
@@ -63,15 +71,21 @@ export function ProjectQuotesView() {
           <h1 className="text-[28px] font-bold tracking-tight text-foreground">Quotes</h1>
           <p className="text-muted-foreground mt-1">{project.name}</p>
         </div>
-        <Button
-          onClick={() => addMut.mutate()}
-          disabled={addMut.isPending}
-          className="font-bold"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add quote
-        </Button>
+        {/* Once the job is Won, a second quote is new work: an add-on quote
+            (0108). Before that, another quote is a revision / option. */}
+        {won ? (
+          <Button onClick={() => setAddWorkOpen(true)} className="font-bold">
+            <Plus className="w-4 h-4 mr-2" />
+            Add new work
+          </Button>
+        ) : (
+          <Button onClick={() => addMut.mutate()} disabled={addMut.isPending} className="font-bold">
+            <Plus className="w-4 h-4 mr-2" />
+            Add quote
+          </Button>
+        )}
       </div>
+      <AddNewWorkDialog open={addWorkOpen} onOpenChange={setAddWorkOpen} projectId={id} clientId={project.client_id ?? null} />
 
       {quotes.length === 0 ? (
         <div className="stat-card text-center py-12">
@@ -85,8 +99,13 @@ export function ProjectQuotesView() {
               to={`/projects/${id}/quotes/${quote.id}`}
               className="card-surface flex items-center justify-between gap-3 p-5 transition-shadow hover:shadow-card-hover"
             >
-              <span className="font-bold text-foreground">
-                {formatCurrency(quoteTotal(quote.quote_sections))}
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="font-bold text-foreground">{formatCurrency(quoteTotal(quote.quote_sections))}</span>
+                {quote.kind === "addon" && (
+                  <span className="rounded-full bg-info/15 px-2 py-0.5 text-[11px] font-bold text-info">
+                    Add-on #{addonNumbers.get(quote.id)}
+                  </span>
+                )}
               </span>
               <div className="flex items-center gap-3 shrink-0">
                 <StatusPill meta={quoteStatusMeta(quote.status)} />

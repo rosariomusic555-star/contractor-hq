@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   FileDown,
+  History,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +62,11 @@ import {
   listMaterialsSheets,
   listSmartSectionSettings,
   listProjectFeatures,
+  listPendingCostChanges,
+  listFeatureHistory,
+  listExpenses,
+  listLaborEntries,
+  listQuotes,
   createProjectFeature,
   updateProjectFeature,
   ensureFeatureSections,
@@ -101,7 +107,11 @@ import {
   type CatalogPriceOverride,
 } from "@/lib/api";
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
-import { liveFeatures, type FeatureStatus } from "@/lib/features";
+import { countsTowardTotals, featureName, liveFeatures, type FeatureStatus } from "@/lib/features";
+import { addonQuoteNumbers, changeOrderNumbers, featurePrice, featureReports } from "@/lib/featureFinancials";
+import { FeatureReportStrip } from "@/components/projects/FeatureReport";
+import { costChangeDelta, describeCostChange } from "@/lib/changeOrderCost";
+import { FeatureHistoryDialog } from "@/components/materials/FeatureHistoryDialog";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectionCalculatorDialog";
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
@@ -159,6 +169,7 @@ import {
   revisedBaseline,
   lineStatus,
   sheetCostSummary,
+  needsReconciliation,
   executionTrackedLines,
   trackingSummary,
   LINE_STATUS_LABEL,
@@ -540,7 +551,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
   );
   // Tracking, deliveries and the order sheet are about MATERIAL lines only.
-  const trackedLines: MaterialsItem[] = sections.flatMap((s) => s.materials_items).filter((i) => (i.cost_type ?? "material") === "material");
+  // …and only lines that count: never a proposed add-on's or removed feature's.
+  const trackedLines: MaterialsItem[] = sections
+    .filter(countsTowardTotals)
+    .flatMap((s) => s.materials_items)
+    .filter((i) => (i.cost_type ?? "material") === "material");
   const isTracked = trackedLines.length > 0;
   const trackedLineIds = trackedLines.map((l) => l.id);
   const { data: usageLogs = [] } = useQuery({
@@ -707,6 +722,74 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     queryFn: () => listProjectFeatures(projectId),
   });
   const hasFeatures = features.length > 0;
+  // Phase C/D: pending change orders' cost changes (the overlay), each
+  // feature's history, and the quotes behind add-on labels and prices.
+  const { data: pendingCostChanges = [] } = useQuery({
+    queryKey: ["pending-cost-changes", projectId],
+    queryFn: () => listPendingCostChanges(projectId),
+  });
+  const { data: featureHistory = [] } = useQuery({
+    queryKey: ["feature-history", projectId],
+    queryFn: () => listFeatureHistory(projectId),
+  });
+  const { data: projectQuotes = [] } = useQuery({
+    queryKey: ["quotes", { project: projectId }],
+    queryFn: () => listQuotes(projectId),
+  });
+  const coNumbers = useMemo(() => changeOrderNumbers(projectChangeOrders), [projectChangeOrders]);
+  const addonNumbers = useMemo(() => addonQuoteNumbers(projectQuotes), [projectQuotes]);
+  const pendingFor = (featureId: string | null) => {
+    if (!featureId) return [];
+    const byCo = new Map<string, typeof pendingCostChanges>();
+    for (const c of pendingCostChanges) {
+      if (c.feature_id !== featureId) continue;
+      byCo.set(c.change_order_id, [...(byCo.get(c.change_order_id) ?? []), c]);
+    }
+    return [...byCo.entries()].map(([coId, list]) => ({
+      label: `CO #${coNumbers.get(coId) ?? "?"}`,
+      delta: list.reduce((sum, c) => sum + costChangeDelta(c), 0),
+      lines: list.map((c) => describeCostChange(c)),
+    }));
+  };
+  const [historyFeatureId, setHistoryFeatureId] = useState<string | null>(null);
+
+  // Phase E: once the job is Won, each feature section shows planned vs
+  // actual (spend + labor tagged with the feature; reconciled materials
+  // under the same Complete gate as the project page).
+  const { data: projectExpenses = [] } = useQuery({
+    queryKey: ["expenses", { project: projectId }],
+    queryFn: () => listExpenses(projectId),
+    enabled: trackingActive,
+  });
+  const { data: laborEntries = [] } = useQuery({
+    queryKey: ["labor-entries", { project: projectId }],
+    queryFn: () => listLaborEntries(projectId),
+    enabled: trackingActive,
+  });
+  const reportsByFeature = useMemo(() => {
+    if (!trackingActive || !features.some((f) => f.status === "active")) return new Map<string | null, ReturnType<typeof featureReports>[number]>();
+    const reconciled = project?.status === "complete" && trackedLines.length > 0 && needsReconciliation(trackedLines, deliveries, usageLogs).length === 0;
+    const materialActual = reconciled
+      ? sections.filter(countsTowardTotals).reduce((m, sec) => {
+          const lines = sec.materials_items.filter((i) => (i.cost_type ?? "material") === "material");
+          m.set(sec.feature_id ?? null, (m.get(sec.feature_id ?? null) ?? 0) + sheetCostSummary(lines, deliveries, usageLogs).actualCost);
+          return m;
+        }, new Map<string | null, number>())
+      : undefined;
+    const rows = featureReports({
+      features,
+      categories: jobCategories,
+      sections,
+      quotes: projectQuotes,
+      changeOrders: projectChangeOrders,
+      expenses: projectExpenses,
+      expenseCategories,
+      laborEntries,
+      materialActual,
+    });
+    return new Map(rows.map((r) => [r.featureId, r]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackingActive, features, sections, projectQuotes, projectChangeOrders, projectExpenses, laborEntries, expenseCategories, jobCategories, usageLogs, materialOrders]);
   const featureStatusOf = (fid: string) => {
     const f = features.find((x) => x.id === fid);
     return f ? { status: f.status, source_quote_id: f.source_quote_id } : null;
@@ -1104,11 +1187,27 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         onToggleCollapse={() => toggleCollapse(section.id)}
                         isDraggingItem={isDraggingItem}
                         onAutoExpand={() => expandSection(section.id)}
+                        proposedLabel={
+                          section.feature?.source_quote_id
+                            ? `Add-on quote #${addonNumbers.get(section.feature.source_quote_id) ?? "?"}`
+                            : undefined
+                        }
+                        pendingChanges={pendingFor(section.feature_id)}
+                        report={
+                          (section.is_general || section.feature?.status === "active") &&
+                          reportsByFeature.get(section.is_general ? null : section.feature_id) ? (
+                            <FeatureReportStrip report={reportsByFeature.get(section.is_general ? null : section.feature_id)!} />
+                          ) : undefined
+                        }
+                        onViewHistory={section.feature_id ? () => setHistoryFeatureId(section.feature_id) : undefined}
                       />
   );
   // The order sheet lists material lines only.
   const orderSheetSections = useMemo(
-    () => sections.map((sec) => ({ ...sec, materials_items: sec.materials_items.filter((i) => (i.cost_type ?? "material") === "material") })),
+    () =>
+      sections
+        .filter(countsTowardTotals)
+        .map((sec) => ({ ...sec, materials_items: sec.materials_items.filter((i) => (i.cost_type ?? "material") === "material") })),
     [sections],
   );
   const draftGeneral = draft.find((sec) => sec.is_general);
@@ -1317,6 +1416,22 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         priceBookItems={priceBookItems}
       />
 
+      {historyFeatureId &&
+        (() => {
+          const f = features.find((x) => x.id === historyFeatureId);
+          const ownSections = draft.filter((sec) => sec.feature_id === historyFeatureId);
+          return (
+            <FeatureHistoryDialog
+              open
+              onOpenChange={(open) => !open && setHistoryFeatureId(null)}
+              featureName={f ? featureName(f, jobCategories) : "Feature"}
+              events={featureHistory.filter((e) => e.feature_id === historyFeatureId)}
+              currentCost={sumSectionTotals(ownSections, { all: true }).total}
+              currentPrice={featurePrice(historyFeatureId, projectQuotes, projectChangeOrders)}
+            />
+          );
+        })()}
+
       {logUsageLine && (
         <LogUsageDialog
           open={!!logUsageLine}
@@ -1438,8 +1553,24 @@ interface TrackingContext {
   onReviseEstimate: (itemId: string) => void;
 }
 
+/** A not-yet-decided change order's cost changes on one feature — shown on
+ * its section, never counted in totals. */
+export interface PendingChangeOverlay {
+  label: string;
+  delta: number;
+  lines: string[];
+}
+
 interface SectionCardProps {
   section: DraftSection;
+  /** "Proposed · Add-on quote #1" for a proposed add-on feature. */
+  proposedLabel?: string;
+  /** Pending change orders on this section's feature (Phase C overlay). */
+  pendingChanges?: PendingChangeOverlay[];
+  /** Opens the feature's history (Original → CO #1 → … → Current). */
+  onViewHistory?: () => void;
+  /** Planned vs actual for the feature, once the job is Won (Phase E). */
+  report?: ReactNode;
   materialCategories: MaterialCategory[];
   /** Only for the Price Book picker's labels — no longer a line field. */
   expenseCategories: ExpenseCategory[];
@@ -1515,6 +1646,10 @@ function MaterialsSectionCard({
   onToggleCollapse,
   isDraggingItem,
   onAutoExpand,
+  proposedLabel,
+  pendingChanges = [],
+  onViewHistory,
+  report,
 }: SectionCardProps) {
   // Every cost type + labor — the header total and the collapsed breakdown.
   const totals = sectionTotals(section);
@@ -1552,7 +1687,14 @@ function MaterialsSectionCard({
               {jobCategories.find((c) => c.id === section.job_category_id)?.name ?? "Feature"}
             </span>
             {section.feature?.status === "proposed" && (
-              <span className="rounded-full bg-info/25 px-2.5 py-0.5 text-[11px] font-bold text-background">Proposed · not counted yet</span>
+              <span className="rounded-full bg-info/25 px-2.5 py-0.5 text-[11px] font-bold text-background">
+                {proposedLabel ?? "Proposed"} · not counted yet
+              </span>
+            )}
+            {pendingChanges.length > 0 && (
+              <span className="rounded-full bg-warning/30 px-2.5 py-0.5 text-[11px] font-bold text-background">
+                {pendingChanges.map((p) => p.label).join(", ")} pending
+              </span>
             )}
             {section.feature?.status === "removed" && (
               <span className="rounded-full bg-destructive/30 px-2.5 py-0.5 text-[11px] font-bold text-background">
@@ -1584,6 +1726,7 @@ function MaterialsSectionCard({
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {buildType && <SectionToolbarAction icon={Calculator} label="Calculate quantities" onClick={() => setCalculatorOpen(true)} />}
+            {onViewHistory && <SectionToolbarAction icon={History} label="View history" onClick={onViewHistory} />}
             {offerFillFromMeasurements && (
               <SectionToolbarAction icon={Calculator} label="Fill quantities" measurements onClick={() => setCalculatorOpen(true)} />
             )}
@@ -1695,6 +1838,29 @@ function MaterialsSectionCard({
 
       {/* Labor — below the lines; collapsed to "+ Add labor" while empty. */}
       <SectionLaborBlock value={section} defaultRate={laborRate} onChange={onEditLabor} />
+
+      {/* Pending change orders on this feature — shown, never in totals. */}
+      {pendingChanges.map((p) => (
+        <div key={p.label} className="mt-3 rounded-2xl border-[1.5px] border-dashed border-warning/60 bg-warning/5 p-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-foreground">Pending {p.label}</span>
+            <span className="text-xs text-muted-foreground">pending · not in totals</span>
+            <span className="ml-auto text-sm font-extrabold tabular-nums text-foreground">
+              {p.delta < 0 ? "−" : "+"}
+              {formatCurrency(Math.abs(p.delta))}
+            </span>
+          </div>
+          <ul className="mt-1.5 space-y-0.5">
+            {p.lines.map((l, i) => (
+              <li key={i} className="text-xs text-muted-foreground">
+                {l}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      {report}
 
       {buildType && (
         <SmartSectionCalculatorDialog

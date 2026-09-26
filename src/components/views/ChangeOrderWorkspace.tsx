@@ -40,6 +40,10 @@ import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { revokeLocalImageUrls, type DraftLineItem, type DraftLineSection } from "@/lib/draftLineItem";
 import { changeOrderStatusMeta } from "@/lib/statusMeta";
 import { computeProjectImpact, scheduleImpactLabel } from "@/lib/changeOrderImpact";
+import { costChangesDelta } from "@/lib/changeOrderCost";
+import { activeFeatures, featureName } from "@/lib/features";
+import { CostChangesBlock, type DraftCostChange } from "@/components/changeOrders/CostChangesBlock";
+import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import {
   getProject,
   listQuotes,
@@ -61,6 +65,13 @@ import {
   deleteChangeOrderItemImage,
   createInvoice,
   generateShareLink,
+  getBusinessProfile,
+  listProjectFeatures,
+  listChangeOrderCostChanges,
+  createChangeOrderCostChange,
+  updateChangeOrderCostChange,
+  deleteChangeOrderCostChange,
+  type ChangeOrderCostChange,
   logProjectEvent,
   CHANGE_ORDER_REASONS,
   type ChangeOrder,
@@ -69,6 +80,8 @@ import {
 import { BackLink } from "@/components/common/BackLink";
 
 const NONE = "__none__";
+const NO_FEATURES: import("@/lib/features").ProjectFeature[] = [];
+const NO_COST_CHANGES: ChangeOrderCostChange[] = [];
 const tmpId = () => `tmp-${crypto.randomUUID()}`;
 const isTmp = (id: string) => id.startsWith("tmp-");
 
@@ -79,8 +92,17 @@ const isTmp = (id: string) => id.startsWith("tmp-");
 // is_optional/client_selected concept exists here.
 // ---------------------------------------------------------------------------
 
+/** A change order section = the change to one existing feature (0107). */
+interface CoDraftSection extends DraftLineSection {
+  feature_id: string | null;
+  /** The scope / measurement change, e.g. "+100 sq ft". */
+  scope_note: string;
+}
+
 interface ChangeOrderDraft {
-  sections: DraftLineSection[];
+  sections: CoDraftSection[];
+  /** Planned-cost changes to the features' Cost plan sections. */
+  costChanges: DraftCostChange[];
   title: string;
   description: string;
   reason: ChangeOrderReason | null;
@@ -89,10 +111,22 @@ interface ChangeOrderDraft {
   scheduleImpactDays: string;
 }
 
-const seed = (co: ChangeOrder): ChangeOrderDraft => ({
+const seed = (co: ChangeOrder, costChanges: ChangeOrderCostChange[]): ChangeOrderDraft => ({
+  costChanges: costChanges.map((c) => ({
+    id: c.id,
+    section_id: c.section_id ?? "",
+    feature_id: c.feature_id,
+    kind: c.kind,
+    materials_item_id: c.materials_item_id,
+    materials_section_id: c.materials_section_id,
+    line: c.line ?? {},
+    before: c.before,
+  })),
   sections: (co.change_order_sections ?? []).map((s) => ({
     id: s.id,
     name: s.name,
+    feature_id: s.feature_id ?? null,
+    scope_note: s.scope_note ?? "",
     items: (s.change_order_items ?? []).map((i) => ({
       id: i.id,
       name: i.name,
@@ -160,14 +194,26 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: projectId }], queryFn: () => listInvoices(projectId) });
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: projectId }], queryFn: () => listMaterials(projectId) });
 
+  // Features (0107): a change order changes existing, active features.
+  const { data: features = NO_FEATURES } = useQuery({
+    queryKey: ["project-features", projectId],
+    queryFn: () => listProjectFeatures(projectId),
+  });
+  const { data: serverCostChanges = NO_COST_CHANGES } = useQuery({
+    queryKey: ["change-order-cost-changes", changeOrder.id],
+    queryFn: () => listChangeOrderCostChanges(changeOrder.id),
+  });
+  const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
+  const laborRate = businessProfile?.default_labor_rate ?? 45;
+
   // --- draft state --------------------------------------------------------
-  const [draft, setDraft] = useState<ChangeOrderDraft>(() => seed(changeOrder));
+  const [draft, setDraft] = useState<ChangeOrderDraft>(() => seed(changeOrder, serverCostChanges));
   const dirty = useRef(false);
 
   useEffect(() => {
     if (dirty.current) return;
-    setDraft(seed(changeOrder));
-  }, [changeOrder]);
+    setDraft(seed(changeOrder, serverCostChanges));
+  }, [changeOrder, serverCostChanges]);
 
   const markDirty = () => {
     dirty.current = true;
@@ -176,28 +222,70 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     markDirty();
     setDraft(fn);
   };
-  const setSections = (fn: (s: DraftLineSection[]) => DraftLineSection[]) =>
+  const setSections = (fn: (s: CoDraftSection[]) => CoDraftSection[]) =>
     edit((d) => ({ ...d, sections: fn(d.sections) }));
-  const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftLineItem, DraftLineSection>(setSections);
+  const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftLineItem, CoDraftSection>(setSections);
   const { isCollapsed, toggle: toggleCollapse, expand: expandSection, collapseAll, expandAll } = useSectionCollapse();
   const [isDraggingItem, setIsDraggingItem] = useState(false);
 
   const discard = () => {
     for (const s of draft.sections) for (const i of s.items) revokeLocalImageUrls(i);
     dirty.current = false;
-    setDraft(seed(changeOrder));
+    setDraft(seed(changeOrder, serverCostChanges));
   };
 
   // --- local mutators ------------------------------------------------------
-  const addSection = () => setSections((s) => [...s, { id: tmpId(), name: "", items: [] }]);
+  const addSection = () => setSections((s) => [...s, { id: tmpId(), name: "", feature_id: null, scope_note: "", items: [] }]);
   const renameSection = (sid: string, name: string) =>
     setSections((s) => s.map((x) => (x.id === sid ? { ...x, name } : x)));
   const removeSection = (sid: string) =>
-    setSections((s) => {
-      const target = s.find((x) => x.id === sid);
+    edit((d) => {
+      const target = d.sections.find((x) => x.id === sid);
       if (target) for (const i of target.items) revokeLocalImageUrls(i);
-      return s.filter((x) => x.id !== sid);
+      return { ...d, sections: d.sections.filter((x) => x.id !== sid), costChanges: d.costChanges.filter((c) => c.section_id !== sid) };
     });
+
+  // --- features: each section changes one existing, active feature --------
+  const live = activeFeatures(features);
+  const [suggestAddon, setSuggestAddon] = useState<string | null>(null);
+  const setSectionFeature = (sid: string, featureId: string) =>
+    edit((d) => {
+      const f = features.find((x) => x.id === featureId);
+      return {
+        ...d,
+        sections: d.sections.map((x) => (x.id === sid ? { ...x, feature_id: featureId, name: f ? featureName(f, categories) : x.name } : x)),
+        // cost changes belong to one feature's Cost plan section
+        costChanges: d.costChanges.filter((c) => c.section_id !== sid || c.feature_id === featureId),
+      };
+    });
+  const featurePickerFor = (sid: string): SectionFeaturePicker => {
+    const used = new Set(draft.sections.filter((x) => x.id !== sid && x.feature_id).map((x) => x.feature_id!));
+    const typesOnJob = new Set(live.map((f) => f.category_id));
+    return {
+      primary: live
+        .filter((f) => !used.has(f.id))
+        .map((f) => ({ key: f.id, label: featureName(f, categories), categoryId: f.category_id, featureId: f.id })),
+      // A type the job doesn't have is a new feature — that's an add-on
+      // quote, not a change order.
+      other: categories.filter((c) => !typesOnJob.has(c.id)).map((c) => ({ key: `new:${c.id}`, label: c.name, categoryId: c.id, newFeature: true })),
+      usedCategoryIds: new Set<string>(),
+      onPick: (o) => (o.featureId ? setSectionFeature(sid, o.featureId) : setSuggestAddon(o.label)),
+      onCommit: () => undefined,
+    };
+  };
+  const setScopeNote = (sid: string, scope_note: string) =>
+    setSections((s) => s.map((x) => (x.id === sid ? { ...x, scope_note } : x)));
+  const addCostChange = (sid: string, c: Omit<DraftCostChange, "id" | "section_id" | "feature_id">) =>
+    edit((d) => ({
+      ...d,
+      costChanges: [
+        ...d.costChanges,
+        { ...c, id: tmpId(), section_id: sid, feature_id: d.sections.find((x) => x.id === sid)?.feature_id ?? null },
+      ],
+    }));
+  const editCostChange = (id: string, patch: Partial<DraftCostChange>) =>
+    edit((d) => ({ ...d, costChanges: d.costChanges.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  const removeCostChange = (id: string) => edit((d) => ({ ...d, costChanges: d.costChanges.filter((c) => c.id !== id) }));
   const addItem = (sid: string) =>
     setSections((s) =>
       s.map((x) =>
@@ -232,6 +320,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const total = subtotal + taxAmount;
   const itemCount = draft.sections.reduce((n, s) => n + s.items.length, 0);
   const scheduleImpactDays = draft.scheduleImpactDays.trim() ? parseInt(draft.scheduleImpactDays, 10) || 0 : 0;
+  const costDelta = costChangesDelta(draft.costChanges);
+  const hasCostChanges = draft.costChanges.length > 0;
 
   const impact = project
     ? computeProjectImpact({
@@ -243,6 +333,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         thisChangeOrderTotal: changeOrder.status === "approved" ? Number(changeOrder.amount) : total,
         thisChangeOrderItemCount: itemCount,
         draftScheduleImpactDays: changeOrder.status === "approved" ? changeOrder.schedule_impact_days : scheduleImpactDays,
+        thisChangeOrderCostDelta: hasCostChanges ? costDelta : undefined,
+        costAlreadyApplied: changeOrder.status === "approved",
       })
     : null;
 
@@ -270,18 +362,26 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         if (!draftSectionIds.has(s.id)) await deleteChangeOrderSection(s.id);
       }
 
+      const sectionIdMap = new Map<string, string>();
       for (let si = 0; si < draft.sections.length; si++) {
         const ds = draft.sections[si];
         const name = ds.name.trim() || "New section";
+        const scope_note = ds.scope_note.trim() || null;
         let sectionId = ds.id;
         const server = serverSections.get(ds.id);
 
         if (!server) {
-          const created = await addChangeOrderSection(changeOrder.id, { name, sort_order: si });
+          const created = await addChangeOrderSection(changeOrder.id, { name, sort_order: si, feature_id: ds.feature_id, scope_note });
           sectionId = created.id;
-        } else if (server.name !== name || server.sort_order !== si) {
-          await updateChangeOrderSection(server.id, { name, sort_order: si });
+        } else if (
+          server.name !== name ||
+          server.sort_order !== si ||
+          (server.feature_id ?? null) !== ds.feature_id ||
+          (server.scope_note ?? null) !== scope_note
+        ) {
+          await updateChangeOrderSection(server.id, { name, sort_order: si, feature_id: ds.feature_id, scope_note });
         }
+        sectionIdMap.set(ds.id, sectionId);
 
         const serverItems = new Map((server?.change_order_items ?? []).map((i) => [i.id, i]));
         const draftItemIds = new Set(ds.items.filter((i) => !isTmp(i.id)).map((i) => i.id));
@@ -348,6 +448,39 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         }
       }
 
+      // Planned-cost changes: diff against the server's.
+      const draftChangeIds = new Set(draft.costChanges.map((c) => c.id));
+      for (const c of serverCostChanges) {
+        if (!draftChangeIds.has(c.id)) await deleteChangeOrderCostChange(c.id);
+      }
+      const serverChanges = new Map(serverCostChanges.map((c) => [c.id, c]));
+      for (let ci = 0; ci < draft.costChanges.length; ci++) {
+        const dc = draft.costChanges[ci];
+        const section_id = sectionIdMap.get(dc.section_id) ?? null;
+        if (!section_id) continue; // its section was removed
+        const srv = serverChanges.get(dc.id);
+        if (!srv) {
+          await createChangeOrderCostChange({
+            change_order_id: changeOrder.id,
+            section_id,
+            feature_id: dc.feature_id,
+            kind: dc.kind,
+            materials_item_id: dc.materials_item_id,
+            materials_section_id: dc.materials_section_id,
+            line: dc.line,
+            before: dc.before,
+            sort_order: ci,
+          });
+        } else if (
+          JSON.stringify(srv.line) !== JSON.stringify(dc.line) ||
+          srv.sort_order !== ci ||
+          srv.section_id !== section_id ||
+          srv.feature_id !== dc.feature_id
+        ) {
+          await updateChangeOrderCostChange(srv.id, { line: dc.line, sort_order: ci, section_id, feature_id: dc.feature_id });
+        }
+      }
+
       await updateChangeOrder(changeOrder.id, {
         title: draft.title.trim() || "Untitled change order",
         description: draft.description.trim() || null,
@@ -359,6 +492,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     onSuccess: () => {
       dirty.current = false;
       invalidate();
+      qc.invalidateQueries({ queryKey: ["change-order-cost-changes", changeOrder.id] });
+      qc.invalidateQueries({ queryKey: ["pending-cost-changes", projectId] });
       toast({ title: "Change order saved" });
     },
     onError,
@@ -417,7 +552,10 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
       invalidate();
       void logProjectEvent(projectId, "change_order_approved", `Change order approved: ${changeOrder.title} · ${formatCurrency(Number(changeOrder.amount))}`);
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
-      toast({ title: "Change order approved" });
+      qc.invalidateQueries({ queryKey: ["materials"] });
+      qc.invalidateQueries({ queryKey: ["feature-history", projectId] });
+      qc.invalidateQueries({ queryKey: ["pending-cost-changes", projectId] });
+      toast({ title: "Change order approved", description: hasCostChanges ? "Its cost changes are now in the Cost plan." : undefined });
     },
     onError,
   });
@@ -628,6 +766,34 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                               isDraggingItem={isDraggingItem}
                               onAutoExpand={() => expandSection(section.id)}
                               priceLabel="Rate ($, − for credit)"
+                              featurePicker={featurePickerFor(section.id)}
+                              addItemLabel="Add price line"
+                              beforeItems={
+                                <label className="mb-3 block">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-subtle">
+                                    Scope / measurement change
+                                  </span>
+                                  <Input
+                                    value={section.scope_note}
+                                    onChange={(e) => setScopeNote(section.id, e.target.value)}
+                                    placeholder="e.g. +100 sq ft, wall raised to 30 in"
+                                    className="mt-1 h-10"
+                                  />
+                                </label>
+                              }
+                              afterItems={
+                                <CostChangesBlock
+                                  featureSection={
+                                    section.feature_id ? materials.find((m) => m.feature_id === section.feature_id) : undefined
+                                  }
+                                  changes={draft.costChanges.filter((c) => c.section_id === section.id)}
+                                  locked={locked}
+                                  laborRate={laborRate}
+                                  onAdd={(c) => addCostChange(section.id, c)}
+                                  onEdit={editCostChange}
+                                  onRemove={removeCostChange}
+                                />
+                              }
                             />
                           </div>
                         )}
@@ -647,8 +813,18 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
               className="flex h-14 w-full items-center justify-center gap-2 rounded-card border-[1.5px] border-dashed border-border bg-card text-[15px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
             >
               <Plus className="h-4 w-4" />
-              Add section
+              Add a feature to change
             </button>
+          )}
+          {!locked && (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              A change order changes features already on this job (bigger patio, upgrade, removal or credit). A completely
+              new feature goes on an add-on quote —{" "}
+              <Link to={`/projects/${projectId}?add-new-work=1`} className="font-semibold text-primary hover:underline">
+                Add new work
+              </Link>
+              .
+            </p>
           )}
 
           <div className="stat-card space-y-5">
@@ -710,6 +886,12 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             <div className="mt-2.5">
               <MoneyRow label="Subtotal" value={formatCurrency(subtotal)} />
               <MoneyRow label={`Sales tax ${quoteDefaults.sales_tax_pct}%`} value={formatCurrency(taxAmount)} />
+              {hasCostChanges && (
+                <>
+                  <MoneyRow label="Planned cost change" value={`${costDelta < 0 ? "−" : "+"}${formatCurrency(Math.abs(costDelta))}`} />
+                  <MoneyRow label="Profit on this change" value={formatCurrency(subtotal - costDelta)} />
+                </>
+              )}
             </div>
             <div className="mt-2 flex items-center justify-between border-t border-hairline pt-3">
               <span className="text-sm font-bold text-foreground">Change order total</span>
@@ -797,6 +979,22 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
       <DraftSaveBar visible={isDirty} onDiscard={discard} onSave={() => saveMut.mutate()} saving={saveMut.isPending} />
 
       <ShareLinkDialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)} url={shareUrl ?? ""} kind="change order" />
+
+      <AlertDialog open={!!suggestAddon} onOpenChange={(open) => !open && setSuggestAddon(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{suggestAddon} isn't on this job</AlertDialogTitle>
+            <AlertDialogDescription>
+              A change order changes features the job already has. A completely new feature goes on an add-on quote, so the
+              client approves it and its costs join the job only once they do.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={() => navigate(`/projects/${projectId}?add-new-work=1`)}>Add new work instead</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={declineOpen} onOpenChange={setDeclineOpen}>
         <AlertDialogContent>

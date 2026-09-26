@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
-import { costPlanTotal } from "@/lib/costPlanMath";
+import { costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -56,7 +56,8 @@ import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
-import { liveFeatures } from "@/lib/features";
+import { featureName, liveFeatures } from "@/lib/features";
+import { addonQuoteNumbers } from "@/lib/featureFinancials";
 import {
   categoryForSectionName,
   sectionFeatureOptions,
@@ -74,7 +75,6 @@ import {
 import { ReorderControls } from "@/components/common/ReorderControls";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { revokeLocalImageUrls, type DraftLineImage } from "@/lib/draftLineItem";
-import { LinkedDocumentBar } from "@/components/common/LinkedDocumentBar";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
@@ -317,6 +317,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     queryFn: () => listQuotes(projectId!),
     enabled: !!projectId,
   });
+  const addonNumber = addonQuoteNumbers(projectQuotes).get(quote.id);
   // The plan sections this quote's sections compare against: the project's
   // one Cost plan (features make the pairing automatic).
   const sheetSectionsForLinking = materials;
@@ -533,10 +534,13 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     enabled: !!projectId,
   });
   const hasFeatures = projectFeatures.length > 0;
+  // An add-on quote (0108) prices only its own (proposed) features.
+  const isAddon = quote.kind === "addon";
+  const pickableFeatures = isAddon ? projectFeatures.filter((f) => f.source_quote_id === quote.id) : projectFeatures;
   const featurePickerFor = (sid: string): SectionFeaturePicker => ({
     ...(hasFeatures
       ? featurePickerOptions(
-          projectFeatures,
+          pickableFeatures,
           categories,
           new Set(draft.sections.filter((x) => x.id !== sid && x.feature_id).map((x) => x.feature_id!)),
         )
@@ -646,7 +650,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       for (const ds of draft.sections) {
         if (ds.feature_id || !ds.new_feature_category_id || !quote.project_id) continue;
         try {
-          const f = await createProjectFeature(quote.project_id, { category_id: ds.new_feature_category_id });
+          const f = await createProjectFeature(
+            quote.project_id,
+            isAddon
+              ? { category_id: ds.new_feature_category_id, status: "proposed", source_quote_id: quote.id }
+              : { category_id: ds.new_feature_category_id },
+          );
           ds.feature_id = f.id;
           featuresAdded = true;
         } catch {
@@ -926,7 +935,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // proposed add-on and removed features never count). No plan yet → "Not
   // available", never a $0 cost (which used to read as a 100% margin).
   const hasMaterialsSheet = materialsSheets.length > 0;
-  const materialsCost = hasMaterialsSheet ? costPlanTotal(materials) : null;
+  // An add-on's cost is just its own features' sections (proposed until
+  // approved, so not in the project total).
+  const addonFeatureIds = new Set(pickableFeatures.map((f) => f.id));
+  const materialsCost = !hasMaterialsSheet
+    ? null
+    : isAddon
+      ? sumSectionTotals(materials.filter((m) => m.feature_id && addonFeatureIds.has(m.feature_id)), { all: true }).total
+      : costPlanTotal(materials);
   const materialsAction: MaterialsAction = !projectId
     ? { label: "Create project to add a cost plan", onClick: () => handleCreateProjectClick(), primary: true }
     : !hasMaterialsSheet
@@ -1091,6 +1107,29 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </div>
         </div>
       </div>
+
+      {isAddon && (
+        <div className="rounded-card border border-info/40 bg-info/5 p-4">
+          <div className="text-sm font-bold text-foreground">
+            Add-on quote{addonNumber ? ` #${addonNumber}` : ""} · new work on this job
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {pickableFeatures.map((f) => featureName(f, categories)).join(", ") || "No features yet"} — proposed until the
+            client approves; then they join the job, its totals and its contract.
+          </p>
+          {projectId && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold">
+              <Link to={`/projects/${projectId}`} className="text-primary hover:underline">
+                1 · Measure it (project page)
+              </Link>
+              <Link to={`/projects/${projectId}/materials`} className="text-primary hover:underline">
+                2 · Price it in the Cost plan
+              </Link>
+              <span className="text-muted-foreground">3 · Price each section here and send</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <ClientShareCard
         clientId={quote.client_id}

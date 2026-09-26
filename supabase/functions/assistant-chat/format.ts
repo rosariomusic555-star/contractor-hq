@@ -53,15 +53,23 @@ export interface QuoteLike {
   id: string;
   status: "draft" | "sent" | "approved";
   created_at: string;
+  /** 'addon' (0108) — new features on a Won job; never the headline. */
+  kind?: "original" | "addon";
   quote_sections: QuoteSectionLike[];
 }
 
 /** Mirrors pickHeadlineQuote() in src/lib/api.ts. */
 export function pickHeadlineQuote(quotes: QuoteLike[]): QuoteLike | undefined {
   const byRecency = (a: QuoteLike, b: QuoteLike) => b.created_at.localeCompare(a.created_at);
+  const originals = quotes.filter((q) => (q.kind ?? "original") === "original");
   const mostRecentWithStatus = (status: QuoteLike["status"]) =>
-    quotes.filter((q) => q.status === status).sort(byRecency)[0];
+    originals.filter((q) => q.status === status).sort(byRecency)[0];
   return mostRecentWithStatus("approved") ?? mostRecentWithStatus("sent") ?? mostRecentWithStatus("draft");
+}
+
+/** Mirrors approvedAddonQuoteTotal() in src/lib/api.ts. */
+export function approvedAddonQuoteTotal(quotes: QuoteLike[]): number {
+  return quotes.filter((q) => q.kind === "addon" && q.status === "approved").reduce((s, q) => s + quoteTotal(q.quote_sections), 0);
 }
 
 export interface ChangeOrderLike {

@@ -18,6 +18,7 @@ import {
   approvedChangeOrderTotal,
   invoiceDaysLate,
   costPlanTotals,
+  approvedAddonQuoteTotal,
   actualCostByType,
   nonZeroBuckets,
   type CostSectionLike,
@@ -282,7 +283,7 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
 
   const { data: quotes, error: qErr } = await sb
     .from("quotes")
-    .select("id,status,created_at,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected))")
+    .select("id,status,kind,created_at,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected))")
     .eq("project_id", input.project_id);
   if (qErr) throw qErr;
 
@@ -298,7 +299,9 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
   // definition as everywhere else in the app (projectContractValue() in
   // src/lib/api.ts). Null only when there's no quote at all yet.
   const quoted =
-    quoteBase != null ? quoteBase + approvedChangeOrderTotal((changeOrders ?? []) as ChangeOrderLike[]) : null;
+    quoteBase != null
+      ? quoteBase + approvedAddonQuoteTotal((quotes ?? []) as QuoteLike[]) + approvedChangeOrderTotal((changeOrders ?? []) as ChangeOrderLike[])
+      : null;
 
   const { data: costSections, error: mErr } = await sb
     .from("materials_sections")

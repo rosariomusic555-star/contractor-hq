@@ -12,7 +12,7 @@
 
 import type { ChangeOrder, Invoice, MaterialsSection, Project, Quote } from "./api";
 import { costPlanHasEntries, costPlanTotal } from "./costPlanMath";
-import { approvedChangeOrderTotal, pickHeadlineQuote, quoteTotal } from "./api";
+import { approvedAddonQuoteTotal, approvedChangeOrderTotal, pickHeadlineQuote, quoteTotal } from "./api";
 import { ALL_TIME_RANGE, invoicedTotal, collectedTotal } from "./financials";
 
 export interface ProjectImpact {
@@ -67,6 +67,12 @@ export function computeProjectImpact(input: {
   thisChangeOrderItemCount: number;
   /** This change order's current draft schedule impact (may be unsaved). */
   draftScheduleImpactDays: number | null;
+  /** Its planned-cost change (0107: Cost plan line / labor changes on its
+   * features). Undefined = unknown (a change order without cost changes). */
+  thisChangeOrderCostDelta?: number;
+  /** True once approved — the Cost plan already includes its changes, so
+   * "before" backs them out instead of "after" adding them. */
+  costAlreadyApplied?: boolean;
 }): ProjectImpact {
   const {
     project,
@@ -77,10 +83,14 @@ export function computeProjectImpact(input: {
     thisChangeOrderTotal,
     thisChangeOrderItemCount,
     draftScheduleImpactDays,
+    thisChangeOrderCostDelta,
+    costAlreadyApplied,
   } = input;
 
+  // "Original contract" = the signed quote plus approved add-on quotes —
+  // everything but change orders.
   const headline = pickHeadlineQuote(quotes);
-  const originalContract = headline ? quoteTotal(headline.quote_sections) : 0;
+  const originalContract = (headline ? quoteTotal(headline.quote_sections) : 0) + approvedAddonQuoteTotal(quotes);
 
   const approvedOthers = otherChangeOrders.filter((co) => co.status === "approved");
   const previouslyApproved = approvedChangeOrderTotal(approvedOthers);
@@ -94,13 +104,13 @@ export function computeProjectImpact(input: {
   const remainingToBill = Math.max(0, revisedContractTotal - invoicedToDate);
 
   // Any planned cost at all (lines or labor) — else "unknown", not $0.
-  const costBefore = costPlanHasEntries(materialsSections) ? costPlanTotal(materialsSections) : null;
-  const unknownCostItemCount = thisChangeOrderItemCount;
-  // This change order's own new scope is never counted into cost (no cost
-  // data source for it — see costAfter's own doc comment above), so
-  // costAfter is literally costBefore; the unknown count is what tells the
-  // contractor the after-margin is incomplete, not that nothing changed.
-  const costAfter = costBefore;
+  const planCost = costPlanHasEntries(materialsSections) ? costPlanTotal(materialsSections) : null;
+  const delta = thisChangeOrderCostDelta ?? 0;
+  const costBefore = planCost == null ? null : costAlreadyApplied ? planCost - delta : planCost;
+  const costAfter = costBefore == null ? null : costBefore + delta;
+  // Without planned-cost changes, its own lines have no cost source — the
+  // count tells the contractor the after-margin is incomplete.
+  const unknownCostItemCount = thisChangeOrderCostDelta === undefined ? thisChangeOrderItemCount : 0;
 
   const marginPctBefore =
     costBefore != null && originalContract + previouslyApproved > 0

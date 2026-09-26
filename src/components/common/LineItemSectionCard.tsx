@@ -55,6 +55,13 @@ interface LineItemSectionCardProps {
   /** Quote-only: the "Optional section" switch + per-item optional-addon
    * toggle. Omitted entirely for a builder with no optional-item concept
    * (the Change Order builder — every line unconditionally counts). */
+  /** Content above the line items (the Change Order builder's scope change). */
+  beforeItems?: ReactNode;
+  /** Content below the "add item" button (the Change Order builder's
+   * planned-cost changes). */
+  afterItems?: ReactNode;
+  /** The add button's label — "Add item to this section" by default. */
+  addItemLabel?: string;
   optionalSection?: {
     checked: boolean;
     onChange: (checked: boolean) => void;
@@ -95,6 +102,9 @@ export function LineItemSectionCard({
   optionalSection,
   tag,
   featurePicker,
+  beforeItems,
+  afterItems,
+  addItemLabel = "Add item to this section",
   toolbarActions,
 }: LineItemSectionCardProps) {
   const items = section.items;
@@ -165,6 +175,7 @@ export function LineItemSectionCard({
         </div>
       }
     >
+      {beforeItems}
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
           <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
@@ -208,8 +219,9 @@ export function LineItemSectionCard({
         className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
       >
         <Plus className="h-4 w-4" />
-        Add item to this section
+        {addItemLabel}
       </button>
+      {afterItems}
     </SectionCard>
   );
 }

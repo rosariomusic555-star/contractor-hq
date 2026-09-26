@@ -29,6 +29,7 @@ import { buildOngoingJobCards, type OngoingJobCard } from "@/lib/ongoingJobs";
 import { trackedSheetIds, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import { CategoryChips } from "@/components/common/CategoryChips";
+import { countsTowardTotals } from "@/lib/features";
 
 const MAX_ITEMS = 6;
 
@@ -103,7 +104,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
     if (tracked.size === 0) continue;
     // Material lines only — tracking never covers sub/equipment/other lines.
     const lines = materialsSections
-      .filter((s) => tracked.has(s.sheet_id))
+      .filter((s) => tracked.has(s.sheet_id) && countsTowardTotals(s))
       .flatMap((s) => s.materials_items)
       .filter((i) => (i.cost_type ?? "material") === "material");
     if (lines.length > 0) trackedLinesByProject.set(project.id, lines);

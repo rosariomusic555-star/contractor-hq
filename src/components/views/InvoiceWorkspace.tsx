@@ -14,6 +14,7 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
+import { addonQuoteNumbers, changeOrderNumbers } from "@/lib/featureFinancials";
 import { BackLink } from "@/components/common/BackLink";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -266,6 +267,30 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
     );
     editDraft({ lines });
   };
+
+  // Approved extra work on the job (0107/0108) — each can be billed as its
+  // own line (edit the amount for a deposit or progress bill).
+  const addonNumbers = addonQuoteNumbers(projectQuotes);
+  const coNumbers = changeOrderNumbers(changeOrders);
+  const billableExtras = [
+    ...projectQuotes
+      .filter((q) => q.kind === "addon" && q.status === "approved")
+      .map((q) => ({ key: q.id, label: `Add-on quote #${addonNumbers.get(q.id) ?? ""}`, amount: quoteTotal(q.quote_sections) })),
+    ...changeOrders
+      .filter((co) => co.status === "approved")
+      .map((co) => ({ key: co.id, label: `Change order #${coNumbers.get(co.id) ?? ""} — ${co.title}`, amount: Number(co.amount) })),
+  ];
+  const addBillableLine = (label: string, amount: number) =>
+    editDraft({
+      lines: [
+        ...(draft.lines.length > 0
+          ? draft.lines
+          : [{ key: newKey(), description: invoice.notes || "Invoice amount", quantity: "1", unitPrice: draft.amount }].filter(
+              (l) => Number(l.unitPrice) > 0,
+            )),
+        { key: newKey(), description: label, quantity: "1", unitPrice: String(Math.round(amount * 100) / 100) },
+      ],
+    });
 
   const pillClass =
     "flex h-auto w-full items-center gap-2.5 rounded-xl bg-white/[0.08] px-3.5 py-3 text-left transition-colors hover:bg-white/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
@@ -521,6 +546,18 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
                       {itemized ? "Replace with quote lines" : "Add lines from quote"}
                     </Button>
                   )}
+                  {billableExtras.map((b) => (
+                    <Button
+                      key={b.key}
+                      type="button"
+                      variant="ghost"
+                      className="h-10 font-semibold text-muted-foreground"
+                      onClick={() => addBillableLine(b.label, b.amount)}
+                    >
+                      <Plus className="mr-1.5 h-4 w-4" />
+                      {b.label} · {formatCurrency(b.amount)}
+                    </Button>
+                  ))}
                 </div>
               )}
             </div>

@@ -26,6 +26,7 @@ import {
   listEmployees,
   getBusinessProfile,
   listMaterials,
+  listProjectFeatures,
   listLaborEntries,
   createLaborEntry,
   deleteLaborEntry,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/api";
 import { laborRollupsByScope, laborTotals, plannedLaborFromSections, productivityMetrics, GENERAL_SCOPE_KEY, type ScopeLaborRollup } from "@/lib/laborPlan";
 import { BackLink } from "@/components/common/BackLink";
+import { activeFeatures, featureName } from "@/lib/features";
 
 const CUSTOM_WORKER = "__custom__";
 
@@ -56,6 +58,14 @@ export function ProjectLaborView() {
   });
 
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+  // Hours are logged against a feature (0105) when the job has them, so
+  // labor planned vs actual works per feature.
+  const { data: allFeatures = [] } = useQuery({ queryKey: ["project-features", id], queryFn: () => listProjectFeatures(id) });
+  const features = activeFeatures(allFeatures);
+  const featureLabel = (fid: string) => {
+    const f = allFeatures.find((x) => x.id === fid);
+    return f ? featureName(f, categories) : "Feature";
+  };
 
   // ---------------------------------------------------------------------
   // Actual labor log
@@ -69,6 +79,15 @@ export function ProjectLaborView() {
   const [logRate, setLogRate] = useState("");
   const [logCost, setLogCost] = useState("");
   const [logNote, setLogNote] = useState("");
+  const [logFeatureId, setLogFeatureId] = useState<string>(GENERAL_SCOPE_KEY);
+  // Crew × days × hours/day → hours (optional helper).
+  const [crew, setCrew] = useState("");
+  const [days, setDays] = useState("");
+  const [hrsPerDay, setHrsPerDay] = useState("8");
+  const applyCrew = (c: string, d: string, h: string) => {
+    const n = (parseFloat(c) || 0) * (parseFloat(d) || 0) * (parseFloat(h) || 0);
+    if (n > 0) setLogHours(String(Math.round(n * 100) / 100));
+  };
 
   const onEmployeePick = (value: string) => {
     setLogWorker(value);
@@ -88,7 +107,14 @@ export function ProjectLaborView() {
       const cost = logCostComputed ?? (parseFloat(logCost) || 0);
       return createLaborEntry({
         project_id: id,
-        category_id: logCategoryId === GENERAL_SCOPE_KEY ? null : logCategoryId,
+        category_id:
+          features.length > 0
+            ? (features.find((f) => f.id === logFeatureId)?.category_id ?? null)
+            : logCategoryId === GENERAL_SCOPE_KEY
+              ? null
+              : logCategoryId,
+        feature_id: logFeatureId === GENERAL_SCOPE_KEY ? null : logFeatureId,
+        note: logNote.trim() || null,
         employee_id: logWorker === CUSTOM_WORKER ? null : logWorker,
         worker_name: logWorker === CUSTOM_WORKER ? logWorkerName.trim() || null : null,
         entry_date: logDate,
@@ -106,6 +132,8 @@ export function ProjectLaborView() {
       setLogCost("");
       setLogNote("");
       setLogWorkerName("");
+      setCrew("");
+      setDays("");
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
@@ -186,22 +214,41 @@ export function ProjectLaborView() {
             <Label>Date</Label>
             <Input type="date" value={logDate} onChange={(e) => setLogDate(e.target.value)} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Scope</Label>
-            <Select value={logCategoryId} onValueChange={setLogCategoryId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={GENERAL_SCOPE_KEY}>General</SelectItem>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {features.length > 0 ? (
+            <div className="space-y-1.5">
+              <Label>Feature</Label>
+              <Select value={logFeatureId} onValueChange={setLogFeatureId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={GENERAL_SCOPE_KEY}>General</SelectItem>
+                  {features.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {featureName(f, categories)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>Scope</Label>
+              <Select value={logCategoryId} onValueChange={setLogCategoryId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={GENERAL_SCOPE_KEY}>General</SelectItem>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Worker</Label>
             <Select value={logWorker} onValueChange={onEmployeePick}>
@@ -226,6 +273,41 @@ export function ProjectLaborView() {
               <Input value={logWorkerName} onChange={(e) => setLogWorkerName(e.target.value)} placeholder="e.g. Crew member" />
             </div>
           )}
+          <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+            <Label>Crew days (optional — fills Hours)</Label>
+            <div className="grid grid-cols-3 gap-2">
+              <Input
+                inputMode="decimal"
+                value={crew}
+                onChange={(e) => {
+                  setCrew(e.target.value);
+                  applyCrew(e.target.value, days, hrsPerDay);
+                }}
+                placeholder="Crew"
+                aria-label="Crew size"
+              />
+              <Input
+                inputMode="decimal"
+                value={days}
+                onChange={(e) => {
+                  setDays(e.target.value);
+                  applyCrew(crew, e.target.value, hrsPerDay);
+                }}
+                placeholder="Days"
+                aria-label="Days"
+              />
+              <Input
+                inputMode="decimal"
+                value={hrsPerDay}
+                onChange={(e) => {
+                  setHrsPerDay(e.target.value);
+                  applyCrew(crew, days, e.target.value);
+                }}
+                placeholder="Hrs/day"
+                aria-label="Hours per day"
+              />
+            </div>
+          </div>
           <div className="space-y-1.5">
             <Label>Hours</Label>
             <Input type="number" step="0.25" min="0" value={logHours} onChange={(e) => setLogHours(e.target.value)} placeholder="8" />
@@ -278,7 +360,11 @@ export function ProjectLaborView() {
                   <tr key={e.id} className="border-b border-border last:border-0">
                     <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">{formatDate(e.entry_date)}</td>
                     <td className="px-2 py-2 text-foreground">
-                      {e.category_id ? (categoryNameById.get(e.category_id) ?? "Uncategorized") : "General"}
+                      {e.feature_id
+                        ? featureLabel(e.feature_id)
+                        : e.category_id
+                          ? (categoryNameById.get(e.category_id) ?? "Uncategorized")
+                          : "General"}
                     </td>
                     <td className="px-2 py-2 text-foreground">
                       {e.employee_id ? (employees.find((emp) => emp.id === e.employee_id)?.name ?? "—") : (e.worker_name ?? "—")}

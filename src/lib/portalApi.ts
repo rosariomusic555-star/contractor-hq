@@ -100,6 +100,9 @@ export interface PortalQuoteSection {
 export interface PortalQuote {
   id: string;
   status: "sent" | "approved" | "declined";
+  /** 'addon' = new features added to the job (0108), numbered per project. */
+  kind?: "original" | "addon";
+  addon_number?: number | null;
   deposit_percentage: number;
   signed_at: string | null;
   signed_by: string | null;
@@ -121,6 +124,8 @@ export interface PortalChangeOrderSection {
   id: string;
   name: string;
   sort_order: number;
+  /** The scope / measurement change on this feature (0107). */
+  scope_note?: string | null;
   items: PortalChangeOrderItem[];
 }
 
@@ -139,8 +144,17 @@ export interface PortalChangeOrder {
   declined_at: string | null;
   decline_comment: string | null;
   created_at: string;
+  /** "CO #n" within the project (0108). */
+  number?: number;
   sections: PortalChangeOrderSection[];
 }
+
+/** "Add-on quote #2" / "Quote". */
+export const portalQuoteLabel = (q: Pick<PortalQuote, "kind" | "addon_number">) =>
+  q.kind === "addon" ? `Add-on quote${q.addon_number ? ` #${q.addon_number}` : ""}` : "Quote";
+
+/** "Change order #3" / "Change order". */
+export const portalChangeOrderLabel = (c: Pick<PortalChangeOrder, "number">) => `Change order${c.number ? ` #${c.number}` : ""}`;
 
 export interface PortalInvoice {
   id: string;
