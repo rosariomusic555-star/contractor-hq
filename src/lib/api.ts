@@ -219,6 +219,12 @@ export interface ProjectImage {
    * into the main gallery grid until the contractor accepts it. */
   uploaded_by_client: boolean;
   accepted: boolean;
+  /** Progress updates (0126): the full-size original (contractor only), the
+   * update it belongs to, and Before / After for a feature. */
+  original_path?: string | null;
+  progress_update_id?: string | null;
+  ba_role?: "before" | "after" | null;
+  ba_feature_id?: string | null;
 }
 
 /** A photo attached to a quote line item (paver style, area being worked
@@ -7586,4 +7592,188 @@ export async function uploadCrewNotePhoto(projectId: string, file: File): Promis
 export async function updateEmployeeCrewRole(id: string, patch: { is_lead?: boolean; can_log_usage?: boolean }): Promise<void> {
   const { error } = await supabase.from("employees").update(patch).eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Progress updates (0126). Helpers: src/lib/progress.ts; uploads go through
+// src/lib/uploadQueue.ts (background, with retry).
+// ---------------------------------------------------------------------------
+
+export interface ProgressUpdate {
+  id: string;
+  project_id: string;
+  feature_id: string | null;
+  milestone: string | null;
+  note: string | null;
+  author_employee_id: string | null;
+  author_name: string | null;
+  status: "pending" | "shared" | "internal";
+  shared_at: string | null;
+  created_at: string;
+  project?: { name: string } | null;
+  photos?: { id: string; storage_path: string; original_path: string | null }[];
+  comments?: { id: string; author: "client" | "contractor"; author_name: string | null; body: string; created_at: string }[];
+  liked?: boolean;
+}
+
+export async function listProgressUpdates(projectId?: string, status?: ProgressUpdate["status"]): Promise<ProgressUpdate[]> {
+  let q = supabase
+    .from("progress_updates")
+    .select("*, project:projects(name), photos:project_images(id, storage_path, original_path), comments:progress_update_comments(id, author, author_name, body, created_at), reaction:progress_update_reactions(update_id)")
+    .order("created_at", { ascending: false });
+  if (projectId) q = q.eq("project_id", projectId);
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q;
+  if (error) return [];
+  return ((data ?? []) as (ProgressUpdate & { reaction: unknown })[]).map((u) => ({
+    ...u,
+    liked: Array.isArray(u.reaction) ? u.reaction.length > 0 : !!u.reaction,
+    comments: (u.comments ?? []).sort((a, b) => a.created_at.localeCompare(b.created_at)),
+  }));
+}
+
+/** Owner post (shared or internal). Photos are attached afterwards. */
+export async function createProgressUpdate(input: { project_id: string; note: string | null; feature_id: string | null; milestone: string | null }): Promise<ProgressUpdate> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("progress_updates")
+    .insert({ ...input, user_id: auth.user?.id, status: "internal", author_name: "You" })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as ProgressUpdate;
+}
+
+export async function updateProgressNote(id: string, note: string | null): Promise<void> {
+  const { error } = await supabase.from("progress_updates").update({ note }).eq("id", id);
+  if (error) throw error;
+}
+
+/** Share / unshare — also flips the photos' Client Hub visibility. */
+export async function setProgressUpdateShared(id: string, shared: boolean): Promise<void> {
+  const { error } = await supabase.rpc("set_progress_update_shared", { p_update_id: id, p_shared: shared });
+  if (error) throw error;
+}
+
+export async function deleteProgressUpdate(id: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_progress_update", { p_update_id: id });
+  if (error) throw error;
+}
+
+/** One photo: the full-size original (contractor only) + a compressed copy
+ * (what the Client Hub and the app show). */
+export async function addProgressPhoto(projectId: string, updateId: string, file: File, employeeId?: string | null): Promise<void> {
+  const base = randomImageFilename(file.name);
+  const displayPath = `projects/${projectId}/${base}`;
+  const originalPath = `projects/${projectId}/orig-${base.replace(/\.[^.]+$/, "")}.${(file.name.split(".").pop() || "jpg").toLowerCase().slice(0, 5)}`;
+  const compressed = await compressImageFile(file);
+  const up1 = await supabase.storage.from(IMAGES_BUCKET).upload(displayPath, compressed, { contentType: "image/jpeg", upsert: true });
+  if (up1.error) throw up1.error;
+  const up2 = await supabase.storage.from(IMAGES_BUCKET).upload(originalPath, file, { contentType: file.type || undefined, upsert: true });
+  const { error } = await supabase.from("project_images").insert({
+    project_id: projectId,
+    storage_path: displayPath,
+    original_path: up2.error ? null : originalPath,
+    progress_update_id: updateId,
+    uploaded_by_employee_id: employeeId ?? null,
+  });
+  if (error) {
+    await supabase.storage.from(IMAGES_BUCKET).remove([displayPath, originalPath]);
+    throw error;
+  }
+}
+
+export async function replyToProgressComment(update: Pick<ProgressUpdate, "id" | "project_id">, body: string): Promise<void> {
+  const { error } = await supabase
+    .from("progress_update_comments")
+    .insert({ update_id: update.id, project_id: update.project_id, author: "contractor", author_name: "You", body: body.trim() });
+  if (error) throw error;
+}
+
+export async function crewPostUpdate(input: { project_id: string; note: string | null; feature_id: string | null; milestone: string | null; share: boolean }): Promise<string> {
+  const { data, error } = await supabase.rpc("crew_post_update", {
+    p_project_id: input.project_id,
+    p_note: input.note,
+    p_feature_id: input.feature_id,
+    p_milestone: input.milestone,
+    p_share: input.share,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function crewFinishUpdate(updateId: string): Promise<void> {
+  await supabase.rpc("crew_finish_update", { p_update_id: updateId });
+}
+
+export interface ProgressSettings {
+  crew_needs_approval: boolean;
+  notify_mode: "each" | "daily" | "never";
+  milestones: Record<string, string[]>;
+}
+
+export async function getProgressSettings(): Promise<ProgressSettings> {
+  const { data, error } = await supabase.from("progress_settings").select("crew_needs_approval, notify_mode, milestones").maybeSingle();
+  if (error || !data) return { crew_needs_approval: true, notify_mode: "each", milestones: {} };
+  return data as ProgressSettings;
+}
+
+export async function saveProgressSettings(patch: Partial<ProgressSettings>): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("progress_settings").upsert({ user_id: auth.user?.id, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export async function markProgressPrompted(projectId: string): Promise<void> {
+  await supabase.from("projects").update({ progress_prompted_at: new Date().toISOString() }).eq("id", projectId);
+}
+
+export async function setPhotoBeforeAfter(imageId: string, role: "before" | "after" | null, featureId: string | null): Promise<void> {
+  const { error } = await supabase.rpc("set_photo_before_after", { p_image_id: imageId, p_role: role, p_feature_id: featureId });
+  if (error) throw error;
+}
+
+export interface PortfolioItem {
+  id: string;
+  project_id: string | null;
+  feature_id: string | null;
+  before_image_id: string | null;
+  after_image_id: string | null;
+  title: string | null;
+  created_at: string;
+  project?: { name: string; client?: { name: string; marketing_ok: boolean | null } | null } | null;
+  before?: { storage_path: string; original_path: string | null } | null;
+  after?: { storage_path: string; original_path: string | null } | null;
+}
+
+export async function listPortfolio(): Promise<PortfolioItem[]> {
+  const { data, error } = await supabase
+    .from("portfolio_items")
+    .select("*, project:projects(name, client:clients(name, marketing_ok)), before:project_images!portfolio_items_before_image_id_fkey(storage_path, original_path), after:project_images!portfolio_items_after_image_id_fkey(storage_path, original_path)")
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as PortfolioItem[];
+}
+
+export async function addPortfolioItem(item: { project_id: string; feature_id: string | null; before_image_id: string; after_image_id: string; title: string | null }): Promise<void> {
+  const { error } = await supabase.from("portfolio_items").insert(item);
+  if (error) throw error;
+}
+
+export async function removePortfolioItem(id: string): Promise<void> {
+  const { error } = await supabase.from("portfolio_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function setClientMarketingOk(clientId: string, ok: boolean | null): Promise<void> {
+  const { error } = await supabase
+    .from("clients")
+    .update({ marketing_ok: ok, marketing_ok_at: ok == null ? null : new Date().toISOString(), marketing_ok_source: ok == null ? null : "manual" })
+    .eq("id", clientId);
+  if (error) throw error;
+}
+
+export async function getClientMarketingOk(clientId: string): Promise<boolean | null> {
+  const { data } = await supabase.from("clients").select("marketing_ok").eq("id", clientId).maybeSingle();
+  return (data?.marketing_ok as boolean | null) ?? null;
 }

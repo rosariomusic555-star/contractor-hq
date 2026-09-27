@@ -50,6 +50,13 @@ const raw = withLeaks({
   deliveries: [withLeaks({ id: "d", supplier: "Stone Co", expected_delivery_date: null, status: "ordered", photos: [] })],
   events: [withLeaks({ id: "e", kind: "quote_sent", summary: "Quote sent", created_at: "x" })],
   review: withLeaks({ link_path: "/r/tok" }),
+  progress: withLeaks({
+    updates: [withLeaks({ id: "u1", date: "x", text: "Base done", milestone: "Base installed", feature: "f1", photos: ["projects/p/a.jpg"], liked: true, comments: [withLeaks({ author: "client", name: "Pat", body: "Looks great", created_at: "x" })] })],
+    features: [withLeaks({ id: "f1", label: "Patio", category: "Paver Patio" })],
+    milestone_presets: { paver_patio: ["Dig", "Lay"] },
+    before_after: [withLeaks({ feature: "f1", before: "projects/p/b.jpg", after: "projects/p/c.jpg" })],
+    marketing_ok: null,
+  }),
   schedule_updates: [withLeaks({ id: "su", posted_at: "x", reason: "rain", from_start: "2026-10-01", from_end: "2026-10-06", to_start: "2026-10-02", to_end: "2026-10-07" })],
 }) as unknown as PortalProjectDetail;
 
@@ -66,7 +73,7 @@ describe("client-facing serializer", () => {
   });
 
   it("only ever outputs whitelisted keys", () => {
-    const whitelisted = new Set<string>([...Object.values(CLIENT_FIELDS).flat(), "project", "business", "client", "quotes", "change_orders", "invoices", "payments", "versions", "money", "photos", "deliveries", "events", "schedule_updates", "review"]);
+    const whitelisted = new Set<string>([...Object.values(CLIENT_FIELDS).flat(), "project", "business", "client", "quotes", "change_orders", "invoices", "payments", "versions", "money", "photos", "deliveries", "events", "schedule_updates", "review", "progress", "paver_patio"]);
     const unknown = [...allKeys(clientSafeProjectDetail(raw))].filter((k) => !whitelisted.has(k));
     expect(unknown).toEqual([]);
   });
@@ -79,6 +86,8 @@ describe("client-facing serializer", () => {
     expect((d.versions?.[0].content as { total?: number }).total).toBe(20);
     expect(d.deliveries[0].supplier).toBe("Stone Co");
     expect(d.review).toEqual({ link_path: "/r/tok" });
+    expect(d.progress?.updates[0]).toEqual({ id: "u1", date: "x", text: "Base done", milestone: "Base installed", feature: "f1", photos: ["projects/p/a.jpg"], liked: true, comments: [{ author: "client", name: "Pat", body: "Looks great", created_at: "x" }] });
+    expect(d.progress?.before_after[0]).toEqual({ feature: "f1", before: "projects/p/b.jpg", after: "projects/p/c.jpg" });
     expect(d.schedule_updates?.[0]).toEqual({ id: "su", posted_at: "x", reason: "rain", from_start: "2026-10-01", from_end: "2026-10-06", to_start: "2026-10-02", to_end: "2026-10-07" });
     const g = d.quotes[0].sections[0].selections![0];
     expect(g.options[0]).toEqual({ id: "o1", name: "Shale Grey", description: null, image_path: "p", price_delta: 0, is_default: true });

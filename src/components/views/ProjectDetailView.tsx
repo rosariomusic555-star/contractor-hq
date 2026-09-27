@@ -150,6 +150,7 @@ import { HeadsUpReminder } from "@/components/schedule/HeadsUpReminder";
 import { ProjectReviewCard } from "@/components/reviews/ProjectReviewCard";
 import { PreconCard } from "@/components/precon/PreconCard";
 import { CrewWorkOrderCard } from "@/components/workorder/CrewWorkOrderCard";
+import { ProgressUpdatesCard } from "@/components/progress/ProgressUpdatesCard";
 import type { PreconBundle } from "@/lib/preconSignals";
 import {
   AlertDialog,
@@ -701,6 +702,9 @@ export function ProjectDetailView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Progress updates (0126) — post, review crew posts, share to the Hub. */}
+      {project.status !== "estimating" && project.status !== "lost" && <ProgressUpdatesCard project={project} />}
 
       {/* Material alerts — one slim line; Review opens them grouped by feature. */}
       <MaterialAlertsBar

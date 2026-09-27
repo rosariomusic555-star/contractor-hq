@@ -53,6 +53,11 @@ export const CLIENT_FIELDS = {
   event: ["id", "kind", "summary", "created_at"],
   scheduleUpdate: ["id", "posted_at", "reason", "from_start", "from_end", "to_start", "to_end"],
   review: ["link_path"],
+  progress: ["updates", "features", "milestone_presets", "before_after", "marketing_ok"],
+  progressUpdate: ["id", "date", "text", "milestone", "feature", "photos", "liked", "comments"],
+  progressComment: ["author", "name", "body", "created_at"],
+  progressFeature: ["id", "label", "category"],
+  beforeAfter: ["feature", "before", "after"],
 } as const;
 
 /** Fields that must never reach a client. The test checks none of these
@@ -77,6 +82,8 @@ export const INTERNAL_FIELDS = [
   "crew_id", "crew_name", "changes", "cascaded", "delay_id", "heads_up_status", "message", "channel", "client_visible", "mode",
   // Review requests — tracking is internal (the client only gets the link)
   "click_count", "first_clicked_at", "last_clicked_at", "asked_at", "asked_channel", "reminded_at", "no_review_requests", "google_url",
+  // Progress updates — internal-only fields
+  "original_path", "author_employee_id", "progress_update_id", "ba_role", "portfolio",
 ] as const;
 
 type Row = Record<string, unknown>;
@@ -152,6 +159,22 @@ export function clientSafeProjectDetail(d: PortalProjectDetail): PortalProjectDe
     events: list((x) => pick(x, CLIENT_FIELDS.event))(r.events),
     schedule_updates: list((x) => pick(x, CLIENT_FIELDS.scheduleUpdate))(r.schedule_updates),
     review: r.review ? pick(r.review, CLIENT_FIELDS.review) : null,
+    progress: r.progress
+      ? pick(r.progress, CLIENT_FIELDS.progress, {
+          updates: list((u) =>
+            pick(u, CLIENT_FIELDS.progressUpdate, {
+              photos: (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []),
+              comments: list((c) => pick(c, CLIENT_FIELDS.progressComment)),
+            }),
+          ),
+          features: list((f) => pick(f, CLIENT_FIELDS.progressFeature)),
+          milestone_presets: (v) =>
+            v && typeof v === "object" && !Array.isArray(v)
+              ? Object.fromEntries(Object.entries(v as Row).map(([k, x]) => [k, Array.isArray(x) ? x.filter((y) => typeof y === "string") : []]))
+              : {},
+          before_after: list((b) => pick(b, CLIENT_FIELDS.beforeAfter)),
+        })
+      : null,
   } as PortalProjectDetail;
 }
 

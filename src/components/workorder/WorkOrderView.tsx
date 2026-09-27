@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
   ChevronDown,
   CloudRain,
@@ -37,6 +38,7 @@ import { isoDate } from "@/lib/weatherRisk";
 import { PERMIT_STATUS_LABEL } from "@/lib/precon";
 import { MeasurementDiagramView } from "@/components/measurements/MeasurementDiagramView";
 import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
+import { PostUpdateSheet } from "@/components/progress/PostUpdateSheet";
 
 const day = (iso: string | null | undefined) =>
   iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "—";
@@ -105,6 +107,7 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
     staleTime: 30 * 60_000,
   });
   const [zoom, setZoom] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
 
   const review = useMutation({
     mutationFn: () => reviewCrewWorkOrder(projectId, wo!.version),
@@ -177,6 +180,21 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
           </ul>
         </section>
       )}
+
+      {/* Progress updates (0126) — crew posts from the job. */}
+      {!offline && !wo.viewer.is_owner && (
+        <Button className="h-12 w-full text-base font-bold" onClick={() => setPosting(true)}>
+          <Camera className="mr-2 h-5 w-5" /> Post update
+        </Button>
+      )}
+      <PostUpdateSheet
+        open={posting}
+        onOpenChange={setPosting}
+        projectId={projectId}
+        features={wo.features.map((f) => ({ id: f.id, label: f.label, category: f.category }))}
+        mode="crew"
+        employeeId={wo.viewer.employee_id}
+      />
 
       {/* Header details */}
       <section className="card-surface space-y-2 p-4">

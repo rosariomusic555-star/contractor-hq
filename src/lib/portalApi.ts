@@ -326,6 +326,28 @@ export interface PortalProjectDetail {
   schedule_updates?: PortalScheduleUpdate[];
   /** 0122 — completed projects: the tracked review link (a path, /r/{token}). */
   review?: { link_path: string } | null;
+  /** 0126 — shared progress updates, milestone presets, before/after pairs. */
+  progress?: PortalProgress | null;
+}
+
+export interface PortalProgressUpdate {
+  id: string;
+  date: string;
+  text: string | null;
+  milestone: string | null;
+  /** The project feature's id (the tracker / before-after key). */
+  feature: string | null;
+  photos: string[];
+  liked: boolean;
+  comments: { author: "client" | "contractor"; name: string | null; body: string; created_at: string }[];
+}
+
+export interface PortalProgress {
+  updates: PortalProgressUpdate[];
+  features: { id: string; label: string; category: string | null }[];
+  milestone_presets: Record<string, string[]>;
+  before_after: { feature: string | null; before: string; after: string }[];
+  marketing_ok: boolean | null;
 }
 
 export interface PortalScheduleUpdate {
@@ -491,4 +513,18 @@ export async function trackPortalQuoteView(quoteId: string, sessionKey: string, 
 
 export async function trackPortalQuoteEvent(quoteId: string, sessionKey: string, kind: "pdf_downloaded" | "optional_changed", detail: Record<string, unknown> = {}): Promise<void> {
   await portalSupabase.rpc("track_quote_event", { p_quote_id: quoteId, p_token: null, p_session_key: sessionKey, p_kind: kind, p_detail: detail });
+}
+
+// Progress updates (0126) — the client's reactions, comments, marketing consent.
+export async function portalReactProgress(updateId: string, on: boolean): Promise<void> {
+  const { error } = await portalSupabase.rpc("portal_react_progress", { p_update_id: updateId, p_on: on });
+  if (error) throw error;
+}
+export async function portalCommentProgress(updateId: string, body: string): Promise<void> {
+  const { error } = await portalSupabase.rpc("portal_comment_progress", { p_update_id: updateId, p_body: body });
+  if (error) throw error;
+}
+export async function portalSetMarketingOk(projectId: string, ok: boolean): Promise<void> {
+  const { error } = await portalSupabase.rpc("portal_set_marketing_ok", { p_project_id: projectId, p_ok: ok });
+  if (error) throw error;
 }

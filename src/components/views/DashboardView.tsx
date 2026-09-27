@@ -10,6 +10,7 @@ import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { WeatherStrip } from "@/components/dashboard/WeatherStrip";
 import { WeatherRisksCard } from "@/components/dashboard/WeatherRisksCard";
+import { UpdatesToReviewCard } from "@/components/dashboard/UpdatesToReviewCard";
 import { BookingsCard } from "@/components/dashboard/BookingsCard";
 import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliveriesCard";
 import { UpcomingAppointmentsCard } from "@/components/dashboard/UpcomingAppointmentsCard";
@@ -194,6 +195,9 @@ export function DashboardView() {
 
       {/* ---- Scheduled jobs with risky work days (hidden when none) ---- */}
       <WeatherRisksCard />
+
+      {/* Crew progress posts waiting to be shared (0126) — hidden when none. */}
+      <UpdatesToReviewCard />
 
       {/* ---- Desktop KPI row ---- */}
       <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
