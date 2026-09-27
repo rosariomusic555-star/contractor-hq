@@ -14,6 +14,7 @@ import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliverie
 import { UpcomingAppointmentsCard } from "@/components/dashboard/UpcomingAppointmentsCard";
 import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
+import { EstimatingInsightsBanner } from "@/components/dashboard/EstimatingInsightsBanner";
 import { FollowUpsCard } from "@/components/dashboard/FollowUpsCard";
 import { Button } from "@/components/ui/button";
 import { CreateOpportunityDialog } from "@/components/common/CreateOpportunityDialog";
@@ -272,6 +273,9 @@ export function DashboardView() {
         <MaterialDeliveriesCard />
         <UpcomingAppointmentsCard />
       </div>
+
+      {/* ---- Estimating insights (only when there are suggestions) ---- */}
+      <EstimatingInsightsBanner />
 
       {/* ---- Follow-ups + Needs you ---- */}
       <div className="grid gap-5 lg:grid-cols-2">

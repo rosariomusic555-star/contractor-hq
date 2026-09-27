@@ -30,6 +30,9 @@ import { CatalogPicker } from "./CatalogPicker";
 import { MeasurementPrefillPicker } from "@/components/measurements/MeasurementPrefillPicker";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import { smartSectionPrefill, type FeatureTotals } from "@/lib/measurements";
+import { useEstimatingContext } from "@/hooks/use-estimating-context";
+import { averageMetric, findSimilarJobs, similarSampleText } from "@/lib/similarJobs";
+import { SimilarJobsHint } from "@/components/planned-actual/SimilarJobsHint";
 
 /** A prefilled patio size handed to AreaOrDimensionsField; `v` bumps on
  * every (re)apply so the field re-syncs its own inputs. */
@@ -59,10 +62,19 @@ export function SmartSectionCalculatorDialog({
   onOpenChange: (open: boolean) => void;
   template: SmartSectionTemplate;
   catalogItems: ProductCatalogItem[];
-  onApply: (lines: CalculatedLine[]) => void;
+  /** `inputs` = what the calculator was given (0114) — saved on the
+   * section for closeouts / similar-job matching. */
+  onApply: (lines: CalculatedLine[], inputs: Record<string, unknown>) => void;
   projectId?: string | null;
 }) {
   const [answers, setAnswers] = useState<SmartSectionAnswers>({});
+  const ec = useEstimatingContext(projectId);
+  const [useAdjustments, setUseAdjustments] = useState(true);
+  // Conditional adjustments the contractor applied from Estimating
+  // insights, for this build type's lines on a job like this one.
+  const slotAdjustments = resolveEffectiveLineItems(template, null).flatMap((li) =>
+    li.slot_key ? ec.activeAdjustments(template.id, `slot:${li.slot_key}`).map((a) => ({ ...a, slot: li.slot_key! })) : [],
+  );
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [areaPrefill, setAreaPrefill] = useState<AreaPrefill | null>(null);
   const prefill = useMeasurementPrefill(projectId, template.id, open);
@@ -132,14 +144,26 @@ export function SmartSectionCalculatorDialog({
     for (const raw of template.calculate(answers)) {
       const lineItem = effectiveLineItems.find((li) => li.slot_key === raw.slotKey);
       if (!lineItem) continue; // slot removed from this contractor's template — nothing to fill in
+      const factor = useAdjustments
+        ? slotAdjustments.filter((a) => a.slot === raw.slotKey).reduce((f, a) => f * Number(a.factor), 1)
+        : 1;
+      const qty = factor === 1 ? raw.quantity : /ton/i.test(raw.unit) ? Math.ceil(raw.quantity * factor * 2) / 2 : Math.round(raw.quantity * factor * 100) / 100;
       lines.push({
         name: lineItem.name,
-        quantity: raw.quantity,
+        quantity: qty,
         unit: raw.unit,
         catalogProduct: raw.catalogProduct,
       });
     }
-    onApply(lines);
+    const inputs: Record<string, unknown> = { calculated_at: new Date().toISOString() };
+    for (const [k, v] of Object.entries(answers)) {
+      if (v == null) continue;
+      if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") inputs[k] = v;
+      else if (typeof v === "object" && "areaSqft" in (v as object)) inputs[k] = { areaSqft: (v as AreaAndPerimeter).areaSqft, perimeterFt: (v as AreaAndPerimeter).perimeterFt ?? null };
+      else if (typeof v === "object" && "id" in (v as object)) inputs[k] = (v as ProductCatalogItem).id;
+    }
+    if (useAdjustments && slotAdjustments.length) inputs.adjustments = slotAdjustments.map((a) => ({ id: a.id, label: a.label, factor: a.factor }));
+    onApply(lines, inputs);
     onOpenChange(false);
   };
 
@@ -173,16 +197,30 @@ export function SmartSectionCalculatorDialog({
               }}
             />
             {visibleQuestions.map((q) => (
-              <QuestionField
-                key={q.key}
-                question={q}
-                value={answers[q.key]}
-                onChange={(v) => setAnswer(q.key, v)}
-                onPickCatalog={() => setPickerFor(q.key)}
-                areaPrefill={areaPrefill}
-              />
+              <div key={q.key} className="space-y-1.5">
+                <QuestionField
+                  question={q}
+                  value={answers[q.key]}
+                  onChange={(v) => setAnswer(q.key, v)}
+                  onPickCatalog={() => setPickerFor(q.key)}
+                  areaPrefill={areaPrefill}
+                />
+                {q.key === "base_depth_in" && <BaseInsight template={template} answers={answers} ec={ec} projectId={projectId ?? null} />}
+              </div>
             ))}
           </div>
+
+          {slotAdjustments.length > 0 && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-xs">
+              <Checkbox checked={useAdjustments} onCheckedChange={(v) => setUseAdjustments(!!v)} className="mt-0.5" />
+              <span>
+                <span className="font-semibold text-foreground">Use your adjustments for this job</span>
+                <span className="block text-muted-foreground">
+                  {slotAdjustments.map((a) => `${a.label} (×${Number(a.factor)})`).join(" · ")} — from Estimating insights, because this job matches.
+                </span>
+              </span>
+            </label>
+          )}
 
           <Button onClick={handleApply} className="h-11 w-full font-bold">
             Calculate quantities
@@ -410,5 +448,49 @@ function AreaOrDimensionsField({
         </p>
       )}
     </div>
+  );
+}
+
+/** Under "Base depth": how much base similar completed jobs actually used
+ * per sq ft, vs what this contractor's default depth/coverage plans. */
+function BaseInsight({
+  template,
+  answers,
+  ec,
+  projectId,
+}: {
+  template: SmartSectionTemplate;
+  answers: SmartSectionAnswers;
+  ec: ReturnType<typeof useEstimatingContext>;
+  projectId: string | null;
+}) {
+  const area = (answers.area as AreaAndPerimeter | undefined)?.areaSqft || null;
+  const depth = Number(answers.base_depth_in) || null;
+  const coverage = Number(answers.base_coverage_sqft_per_ton) || null;
+  const family = (Object.values(answers).find((v) => v && typeof v === "object" && "manufacturer" in (v as object)) as ProductCatalogItem | undefined)?.manufacturer ?? null;
+  const res = findSimilarJobs(ec.closeouts, {
+    build_type: template.id,
+    size: area,
+    size_unit: "sq ft",
+    context: ec.context,
+    base_depth_in: depth,
+    material_family: family,
+    excludeProjectId: projectId,
+  });
+  const m = averageMetric(res.matches, (f) => f.units.base_tons_per_sqft);
+  if (m.n === 0 || m.avg == null) return null;
+  const mine = depth && coverage ? depth / coverage : null;
+  const avg = Math.round(m.avg * 1000) / 1000;
+  const text = `${similarSampleText(res, m.n, template.label)} ${m.isAverage ? "averaged" : "used"} ${avg} tons base/sq ft${
+    mine ? ` vs your default ${Math.round(mine * 1000) / 1000}` : ""
+  }${m.isAverage ? "." : " — reference only."}`;
+  return (
+    <SimilarJobsHint
+      hintKey={`base:${projectId}:${template.id}`}
+      text={text}
+      matches={res.matches.filter((x) => x.feature.units.base_tons_per_sqft != null)}
+      widened={res.widened}
+      metric={(x) => `${x.feature.units.base_tons_per_sqft} t/sq ft${x.feature.base_depth_in ? ` · ${x.feature.base_depth_in}" base` : ""}`}
+    />
   );
 }

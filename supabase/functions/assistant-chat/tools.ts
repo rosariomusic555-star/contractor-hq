@@ -144,6 +144,18 @@ export const TOOLS = [
     },
   },
   {
+    name: "get_job_closeouts",
+    description:
+      "Completed-job closeouts: how each finished job went against its plan — planned vs actual cost by feature, labor hours, profit, the job context (slope, access, soil, demo, crew size), per-unit actuals (e.g. base tons per sq ft, man-hours per sq ft, labor actual÷planned) and the contractor's 'what happened' note. Use it to answer questions like 'how did my sloped patios go' or 'which jobs ran over on labor'. Report the numbers as they are; don't invent estimates. Excluded (unusual) jobs are marked.",
+    input_schema: {
+      type: "object",
+      properties: {
+        build_type: { type: "string", description: "Optional, e.g. paver_patio, seating_wall, retaining_wall" },
+        include_excluded: { type: "boolean" },
+      },
+    },
+  },
+  {
     name: "get_needs_attention",
     description:
       "The exact same 'needs your attention' list shown on the dashboard: invoices overdue 3+ days, quotes shared 3+ days ago with no response yet, approved quotes that haven't been billed a deposit, overdue tasks/follow-ups, and pipeline leads that have gone quiet (an early-stage opportunity with no next action date and no activity in 3+ days). This is the tool for 'which quotes haven't I followed up on', 'what's overdue', 'what leads have gone cold', and similar questions.",
@@ -695,6 +707,46 @@ async function revenueSummaryTool(
   return result;
 }
 
+async function getJobCloseouts(input: { build_type?: string; include_excluded?: boolean }, sb: SupabaseClient) {
+  const { data, error } = await sb
+    .from("project_closeouts")
+    .select("context, features, what_happened, excluded, completed_on, snapshot, project:projects(name)")
+    .is("superseded_at", null)
+    .order("completed_on", { ascending: false });
+  if (error) throw error;
+  // deno-lint-ignore no-explicit-any
+  return (data ?? [])
+    .filter((c: any) => input.include_excluded || !c.excluded)
+    // deno-lint-ignore no-explicit-any
+    .map((c: any) => ({
+      project: c.project?.name ?? "Project",
+      completed_on: c.completed_on,
+      excluded: c.excluded,
+      what_happened: c.what_happened,
+      context: c.context,
+      expected_profit: c.snapshot?.report?.profit?.expected ?? null,
+      actual_profit: c.snapshot?.report?.profit?.actual ?? null,
+      features: (c.features ?? [])
+        // deno-lint-ignore no-explicit-any
+        .filter((f: any) => !input.build_type || f.build_type === input.build_type)
+        // deno-lint-ignore no-explicit-any
+        .map((f: any) => ({
+          name: f.name,
+          build_type: f.build_type,
+          size: f.size,
+          size_unit: f.size_unit,
+          base_depth_in: f.base_depth_in,
+          material_system: f.material_system,
+          planned_cost: f.planned?.total,
+          actual_cost: f.actual?.total,
+          labor_hours: f.labor,
+          per_unit: f.units,
+        })),
+    }))
+    // deno-lint-ignore no-explicit-any
+    .filter((c: any) => c.features.length > 0);
+}
+
 async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClient) {
   const { data: quotes, error: qErr } = await sb
     .from("quotes")
@@ -1039,6 +1091,9 @@ export async function callTool(name: string, input: Record<string, unknown>, sb:
     case "revenue_summary":
       // deno-lint-ignore no-explicit-any
       return revenueSummaryTool(input as any, sb);
+    case "get_job_closeouts":
+      // deno-lint-ignore no-explicit-any
+      return getJobCloseouts(input as any, sb);
     case "get_needs_attention":
       // deno-lint-ignore no-explicit-any
       return getNeedsAttention(input as any, sb);

@@ -114,6 +114,8 @@ import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
 import { countsTowardTotals, featureName, liveFeatures, type FeatureStatus } from "@/lib/features";
 import { addonQuoteNumbers, changeOrderNumbers, featurePrice, featureReports } from "@/lib/featureFinancials";
 import { FeatureReportStrip } from "@/components/projects/FeatureReport";
+import { PlannedVsActualCard } from "@/components/planned-actual/PlannedVsActualCard";
+import { LaborInsight } from "@/components/planned-actual/EstimatingHints";
 import { costChangeDelta, describeCostChange } from "@/lib/changeOrderCost";
 import { FeatureHistoryDialog } from "@/components/materials/FeatureHistoryDialog";
 import { TrueCostSummary } from "@/components/overhead/TrueCostCard";
@@ -897,6 +899,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       expenseCategories,
       laborEntries,
       materialActual,
+      materialPending: !materialActual,
     });
     return new Map(rows.map((r) => [r.featureId, r]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1009,7 +1012,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // (deleted by the user, or an optional line not applicable this run) is
   // left untouched; a custom line the user added outside the template
   // never matches any calculated line, so it's left alone too.
-  const applyCalculatedLines = (sid: string, lines: CalculatedLine[]) =>
+  const applyCalculatedLines = (sid: string, lines: CalculatedLine[], inputs?: Record<string, unknown>) => {
+    // What the calculator was given (0114) — saved straight onto the
+    // section (it's metadata for closeouts / similar-job matching, not part
+    // of the draft); a brand-new unsaved section keeps none.
+    if (inputs && !isTmp(sid)) void updateMaterialsSection(sid, { smart_inputs: inputs }).catch(() => undefined);
+    return applyCalculatedLinesToDraft(sid, lines);
+  };
+  const applyCalculatedLinesToDraft = (sid: string, lines: CalculatedLine[]) =>
     edit((d) =>
       d.map((s) => {
         if (s.id !== sid) return s;
@@ -1292,7 +1302,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         onDeleteItem={(iid) => deleteItem(section.id, iid)}
                         overheadConfigured={burdenPerHour(overheadSettings) != null}
                         onDismissOverhead={dismissOverheadWarning}
-                        onApplyCalculatedLines={(lines) => applyCalculatedLines(section.id, lines)}
+                        onApplyCalculatedLines={(lines, inputs) => applyCalculatedLines(section.id, lines, inputs)}
                         projectId={projectId}
                         dragHandleProps={drag?.handle ?? null}
                         dragging={drag?.dragging ?? false}
@@ -1393,6 +1403,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           </div>
         </div>
       )}
+
+      {trackingActive && <PlannedVsActualCard projectId={projectId} showContext={false} showCloseout={false} />}
 
       <MaterialAlertsBar
         projectId={projectId}
@@ -1744,7 +1756,7 @@ interface SectionCardProps {
   /** Overhead is set up — flag lines that look like overhead (0110). */
   overheadConfigured: boolean;
   onDismissOverhead: (itemId: string) => void;
-  onApplyCalculatedLines: (lines: CalculatedLine[]) => void;
+  onApplyCalculatedLines: (lines: CalculatedLine[], inputs: Record<string, unknown>) => void;
   featurePicker: SectionFeaturePicker;
   /** For the calculator's "From site measurements" prefill. */
   projectId: string;
@@ -1999,6 +2011,7 @@ function MaterialsSectionCard({
 
       {/* Labor — below the lines; collapsed to "+ Add labor" while empty. */}
       <SectionLaborBlock value={section} defaultRate={laborRate} onChange={onEditLabor} />
+      <LaborInsight projectId={projectId} section={section} onEditLabor={onEditLabor} />
 
       {/* Pending change orders on this feature — shown, never in totals. */}
       {pendingChanges.map((p) => (

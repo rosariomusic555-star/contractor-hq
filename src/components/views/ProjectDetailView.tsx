@@ -38,6 +38,9 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { PaymentsList } from "@/components/payments/PaymentsList";
+import { PlannedVsActualCard } from "@/components/planned-actual/PlannedVsActualCard";
+import { JobContextChips } from "@/components/planned-actual/JobContextChips";
+import { CloseoutDialog } from "@/components/planned-actual/CloseoutPanel";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 import { RecordPaymentSheet } from "@/components/payments/RecordPaymentSheet";
 import { projectMoneySummary } from "@/lib/projectMoney";
@@ -218,10 +221,13 @@ export function ProjectDetailView() {
   });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
 
+  const [closeoutOpen, setCloseoutOpen] = useState(false);
   const statusMutation = useMutation({
     mutationFn: (status: ProjectStatus) => updateProject(id, { status }),
     onSuccess: (_data, status) => {
       qc.invalidateQueries({ queryKey: ["projects"] });
+      // Marked Complete → offer the closeout snapshot (Feature 5).
+      if (status === "complete" && project?.status !== "complete") setCloseoutOpen(true);
       void logProjectEvent(id, "status_changed", `Status → ${projectStatusMeta(status).label}`);
       qc.invalidateQueries({ queryKey: ["project-events", id] });
     },
@@ -451,6 +457,7 @@ export function ProjectDetailView() {
           expenseCategories,
           laborEntries,
           materialActual: materialActualByFeature,
+          materialPending: !materialActualByFeature,
         })
       : null;
   const predictedCost = costPlan.planned.total > 0 ? costPlan.planned.total : null;
@@ -725,6 +732,19 @@ export function ProjectDetailView() {
                     : "your current overhead (this job has no stored rate)",
             }}
           />
+
+          {/* Planned vs actual + job context + closeout (Feature 5) — after
+              Won; before that just the job context chips. Internal only. */}
+          {isProjectActive(project) || project.status === "complete" ? (
+            <PlannedVsActualCard projectId={id} />
+          ) : (
+            <section className="card-surface p-5">
+              <h3 className="text-base font-bold text-foreground">Job context</h3>
+              <p className="mb-3 mt-0.5 text-xs text-muted-foreground">Quick site facts used to compare this job with similar ones. All optional.</p>
+              <JobContextChips project={project} />
+            </section>
+          )}
+          <CloseoutDialog projectId={id} open={closeoutOpen} onOpenChange={setCloseoutOpen} />
 
           {/* Costs to date — real logged expenses only */}
           <section className="card-surface p-5">
