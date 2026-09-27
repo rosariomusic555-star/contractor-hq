@@ -75,6 +75,7 @@ import { SettingsQuickQuoteRatesView } from "@/components/views/SettingsQuickQuo
 import { SettingsTeamView } from "@/components/views/SettingsTeamView";
 import { SettingsEmployeesView } from "@/components/views/SettingsEmployeesView";
 import { SettingsNotificationsView } from "@/components/views/SettingsNotificationsView";
+import { NotificationsView } from "@/components/views/NotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
 import { EmployeeProjectsView } from "@/components/views/EmployeeProjectsView";
 import { EmployeeProjectDetailView } from "@/components/views/EmployeeProjectDetailView";
@@ -216,6 +217,7 @@ const router = createBrowserRouter(
         <Route path="/settings/team" element={<SettingsTeamView />} />
         <Route path="/settings/employees" element={<SettingsEmployeesView />} />
         <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
+        <Route path="/notifications" element={<NotificationsView />} />
         <Route path="/settings/billing" element={<SettingsBillingView />} />
 
         {/* Employee-only mode (0043) — a completely separate, restricted

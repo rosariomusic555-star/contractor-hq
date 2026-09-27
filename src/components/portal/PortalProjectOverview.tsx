@@ -44,6 +44,7 @@ import {
 } from "@/lib/portalApi";
 import { portalProjectPhase, portalProgressLabel, PORTAL_PHASE_LABEL } from "@/lib/portalStatus";
 import { ClientSelectionGroups } from "@/components/selections/ClientSelectionGroups";
+import { useQuoteTracking } from "@/hooks/use-quote-tracking";
 import { clientGroupLike, clientQuoteTotal, missingRequired, priceLabel, sectionIncluded } from "@/lib/selections";
 import { PortalPhotoGrid } from "./PortalPhotoGrid";
 import { ProjectMoneyBlocks } from "@/components/client-hub/ProjectMoneyBlocks";
@@ -494,6 +495,8 @@ function QuoteApprovalDialog({
   const [declining, setDeclining] = useState(false);
   const [comment, setComment] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  // Quote activity (0117): the client has this quote open in the Hub.
+  useQuoteTracking({ channel: "hub", quoteId: quote.id, enabled: true });
   // Client Selections (0115): the in-progress picks, by group — auto-saved
   // as a draft on every tap so the client can come back later.
   const [picks, setPicks] = useState<Record<string, string[]>>({});

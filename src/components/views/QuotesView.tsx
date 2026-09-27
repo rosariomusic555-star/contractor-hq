@@ -14,6 +14,8 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
+import { QuoteActivityBadge } from "@/components/quote-activity/QuoteActivityBadge";
+import { getNotificationSettings } from "@/lib/api";
 import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
@@ -46,6 +48,7 @@ export function QuotesView() {
     queryKey: ["quotes"],
     queryFn: () => listQuotes(),
   });
+  const { data: activitySettings } = useQuery({ queryKey: ["notification-settings"], queryFn: getNotificationSettings, staleTime: 5 * 60_000 });
 
   const deleteMutation = useMutation({
     mutationFn: deleteQuote,
@@ -164,6 +167,7 @@ export function QuotesView() {
                     <th>Client</th>
                     <th>Total</th>
                     <th>Status</th>
+                    <th>Client activity</th>
                     <th>Updated</th>
                     <th className="w-12" />
                   </tr>
@@ -175,6 +179,7 @@ export function QuotesView() {
                       <td className="text-muted-foreground">{clientOf(q)}</td>
                       <td className="font-bold tabular-nums">{total > 0 ? formatCurrency(total) : "—"}</td>
                       <td><StatusPill meta={quoteStatusMeta(q.status)} /></td>
+                      <td><QuoteActivityBadge quote={q} settings={activitySettings} /></td>
                       <td className="text-muted-foreground">{q.updated_at.slice(0, 10)}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
@@ -200,7 +205,7 @@ export function QuotesView() {
                   ))}
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-muted-foreground">No quotes here.</td>
+                      <td colSpan={7} className="py-8 text-center text-muted-foreground">No quotes here.</td>
                     </tr>
                   )}
                 </tbody>
@@ -222,7 +227,9 @@ export function QuotesView() {
                   eyebrowRight={total > 0 ? formatCurrency(total) : ""}
                   title={q.project?.name ?? "Standalone quote"}
                   subtitle={`${clientOf(q)} · updated ${q.updated_at.slice(0, 10)}`}
-                />
+                >
+                  <QuoteActivityBadge quote={q} settings={activitySettings} className="mt-1.5" />
+                </ListCard>
               );
             })}
             {filtered.length === 0 && <p className="text-sm text-muted-foreground">No quotes here.</p>}

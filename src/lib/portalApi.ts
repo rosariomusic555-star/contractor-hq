@@ -467,3 +467,13 @@ export async function requestPortalSelectionChange(groupId: string, optionId: st
   const { error } = await portalSupabase.rpc("portal_request_selection_change", { p_group_id: groupId, p_option_id: optionId, p_note: note });
   if (error) throw error;
 }
+
+/** Quote activity (0117): a heartbeat while the client has a quote open in
+ * the Hub. Internal only; the server ignores the contractor's own team. */
+export async function trackPortalQuoteView(quoteId: string, sessionKey: string, device: string, activeSeconds: number, sections: string[]): Promise<void> {
+  await portalSupabase.rpc("track_portal_quote_view", { p_quote_id: quoteId, p_session_key: sessionKey, p_device: device, p_active_seconds: activeSeconds, p_sections: sections });
+}
+
+export async function trackPortalQuoteEvent(quoteId: string, sessionKey: string, kind: "pdf_downloaded" | "optional_changed", detail: Record<string, unknown> = {}): Promise<void> {
+  await portalSupabase.rpc("track_quote_event", { p_quote_id: quoteId, p_token: null, p_session_key: sessionKey, p_kind: kind, p_detail: detail });
+}

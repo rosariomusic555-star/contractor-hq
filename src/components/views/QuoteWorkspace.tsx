@@ -56,6 +56,7 @@ import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { QuoteSectionSelections } from "@/components/selections/QuoteSectionSelections";
+import { QuoteActivityLine } from "@/components/quote-activity/QuoteActivityLine";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { groupCost, groupFromRows, sectionIncluded, selectionRange, selectionsTotal } from "@/lib/selections";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
@@ -1219,6 +1220,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </div>
         </div>
       </div>
+
+      {/* Quote activity (0117) — how the client is engaging; internal only. */}
+      {quote.status !== "draft" && <QuoteActivityLine quote={quote} />}
 
       {isAddon && (
         <div className="rounded-card border border-info/40 bg-info/5 p-4">

@@ -64,11 +64,19 @@ import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
 import { BackLink } from "@/components/common/BackLink";
 
-const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
+/** Kinds you can log by hand. */
+const ACTIVITY_KIND_LABEL: Partial<Record<ActivityKind, string>> = {
   note: "Note",
   text: "Text",
   email: "Email",
   other: "Other",
+};
+/** Labels for automatic timeline entries too (quote activity, 0117). */
+const ACTIVITY_DISPLAY_LABEL: Partial<Record<ActivityKind, string>> = {
+  ...ACTIVITY_KIND_LABEL,
+  quote_viewed: "Quote viewed",
+  quote_selection_changed: "Selections",
+  quote_optional_changed: "Optional items",
 };
 
 export function ClientDetailView() {
@@ -656,7 +664,7 @@ function ActivityCard({ clientId }: { clientId: string }) {
             <SelectContent>
               {(Object.keys(ACTIVITY_KIND_LABEL) as ActivityKind[]).map((k) => (
                 <SelectItem key={k} value={k}>
-                  {ACTIVITY_KIND_LABEL[k]}
+                  {ACTIVITY_KIND_LABEL[k] ?? k}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -683,7 +691,7 @@ function ActivityCard({ clientId }: { clientId: string }) {
             <li key={a.id} className="border-b border-hairline pb-3 last:border-0">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold uppercase tracking-wide text-muted-subtle">
-                  {ACTIVITY_KIND_LABEL[a.kind as ActivityKind] ?? a.kind}
+                  {ACTIVITY_DISPLAY_LABEL[a.kind as ActivityKind] ?? a.kind}
                 </span>
                 <span className="text-[11px] text-muted-subtle">{timeAgo(a.created_at)}</span>
               </div>
