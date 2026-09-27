@@ -176,7 +176,7 @@ export interface Project {
   /** The CRM opportunity this project was created for, if any (reverse
    * embed of opportunities.project_id — at most one, 1:1 via 0073's unique
    * partial index). Drives isPreSaleProject(). */
-  opportunities?: { id: string; stage: OpportunityStage }[];
+  opportunities?: { id: string; stage: OpportunityStage; source_project_id?: string | null }[];
 }
 
 /**
@@ -1422,7 +1422,7 @@ export async function deleteLeadSource(id: string): Promise<void> {
 // source_project_id (0127), and two FKs between the tables make an unhinted
 // embed ambiguous (PGRST201) — see 0129.
 const PROJECT_SELECT =
-  "*, client:clients(name, email, phone, address), project_categories(category_id), opportunities!opportunities_project_id_fkey(id, stage)";
+  "*, client:clients(name, email, phone, address), project_categories(category_id), opportunities!opportunities_project_id_fkey(id, stage, source_project_id)";
 
 /** Every real job — pre-sale projects (see isPreSaleProject) excluded. */
 export async function listProjects(): Promise<Project[]> {

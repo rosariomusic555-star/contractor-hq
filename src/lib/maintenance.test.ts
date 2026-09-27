@@ -79,6 +79,10 @@ describe("needsMaintenanceSetup", () => {
     expect(needsMaintenanceSetup(p, 2, "2026-09-21")).toBe(false);
     expect(needsMaintenanceSetup({ ...p, maintenance_dismissed: true }, 0, "2026-09-21")).toBe(false);
   });
+  it("never asks on a maintenance service job itself", () => {
+    expect(needsMaintenanceSetup({ ...p, opportunities: [{ source_project_id: "orig" }] }, 0, "2026-09-21")).toBe(false);
+    expect(needsMaintenanceSetup({ ...p, opportunities: [{ source_project_id: null }] }, 0, "2026-09-21")).toBe(true);
+  });
   it("leaves old jobs to the bulk setup", () => {
     expect(needsMaintenanceSetup(p, 0, "2027-01-30")).toBe(false);
   });

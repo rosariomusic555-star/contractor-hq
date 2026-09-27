@@ -27,7 +27,7 @@ import { isoDate } from "@/lib/weatherRisk";
 import type { MessageChannel } from "@/lib/clientMessaging";
 import { ClientMessageComposer } from "@/components/messaging/ClientMessageComposer";
 import { MaintenanceSetupSheet } from "./MaintenanceSetupSheet";
-import { useMaintenanceItems } from "./useMaintenance";
+import { rescheduleFinished, useMaintenanceItems } from "./useMaintenance";
 
 const EVENT_LABEL: Record<string, string> = {
   set_up: "Reminder set up",
@@ -75,6 +75,12 @@ export function MaintenanceCard({ project }: { project: Project }) {
     next.delete("maintenance");
     setParams(next, { replace: true });
   }, [param, isFetched, items, params, setParams]);
+
+  // A maintenance job completed since the daily check → schedule the next one now.
+  useEffect(() => {
+    if (!items.some((i) => i.status === "active" && !i.next_due && i.last_done_on && !i.as_needed && !i.opportunity_id)) return;
+    void rescheduleFinished(items).then((n) => n > 0 && qc.invalidateQueries({ queryKey: ["maintenance-items"] }));
+  }, [items, qc]);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["maintenance-items"] });
