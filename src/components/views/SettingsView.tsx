@@ -22,6 +22,7 @@ const SECTIONS = [
   { label: "Team & crews", to: "/settings/team" },
   { label: "Manage employees", to: "/settings/employees" },
   { label: "Schedule & weather", to: "/settings/weather" },
+  { label: "Pre-construction checklist", to: "/settings/precon" },
   { label: "Messages", to: "/settings/messages" },
   { label: "Reviews", to: "/settings/reviews" },
   { label: "Notifications", to: "/settings/notifications" },

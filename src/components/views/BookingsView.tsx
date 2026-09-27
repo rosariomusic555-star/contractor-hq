@@ -23,6 +23,8 @@ import { DaySidePanel } from "@/components/bookings/DaySidePanel";
 import { BackLink } from "@/components/common/BackLink";
 import { scheduleWeatherByDate, useScheduleForecasts } from "@/lib/forecast";
 import { worstRisk, type RiskLevel } from "@/lib/weatherRisk";
+import { useUpcomingPrecon } from "@/components/precon/usePrecon";
+import { openSummary, type ReadinessStatus } from "@/lib/precon";
 
 function groupById<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -74,6 +76,16 @@ export function BookingsView() {
   // with work days in the forecast range; marks calendar days.
   const { projects: forecastProjects, batch: forecastBatch } = useScheduleForecasts();
   const weatherByDate = scheduleWeatherByDate(forecastProjects, forecastBatch);
+  // Pre-construction readiness (0124) on each upcoming job's start day.
+  const preconBundles = useUpcomingPrecon(60);
+  const readinessByDate = new Map<string, { status: ReadinessStatus; lines: string[] }>();
+  for (const b of preconBundles) {
+    const d = b.project.scheduled_start_date!;
+    const line = `${b.project.name}: ${b.readiness.status === "ready" ? "ready to start" : openSummary(b.readiness.openRequired)}`;
+    const cur = readinessByDate.get(d);
+    const worse = (a: ReadinessStatus, c: ReadinessStatus) => (["ready", "open", "blocked"].indexOf(a) > ["ready", "open", "blocked"].indexOf(c) ? a : c);
+    readinessByDate.set(d, { status: cur ? worse(b.readiness.status, cur.status) : b.readiness.status, lines: [...(cur?.lines ?? []), line] });
+  }
   const monthWeatherRisk = (key: string): RiskLevel =>
     worstRisk([...weatherByDate.entries()].filter(([d]) => d.startsWith(key)).map(([, w]) => w.level));
 
@@ -306,6 +318,7 @@ export function BookingsView() {
                       onOpenDay={(date) => setPanel({ mode: "day", date })}
                       onMoveJob={handleMoveJob}
                       weather={weatherByDate}
+                      readiness={readinessByDate}
                     />
                   </div>
                 );

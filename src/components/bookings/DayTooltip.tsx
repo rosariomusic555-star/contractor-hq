@@ -10,11 +10,14 @@ import type { BookingJob } from "@/lib/bookings";
 export function DayTooltip({
   jobs,
   weatherLines,
+  readinessLines,
   children,
 }: {
   jobs: BookingJob[];
   /** Forecast on the schedule (0119) — one line per job worked that day. */
   weatherLines?: string[];
+  /** Pre-construction (0124) — jobs starting that day. */
+  readinessLines?: string[];
   children: ReactNode;
 }) {
   if (jobs.length === 0) return <>{children}</>;
@@ -23,6 +26,16 @@ export function DayTooltip({
     <Tooltip delayDuration={200}>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="top" className="max-w-[260px] space-y-2">
+        {readinessLines && readinessLines.length > 0 && (
+          <div className="border-b border-border/50 pb-1.5">
+            <p className="font-bold text-foreground">Starts — pre-construction</p>
+            {readinessLines.map((l) => (
+              <p key={l} className="text-muted-foreground">
+                {l}
+              </p>
+            ))}
+          </div>
+        )}
         {weatherLines && weatherLines.length > 0 && (
           <div className="border-b border-border/50 pb-1.5">
             <p className="font-bold text-foreground">Forecast</p>

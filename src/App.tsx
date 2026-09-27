@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, MutationCache } from "@tanstack/react-query";
 import {
   Navigate,
   Outlet,
@@ -78,6 +78,7 @@ import { SettingsNotificationsView } from "@/components/views/SettingsNotificati
 import { SettingsWeatherView } from "@/components/views/SettingsWeatherView";
 import { SettingsMessagesView } from "@/components/views/SettingsMessagesView";
 import { SettingsReviewsView } from "@/components/views/SettingsReviewsView";
+import { SettingsPreconView } from "@/components/views/SettingsPreconView";
 import { NotificationsView } from "@/components/views/NotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
 import { EmployeeProjectsView } from "@/components/views/EmployeeProjectsView";
@@ -93,7 +94,11 @@ import { SettingsSelectionTemplatesView } from "@/components/views/SettingsSelec
 import SharedChangeOrderPage from "./pages/SharedChangeOrder";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+// Any successful change can move a job's pre-construction readiness (0124) —
+// refresh those (cheap, cached per job) rather than wiring every mutation.
+const queryClient: QueryClient = new QueryClient({
+  mutationCache: new MutationCache({ onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["precon"] }) }),
+});
 
 /** /backlog was renamed to /bookings — old saved links (including the
  * ?month= query param the Dashboard card's month thumbnails use) keep
@@ -226,6 +231,7 @@ const router = createBrowserRouter(
         <Route path="/settings/weather" element={<SettingsWeatherView />} />
         <Route path="/settings/messages" element={<SettingsMessagesView />} />
         <Route path="/settings/reviews" element={<SettingsReviewsView />} />
+        <Route path="/settings/precon" element={<SettingsPreconView />} />
         <Route path="/notifications" element={<NotificationsView />} />
         <Route path="/settings/billing" element={<SettingsBillingView />} />
 

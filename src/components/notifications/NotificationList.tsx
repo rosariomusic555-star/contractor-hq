@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, CloudRain, Eye, ListChecks, Star, XCircle, Bell } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, CloudRain, Eye, ListChecks, Star, XCircle, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AppNotification } from "@/lib/api";
 import { timeAgoShort } from "@/lib/quoteActivity";
@@ -13,6 +13,9 @@ const ICON: Record<string, typeof Bell> = {
   weather_risk: CloudRain,
   review_eligible: Star,
   review_clicked: Star,
+  precon_overdue: ClipboardCheck,
+  precon_ready: ClipboardCheck,
+  precon_locate_expiring: ClipboardCheck,
 };
 
 /** The notification rows — tap one to open its quote (and mark it read). */
@@ -41,7 +44,7 @@ export function NotificationList({
               }}
               className={cn("flex w-full items-start gap-2.5 px-3 text-left hover:bg-muted/50", compact ? "py-2.5" : "py-3", !n.read_at && "bg-info/5")}
             >
-              <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", n.kind === "quote_declined" ? "text-destructive" : n.kind === "weather_risk" || n.kind.startsWith("review_") ? "text-warning" : n.kind === "quote_approved" ? "text-success" : "text-info")} />
+              <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", n.kind === "quote_declined" ? "text-destructive" : n.kind === "weather_risk" || n.kind.startsWith("review_") || n.kind.startsWith("precon_") ? "text-warning" : n.kind === "quote_approved" ? "text-success" : "text-info")} />
               <span className="min-w-0 flex-1">
                 <span className={cn("block text-sm text-foreground [overflow-wrap:anywhere]", !n.read_at && "font-semibold")}>{n.title}</span>
                 {n.body && <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{n.body}</span>}

@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { runQuoteColdChecks, runReviewChecks } from "@/lib/api";
 import { runWeatherRiskAlerts } from "@/lib/forecast";
+import { runPreconChecks } from "@/components/precon/usePrecon";
 
 export function AppLayout() {
   const { session, loading, role } = useAuth();
@@ -50,6 +51,10 @@ export function AppLayout() {
     } catch {
       // no storage — still fine to run
     }
+    // Pre-construction reminders (0124) — same once-a-day slot.
+    void runPreconChecks().then((n) => {
+      if (n > 0) qc.invalidateQueries({ queryKey: ["notifications"] });
+    });
     void runWeatherRiskAlerts().then((n) => {
       if (n > 0) qc.invalidateQueries({ queryKey: ["notifications"] });
     });

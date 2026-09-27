@@ -30,6 +30,7 @@ export function MiniMonth({
   onMoveJob,
   enableDragDrop = true,
   weather,
+  readiness,
 }: {
   year: number;
   month: number;
@@ -47,6 +48,9 @@ export function MiniMonth({
   /** Forecast on the schedule (0119) — job days inside the forecast range:
    * a tiny weather icon, or an amber/red flag on a risky day. */
   weather?: Map<string, CalendarDayWeather>;
+  /** Pre-construction (0124) — on a job's start day: green ready / amber
+   * items open / red blocked. */
+  readiness?: Map<string, { status: "ready" | "open" | "blocked"; lines: string[] }>;
 }) {
   const days = monthGridDays(year, month, today);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -81,9 +85,10 @@ export function MiniMonth({
           const dayStatus = bookingDisplayStatus(dayJobs);
           const tintTone = dayStatus ? projectStatusMeta(dayStatus).tone : null;
           const wx = dayJobs.length > 0 ? weather?.get(dateKey(day.date)) : undefined;
+          const ready = day.inMonth ? readiness?.get(dateKey(day.date)) : undefined;
 
           return (
-            <DayTooltip key={day.key} jobs={dayJobs} weatherLines={wx?.lines}>
+            <DayTooltip key={day.key} jobs={dayJobs} weatherLines={wx?.lines} readinessLines={ready?.lines}>
               <button
                 type="button"
                 draggable={enableDragDrop && !!singleJob}
@@ -117,6 +122,15 @@ export function MiniMonth({
                   dragOverKey === day.key ? "ring-2 ring-inset ring-primary" : "hover:bg-muted/70",
                 )}
               >
+                {ready && (
+                  <span
+                    className={cn(
+                      "absolute left-0.5 top-0.5 h-1.5 w-1.5 rounded-full",
+                      ready.status === "ready" ? "bg-success" : ready.status === "open" ? "bg-warning-strong" : "bg-destructive",
+                    )}
+                    aria-label={`Pre-construction: ${ready.status}`}
+                  />
+                )}
                 {wx &&
                   (wx.level === "none" ? (
                     <WeatherIcon condition={wx.condition} className="absolute right-0 top-0 h-2.5 w-2.5 text-muted-foreground" />
