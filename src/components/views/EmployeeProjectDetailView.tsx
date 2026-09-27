@@ -19,6 +19,7 @@ import {
   listEmployeeProjectSelections,
 } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
+import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 
 /**
  * The whole of an employee's work on one project: upload photos, post a
@@ -115,6 +116,14 @@ export function EmployeeProjectDetailView() {
         <h1 className="text-[22px] font-bold tracking-tight text-foreground">{project.name}</h1>
         <StatusPill meta={projectStatusMeta(project.status)} />
       </div>
+
+      {/* Forecast on the schedule (0119) — weather only, no prices. */}
+      {project.scheduled_start_date && project.status !== "complete" && (
+        <div className="card-surface p-4">
+          <h2 className="mb-2 text-sm font-bold text-foreground">Forecast</h2>
+          <ProjectForecastStrip projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
+        </div>
+      )}
 
       {/* Client selections (0115) — the approved choices only, no prices. */}
       {selections.length > 0 && (

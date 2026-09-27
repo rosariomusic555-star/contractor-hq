@@ -1628,6 +1628,45 @@ export async function getBusinessProfile(): Promise<BusinessProfile> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Forecast on the schedule (0119) — risk thresholds on business_profile.
+// The forecast itself comes from the weather-forecast Edge Function (see
+// src/lib/forecast.ts); the math is src/lib/weatherRisk.ts.
+// ---------------------------------------------------------------------------
+
+export interface WeatherRiskSettings {
+  weather_rain_pct: number;
+  weather_rain_in: number;
+  weather_flag_thunder: boolean;
+  weather_flag_freeze: boolean;
+  weather_flag_heat: boolean;
+  weather_heat_f: number;
+}
+
+export const WEATHER_RISK_DEFAULTS: WeatherRiskSettings = {
+  weather_rain_pct: 60,
+  weather_rain_in: 0.25,
+  weather_flag_thunder: true,
+  weather_flag_freeze: true,
+  weather_flag_heat: true,
+  weather_heat_f: 95,
+};
+
+export async function getWeatherRiskSettings(): Promise<WeatherRiskSettings> {
+  const { data, error } = await supabase
+    .from("business_profile")
+    .select("weather_rain_pct, weather_rain_in, weather_flag_thunder, weather_flag_freeze, weather_flag_heat, weather_heat_f")
+    .maybeSingle();
+  if (error || !data) return WEATHER_RISK_DEFAULTS;
+  return { ...WEATHER_RISK_DEFAULTS, ...data, weather_rain_in: Number(data.weather_rain_in ?? WEATHER_RISK_DEFAULTS.weather_rain_in) };
+}
+
+export async function saveWeatherRiskSettings(patch: Partial<WeatherRiskSettings>): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("business_profile").upsert({ user_id: auth.user?.id, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
 export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Promise<BusinessProfile> {
   const merged = { ...(await getBusinessProfile()), ...patch };
   const { data, error } = await supabase
@@ -4905,12 +4944,15 @@ export interface AssignedProject {
   name: string;
   status: ProjectStatus;
   created_at: string;
+  /** Crew forecast strip (0119) — the scheduled window, dates only. */
+  scheduled_start_date: string | null;
+  scheduled_end_date: string | null;
 }
 
 export async function listMyAssignedProjects(): Promise<AssignedProject[]> {
   const { data, error } = await supabase
     .from("projects")
-    .select("id, name, status, created_at")
+    .select("id, name, status, created_at, scheduled_start_date, scheduled_end_date")
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
@@ -4919,7 +4961,7 @@ export async function listMyAssignedProjects(): Promise<AssignedProject[]> {
 export async function getAssignedProject(id: string): Promise<AssignedProject> {
   const { data, error } = await supabase
     .from("projects")
-    .select("id, name, status, created_at")
+    .select("id, name, status, created_at, scheduled_start_date, scheduled_end_date")
     .eq("id", id)
     .single();
   if (error) throw error;
@@ -6918,6 +6960,9 @@ export interface NotificationSettings {
   quote_viewed_again: boolean;
   cold_unopened_days: number;
   cold_unsigned_days: number;
+  /** Forecast on the schedule (0119) — morning alert when a work day in the
+   * next 3 days newly becomes risky. */
+  weather_risk: boolean;
 }
 
 export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
@@ -6927,6 +6972,7 @@ export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
   quote_viewed_again: true,
   cold_unopened_days: 3,
   cold_unsigned_days: 5,
+  weather_risk: true,
 };
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {

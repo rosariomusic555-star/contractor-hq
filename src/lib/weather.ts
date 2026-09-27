@@ -1,23 +1,27 @@
 /* =============================================================================
- * Weather Strip (Dashboard) — 7-day forecast via Open-Meteo (free, no API
- * key). Geocodes the business address (Settings > Business profile), flags
- * install-critical days for hardscape work, and caches results in
- * localStorage so a normal session of page loads doesn't re-hit the API.
+ * Weather Strip (Dashboard) — 7-day forecast for the business address
+ * (Settings > Business profile). Since 0119 this comes from the
+ * `weather-forecast` Edge Function (National Weather Service, geocoded by
+ * the US Census geocoder, cached server-side) — the browser no longer calls
+ * a weather or geocoding API itself. Flags install-critical days for
+ * hardscape work, and caches the result in localStorage so a normal session
+ * of page loads doesn't re-ask.
  *
  * The headline rain % per day is scoped to the crew's work window (Settings
  * > Business profile, default 7am-5pm) rather than the full 24h day — rain
- * at 2am doesn't stop a crew, rain at 10am does. This needs hourly
- * precipitation data, fetched in the SAME request as the daily summary
- * (Open-Meteo accepts both `daily` and `hourly` params on one call). The
- * raw daily+hourly response is what gets cached, address-keyed only; the
- * work-window-dependent day tiles (headline %, qualifier text, flag) are
- * derived from that cached raw data on every call, so changing crew hours
- * in Settings re-derives instantly without a new network request.
+ * at 2am doesn't stop a crew, rain at 10am does. The raw daily+hourly data
+ * is what gets cached, address-keyed only; the work-window-dependent day
+ * tiles (headline %, qualifier text, flag) are derived from that cached raw
+ * data on every call, so changing crew hours in Settings re-derives
+ * instantly without a new request.
  *
  * Fails quietly everywhere: any network/parse error, or no address set,
  * resolves to null rather than throwing — the Dashboard hides the strip
  * instead of showing an error.
  * ========================================================================== */
+
+import { fetchForecasts } from "@/lib/forecast";
+import { CONDITION_LABEL, type WeatherCondition } from "@/lib/weatherRisk";
 
 export type WeatherIconKey = "sun" | "cloud" | "rain" | "snow" | "storm" | "fog";
 
@@ -58,193 +62,41 @@ export interface DayForecast {
   flagReason: WeatherFlagReason;
 }
 
-// WMO weather codes (Open-Meteo's `daily.weathercode`) collapsed to a small
-// icon set — see https://open-meteo.com/en/docs for the full table.
-const WMO_ICON: Record<number, WeatherIconKey> = {
-  0: "sun",
-  1: "sun",
-  2: "cloud",
-  3: "cloud",
-  45: "fog",
-  48: "fog",
-  51: "rain",
-  53: "rain",
-  55: "rain",
-  56: "rain",
-  57: "rain",
-  61: "rain",
-  63: "rain",
-  65: "rain",
-  66: "rain",
-  67: "rain",
-  71: "snow",
-  73: "snow",
-  75: "snow",
-  77: "snow",
-  80: "rain",
-  81: "rain",
-  82: "rain",
-  85: "snow",
-  86: "snow",
-  95: "storm",
-  96: "storm",
-  99: "storm",
+const CONDITION_ICON: Record<WeatherCondition, WeatherIconKey> = {
+  clear: "sun",
+  partly_cloudy: "cloud",
+  cloudy: "cloud",
+  fog: "fog",
+  drizzle: "rain",
+  rain: "rain",
+  showers: "rain",
+  thunderstorms: "storm",
+  snow: "snow",
+  freezing_rain: "snow",
 };
 
-const WMO_LABEL: Record<number, string> = {
-  0: "Clear",
-  1: "Mostly clear",
-  2: "Partly cloudy",
-  3: "Overcast",
-  45: "Fog",
-  48: "Fog",
-  51: "Light drizzle",
-  53: "Drizzle",
-  55: "Heavy drizzle",
-  56: "Freezing drizzle",
-  57: "Freezing drizzle",
-  61: "Light rain",
-  63: "Rain",
-  65: "Heavy rain",
-  66: "Freezing rain",
-  67: "Freezing rain",
-  71: "Light snow",
-  73: "Snow",
-  75: "Heavy snow",
-  77: "Snow grains",
-  80: "Rain showers",
-  81: "Rain showers",
-  82: "Violent showers",
-  85: "Snow showers",
-  86: "Snow showers",
-  95: "Thunderstorm",
-  96: "Thunderstorm",
-  99: "Thunderstorm",
-};
-
-interface GeocodeResult {
-  lat: number;
-  lon: number;
-}
-
-interface GeocodeApiResult {
-  latitude: number;
-  longitude: number;
-  country_code?: string;
-  admin1?: string;
-  postcodes?: string[];
-}
-
-const US_STATE_NAME: Record<string, string> = {
-  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
-  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
-  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
-  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
-  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri",
-  MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey",
-  NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio",
-  OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
-  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont",
-  VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming",
-  DC: "District of Columbia",
-};
-
-/** Open-Meteo's geocoder does an exact-ish match on place name only — it
- * has no free-text "city, state" search, so "Northampton MA" (with the
- * state appended) returns zero results while a bare "Northampton" returns
- * several same-named places worldwide. This pulls the city name out on its
- * own for the query, plus the zip/state separately to disambiguate the
- * results client-side (see pickBestMatch). */
-function parseAddress(address: string): { cityQuery: string; zip: string | null; state: string | null } {
-  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
-  const tail = parts.length > 1 ? parts.slice(1).join(" ") : address;
-  const zip = tail.match(/\b(\d{5})(?:-\d{4})?\b/)?.[1] ?? null;
-  const state = tail.match(/\b([A-Z]{2})\b/)?.[1] ?? null;
-  const cityQuery = tail
-    .replace(/\b\d{5}(-\d{4})?\b/g, "")
-    .replace(/\b[A-Z]{2}\b/g, "")
-    .trim();
-  return { cityQuery: cityQuery || address.trim(), zip, state };
-}
-
-/** Zip match beats everything (exact); failing that, prefer a US result in
- * the right state; failing that, the first US result; failing that,
- * whatever the geocoder ranked first (better than nothing for a non-US
- * address). */
-function pickBestMatch(
-  results: GeocodeApiResult[],
-  zip: string | null,
-  state: string | null,
-): GeocodeApiResult | null {
-  if (results.length === 0) return null;
-  if (zip) {
-    const byZip = results.find((r) => r.postcodes?.includes(zip));
-    if (byZip) return byZip;
-  }
-  const us = results.filter((r) => r.country_code === "US");
-  if (state && US_STATE_NAME[state]) {
-    const byState = us.find((r) => r.admin1 === US_STATE_NAME[state]);
-    if (byState) return byState;
-  }
-  return us[0] ?? results[0];
-}
-
-async function geocode(address: string): Promise<GeocodeResult | null> {
-  const { cityQuery, zip, state } = parseAddress(address);
-  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityQuery)}&count=10&language=en&format=json`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const json = await res.json();
-  const best = pickBestMatch(json?.results ?? [], zip, state);
-  if (!best || typeof best.latitude !== "number" || typeof best.longitude !== "number") return null;
-  return { lat: best.latitude, lon: best.longitude };
-}
-
-/** The raw shape cached in localStorage — everything Open-Meteo returned,
- * address-keyed only (no work-window dependency), so re-deriving day tiles
- * after a Settings change never needs a new fetch. */
+/** The raw shape cached in localStorage — the business address's forecast
+ * days, address-keyed only (no work-window dependency), so re-deriving day
+ * tiles after a Settings change never needs a new fetch. */
 interface RawForecast {
   dates: string[];
-  codes: number[];
+  conditions: WeatherCondition[];
   highs: number[];
   lows: number[];
-  /** Per-day hour arrays, 24 entries each (or fewer at the edges of the
-   * 7-day range), aligned to `dates[i]`. */
+  /** Per-day hour arrays, 24 entries each, aligned to `dates[i]`. */
   hourlyByDay: number[][];
 }
 
-async function fetchForecast(coords: GeocodeResult): Promise<RawForecast> {
-  const url =
-    `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}` +
-    `&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
-    `&hourly=precipitation_probability` +
-    `&temperature_unit=fahrenheit&timezone=auto&forecast_days=7`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Open-Meteo forecast request failed (${res.status})`);
-  const json = await res.json();
-  const dates: string[] = json?.daily?.time ?? [];
-  const codes: number[] = json?.daily?.weathercode ?? [];
-  const highs: number[] = json?.daily?.temperature_2m_max ?? [];
-  const lows: number[] = json?.daily?.temperature_2m_min ?? [];
-
-  const hourlyTimes: string[] = json?.hourly?.time ?? [];
-  const hourlyProbs: number[] = json?.hourly?.precipitation_probability ?? [];
-  const hourlyByDate = new Map<string, number[]>();
-  hourlyTimes.forEach((t, i) => {
-    const date = t.slice(0, 10);
-    const hour = Number(t.slice(11, 13));
-    if (Number.isNaN(hour)) return;
-    const arr = hourlyByDate.get(date) ?? new Array(24).fill(0);
-    arr[hour] = hourlyProbs[i] ?? 0;
-    hourlyByDate.set(date, arr);
-  });
-
+async function fetchBusinessForecast(): Promise<RawForecast | null> {
+  const batch = await fetchForecasts({ business: true });
+  const days = batch?.business?.forecast?.days ?? [];
+  if (days.length === 0) return null;
   return {
-    dates,
-    codes,
-    highs: highs.map((h) => Math.round(h ?? 0)),
-    lows: lows.map((l) => Math.round(l ?? 0)),
-    hourlyByDay: dates.map((d) => hourlyByDate.get(d) ?? new Array(24).fill(0)),
+    dates: days.map((d) => d.date),
+    conditions: days.map((d) => d.condition),
+    highs: days.map((d) => d.highF ?? 0),
+    lows: days.map((d) => d.lowF ?? 0),
+    hourlyByDay: days.map((d) => d.hourlyPop.map((p) => p ?? 0)),
   };
 }
 
@@ -344,8 +196,8 @@ function buildDayForecasts(raw: RawForecast, workWindow: WorkWindow): DayForecas
     return {
       date,
       dayLabel: new Date(`${date}T00:00:00`).toLocaleDateString("en-US", { weekday: "short" }),
-      icon: WMO_ICON[raw.codes[i]] ?? "cloud",
-      conditionLabel: WMO_LABEL[raw.codes[i]] ?? "—",
+      icon: CONDITION_ICON[raw.conditions[i]] ?? "cloud",
+      conditionLabel: CONDITION_LABEL[raw.conditions[i]] ?? "—",
       tempMaxF,
       tempMinF,
       precipProbability: Math.round(workHoursProb),
@@ -357,7 +209,7 @@ function buildDayForecasts(raw: RawForecast, workWindow: WorkWindow): DayForecas
   });
 }
 
-const CACHE_KEY = "chq_weather_strip_v2";
+const CACHE_KEY = "chq_weather_strip_v3";
 const CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 interface WeatherCache {
@@ -407,10 +259,8 @@ export async function getWeatherStrip(
   if (cached) return buildDayForecasts(cached, workWindow);
 
   try {
-    const coords = await geocode(trimmed);
-    if (!coords) return null;
-    const raw = await fetchForecast(coords);
-    if (raw.dates.length === 0) return null;
+    const raw = await fetchBusinessForecast();
+    if (!raw) return null;
     writeCache(trimmed, raw);
     return buildDayForecasts(raw, workWindow);
   } catch {

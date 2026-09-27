@@ -3,6 +3,9 @@ import type { BookingJob } from "@/lib/bookings";
 import { bookingDisplayStatus, projectStatusSolidClass } from "@/lib/statusMeta";
 import { jobsOnDate, daysInMonth, sameDay } from "@/lib/bookingsSchedule";
 import { DayTooltip } from "./DayTooltip";
+import { AlertTriangle } from "lucide-react";
+import type { RiskLevel } from "@/lib/weatherRisk";
+import { RISK_TEXT } from "@/components/weather/riskStyles";
 
 /** Below md, 31 tiny per-day dots don't read at 4-tiles-per-row size — each
  * tile collapses to one fill swatch instead, in the month's display status
@@ -42,6 +45,7 @@ export function MonthThumbnail({
   jobs,
   today,
   onOpen,
+  weatherRisk,
 }: {
   year: number;
   month: number;
@@ -53,6 +57,9 @@ export function MonthThumbnail({
    * when the calendar year being viewed is the current one. */
   today?: Date;
   onOpen: () => void;
+  /** Forecast on the schedule (0119) — worst risk on this month's job days
+   * inside the forecast range; the day-by-day detail is in the panel. */
+  weatherRisk?: RiskLevel;
 }) {
   const days = daysInMonth(year, month);
   const bookedDayFraction = days.length > 0 ? days.filter((d) => jobsOnDate(jobs, d).length > 0).length / days.length : 0;
@@ -64,8 +71,11 @@ export function MonthThumbnail({
       <button
         type="button"
         onClick={onOpen}
-        className="card-surface flex aspect-square min-h-[44px] w-full flex-col p-1.5 text-left transition-colors hover:bg-muted/60 md:p-2.5"
+        className="card-surface relative flex aspect-square min-h-[44px] w-full flex-col p-1.5 text-left transition-colors hover:bg-muted/60 md:p-2.5"
       >
+        {weatherRisk && weatherRisk !== "none" && (
+          <AlertTriangle className={cn("absolute right-1 top-1 h-3 w-3", RISK_TEXT[weatherRisk])} aria-label="Weather risk" />
+        )}
         <span className="text-[11px] font-bold text-foreground md:hidden">{shortMonthLabel}</span>
         <span className="hidden text-xs font-bold text-foreground md:inline">{monthLabel}</span>
 

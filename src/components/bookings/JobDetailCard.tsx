@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/utils";
 import { listQuotes, listMaterialsSheets, pickHeadlineQuote } from "@/lib/api";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import type { BookingJob } from "@/lib/bookings";
+import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 
 /**
  * One job's full detail, as a card — the unit the Year view's side panel
@@ -69,6 +70,14 @@ export function JobDetailCard({
           />
         </div>
       </div>
+
+      {/* Forecast on the schedule (0119) — this job's upcoming work days. */}
+      {job.startDate && job.status !== "complete" && (
+        <div className="mt-3 border-t border-hairline pt-3">
+          <p className="mb-1.5 text-[11px] font-semibold text-muted-foreground">Forecast</p>
+          <ProjectForecastStrip projectId={job.projectId} start={job.startDate} end={job.endDate} />
+        </div>
+      )}
 
       {(headlineQuote || sheets.length > 0) && (
         <div className="mt-3 space-y-1 border-t border-hairline pt-3">

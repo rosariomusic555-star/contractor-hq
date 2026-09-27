@@ -7,13 +7,32 @@ import type { BookingJob } from "@/lib/bookings";
 /** Hover a day cell (year page) or a whole month thumbnail (dashboard) —
  * lists every job in `jobs` (project, client, amount, status). No-ops (just
  * renders children) when `jobs` is empty, same as not wrapping it at all. */
-export function DayTooltip({ jobs, children }: { jobs: BookingJob[]; children: ReactNode }) {
+export function DayTooltip({
+  jobs,
+  weatherLines,
+  children,
+}: {
+  jobs: BookingJob[];
+  /** Forecast on the schedule (0119) — one line per job worked that day. */
+  weatherLines?: string[];
+  children: ReactNode;
+}) {
   if (jobs.length === 0) return <>{children}</>;
 
   return (
     <Tooltip delayDuration={200}>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="top" className="max-w-[260px] space-y-2">
+        {weatherLines && weatherLines.length > 0 && (
+          <div className="border-b border-border/50 pb-1.5">
+            <p className="font-bold text-foreground">Forecast</p>
+            {weatherLines.map((l) => (
+              <p key={l} className="text-muted-foreground">
+                {l}
+              </p>
+            ))}
+          </div>
+        )}
         {jobs.map((job) => (
           <div key={job.projectId} className="border-b border-border/50 pb-1.5 last:border-0 last:pb-0">
             <p className="font-bold text-foreground">{job.projectName}</p>

@@ -1,19 +1,18 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Calendar, MapPin } from "lucide-react";
+import { Calendar, MapPin } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
   listAppointments,
   listOpportunities,
   listProjects,
-  getBusinessProfile,
   APPOINTMENT_TYPE_LABEL,
   type Appointment,
   type AppointmentType,
 } from "@/lib/api";
-import { getWeatherStrip, DEFAULT_WORK_WINDOW, type WorkWindow } from "@/lib/weather";
+import { AppointmentForecastChip } from "@/components/weather/AppointmentForecastChip";
 import { upcomingAppointmentRows } from "@/lib/upcomingAppointments";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
 
@@ -36,25 +35,6 @@ export function UpcomingAppointmentsCard({ className }: { className?: string }) 
   const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
-
-  // Same query key/params WeatherStrip uses, so this is a cache hit, not a
-  // second network call, once the Weather Strip above it has loaded.
-  const { data: profile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
-  const address = profile?.address?.trim() || null;
-  const workWindow: WorkWindow = profile
-    ? { start: profile.crew_start_time, end: profile.crew_end_time }
-    : DEFAULT_WORK_WINDOW;
-  const { data: weatherDays } = useQuery({
-    queryKey: ["weather-strip", address, workWindow.start, workWindow.end],
-    queryFn: () => getWeatherStrip(address as string, workWindow),
-    enabled: !!address,
-    staleTime: 60 * 60 * 1000,
-    retry: false,
-  });
-  // flagReason "rain" is already work-hours-scoped (see weather.ts) — an
-  // appointment during the day only cares about rain that would actually
-  // fall while it's happening, same as the Weather Strip's own icon.
-  const rainDays = new Set((weatherDays ?? []).filter((d) => d.flagReason === "rain").map((d) => d.date));
 
   const opportunitiesById = new Map(opportunities.map((o) => [o.id, o]));
   const projectsById = new Map(projects.map((p) => [p.id, p]));
@@ -92,7 +72,6 @@ export function UpcomingAppointmentsCard({ className }: { className?: string }) 
           {shown.map((row, i) => {
             const showDayHeader = i === 0 || row.dayKey !== shown[i - 1].dayKey;
             const a = row.appointment;
-            const rainFlag = OUTDOOR_APPOINTMENT_TYPES.has(a.type) && rainDays.has(row.dayKey);
             return (
               <li key={a.id}>
                 {showDayHeader && (
@@ -122,7 +101,7 @@ export function UpcomingAppointmentsCard({ className }: { className?: string }) 
                       ) : (
                         <p className="text-sm font-bold text-foreground">{APPOINTMENT_TYPE_LABEL[a.type]}</p>
                       )}
-                      {rainFlag && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" aria-label="Rain risk" />}
+                      {OUTDOOR_APPOINTMENT_TYPES.has(a.type) && <AppointmentForecastChip appointment={a} interactive={false} />}
                     </div>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       <Link

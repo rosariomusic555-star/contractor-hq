@@ -142,6 +142,7 @@ import { actualCostByType, costPlanSummary } from "@/lib/costPlan";
 import { COST_BUCKETS, COST_TYPE_GROUP_LABEL, sectionLaborHours, type CostTotals } from "@/lib/costPlanMath";
 import { materialLineLabel } from "@/lib/materialsMath";
 import { BackLink } from "@/components/common/BackLink";
+import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -889,6 +890,19 @@ export function ProjectDetailView() {
               Feeds the Dashboard Bookings card and the Bookings calendar once this job is
               scheduled.
             </p>
+
+            {/* Forecast on the schedule (0119) — upcoming work days within
+                the forecast range; tap a day for why it's flagged. */}
+            {project.scheduled_start_date && project.status !== "complete" && project.status !== "lost" && (
+              <div className="mt-4 border-t border-hairline pt-4">
+                <h4 className="mb-2 text-sm font-bold text-foreground">Forecast</h4>
+                <ProjectForecastStrip
+                  projectId={project.id}
+                  start={project.scheduled_start_date}
+                  end={project.scheduled_end_date}
+                />
+              </div>
+            )}
 
             {/* Estimated duration — part of the job's schedule, so it lives in
                 this card (it used to be its own card below). Same behavior:

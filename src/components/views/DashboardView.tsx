@@ -9,6 +9,7 @@ import { RecentQuotes } from "@/components/dashboard/RecentQuotes";
 import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { WeatherStrip } from "@/components/dashboard/WeatherStrip";
+import { WeatherRisksCard } from "@/components/dashboard/WeatherRisksCard";
 import { BookingsCard } from "@/components/dashboard/BookingsCard";
 import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliveriesCard";
 import { UpcomingAppointmentsCard } from "@/components/dashboard/UpcomingAppointmentsCard";
@@ -190,6 +191,9 @@ export function DashboardView() {
 
       {/* ---- Weather strip (hides itself if no address / API failure) ---- */}
       <WeatherStrip />
+
+      {/* ---- Scheduled jobs with risky work days (hidden when none) ---- */}
+      <WeatherRisksCard />
 
       {/* ---- Desktop KPI row ---- */}
       <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
