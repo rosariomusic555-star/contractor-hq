@@ -52,6 +52,7 @@ export const CLIENT_FIELDS = {
   delivery: ["id", "supplier", "expected_delivery_date", "status", "photos"],
   event: ["id", "kind", "summary", "created_at"],
   scheduleUpdate: ["id", "posted_at", "reason", "from_start", "from_end", "to_start", "to_end"],
+  review: ["link_path"],
 } as const;
 
 /** Fields that must never reach a client. The test checks none of these
@@ -74,6 +75,8 @@ export const INTERNAL_FIELDS = [
   "sessions", "active_seconds", "session_key",
   // Rain delay + client heads-up — internal schedule detail
   "crew_id", "crew_name", "changes", "cascaded", "delay_id", "heads_up_status", "message", "channel", "client_visible", "mode",
+  // Review requests — tracking is internal (the client only gets the link)
+  "click_count", "first_clicked_at", "last_clicked_at", "asked_at", "asked_channel", "reminded_at", "no_review_requests", "google_url",
 ] as const;
 
 type Row = Record<string, unknown>;
@@ -148,6 +151,7 @@ export function clientSafeProjectDetail(d: PortalProjectDetail): PortalProjectDe
     deliveries: list((x) => pick(x, CLIENT_FIELDS.delivery, { photos: list((y) => pick(y, CLIENT_FIELDS.photo)) }))(r.deliveries),
     events: list((x) => pick(x, CLIENT_FIELDS.event))(r.events),
     schedule_updates: list((x) => pick(x, CLIENT_FIELDS.scheduleUpdate))(r.schedule_updates),
+    review: r.review ? pick(r.review, CLIENT_FIELDS.review) : null,
   } as PortalProjectDetail;
 }
 

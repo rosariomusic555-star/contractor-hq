@@ -6,6 +6,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
 import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@/lib/api";
 import { buildNeedsYouItems } from "@/lib/needsYou";
+import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
 import { BackLink } from "@/components/common/BackLink";
 
 /** Full, uncapped "Needs you" queue — the Dashboard card (NeedsYou.tsx)
@@ -16,8 +17,10 @@ export function NeedsYouView() {
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
   const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
+  // Review requests (0122) — "Ask Greg Gray for a review" / "Remind Greg…".
+  const reviews = useReviewNeedsYou();
 
-  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments });
+  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews);
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">

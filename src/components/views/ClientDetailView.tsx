@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Switch } from "@/components/ui/switch";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -32,6 +33,7 @@ import { timeAgo } from "@/lib/time";
 import {
   getClient,
   updateClient,
+  setClientNoReviewRequests,
   listProjectsForClient,
   listQuotesForClient,
   listInvoicesForClient,
@@ -116,6 +118,16 @@ export function ClientDetailView() {
   const updateMut = useMutation({
     mutationFn: (patch: Parameters<typeof updateClient>[1]) => updateClient(clientId, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["client", clientId] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  // Review requests (0122) — "Don't ask for reviews".
+  const noReviewsMut = useMutation({
+    mutationFn: (v: boolean) => setClientNoReviewRequests(clientId, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client", clientId] });
+      qc.invalidateQueries({ queryKey: ["review-requests"] });
+      qc.invalidateQueries({ queryKey: ["review-request"] });
+    },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
@@ -278,6 +290,20 @@ export function ClientDetailView() {
           </section>
 
           <ClientHubCard client={client} />
+
+          <section className="card-surface p-5">
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span>
+                <span className="block text-sm font-bold text-foreground">Don't ask for reviews</span>
+                <span className="block text-xs text-muted-foreground">No review prompts or Client Hub review card for this client</span>
+              </span>
+              <Switch
+                checked={!!client.no_review_requests}
+                disabled={noReviewsMut.isPending}
+                onCheckedChange={(v) => noReviewsMut.mutate(v)}
+              />
+            </label>
+          </section>
 
           <ContactsCard clientId={clientId} />
           <AddressesCard clientId={clientId} />

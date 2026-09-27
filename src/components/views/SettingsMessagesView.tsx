@@ -16,6 +16,8 @@ import {
   clientHubLink,
   fillTemplate,
   templateVars,
+  reviewLink,
+  reviewVars,
   unknownPlaceholders,
   type TemplateKey,
   type TemplateVars,
@@ -23,11 +25,13 @@ import {
 import { addWorkingDays } from "@/lib/scheduleShift";
 import { isoDate } from "@/lib/weatherRisk";
 
-const KEYS: TemplateKey[] = ["rain_delay", "schedule_change", "start_confirmed"];
+const KEYS: TemplateKey[] = ["rain_delay", "schedule_change", "start_confirmed", "review_request", "review_reminder"];
 const WHEN: Record<TemplateKey, string> = {
   rain_delay: "Used when a delay's reason is Rain or Weather.",
   schedule_change: "Used for other delay reasons and when you change a job's dates.",
   start_confirmed: "Used for “Confirm start date with client” and a job's first start date.",
+  review_request: "Asking for a review once a job is finished. {review_link} is your tracked link.",
+  review_reminder: "The one reminder, if the client hasn't opened the review link after a few days.",
 };
 
 /**
@@ -45,7 +49,15 @@ export function SettingsMessagesView() {
   const start = sample?.scheduled_start_date ?? addWorkingDays(isoDate(new Date()), 3);
   const end = sample?.scheduled_end_date ?? addWorkingDays(start, 4);
   const sampleVars = (key: TemplateKey): TemplateVars =>
-    templateVars({
+    key === "review_request" || key === "review_reminder"
+      ? reviewVars({
+          clientName: sample?.client?.name ?? "Greg Gray",
+          companyName: profile?.company_name,
+          projectName: sample?.name ?? "Greg Patio",
+          reviewLink: reviewLink("sample"),
+          hubLink: clientHubLink(sample?.id ?? "example"),
+        })
+      : templateVars({
       update: {
         source: key === "start_confirmed" ? "confirm" : "delay",
         reason: key === "rain_delay" ? "rain" : "material",

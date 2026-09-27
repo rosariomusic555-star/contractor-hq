@@ -77,12 +77,14 @@ import { SettingsEmployeesView } from "@/components/views/SettingsEmployeesView"
 import { SettingsNotificationsView } from "@/components/views/SettingsNotificationsView";
 import { SettingsWeatherView } from "@/components/views/SettingsWeatherView";
 import { SettingsMessagesView } from "@/components/views/SettingsMessagesView";
+import { SettingsReviewsView } from "@/components/views/SettingsReviewsView";
 import { NotificationsView } from "@/components/views/NotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
 import { EmployeeProjectsView } from "@/components/views/EmployeeProjectsView";
 import { EmployeeProjectDetailView } from "@/components/views/EmployeeProjectDetailView";
 import { EmployeeAccountView } from "@/components/views/EmployeeAccountView";
 import SharedQuotePage from "./pages/SharedQuote";
+import ReviewRedirect from "./pages/ReviewRedirect";
 import SharedInvoicePage from "./pages/SharedInvoice";
 import SharedReceiptPage from "./pages/SharedReceipt";
 import { ClientViewPage } from "@/components/views/ClientViewPage";
@@ -123,6 +125,8 @@ const router = createBrowserRouter(
     <Route element={<RootLayout />}>
       {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
       <Route path="/quote/:token" element={<SharedQuotePage />} />
+      {/* Tracked review link (0122) — public, logs the click and redirects. */}
+      <Route path="/r/:token" element={<ReviewRedirect />} />
       <Route path="/change-order/:token" element={<SharedChangeOrderPage />} />
       <Route path="/invoice/:token" element={<SharedInvoicePage />} />
       <Route path="/receipt/:token" element={<SharedReceiptPage />} />
@@ -221,6 +225,7 @@ const router = createBrowserRouter(
         <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
         <Route path="/settings/weather" element={<SettingsWeatherView />} />
         <Route path="/settings/messages" element={<SettingsMessagesView />} />
+        <Route path="/settings/reviews" element={<SettingsReviewsView />} />
         <Route path="/notifications" element={<NotificationsView />} />
         <Route path="/settings/billing" element={<SettingsBillingView />} />
 

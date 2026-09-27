@@ -23,6 +23,7 @@ const SECTIONS = [
   { label: "Manage employees", to: "/settings/employees" },
   { label: "Schedule & weather", to: "/settings/weather" },
   { label: "Messages", to: "/settings/messages" },
+  { label: "Reviews", to: "/settings/reviews" },
   { label: "Notifications", to: "/settings/notifications" },
   { label: "Plan & billing", to: "/settings/billing" },
 ] as const;

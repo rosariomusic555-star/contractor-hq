@@ -56,6 +56,8 @@ export interface Client {
   preferred_contact_method: PreferredContactMethod | null;
   tags: string[];
   internal_notes: string | null;
+  /** Review requests (0122) — "Don't ask for reviews". */
+  no_review_requests?: boolean;
   /** Freeform key/value store — no field-type system, just a flat object. */
   custom_fields: Record<string, string>;
   /** Client Hub (0063) — set when the contractor sends (or resends) an
@@ -4662,7 +4664,9 @@ export type ProjectEventKind =
   | "payment_voided"
   | "schedule_delay"
   | "schedule_delay_undone"
-  | "client_heads_up";
+  | "client_heads_up"
+  | "review_requested"
+  | "review_link_clicked";
 
 export interface ProjectEvent {
   id: string;
@@ -5218,6 +5222,7 @@ export type ActivityKind =
   | "quote_viewed"
   | "quote_selection_changed"
   | "quote_optional_changed"
+  | "review_link_clicked"
   | "proposal_approved"
   | "proposal_rejected"
   | "opportunity_won"
@@ -6970,6 +6975,8 @@ export interface NotificationSettings {
   /** Forecast on the schedule (0119) — morning alert when a work day in the
    * next 3 days newly becomes risky. */
   weather_risk: boolean;
+  /** Review requests (0122) — a job ready to ask, and a client opening the review link. */
+  review_activity: boolean;
 }
 
 export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
@@ -6980,6 +6987,7 @@ export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
   cold_unopened_days: 3,
   cold_unsigned_days: 5,
   weather_risk: true,
+  review_activity: true,
 };
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {
@@ -6995,7 +7003,14 @@ export async function saveNotificationSettings(patch: Partial<NotificationSettin
   if (error) throw error;
 }
 
-export type AutomationTrigger = "quote_viewed" | "quote_not_opened" | "quote_viewed_not_signed";
+export type AutomationTrigger =
+  | "quote_viewed"
+  | "quote_not_opened"
+  | "quote_viewed_not_signed"
+  // Review requests (0122)
+  | "review_eligible"
+  | "review_requested"
+  | "review_link_clicked";
 
 export interface AutomationRule {
   id: string;
@@ -7147,7 +7162,7 @@ export async function undoScheduleDelay(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export interface StoredMessageTemplate {
-  key: "rain_delay" | "schedule_change" | "start_confirmed";
+  key: "rain_delay" | "schedule_change" | "start_confirmed" | "review_request" | "review_reminder";
   subject: string | null;
   body: string;
 }
@@ -7244,10 +7259,12 @@ export async function createStartConfirmation(project: Pick<Project, "id" | "cli
   return data as ScheduleUpdate;
 }
 
-const HEADS_UP_LABEL: Record<"rain_delay" | "schedule_change" | "start_confirmed", string> = {
+const HEADS_UP_LABEL: Record<StoredMessageTemplate["key"], string> = {
   rain_delay: "Rain delay heads-up",
   schedule_change: "Schedule update",
   start_confirmed: "Start date confirmation",
+  review_request: "Review request",
+  review_reminder: "Review reminder",
 };
 const CHANNEL_WORD = { text: "text", email: "email", copy: "a copied message" } as const;
 
@@ -7260,7 +7277,7 @@ export async function markHeadsUpSent(
   u: Pick<ScheduleUpdate, "id" | "project_id" | "client_id">,
   channel: "text" | "email" | "copy",
   message: string,
-  template: "rain_delay" | "schedule_change" | "start_confirmed",
+  template: "rain_delay" | "schedule_change" | "start_confirmed" | "review_request" | "review_reminder",
 ): Promise<void> {
   await updateScheduleUpdate(u.id, { heads_up_status: "sent", channel, message, sent_at: new Date().toISOString() });
   const label = HEADS_UP_LABEL[template];
@@ -7271,4 +7288,108 @@ export async function markHeadsUpSent(
     });
   }
   await logProjectEvent(u.project_id, "client_heads_up", `${label} sent via ${CHANNEL_WORD[channel]}`, { schedule_update_id: u.id });
+}
+
+// ---------------------------------------------------------------------------
+// Google review requests (0122). Status math: src/lib/reviews.ts. The
+// tracked link /r/{token} goes through review_click() (public).
+// ---------------------------------------------------------------------------
+
+export type ReviewSite = "facebook" | "yelp" | "houzz" | "angi";
+
+export interface ReviewSettings {
+  enabled: boolean;
+  google_url: string | null;
+  other_sites: { site: ReviewSite; url: string }[];
+  ask_when: "completed" | "paid";
+  delay_days: 0 | 1 | 3;
+  reminder_days: number;
+}
+
+export const REVIEW_SETTINGS_DEFAULTS: ReviewSettings = {
+  enabled: true,
+  google_url: null,
+  other_sites: [],
+  ask_when: "completed",
+  delay_days: 0,
+  reminder_days: 5,
+};
+
+export async function getReviewSettings(): Promise<ReviewSettings> {
+  const { data, error } = await supabase.from("review_settings").select("*").maybeSingle();
+  if (error || !data) return REVIEW_SETTINGS_DEFAULTS;
+  return { ...REVIEW_SETTINGS_DEFAULTS, ...data } as ReviewSettings;
+}
+
+export async function saveReviewSettings(patch: Partial<ReviewSettings>): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("review_settings").upsert({ user_id: auth.user?.id, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export interface ReviewRequest {
+  id: string;
+  project_id: string;
+  client_id: string | null;
+  token: string;
+  status: "not_asked" | "asked" | "clicked" | "left" | "dismissed";
+  eligible_at: string | null;
+  asked_at: string | null;
+  asked_channel: "text" | "email" | "copy" | null;
+  reminded_at: string | null;
+  reminder_channel: "text" | "email" | "copy" | null;
+  first_clicked_at: string | null;
+  last_clicked_at: string | null;
+  click_count: number;
+  left_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+  project?: { name: string; status: ProjectStatus } | null;
+  client?: { id: string; name: string; phone: string | null; email: string | null; no_review_requests: boolean } | null;
+}
+
+const REVIEW_SELECT = "*, project:projects(name, status), client:clients(id, name, phone, email, no_review_requests)";
+
+export async function listReviewRequests(): Promise<ReviewRequest[]> {
+  const { data, error } = await supabase.from("review_requests").select(REVIEW_SELECT).order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as ReviewRequest[];
+}
+
+export async function getReviewRequest(projectId: string): Promise<ReviewRequest | null> {
+  const { data, error } = await supabase.from("review_requests").select(REVIEW_SELECT).eq("project_id", projectId).maybeSingle();
+  if (error) return null;
+  return data as ReviewRequest | null;
+}
+
+export async function updateReviewRequest(
+  id: string,
+  patch: Partial<Pick<ReviewRequest, "status" | "left_at" | "dismissed_at">>,
+): Promise<void> {
+  const { error } = await supabase.from("review_requests").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function markReviewRequestSent(projectId: string, channel: "text" | "email" | "copy", message: string, reminder: boolean): Promise<void> {
+  const { error } = await supabase.rpc("mark_review_request_sent", { p_project_id: projectId, p_channel: channel, p_message: message, p_reminder: reminder });
+  if (error) throw error;
+}
+
+export async function runReviewChecks(): Promise<number> {
+  const { data, error } = await supabase.rpc("run_review_checks");
+  if (error) return 0;
+  return (data as number) ?? 0;
+}
+
+/** The tracked link — logs the click (not for the contractor/team) and
+ * returns only the review page URL, or null when the link isn't active. */
+export async function reviewClick(token: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("review_click", { p_token: token });
+  if (error) return null;
+  return (data as string) ?? null;
+}
+
+export async function setClientNoReviewRequests(clientId: string, value: boolean): Promise<void> {
+  const { error } = await supabase.from("clients").update({ no_review_requests: value }).eq("id", clientId);
+  if (error) throw error;
 }

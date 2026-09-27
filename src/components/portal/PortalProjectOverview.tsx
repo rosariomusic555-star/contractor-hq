@@ -50,6 +50,7 @@ import { PortalPhotoGrid } from "./PortalPhotoGrid";
 import { ProjectMoneyBlocks } from "@/components/client-hub/ProjectMoneyBlocks";
 import { ProjectHistoryTimeline } from "@/components/client-hub/ProjectHistoryTimeline";
 import { ScheduleUpdatesCard } from "@/components/client-hub/ScheduleUpdatesCard";
+import { ReviewCard } from "@/components/client-hub/ReviewCard";
 import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 
@@ -159,6 +160,9 @@ export function PortalProjectOverview() {
           ))}
         </div>
       )}
+
+      {/* Review card (0122) — completed projects */}
+      <ReviewCard detail={detail} />
 
       {/* Money + project history (0113) — balances near the top on a phone */}
       <ProjectMoneyBlocks detail={detail} docBase={`/portal/projects/${id}/documents`} />

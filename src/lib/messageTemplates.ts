@@ -10,7 +10,7 @@
 
 import { addWorkingDays, delayDayLabel, type DelayReason } from "@/lib/scheduleShift";
 
-export type TemplateKey = "rain_delay" | "schedule_change" | "start_confirmed";
+export type TemplateKey = "rain_delay" | "schedule_change" | "start_confirmed" | "review_request" | "review_reminder";
 
 export interface MessageTemplate {
   key: TemplateKey;
@@ -22,6 +22,8 @@ export const TEMPLATE_LABEL: Record<TemplateKey, string> = {
   rain_delay: "Rain delay",
   schedule_change: "Schedule change (other reason)",
   start_confirmed: "Start date confirmed",
+  review_request: "Review request",
+  review_reminder: "Review reminder",
 };
 
 export const DEFAULT_TEMPLATES: Record<TemplateKey, MessageTemplate> = {
@@ -40,6 +42,16 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, MessageTemplate> = {
     subject: "Start date confirmed: {project_name}",
     body: "Hi {client_first_name}, it's {company_name}. Good news: your {project_name} is confirmed to start {new_start_date}. You can see the details anytime here: {client_hub_link}",
   },
+  review_request: {
+    key: "review_request",
+    subject: "Thank you from {company_name}",
+    body: "Hi {client_first_name}, thanks again for choosing {company_name} for your {project_name}! If you're happy with how it turned out, a quick Google review would mean a lot to us: {review_link}",
+  },
+  review_reminder: {
+    key: "review_reminder",
+    subject: "A quick favor from {company_name}",
+    body: "Hi {client_first_name}, just a friendly nudge — if you have a minute, a quick review of your {project_name} would really help us out: {review_link} Thank you!",
+  },
 };
 
 export const PLACEHOLDERS: { key: string; label: string }[] = [
@@ -52,6 +64,7 @@ export const PLACEHOLDERS: { key: string; label: string }[] = [
   { key: "new_end_date", label: "New end date" },
   { key: "reason", label: "Reason, in words" },
   { key: "client_hub_link", label: "Link to the Client Hub" },
+  { key: "review_link", label: "Your tracked review link" },
 ];
 
 export type TemplateVars = Record<string, string>;
@@ -131,6 +144,22 @@ export function templateVars(opts: {
     reason,
     client_hub_link: opts.hubLink,
   };
+}
+
+/** Placeholder values for a review request / reminder. */
+export function reviewVars(opts: { clientName: string | null | undefined; companyName: string | null | undefined; projectName: string; reviewLink: string; hubLink: string }): TemplateVars {
+  return {
+    client_first_name: firstName(opts.clientName),
+    company_name: opts.companyName?.trim() || "your contractor",
+    project_name: opts.projectName,
+    review_link: opts.reviewLink,
+    client_hub_link: opts.hubLink,
+  };
+}
+
+/** The tracked review link — logs the click, then redirects to the review page. */
+export function reviewLink(token: string, origin: string = typeof window !== "undefined" ? window.location.origin : ""): string {
+  return `${origin}/r/${token}`;
 }
 
 /** The Client Hub page for a project — clients sign in with a magic link. */

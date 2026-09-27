@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@/lib/api";
 import { buildNeedsYouItems } from "@/lib/needsYou";
+import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
 
 const MAX_ITEMS = 5;
@@ -15,8 +16,10 @@ export function NeedsYou({ className }: { className?: string }) {
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
   const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
+  // Review requests (0122) — "Ask Greg Gray for a review" / "Remind Greg…".
+  const reviews = useReviewNeedsYou();
 
-  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments });
+  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews);
   const shown = items.slice(0, MAX_ITEMS);
 
   return (

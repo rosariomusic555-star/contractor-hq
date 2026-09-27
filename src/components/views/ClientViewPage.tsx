@@ -5,6 +5,7 @@ import { BackLink } from "@/components/common/BackLink";
 import { ProjectMoneyBlocks } from "@/components/client-hub/ProjectMoneyBlocks";
 import { ProjectHistoryTimeline } from "@/components/client-hub/ProjectHistoryTimeline";
 import { ScheduleUpdatesCard } from "@/components/client-hub/ScheduleUpdatesCard";
+import { ReviewCard } from "@/components/client-hub/ReviewCard";
 import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 import { getClientViewProject, getSignedImageUrls } from "@/lib/api";
@@ -69,6 +70,7 @@ export function ClientViewPage() {
       </div>
 
       <ScheduleUpdatesCard detail={detail} />
+      <ReviewCard detail={detail} />
       <ProjectMoneyBlocks detail={detail} docBase={docBase} />
       <ApprovedSelectionsCard detail={detail} docBase={docBase} />
       <ProjectHistoryTimeline detail={detail} docBase={docBase} />
