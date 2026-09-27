@@ -9,6 +9,7 @@ const SECTIONS = [
   { label: "Overhead", to: "/settings/overhead" },
   { label: "Estimating insights", to: "/settings/estimating-insights" },
   { label: "Quote defaults", to: "/settings/quote-defaults" },
+  { label: "Selection templates", to: "/settings/selection-templates" },
   { label: "Categories", to: "/settings/categories" },
   { label: "Lead sources", to: "/settings/lead-sources" },
   { label: "Expense categories", to: "/settings/expense-categories" },

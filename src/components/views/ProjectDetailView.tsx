@@ -38,6 +38,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { PaymentsList } from "@/components/payments/PaymentsList";
+import { ProjectSelectionsCard } from "@/components/selections/ProjectSelectionsCard";
 import { PlannedVsActualCard } from "@/components/planned-actual/PlannedVsActualCard";
 import { JobContextChips } from "@/components/planned-actual/JobContextChips";
 import { CloseoutDialog } from "@/components/planned-actual/CloseoutPanel";
@@ -745,6 +746,10 @@ export function ProjectDetailView() {
             </section>
           )}
           <CloseoutDialog projectId={id} open={closeoutOpen} onOpenChange={setCloseoutOpen} />
+
+          {/* Client selections (0115) — approved choices per feature, locked;
+              change requests; changes only via change orders. */}
+          <ProjectSelectionsCard projectId={id} />
 
           {/* Costs to date — real logged expenses only */}
           <section className="card-surface p-5">

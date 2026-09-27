@@ -11,7 +11,18 @@ const item = withLeaks({ id: "i1", name: "Pavers", description: null, price: 10,
 const quote = withLeaks({
   id: "q1", kind: "original", status: "approved", deposit_percentage: 30, notes: "n", terms: "t", signed_at: null, signed_by: "Pat",
   declined_at: null, decline_comment: null, total: 20, approval: withLeaks({ name: "Pat", at: "2026-09-01" }),
-  sections: [withLeaks({ id: "s1", name: "Patio", is_optional: false, sort_order: 0, items: [item] })],
+  sections: [
+    withLeaks({
+      id: "s1", name: "Patio", is_optional: false, sort_order: 0, items: [item],
+      selections: [
+        withLeaks({
+          id: "g1", name: "Paver color", help_text: null, required: true, multi: false, approved_at: null, picked: ["o1"], approved_price: 0,
+          options: [withLeaks({ id: "o1", name: "Shale Grey", description: null, image_path: "p", price_delta: 0, is_default: true, cost_delta: 99, link_item_id: "x", link_set: { unit_cost: 5 }, catalog_product_id: "c", vendor: "Stone Co" })],
+          history: [withLeaks({ source: "original", option_names: ["Shale Grey"], created_at: "x", change_order_number: null })],
+        }),
+      ],
+    }),
+  ],
 });
 const changeOrder = withLeaks({
   id: "c1", number: 1, title: "Upgrade", description: null, reason: null, amount: 500, status: "approved", schedule_impact_days: 0,
@@ -65,5 +76,8 @@ describe("client-facing serializer", () => {
     expect(d.payments?.[0].applied_to[0].invoice_number).toBe("INV-001");
     expect((d.versions?.[0].content as { total?: number }).total).toBe(20);
     expect(d.deliveries[0].supplier).toBe("Stone Co");
+    const g = d.quotes[0].sections[0].selections![0];
+    expect(g.options[0]).toEqual({ id: "o1", name: "Shale Grey", description: null, image_path: "p", price_delta: 0, is_default: true });
+    expect(g.picked).toEqual(["o1"]);
   });
 });

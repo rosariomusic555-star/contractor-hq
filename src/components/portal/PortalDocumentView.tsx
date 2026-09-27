@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Loader2, Printer } from "lucide-react";
@@ -10,7 +11,10 @@ import {
   type PortalQuote,
   type PortalChangeOrder,
   type PortalInvoice,
+  type PortalSelectionGroup,
 } from "@/lib/portalApi";
+import { clientQuoteTotal, priceLabel } from "@/lib/selections";
+import { RequestSelectionChangeDialog } from "@/components/selections/RequestSelectionChangeDialog";
 import { getClientViewProject } from "@/lib/api";
 import { versionDate, versionsOf } from "@/lib/projectHistory";
 import { cn } from "@/lib/utils";
@@ -127,7 +131,14 @@ export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "pre
           <h1 className="mt-1 text-xl font-bold text-foreground">{detail.project.name}</h1>
         </div>
 
-        {kind === "quote" && <QuoteDocument quote={doc as PortalQuote} statusOverride={statusOverride} version={shown?.version ?? (versions.length > 1 ? latest : null)} />}
+        {kind === "quote" && (
+          <QuoteDocument
+            quote={doc as PortalQuote}
+            statusOverride={statusOverride}
+            version={shown?.version ?? (versions.length > 1 ? latest : null)}
+            canRequestChange={mode === "portal" && !shown && (live as PortalQuote).status === "approved"}
+          />
+        )}
         {kind === "change-order" && <ChangeOrderDocument changeOrder={statusOverride && statusOverride !== "superseded" ? { ...(doc as PortalChangeOrder), status: statusOverride as PortalChangeOrder["status"] } : (doc as PortalChangeOrder)} />}
         {kind === "invoice" && <InvoiceDocument invoice={shown ? { ...(doc as PortalInvoice), status: (live as PortalInvoice).status, amount_paid: (live as PortalInvoice).amount_paid } : (doc as PortalInvoice)} />}
       </div>
@@ -135,12 +146,21 @@ export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "pre
   );
 }
 
-function QuoteDocument({ quote, statusOverride, version }: { quote: PortalQuote; statusOverride?: string; version?: number | null }) {
+function QuoteDocument({
+  quote,
+  statusOverride,
+  version,
+  canRequestChange = false,
+}: {
+  quote: PortalQuote;
+  statusOverride?: string;
+  version?: number | null;
+  /** Client Hub, current approved version: "Request a change" per selection. */
+  canRequestChange?: boolean;
+}) {
   const status = statusOverride ?? quote.status;
-  const included = quote.sections.flatMap((s) =>
-    s.items.filter((i) => !(s.is_optional || i.is_optional) || i.client_selected),
-  );
-  const total = included.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const total = clientQuoteTotal(quote.sections);
+  const [requesting, setRequesting] = useState<PortalSelectionGroup | null>(null);
   const deposit = (total * quote.deposit_percentage) / 100;
 
   return (
@@ -171,6 +191,30 @@ function QuoteDocument({ quote, statusOverride, version }: { quote: PortalQuote;
               </div>
             ))}
           </div>
+          {(section.selections ?? []).length > 0 && (
+            <div className="mt-2 space-y-1 rounded-lg bg-muted/40 p-2.5 text-sm">
+              {section.selections!.map((g) => {
+                const eff = g.picked.length ? g.picked : g.options.filter((o) => o.is_default).map((o) => o.id);
+                const chosen = g.options.filter((o) => eff.includes(o.id));
+                const final = status === "approved";
+                return (
+                  <div key={g.id} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <span className="text-muted-foreground">{g.name}</span>
+                    <span className="text-right font-semibold text-foreground">
+                      {final || g.picked.length
+                        ? chosen.map((o) => `${o.name}${o.price_delta ? ` (${priceLabel(o.price_delta)})` : ""}`).join(", ") || "—"
+                        : "Client to choose"}
+                      {canRequestChange && final && (
+                        <button type="button" onClick={() => setRequesting(g)} className="no-print ml-2 text-xs font-semibold text-primary hover:underline">
+                          Request a change
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       ))}
 
@@ -204,6 +248,7 @@ function QuoteDocument({ quote, statusOverride, version }: { quote: PortalQuote;
         </p>
       )}
       {status === "declined" && quote.declined_at && <p className="text-xs text-muted-subtle">Declined on {dateStr(quote.declined_at)}</p>}
+      <RequestSelectionChangeDialog group={requesting} onClose={() => setRequesting(null)} />
     </div>
   );
 }

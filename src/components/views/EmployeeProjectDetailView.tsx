@@ -16,6 +16,7 @@ import {
   getSignedImageUrls,
   listProjectNotes,
   addProjectNote,
+  listEmployeeProjectSelections,
 } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -27,6 +28,11 @@ import { BackLink } from "@/components/common/BackLink";
  */
 export function EmployeeProjectDetailView() {
   const { id = "" } = useParams();
+  const { data: selections = [] } = useQuery({
+    queryKey: ["employee-project-selections", id],
+    queryFn: () => listEmployeeProjectSelections(id),
+    enabled: !!id,
+  });
   const { employee } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -109,6 +115,23 @@ export function EmployeeProjectDetailView() {
         <h1 className="text-[22px] font-bold tracking-tight text-foreground">{project.name}</h1>
         <StatusPill meta={projectStatusMeta(project.status)} />
       </div>
+
+      {/* Client selections (0115) — the approved choices only, no prices. */}
+      {selections.length > 0 && (
+        <div className="card-surface p-4">
+          <h2 className="text-sm font-bold text-foreground">Client selections</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {selections.map((s, i) => (
+              <li key={i} className="flex justify-between gap-3">
+                <span className="text-muted-foreground">
+                  {s.section} · {s.group}
+                </span>
+                <span className="text-right font-semibold text-foreground">{s.choices.join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Post an update */}
       <div className="stat-card space-y-3">

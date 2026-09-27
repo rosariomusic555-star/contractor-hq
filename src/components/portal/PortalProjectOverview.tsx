@@ -28,6 +28,8 @@ import {
   getPortalProjectDetail,
   getPortalSignedImageUrls,
   setPortalQuoteItemSelected,
+  setPortalSelection,
+  type PortalSelectionGroup,
   approvePortalQuote,
   declinePortalQuote,
   approvePortalChangeOrder,
@@ -41,9 +43,12 @@ import {
   type PortalChangeOrder,
 } from "@/lib/portalApi";
 import { portalProjectPhase, portalProgressLabel, PORTAL_PHASE_LABEL } from "@/lib/portalStatus";
+import { ClientSelectionGroups } from "@/components/selections/ClientSelectionGroups";
+import { clientGroupLike, clientQuoteTotal, missingRequired, priceLabel, sectionIncluded } from "@/lib/selections";
 import { PortalPhotoGrid } from "./PortalPhotoGrid";
 import { ProjectMoneyBlocks } from "@/components/client-hub/ProjectMoneyBlocks";
 import { ProjectHistoryTimeline } from "@/components/client-hub/ProjectHistoryTimeline";
+import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -152,6 +157,7 @@ export function PortalProjectOverview() {
 
       {/* Money + project history (0113) — balances near the top on a phone */}
       <ProjectMoneyBlocks detail={detail} docBase={`/portal/projects/${id}/documents`} />
+      <ApprovedSelectionsCard detail={detail} docBase={`/portal/projects/${id}/documents`} />
       <ProjectHistoryTimeline detail={detail} docBase={`/portal/projects/${id}/documents`} />
       <DownloadSummaryButton
         detail={detail}
@@ -487,8 +493,39 @@ function QuoteApprovalDialog({
   const [signedBy, setSignedBy] = useState("");
   const [declining, setDeclining] = useState(false);
   const [comment, setComment] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  // Client Selections (0115): the in-progress picks, by group — auto-saved
+  // as a draft on every tap so the client can come back later.
+  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const groups = quote.sections.flatMap((s) => (s.selections ?? []).map((g) => ({ g, section: s })));
+  const imagePaths = groups.flatMap(({ g }) => g.options.map((o) => o.image_path).filter(Boolean) as string[]);
+  const { data: imageUrls = {} } = useQuery({
+    queryKey: ["portal-selection-images", imagePaths.join(",")],
+    queryFn: () => getPortalSignedImageUrls(imagePaths),
+    enabled: imagePaths.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["portal-project", projectId] });
+
+  const pickMut = useMutation({
+    mutationFn: ({ groupId, ids }: { groupId: string; ids: string[] }) => setPortalSelection(groupId, ids),
+    onError: (err: Error) => toast({ title: "Couldn't save your choice", description: err.message, variant: "destructive" }),
+  });
+  const choose = (groupId: string, ids: string[]) => {
+    setPicks((p) => ({ ...p, [groupId]: ids }));
+    pickMut.mutate({ groupId, ids });
+  };
+  const includedGroups = groups.filter(({ section }) => sectionIncluded(section));
+  const missing = missingRequired(
+    includedGroups.map(({ g }) => clientGroupLike(g)),
+    picks,
+  );
+  const chosenNames = (g: PortalSelectionGroup) => {
+    const ids = picks[g.id] ?? g.picked;
+    const eff = ids.length ? ids : g.options.filter((o) => o.is_default).map((o) => o.id);
+    return g.options.filter((o) => eff.includes(o.id));
+  };
 
   const toggleMut = useMutation({
     mutationFn: ({ itemId, selected }: { itemId: string; selected: boolean }) =>
@@ -517,11 +554,7 @@ function QuoteApprovalDialog({
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
-  const total = quote.sections.reduce(
-    (sum, s) =>
-      sum + s.items.reduce((a, i) => a + (!(s.is_optional || i.is_optional) || i.client_selected ? i.price * i.quantity : 0), 0),
-    0,
-  );
+  const total = clientQuoteTotal(quote.sections, picks);
   const deposit = (total * quote.deposit_percentage) / 100;
 
   return (
@@ -572,9 +605,33 @@ function QuoteApprovalDialog({
                       );
                     })}
                   </div>
+                  {(section.selections ?? []).length > 0 &&
+                    (sectionIncluded(section) ? (
+                      <div className="mt-3">
+                        <ClientSelectionGroups groups={section.selections!} picks={picks} onChange={choose} imageUrls={imageUrls} flagMissing={reviewing || missing.length > 0} />
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-subtle">Choices for this optional section appear once you add it.</p>
+                    ))}
                 </div>
               ))}
             </div>
+
+            {includedGroups.length > 0 && (
+              <div className="rounded-xl bg-muted/40 p-3 text-sm">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-subtle">Your selections</p>
+                <ul className="mt-1 space-y-0.5">
+                  {includedGroups.map(({ g }) => (
+                    <li key={g.id} className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">{g.name}</span>
+                      <span className={cn("text-right font-semibold", chosenNames(g).length ? "text-foreground" : "text-destructive")}>
+                        {chosenNames(g).map((o) => o.name).join(", ") || "Not chosen yet"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="space-y-1.5 border-t border-hairline pt-3">
               <div className="flex items-center justify-between text-base font-extrabold text-foreground">
@@ -587,37 +644,80 @@ function QuoteApprovalDialog({
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="portal-sign-name" className="text-xs font-semibold text-muted-foreground">
-                Type your name to sign
-              </Label>
-              <Input
-                id="portal-sign-name"
-                value={signedBy}
-                onChange={(e) => setSignedBy(e.target.value)}
-                placeholder="Full name"
-                className="h-11"
-              />
-            </div>
+            {includedGroups.length > 0 && !reviewing ? (
+              <>
+                {missing.length > 0 && (
+                  <p className="text-xs font-semibold text-destructive">
+                    Choose {missing.map((g) => `"${g.name}"`).join(", ")} to continue.
+                  </p>
+                )}
+                <div className="flex gap-2.5">
+                  <Button variant="outline" className="flex-1" onClick={() => setDeclining(true)}>
+                    Decline
+                  </Button>
+                  <Button className="flex-1 font-bold" disabled={missing.length > 0 || pickMut.isPending} onClick={() => setReviewing(true)}>
+                    Review &amp; sign
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                {reviewing && (
+                  <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm">
+                    <p className="font-bold text-foreground">Please review before signing</p>
+                    <ul className="space-y-1">
+                      {includedGroups.map(({ g, section }) => (
+                        <li key={g.id} className="flex justify-between gap-3">
+                          <span className="text-muted-foreground">
+                            {section.name} · {g.name}
+                          </span>
+                          <span className="text-right font-semibold text-foreground">
+                            {chosenNames(g)
+                              .map((o) => `${o.name}${o.price_delta ? ` (${priceLabel(o.price_delta)})` : ""}`)
+                              .join(", ")}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="flex justify-between border-t border-primary/20 pt-2 font-extrabold text-foreground">
+                      <span>Final total</span>
+                      <span className="tabular-nums">{money(total)}</span>
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="portal-sign-name" className="text-xs font-semibold text-muted-foreground">
+                    Type your name to sign
+                  </Label>
+                  <Input
+                    id="portal-sign-name"
+                    value={signedBy}
+                    onChange={(e) => setSignedBy(e.target.value)}
+                    placeholder="Full name"
+                    className="h-11"
+                  />
+                </div>
 
-            <div className="flex gap-2.5">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setDeclining(true)}
-                disabled={approveMut.isPending}
-              >
-                Decline
-              </Button>
-              <Button
-                className="flex-1 font-bold"
-                disabled={!signedBy.trim() || approveMut.isPending}
-                onClick={() => approveMut.mutate()}
-              >
-                <Check className="h-4 w-4" />
-                {approveMut.isPending ? "Approving…" : "Approve"}
-              </Button>
-            </div>
+                <div className="flex gap-2.5">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => (reviewing ? setReviewing(false) : setDeclining(true))}
+                    disabled={approveMut.isPending}
+                  >
+                    {reviewing ? "Back" : "Decline"}
+                  </Button>
+                  <Button
+                    className="flex-1 font-bold"
+                    disabled={!signedBy.trim() || approveMut.isPending || missing.length > 0}
+                    onClick={() => approveMut.mutate()}
+                  >
+                    <Check className="h-4 w-4" />
+                    {approveMut.isPending ? "Approving…" : "Approve"}
+                  </Button>
+                </div>
+              </>
+            )}
           </>
         ) : (
           <>

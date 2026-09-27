@@ -30,7 +30,10 @@ export const CLIENT_FIELDS = {
     "id", "kind", "addon_number", "status", "deposit_percentage", "notes", "terms",
     "signed_at", "signed_by", "declined_at", "decline_comment", "created_at", "updated_at", "total", "approval", "sections",
   ],
-  quoteSection: ["id", "name", "is_optional", "sort_order", "items"],
+  quoteSection: ["id", "name", "is_optional", "sort_order", "items", "selections"],
+  selectionGroup: ["id", "name", "help_text", "required", "multi", "approved_at", "options", "picked", "history"],
+  selectionOption: ["id", "name", "description", "image_path", "price_delta", "is_default"],
+  selectionHistory: ["source", "option_names", "created_at", "change_order_number"],
   quoteItem: ["id", "name", "description", "price", "quantity", "unit", "is_optional", "client_selected", "sort_order", "images"],
   changeOrder: [
     "id", "number", "title", "description", "reason", "amount", "status", "schedule_impact_days",
@@ -63,6 +66,8 @@ export const INTERNAL_FIELDS = [
   "job_slope", "job_access", "job_soil", "job_demo", "smart_inputs", "variance", "planned", "actual",
   "closeout", "closeouts", "what_happened", "excluded", "snapshot", "report", "units", "labor_ratio",
   "recommendation", "adjustments", "tunables", "labor_default",
+  // Client Selections — internal cost, Cost plan link, Catalog / supplier
+  "cost_delta", "link_item_id", "link_set", "catalog_product_id", "vendor", "approved_price",
 ] as const;
 
 type Row = Record<string, unknown>;
@@ -83,11 +88,20 @@ const list = (fn: (v: unknown) => unknown) => (v: unknown) => (Array.isArray(v) 
 export const clientApproval = (a: unknown) => pick<PortalApproval>(a, CLIENT_FIELDS.approval);
 const image = (v: unknown) => pick(v, CLIENT_FIELDS.image);
 
+export const clientSelectionGroup = (g: unknown) =>
+  pick(g, CLIENT_FIELDS.selectionGroup, {
+    options: list((o) => pick(o, CLIENT_FIELDS.selectionOption)),
+    history: list((h) => pick(h, CLIENT_FIELDS.selectionHistory)),
+  });
+
 export const clientQuote = (q: unknown) =>
   pick<PortalQuote>(q, CLIENT_FIELDS.quote, {
     approval: clientApproval,
     sections: list((s) =>
-      pick(s, CLIENT_FIELDS.quoteSection, { items: list((i) => pick(i, CLIENT_FIELDS.quoteItem, { images: list(image) })) }),
+      pick(s, CLIENT_FIELDS.quoteSection, {
+        items: list((i) => pick(i, CLIENT_FIELDS.quoteItem, { images: list(image) })),
+        selections: list(clientSelectionGroup),
+      }),
     ),
   });
 
