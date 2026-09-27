@@ -8,6 +8,8 @@ import type { FeatureStatus, ProjectFeature } from "./features";
 import type { CostChangeKind } from "./changeOrderCost";
 import { OVERHEAD_SETTINGS_DEFAULTS, burdenPerHour, type OverheadSettings } from "./overhead";
 import { LUMP_SUM_UNIT } from "./costPlanMath";
+import { clientSafeProjectDetail, clientSharedChangeOrder, clientSharedInvoice, clientSharedQuote, clientSharedReceipt } from "./clientSafe";
+import type { PortalProjectDetail } from "./portalApi";
 import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
 /** Private Storage bucket (0023) holding both quote-item and project
@@ -3490,7 +3492,38 @@ export interface SharedReceipt {
 export async function getSharedReceipt(token: string): Promise<SharedReceipt | null> {
   const { data, error } = await supabase.rpc("get_shared_receipt", { p_token: token });
   if (error) throw error;
-  return (data as SharedReceipt) ?? null;
+  return clientSharedReceipt((data as SharedReceipt) ?? null);
+}
+
+// ---------------------------------------------------------------------------
+// Document versions + Client view (0113)
+// ---------------------------------------------------------------------------
+
+export type VersionedDocType = "quote" | "change_order" | "invoice";
+
+/** Snapshot a document after saving it while it's out with the client — a
+ * new version when its client-facing content changed. No-op for drafts. */
+export async function snapshotDocument(type: VersionedDocType, id: string): Promise<void> {
+  const { error } = await supabase.rpc("snapshot_document", { p_type: type, p_id: id });
+  if (error) console.warn("snapshot_document failed:", error.message);
+}
+
+/** Exactly what the client sees in the Client Hub, for the contractor's
+ * "Client view" preview and the project summary PDF. */
+export async function getClientViewProject(projectId: string): Promise<PortalProjectDetail | null> {
+  const { data, error } = await supabase.rpc("get_client_view_project", { p_project_id: projectId });
+  if (error) throw error;
+  return data ? clientSafeProjectDetail(data as PortalProjectDetail) : null;
+}
+
+/** How many versions each document on a project has (the workspaces'
+ * "Versions" link). */
+export async function listDocumentVersionCounts(projectId: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase.from("document_versions").select("doc_id, version").eq("project_id", projectId);
+  if (error) return new Map();
+  const m = new Map<string, number>();
+  for (const r of data ?? []) m.set(r.doc_id, Math.max(m.get(r.doc_id) ?? 0, r.version));
+  return m;
 }
 
 // ---------------------------------------------------------------------------
@@ -4045,7 +4078,7 @@ export interface SharedChangeOrder {
 export async function getSharedChangeOrder(token: string): Promise<SharedChangeOrder | null> {
   const { data, error } = await supabase.rpc("get_shared_change_order", { p_token: token });
   if (error) throw error;
-  return (data as SharedChangeOrder | null) ?? null;
+  return clientSharedChangeOrder((data as SharedChangeOrder | null) ?? null);
 }
 
 export async function signSharedChangeOrder(token: string, signedBy: string): Promise<void> {
@@ -4633,7 +4666,7 @@ export interface SharedQuote {
 export async function getSharedQuote(token: string): Promise<SharedQuote | null> {
   const { data, error } = await supabase.rpc("get_shared_quote", { p_token: token });
   if (error) throw error;
-  return (data as SharedQuote | null) ?? null;
+  return clientSharedQuote((data as SharedQuote | null) ?? null);
 }
 
 // Note: which optional sections/items the client has checked is kept as
@@ -4669,7 +4702,7 @@ export interface SharedInvoice {
 export async function getSharedInvoice(token: string): Promise<SharedInvoice | null> {
   const { data, error } = await supabase.rpc("get_shared_invoice", { p_token: token });
   if (error) throw error;
-  return (data as SharedInvoice | null) ?? null;
+  return clientSharedInvoice((data as SharedInvoice | null) ?? null);
 }
 
 // ---------------------------------------------------------------------------

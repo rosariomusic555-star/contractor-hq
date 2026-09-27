@@ -1,5 +1,6 @@
 import { portalSupabase } from "./portalSupabase";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
+import { clientSafeProjectDetail } from "./clientSafe";
 
 const IMAGES_BUCKET = "images";
 
@@ -87,6 +88,21 @@ export interface PortalQuoteItem {
   unit: string | null;
   is_optional: boolean;
   client_selected: boolean;
+  sort_order?: number;
+  images?: PortalImageRef[];
+}
+
+export interface PortalImageRef {
+  id: string;
+  storage_path: string;
+}
+
+/** A signature / decision record on a quote or change order (0113). */
+export interface PortalApproval {
+  name?: string | null;
+  at?: string | null;
+  ip?: string | null;
+  comment?: string | null;
 }
 
 export interface PortalQuoteSection {
@@ -108,6 +124,13 @@ export interface PortalQuote {
   signed_by: string | null;
   declined_at: string | null;
   decline_comment: string | null;
+  /** 0113 — client-facing notes / terms, dates, committed total, approval. */
+  notes?: string | null;
+  terms?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  total?: number;
+  approval?: PortalApproval | null;
   sections: PortalQuoteSection[];
 }
 
@@ -118,6 +141,8 @@ export interface PortalChangeOrderItem {
   price: number;
   quantity: number;
   unit: string | null;
+  sort_order?: number;
+  images?: PortalImageRef[];
 }
 
 export interface PortalChangeOrderSection {
@@ -146,6 +171,10 @@ export interface PortalChangeOrder {
   created_at: string;
   /** "CO #n" within the project (0108). */
   number?: number;
+  signed_at?: string | null;
+  signed_by?: string | null;
+  total?: number;
+  approval?: PortalApproval | null;
   sections: PortalChangeOrderSection[];
 }
 
@@ -166,6 +195,42 @@ export interface PortalInvoice {
   /** Applied payments (0111) — > 0 and not paid = partially paid. */
   amount_paid?: number;
   created_at: string;
+  updated_at?: string;
+  notes?: string | null;
+  total?: number;
+  items?: { description: string; quantity: number; unit_price: number }[];
+}
+
+/** A payment as the client sees it (0113) — no internal note. */
+export interface PortalPayment {
+  /** The receipt's share token — /receipt/:token. */
+  token: string;
+  receipt_number: string | null;
+  amount: number;
+  paid_on: string;
+  method: string;
+  reference: string | null;
+  status: "active" | "void";
+  voided_at: string | null;
+  created_at: string;
+  applied_to: { invoice_id: string; invoice_number: string | null; amount: number }[];
+}
+
+export type PortalDocType = "quote" | "change_order" | "invoice";
+
+/** An immutable snapshot of a document as it was sent / approved (0113). */
+export interface PortalVersion {
+  doc_type: PortalDocType;
+  doc_id: string;
+  version: number;
+  state: "sent" | "approved" | "declined" | "issued";
+  event: string;
+  total: number | null;
+  approval: PortalApproval | null;
+  created_at: string;
+  decided_at: string | null;
+  /** Same shape as the live PortalQuote / PortalChangeOrder / PortalInvoice. */
+  content: PortalQuote | PortalChangeOrder | PortalInvoice;
 }
 
 /** Project money for the client (0111) — contract, paid to date, receipts.
@@ -208,6 +273,7 @@ export interface PortalProjectDetail {
     id: string;
     name: string;
     status: string;
+    address?: string | null;
     scheduled_start_date: string | null;
     scheduled_end_date: string | null;
     actual_start_date: string | null;
@@ -217,12 +283,18 @@ export interface PortalProjectDetail {
     company_name: string | null;
     phone: string | null;
     email: string | null;
+    address?: string | null;
+    license?: string | null;
     logo_url: string | null;
   };
+  client?: { name: string } | null;
   quotes: PortalQuote[];
   change_orders: PortalChangeOrder[];
   invoices: PortalInvoice[];
   money?: PortalMoney | null;
+  /** 0113 — every payment (void ones too, labeled) and every version. */
+  payments?: PortalPayment[];
+  versions?: PortalVersion[];
   photos: PortalPhoto[];
   deliveries: PortalDelivery[];
   events: PortalEvent[];
@@ -234,7 +306,7 @@ export interface PortalProjectDetail {
 export async function getPortalProjectDetail(projectId: string): Promise<PortalProjectDetail | null> {
   const { data, error } = await portalSupabase.rpc("get_portal_project", { p_project_id: projectId });
   if (error) throw error;
-  return (data as PortalProjectDetail | null) ?? null;
+  return data ? clientSafeProjectDetail(data as PortalProjectDetail) : null;
 }
 
 /** Signed URLs for photo storage_paths — same shape as api.ts's

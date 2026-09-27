@@ -42,6 +42,9 @@ import {
 } from "@/lib/portalApi";
 import { portalProjectPhase, portalProgressLabel, PORTAL_PHASE_LABEL } from "@/lib/portalStatus";
 import { PortalPhotoGrid } from "./PortalPhotoGrid";
+import { ProjectMoneyBlocks } from "@/components/client-hub/ProjectMoneyBlocks";
+import { ProjectHistoryTimeline } from "@/components/client-hub/ProjectHistoryTimeline";
+import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateStr = (iso: string | null) =>
@@ -90,21 +93,6 @@ export function PortalProjectOverview() {
   const pendingChangeOrders = detail.change_orders.filter((c) => c.status === "sent");
   // The job's scope comes from the original quote; add-ons are extra work.
   const approvedQuote = detail.quotes.find((q) => q.status === "approved" && q.kind !== "addon") ?? null;
-  const documents = [
-    ...detail.quotes
-      .filter((q) => q.status !== "sent")
-      .map((q) => ({ kind: "quote" as const, id: q.id, label: portalQuoteLabel(q), status: q.status, date: null as string | null })),
-    ...detail.change_orders
-      .filter((c) => c.status !== "sent")
-      .map((c) => ({ kind: "change-order" as const, id: c.id, label: `${portalChangeOrderLabel(c)} · ${c.title}`, status: c.status, date: c.created_at })),
-    ...detail.invoices.map((inv) => ({
-      kind: "invoice" as const,
-      id: inv.id,
-      label: inv.invoice_number ?? "Invoice",
-      status: inv.status !== "paid" && Number(inv.amount_paid ?? 0) > 0 ? "partial" : inv.status,
-      date: inv.created_at,
-    })),
-  ];
 
   return (
     <div className="space-y-5">
@@ -161,6 +149,15 @@ export function PortalProjectOverview() {
           ))}
         </div>
       )}
+
+      {/* Money + project history (0113) — balances near the top on a phone */}
+      <ProjectMoneyBlocks detail={detail} docBase={`/portal/projects/${id}/documents`} />
+      <ProjectHistoryTimeline detail={detail} docBase={`/portal/projects/${id}/documents`} />
+      <DownloadSummaryButton
+        detail={detail}
+        getLogoUrl={async (path) => (await getPortalSignedImageUrls([path]))[path] ?? null}
+        className="w-full"
+      />
 
       {/* Schedule */}
       {(detail.project.scheduled_start_date || detail.project.scheduled_end_date) && (
@@ -253,84 +250,6 @@ export function PortalProjectOverview() {
         </div>
       )}
 
-      {/* Payments (0111) — paid to date, remaining, receipts */}
-      {detail.money && (detail.money.contract_value > 0 || detail.money.received > 0) && (
-        <div className="card-surface p-5">
-          <h3 className="text-base font-bold text-foreground">Payments</h3>
-          <div className="mt-2 divide-y divide-hairline text-sm">
-            {detail.money.contract_value > 0 && (
-              <div className="flex items-center justify-between py-2">
-                <span className="text-muted-foreground">Project total</span>
-                <span className="font-semibold tabular-nums text-foreground">{money(detail.money.contract_value)}</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between py-2">
-              <span className="text-muted-foreground">Paid to date</span>
-              <span className="font-semibold tabular-nums text-foreground">{money(detail.money.received)}</span>
-            </div>
-            {detail.money.contract_value > 0 && (
-              <div className="flex items-center justify-between py-2">
-                <span className="font-semibold text-foreground">
-                  {detail.money.received > detail.money.contract_value ? "Credit balance" : "Remaining balance"}
-                </span>
-                <span className="font-bold tabular-nums text-foreground">
-                  {money(Math.abs(detail.money.contract_value - detail.money.received))}
-                </span>
-              </div>
-            )}
-          </div>
-          {detail.money.receipts.length > 0 && (
-            <div className="mt-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">Receipts</p>
-              <div className="mt-1 divide-y divide-hairline">
-                {detail.money.receipts.map((r) => (
-                  <a
-                    key={r.token}
-                    href={`/receipt/${r.token}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between gap-3 py-2.5"
-                  >
-                    <span className="text-sm font-semibold text-foreground">
-                      {r.number ?? "Receipt"} <span className="font-normal text-muted-foreground">· {dateStr(r.paid_on)}</span>
-                    </span>
-                    <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-foreground">
-                      {money(Number(r.amount))}
-                      <ChevronRight className="h-3.5 w-3.5 text-muted-subtle" />
-                    </span>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Documents */}
-      {documents.length > 0 && (
-        <div className="card-surface p-5">
-          <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
-            <FileText className="h-4 w-4 text-muted-subtle" />
-            Documents
-          </h3>
-          <div className="mt-2 divide-y divide-hairline">
-            {documents.map((doc) => (
-              <Link
-                key={`${doc.kind}-${doc.id}`}
-                to={`/portal/projects/${id}/documents/${doc.kind}/${doc.id}`}
-                className="flex items-center justify-between gap-3 py-2.5"
-              >
-                <span className="text-sm font-semibold text-foreground">{doc.label}</span>
-                <span className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                  {statusLabel(doc.status)}
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-subtle" />
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Activity */}
       {detail.events.length > 0 && (
         <div className="card-surface p-5">
@@ -358,25 +277,6 @@ export function PortalProjectOverview() {
       )}
     </div>
   );
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "approved":
-      return "Approved";
-    case "declined":
-      return "Declined";
-    case "paid":
-      return "Paid";
-    case "partial":
-      return "Partially paid";
-    case "overdue":
-      return "Overdue";
-    case "sent":
-      return "Sent";
-    default:
-      return status;
-  }
 }
 
 /** Phase 5 — a client-submitted photo lands in the SAME project_images
