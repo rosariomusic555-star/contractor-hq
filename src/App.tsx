@@ -79,6 +79,7 @@ import { SettingsWeatherView } from "@/components/views/SettingsWeatherView";
 import { SettingsMessagesView } from "@/components/views/SettingsMessagesView";
 import { SettingsReviewsView } from "@/components/views/SettingsReviewsView";
 import { SettingsPreconView } from "@/components/views/SettingsPreconView";
+import { EmployeeWorkOrderPage, WorkOrderPreviewPage } from "@/components/views/WorkOrderPage";
 import { NotificationsView } from "@/components/views/NotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
 import { EmployeeProjectsView } from "@/components/views/EmployeeProjectsView";
@@ -232,6 +233,8 @@ const router = createBrowserRouter(
         <Route path="/settings/messages" element={<SettingsMessagesView />} />
         <Route path="/settings/reviews" element={<SettingsReviewsView />} />
         <Route path="/settings/precon" element={<SettingsPreconView />} />
+        {/* Crew work order (0125) — the owner's preview of the crew page. */}
+        <Route path="/projects/:id/work-order" element={<WorkOrderPreviewPage />} />
         <Route path="/notifications" element={<NotificationsView />} />
         <Route path="/settings/billing" element={<SettingsBillingView />} />
 
@@ -240,6 +243,7 @@ const router = createBrowserRouter(
             BottomTabBar for these when role === "employee". */}
         <Route path="/employee" element={<EmployeeProjectsView />} />
         <Route path="/employee/projects/:id" element={<EmployeeProjectDetailView />} />
+        <Route path="/employee/projects/:id/work-order" element={<EmployeeWorkOrderPage />} />
         <Route path="/employee/account" element={<EmployeeAccountView />} />
       </Route>
       <Route path="*" element={<NotFound />} />

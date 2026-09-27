@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
+  updateEmployeeCrewRole,
   listEmployees,
   createEmployeeAccount,
   updateEmployee,
@@ -144,6 +146,14 @@ function EmployeeRow({
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
+  // Crew work order (0125) — lead: can mark Reviewed + download the PDF;
+  // log usage: may log material usage from the work order.
+  const roleMut = useMutation({
+    mutationFn: (patch: { is_lead?: boolean; can_log_usage?: boolean }) => updateEmployeeCrewRole(employee.id, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
   const rateMut = useMutation({
     mutationFn: (default_hourly_rate: number | null) => updateEmployee(employee.id, { default_hourly_rate }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
@@ -188,6 +198,23 @@ function EmployeeRow({
               />
               <span className="text-sm text-muted-foreground">/ hr</span>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Crew lead</span>
+                <span className="block text-xs text-muted-foreground">Can mark work orders reviewed and download the PDF</span>
+              </span>
+              <Switch checked={!!employee.is_lead} onCheckedChange={(v) => roleMut.mutate({ is_lead: v })} />
+            </label>
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Can log material usage</span>
+                <span className="block text-xs text-muted-foreground">From the work order's Materials list</span>
+              </span>
+              <Switch checked={!!employee.can_log_usage} onCheckedChange={(v) => roleMut.mutate({ can_log_usage: v })} />
+            </label>
           </div>
 
           <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">Assigned projects</div>

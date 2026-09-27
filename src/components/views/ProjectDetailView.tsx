@@ -149,6 +149,7 @@ import { ScheduleDelaysList } from "@/components/schedule/ScheduleDelaysList";
 import { HeadsUpReminder } from "@/components/schedule/HeadsUpReminder";
 import { ProjectReviewCard } from "@/components/reviews/ProjectReviewCard";
 import { PreconCard } from "@/components/precon/PreconCard";
+import { CrewWorkOrderCard } from "@/components/workorder/CrewWorkOrderCard";
 import type { PreconBundle } from "@/lib/preconSignals";
 import {
   AlertDialog,
@@ -932,6 +933,9 @@ export function ProjectDetailView() {
               </div>
             )}
           </section>
+
+          {/* Crew work order (0125) — once the job is won. */}
+          {project.status !== "estimating" && project.status !== "lost" && <CrewWorkOrderCard project={project} />}
 
           {/* Google review request (0122) — completed jobs with a client. */}
           {project.status === "complete" && project.client_id && <ProjectReviewCard projectId={project.id} />}
