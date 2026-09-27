@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ClipboardList, MapPin } from "lucide-react";
+import { ClipboardList, MapPin, Clock } from "lucide-react";
 import { isoDate } from "@/lib/weatherRisk";
 import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
@@ -44,6 +44,13 @@ export function EmployeeProjectsView() {
           </p>
         </Link>
       ))}
+      {/* Timesheets (0131) */}
+      <Link to="/employee/time" className="card-surface flex items-center justify-between gap-3 p-4">
+        <span className="flex items-center gap-2 font-bold text-foreground">
+          <Clock className="h-5 w-5 text-primary" /> Clock in / out · My time
+        </span>
+        <span className="text-sm font-semibold text-primary">Open</span>
+      </Link>
       <div>
         <h1 className="text-[22px] font-bold tracking-tight text-foreground">My projects</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Projects you've been assigned to.</p>

@@ -6331,12 +6331,22 @@ export interface LaborEntry {
   note: string | null;
   created_at: string;
   updated_at: string;
+  /** Timesheets (0131): clock times, where it came from, its timesheet, the
+   * regular / overtime split (computed in the DB). */
+  start_at?: string | null;
+  end_at?: string | null;
+  break_minutes?: number;
+  source?: "owner" | "manual" | "timer";
+  timesheet_id?: string | null;
+  reg_hours?: number | null;
+  ot_hours?: number | null;
+  timesheet?: { status: TimesheetStatus } | null;
 }
 
 export async function listLaborEntries(projectId: string): Promise<LaborEntry[]> {
   const { data, error } = await supabase
     .from("labor_entries")
-    .select("*")
+    .select("*, timesheet:timesheets(status)")
     .eq("project_id", projectId)
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -6381,7 +6391,7 @@ export async function createLaborEntry(input: {
 
 export async function updateLaborEntry(
   id: string,
-  patch: Partial<Pick<LaborEntry, "category_id" | "employee_id" | "worker_name" | "entry_date" | "hours" | "hourly_rate" | "cost" | "note">>,
+  patch: Partial<Pick<LaborEntry, "category_id" | "employee_id" | "worker_name" | "entry_date" | "hours" | "hourly_rate" | "cost" | "note" | "project_id" | "start_at" | "end_at" | "break_minutes">>,
 ): Promise<void> {
   const { error } = await supabase.from("labor_entries").update(patch).eq("id", id);
   if (error) throw error;
@@ -7005,6 +7015,8 @@ export interface NotificationSettings {
   precon: boolean;
   /** Maintenance reminders (0127) — due soon, and client service requests. */
   maintenance: boolean;
+  /** Timesheets (0131) — submitted / waiting for approval. */
+  timesheets: boolean;
 }
 
 export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
@@ -7018,6 +7030,7 @@ export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
   review_activity: true,
   precon: true,
   maintenance: true,
+  timesheets: true,
 };
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {
@@ -7989,5 +8002,278 @@ export async function getMarketingSettings(): Promise<MarketingSettings> {
 export async function saveMarketingSettings(s: MarketingSettings): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
   const { error } = await supabase.from("marketing_settings").upsert({ user_id: auth.user?.id, ...s }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Timesheets + payroll (0131). Hours / overtime / cost are computed in the
+// DB (_recompute_workweek); src/lib/timesheets.ts reads them. Pay rates are
+// owner-only; employees go through the time_* / my_timesheet RPCs, which
+// never return a rate or a cost.
+// ---------------------------------------------------------------------------
+
+export type TimesheetStatus = "not_submitted" | "submitted" | "approved" | "rejected";
+
+export interface PayrollSettings {
+  period_type: "weekly" | "biweekly" | "semimonthly";
+  week_start: number;
+  biweekly_anchor: string | null;
+  ot_weekly_hours: number;
+  ot_daily_hours: number | null;
+  ot_multiplier: number;
+  burden_pct: number;
+  rounding_minutes: 0 | 5 | 15;
+  lunch_enabled: boolean;
+  lunch_after_hours: number;
+  lunch_minutes: number;
+  long_day_hours: number;
+}
+
+export const PAYROLL_DEFAULTS: PayrollSettings = {
+  period_type: "weekly",
+  week_start: 1,
+  biweekly_anchor: null,
+  ot_weekly_hours: 40,
+  ot_daily_hours: null,
+  ot_multiplier: 1.5,
+  burden_pct: 0,
+  rounding_minutes: 0,
+  lunch_enabled: false,
+  lunch_after_hours: 6,
+  lunch_minutes: 30,
+  long_day_hours: 12,
+};
+
+export async function getPayrollSettings(): Promise<PayrollSettings> {
+  const { data, error } = await supabase.from("payroll_settings").select("*").maybeSingle();
+  if (error || !data) return PAYROLL_DEFAULTS;
+  const n = (v: unknown) => (v == null ? null : Number(v));
+  return {
+    ...PAYROLL_DEFAULTS,
+    ...data,
+    ot_weekly_hours: Number(data.ot_weekly_hours),
+    ot_daily_hours: n(data.ot_daily_hours),
+    ot_multiplier: Number(data.ot_multiplier),
+    burden_pct: Number(data.burden_pct),
+    lunch_after_hours: Number(data.lunch_after_hours),
+    long_day_hours: Number(data.long_day_hours),
+  } as PayrollSettings;
+}
+
+export async function savePayrollSettings(s: PayrollSettings): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("payroll_settings").upsert({ user_id: auth.user?.id, ...s }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export interface PayRate {
+  id: string;
+  employee_id: string;
+  rate: number;
+  effective_date: string;
+  note: string | null;
+  created_at: string;
+}
+
+export async function listPayRates(): Promise<PayRate[]> {
+  const { data, error } = await supabase.from("employee_pay_rates").select("*").order("effective_date", { ascending: false });
+  if (error) return [];
+  return ((data ?? []) as PayRate[]).map((r) => ({ ...r, rate: Number(r.rate) }));
+}
+
+/** The rate in effect for an employee on a date (history kept; newest first). */
+export function rateOn(rates: PayRate[], employeeId: string, date: string): number | null {
+  const r = rates.filter((x) => x.employee_id === employeeId && x.effective_date <= date).sort((a, b) => b.effective_date.localeCompare(a.effective_date))[0];
+  return r ? r.rate : null;
+}
+
+export async function addPayRate(input: { employee_id: string; rate: number; effective_date: string; note?: string | null }): Promise<void> {
+  const { error } = await supabase
+    .from("employee_pay_rates")
+    .upsert({ ...input, note: input.note?.trim() || null }, { onConflict: "employee_id,effective_date" });
+  if (error) throw error;
+}
+
+export async function deletePayRate(id: string): Promise<void> {
+  const { error } = await supabase.from("employee_pay_rates").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function payPeriodFor(date: string): Promise<{ period_start: string; period_end: string }> {
+  const { data, error } = await supabase.rpc("pay_period_for", { p_date: date });
+  if (error) throw error;
+  return data as { period_start: string; period_end: string };
+}
+
+export interface TimesheetEntry extends LaborEntry {
+  project?: { name: string } | null;
+}
+
+export interface Timesheet {
+  id: string;
+  employee_id: string;
+  period_start: string;
+  period_end: string;
+  status: TimesheetStatus;
+  flag_notes: Record<string, string>;
+  employee_note: string | null;
+  reject_comment: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  employee?: { name: string; email: string } | null;
+  entries?: TimesheetEntry[];
+}
+
+const TS_SELECT = "*, employee:employees(name, email), entries:labor_entries(*, project:projects(name))";
+
+export async function listTimesheets(periodStart: string): Promise<Timesheet[]> {
+  const { data, error } = await supabase.from("timesheets").select(TS_SELECT).eq("period_start", periodStart);
+  if (error) return [];
+  return (data ?? []) as Timesheet[];
+}
+
+export async function getTimesheet(id: string): Promise<Timesheet | null> {
+  const { data, error } = await supabase.from("timesheets").select(TS_SELECT).eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data as Timesheet | null;
+}
+
+export interface TimesheetEvent {
+  id: string;
+  actor: string | null;
+  kind: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  comment: string | null;
+  created_at: string;
+}
+
+export async function listTimesheetEvents(timesheetId: string): Promise<TimesheetEvent[]> {
+  const { data, error } = await supabase.from("timesheet_events").select("*").eq("timesheet_id", timesheetId).order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as TimesheetEvent[];
+}
+
+/** Rain-delay days (0120) inside a range, for the "time on a rained-out day" flag. */
+export async function listRainDays(from: string, to: string): Promise<{ project_id: string; date: string }[]> {
+  const { data, error } = await supabase.from("schedule_delays").select("project_id, delay_date, days").eq("reason", "rain").is("undone_at", null);
+  if (error) return [];
+  const out: { project_id: string; date: string }[] = [];
+  for (const d of (data ?? []) as { project_id: string; delay_date: string; days: number }[]) {
+    for (let i = 0; i < d.days; i++) {
+      const [y, m, dd] = d.delay_date.split("-").map(Number);
+      const x = new Date(y, m - 1, dd + i);
+      const iso = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+      if (iso >= from && iso <= to) out.push({ project_id: d.project_id, date: iso });
+    }
+  }
+  return out;
+}
+
+async function rpcVoid(fn: string, args: Record<string, unknown>) {
+  const { error } = await supabase.rpc(fn, args);
+  if (error) throw error;
+}
+export const approveTimesheet = (id: string) => rpcVoid("approve_timesheet", { p_id: id });
+export const rejectTimesheet = (id: string, comment: string) => rpcVoid("reject_timesheet", { p_id: id, p_comment: comment });
+export const unlockTimesheet = (id: string, reason: string) => rpcVoid("unlock_timesheet", { p_id: id, p_reason: reason });
+export const markPayPeriod = (periodStart: string, exported: boolean, paidOn: string | null) =>
+  rpcVoid("mark_pay_period", { p_period_start: periodStart, p_exported: exported, p_paid_on: paidOn });
+
+export interface PayPeriodRow {
+  period_start: string;
+  period_end: string;
+  exported_at: string | null;
+  paid_on: string | null;
+}
+export async function getPayPeriod(periodStart: string): Promise<PayPeriodRow | null> {
+  const { data } = await supabase.from("pay_periods").select("period_start, period_end, exported_at, paid_on").eq("period_start", periodStart).maybeSingle();
+  return (data as PayPeriodRow | null) ?? null;
+}
+
+export async function runTimesheetReminders(): Promise<number> {
+  const { data, error } = await supabase.rpc("run_timesheet_reminders");
+  if (error) return 0;
+  return (data as number) ?? 0;
+}
+
+// --- Employee side (own time only) -------------------------------------
+
+export interface MyTimeEntry {
+  id: string;
+  project_id: string;
+  project: string;
+  entry_date: string;
+  start_at: string | null;
+  end_at: string | null;
+  break_minutes: number;
+  hours: number;
+  reg_hours: number | null;
+  ot_hours: number | null;
+  note: string | null;
+  source: string;
+}
+
+export interface MyTimesheet {
+  period_start: string;
+  period_end: string;
+  status: TimesheetStatus;
+  reject_comment: string | null;
+  flag_notes: Record<string, string>;
+  locked: boolean;
+  previous: { period_start: string; period_end: string; status: TimesheetStatus } | null;
+  settings: { ot_weekly_hours: number; ot_daily_hours: number | null; long_day_hours: number; week_start: number };
+  entries: MyTimeEntry[];
+  running: { id: string; project_id: string; project: string; start_at: string } | null;
+  projects: { id: string; name: string }[];
+  rain_days: { project_id: string; date: string }[];
+}
+
+export async function getMyTimesheet(date: string): Promise<MyTimesheet> {
+  const { data, error } = await supabase.rpc("my_timesheet", { p_date: date });
+  if (error) throw error;
+  return data as MyTimesheet;
+}
+export const clockIn = (projectId: string, localDate: string) => rpcVoid("time_clock_in", { p_project_id: projectId, p_local_date: localDate });
+export const clockOut = (breakMinutes: number, note: string | null) => rpcVoid("time_clock_out", { p_break_minutes: breakMinutes, p_note: note });
+export async function saveMyTimeEntry(input: { id: string | null; project_id: string; date: string; start_at: string; end_at: string | null; break_minutes: number; note: string | null }): Promise<void> {
+  await rpcVoid("time_save_entry", {
+    p_id: input.id,
+    p_project_id: input.project_id,
+    p_date: input.date,
+    p_start: input.start_at,
+    p_end: input.end_at,
+    p_break_minutes: input.break_minutes,
+    p_note: input.note,
+  });
+}
+export const deleteMyTimeEntry = (id: string) => rpcVoid("time_delete_entry", { p_id: id });
+export const submitMyWeek = (date: string, flagNotes: Record<string, string>, note: string | null) =>
+  rpcVoid("time_submit_week", { p_date: date, p_flag_notes: flagNotes, p_note: note });
+
+/** Owner add / edit of a timed entry on someone's timesheet (logged by the DB trigger). */
+export async function ownerSaveTimeEntry(input: {
+  id: string | null;
+  employee_id: string;
+  worker_name: string;
+  project_id: string;
+  date: string;
+  start_at: string;
+  end_at: string | null;
+  break_minutes: number;
+  note: string | null;
+}): Promise<void> {
+  const row = {
+    project_id: input.project_id,
+    entry_date: input.date,
+    start_at: input.start_at,
+    end_at: input.end_at,
+    break_minutes: input.break_minutes,
+    note: input.note,
+  };
+  const { error } = input.id
+    ? await supabase.from("labor_entries").update(row).eq("id", input.id)
+    : await supabase.from("labor_entries").insert({ ...row, employee_id: input.employee_id, worker_name: input.worker_name, source: "owner", hours: 0, cost: 0 });
   if (error) throw error;
 }

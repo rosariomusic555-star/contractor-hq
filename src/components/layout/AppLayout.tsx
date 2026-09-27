@@ -14,6 +14,7 @@ import { runQuoteColdChecks, runReviewChecks } from "@/lib/api";
 import { runWeatherRiskAlerts } from "@/lib/forecast";
 import { runPreconChecks } from "@/components/precon/usePrecon";
 import { runMaintenanceChecks } from "@/components/maintenance/useMaintenance";
+import { runTimesheetReminders } from "@/lib/api";
 
 export function AppLayout() {
   const { session, loading, role } = useAuth();
@@ -59,6 +60,10 @@ export function AppLayout() {
     // Maintenance reminders (0127) — reschedule finished ones, then due-soon reminders.
     void runMaintenanceChecks().then((n) => {
       qc.invalidateQueries({ queryKey: ["maintenance-items"] });
+      if (n > 0) qc.invalidateQueries({ queryKey: ["notifications"] });
+    });
+    // Timesheets (0131) — "N timesheets waiting for approval".
+    void runTimesheetReminders().then((n) => {
       if (n > 0) qc.invalidateQueries({ queryKey: ["notifications"] });
     });
     void runWeatherRiskAlerts().then((n) => {

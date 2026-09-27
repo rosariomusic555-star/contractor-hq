@@ -442,6 +442,9 @@ export function ProjectDetailView() {
   const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
   const laborActualTotal = laborEntries.reduce((s, e) => s + Number(e.cost), 0);
   const laborActualHours = laborEntries.reduce((s, e) => s + Number(e.hours), 0);
+  const laborPending = laborEntries
+    .filter((e) => e.timesheet_id && e.timesheet?.status !== "approved")
+    .reduce((s, e) => s + Number(e.cost), 0);
   const laborPlannedHours = materials.reduce((s, sec) => s + sectionLaborHours(sec), 0);
 
   // The Cost plan is the source of truth for predicted cost — every
@@ -816,6 +819,17 @@ export function ProjectDetailView() {
                     : "your current overhead (this job has no stored rate)",
             }}
           />
+          {/* Timesheets (0131): labor from timesheets not yet approved is
+              already in the actual cost above (same rate / overtime / burden
+              math) — say how much of it is still pending. */}
+          {laborPending > 0 && (
+            <p className="-mt-3 px-1 text-xs text-warning-strong">
+              Includes {formatCurrency(laborPending)} of labor from timesheets not approved yet.{" "}
+              <Link to="/timesheets" className="font-semibold underline">
+                Review timesheets
+              </Link>
+            </p>
+          )}
 
           {/* Planned vs actual + job context + closeout (Feature 5) — after
               Won; before that just the job context chips. Internal only. */}

@@ -89,13 +89,14 @@ export function ProjectLaborView() {
     if (n > 0) setLogHours(String(Math.round(n * 100) / 100));
   };
 
+  // Timesheets (0131): hours for an employee with a login go on their
+  // timesheet and are costed in the DB from their pay rate (+ overtime,
+  // burden) — no rate or cost is typed here. Other workers keep the old
+  // typed rate / cost.
+  const pickedEmployee = logWorker !== CUSTOM_WORKER;
   const onEmployeePick = (value: string) => {
     setLogWorker(value);
-    if (value !== CUSTOM_WORKER) {
-      const emp = employees.find((e) => e.id === value);
-      const rate = emp?.default_hourly_rate ?? businessProfile?.default_labor_rate;
-      if (rate != null) setLogRate(String(rate));
-    }
+    if (value === CUSTOM_WORKER && !logRate && businessProfile?.default_labor_rate != null) setLogRate(String(businessProfile.default_labor_rate));
   };
 
   const logCostComputed = logRate && logHours ? Number(logHours) * Number(logRate) : null;
@@ -103,8 +104,8 @@ export function ProjectLaborView() {
   const logMut = useMutation({
     mutationFn: () => {
       const hours = parseFloat(logHours);
-      const rate = logRate ? parseFloat(logRate) : null;
-      const cost = logCostComputed ?? (parseFloat(logCost) || 0);
+      const rate = pickedEmployee ? null : logRate ? parseFloat(logRate) : null;
+      const cost = pickedEmployee ? 0 : (logCostComputed ?? (parseFloat(logCost) || 0));
       return createLaborEntry({
         project_id: id,
         category_id:
@@ -312,18 +313,26 @@ export function ProjectLaborView() {
             <Label>Hours</Label>
             <Input type="number" step="0.25" min="0" value={logHours} onChange={(e) => setLogHours(e.target.value)} placeholder="8" />
           </div>
-          <div className="space-y-1.5">
-            <Label>Rate ($/hr, optional)</Label>
-            <Input type="number" step="0.01" min="0" value={logRate} onChange={(e) => setLogRate(e.target.value)} placeholder="—" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Cost</Label>
-            {logCostComputed != null ? (
-              <p className="flex h-10 items-center text-sm font-semibold text-foreground">{formatCurrency(logCostComputed)}</p>
-            ) : (
-              <Input type="number" step="0.01" min="0" value={logCost} onChange={(e) => setLogCost(e.target.value)} placeholder="0.00" />
-            )}
-          </div>
+          {pickedEmployee ? (
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Goes on their timesheet. Cost comes from their pay rate, overtime and payroll burden — pending until the timesheet is approved.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label>Rate ($/hr, optional)</Label>
+                <Input type="number" step="0.01" min="0" value={logRate} onChange={(e) => setLogRate(e.target.value)} placeholder="—" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cost</Label>
+                {logCostComputed != null ? (
+                  <p className="flex h-10 items-center text-sm font-semibold text-foreground">{formatCurrency(logCostComputed)}</p>
+                ) : (
+                  <Input type="number" step="0.01" min="0" value={logCost} onChange={(e) => setLogCost(e.target.value)} placeholder="0.00" />
+                )}
+              </div>
+            </>
+          )}
           <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
             <Label>Note (optional)</Label>
             <Input value={logNote} onChange={(e) => setLogNote(e.target.value)} placeholder="e.g. Base prep, set pavers" />
@@ -370,7 +379,13 @@ export function ProjectLaborView() {
                       {e.employee_id ? (employees.find((emp) => emp.id === e.employee_id)?.name ?? "—") : (e.worker_name ?? "—")}
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums text-foreground">{Number(e.hours)}</td>
-                    <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-foreground">{formatCurrency(Number(e.cost))}</td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-foreground">
+                      {formatCurrency(Number(e.cost))}
+                      {e.timesheet_id && e.timesheet?.status !== "approved" && (
+                        <span className="block text-[10px] font-semibold text-warning-strong">pending approval</span>
+                      )}
+                      {e.timesheet_id && e.hourly_rate == null && Number(e.hours) > 0 && <span className="block text-[10px] font-semibold text-destructive">no pay rate</span>}
+                    </td>
                     <td className="px-2 py-2">
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
