@@ -79,6 +79,8 @@ import { SettingsWeatherView } from "@/components/views/SettingsWeatherView";
 import { SettingsMessagesView } from "@/components/views/SettingsMessagesView";
 import { SettingsReviewsView } from "@/components/views/SettingsReviewsView";
 import { SettingsPreconView } from "@/components/views/SettingsPreconView";
+import { SettingsProgressView } from "@/components/views/SettingsProgressView";
+import { PortfolioView } from "@/components/views/PortfolioView";
 import { EmployeeWorkOrderPage, WorkOrderPreviewPage } from "@/components/views/WorkOrderPage";
 import { NotificationsView } from "@/components/views/NotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
@@ -233,6 +235,8 @@ const router = createBrowserRouter(
         <Route path="/settings/messages" element={<SettingsMessagesView />} />
         <Route path="/settings/reviews" element={<SettingsReviewsView />} />
         <Route path="/settings/precon" element={<SettingsPreconView />} />
+        <Route path="/settings/progress" element={<SettingsProgressView />} />
+        <Route path="/portfolio" element={<PortfolioView />} />
         {/* Crew work order (0125) — the owner's preview of the crew page. */}
         <Route path="/projects/:id/work-order" element={<WorkOrderPreviewPage />} />
         <Route path="/notifications" element={<NotificationsView />} />

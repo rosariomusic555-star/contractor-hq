@@ -50,6 +50,7 @@ import { PortalPhotoGrid } from "./PortalPhotoGrid";
 import { ProjectMoneyBlocks } from "@/components/client-hub/ProjectMoneyBlocks";
 import { ProjectHistoryTimeline } from "@/components/client-hub/ProjectHistoryTimeline";
 import { ScheduleUpdatesCard } from "@/components/client-hub/ScheduleUpdatesCard";
+import { ProgressSection } from "@/components/client-hub/ProgressSection";
 import { ReviewCard } from "@/components/client-hub/ReviewCard";
 import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
@@ -122,6 +123,8 @@ export function PortalProjectOverview() {
 
       {/* Schedule updates (0121) — the latest change, top of the page */}
       <ScheduleUpdatesCard detail={detail} />
+      {/* Progress updates (0126) — shared updates, milestones, before & after. */}
+      <ProgressSection detail={detail} projectId={id} signUrls={getPortalSignedImageUrls} interactive />
 
       {/* Pending approvals — prominent, top of page */}
       {(pendingQuotes.length > 0 || pendingChangeOrders.length > 0) && (
