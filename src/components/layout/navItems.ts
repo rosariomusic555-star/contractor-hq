@@ -13,6 +13,7 @@ import {
   Layers,
   Wallet,
   Clock,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -35,6 +36,7 @@ export const navItems: NavItem[] = [
   { to: "/expenses", label: "Expenses", icon: Wallet },
   { to: "/timesheets", label: "Timesheets", icon: Clock },
   { to: "/revenue", label: "Revenue", icon: TrendingUp },
+  { to: "/business-health", label: "Business health", icon: Activity },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
@@ -52,6 +54,6 @@ export const navGroups: NavGroup[] = [
   { label: "Overview", items: ["/dashboard"].map(byTo) },
   { label: "Work", items: ["/projects", "/materials", "/quotes", "/invoices", "/expenses", "/timesheets"].map(byTo) },
   { label: "Pipeline", items: ["/pipeline", "/tasks", "/appointments", "/communications"].map(byTo) },
-  { label: "Money", items: ["/revenue"].map(byTo) },
+  { label: "Money", items: ["/revenue", "/business-health"].map(byTo) },
   { label: "Business", items: ["/clients", "/settings"].map(byTo) },
 ];

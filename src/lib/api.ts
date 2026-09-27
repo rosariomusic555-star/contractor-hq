@@ -8277,3 +8277,64 @@ export async function ownerSaveTimeEntry(input: {
     : await supabase.from("labor_entries").insert({ ...row, employee_id: input.employee_id, worker_name: input.worker_name, source: "owner", hours: 0, cost: 0 });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Business health (0132) — settings for capacity + forecast. Every read
+// falls back to defaults before the migration runs. Math:
+// src/lib/businessHealth.ts.
+// ---------------------------------------------------------------------------
+
+export interface BusinessHealthSettings {
+  invoice_due_days: number;
+  stage_probabilities: Record<string, number>;
+}
+
+export async function getBusinessHealthSettings(): Promise<BusinessHealthSettings> {
+  const { DEFAULT_STAGE_PROBABILITIES } = await import("./businessHealth");
+  const { data, error } = await supabase.from("business_health_settings").select("invoice_due_days, stage_probabilities").maybeSingle();
+  if (error || !data) return { invoice_due_days: 14, stage_probabilities: DEFAULT_STAGE_PROBABILITIES };
+  return { invoice_due_days: Number(data.invoice_due_days), stage_probabilities: { ...DEFAULT_STAGE_PROBABILITIES, ...(data.stage_probabilities ?? {}) } };
+}
+
+export async function saveBusinessHealthSettings(s: BusinessHealthSettings): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("business_health_settings").upsert({ user_id: auth.user?.id, ...s }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export interface Holiday {
+  id: string;
+  date: string;
+  name: string;
+}
+export async function listHolidays(): Promise<Holiday[]> {
+  const { data, error } = await supabase.from("holidays").select("id, date, name").order("date");
+  if (error) return [];
+  return (data ?? []) as Holiday[];
+}
+export async function addHoliday(date: string, name: string): Promise<void> {
+  const { error } = await supabase.from("holidays").upsert({ date, name: name.trim() || "Holiday" }, { onConflict: "user_id,date" });
+  if (error) throw error;
+}
+export async function deleteHoliday(id: string): Promise<void> {
+  const { error } = await supabase.from("holidays").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Crews with their working weekdays (0132); Mon–Fri before the migration. */
+export async function listCrewsWithWorkDays(): Promise<(Crew & { work_days: number[] })[]> {
+  const { data, error } = await supabase.from("crews").select("id, name, lead, sort_order, work_days").order("sort_order").order("name");
+  if (!error) return (data ?? []) as (Crew & { work_days: number[] })[];
+  return (await listCrews()).map((c) => ({ ...c, work_days: [1, 2, 3, 4, 5] }));
+}
+export async function setCrewWorkDays(crewId: string, workDays: number[]): Promise<void> {
+  const { error } = await supabase.from("crews").update({ work_days: [...workDays].sort() }).eq("id", crewId);
+  if (error) throw error;
+}
+
+/** Labor entries across all jobs since a date, with their timesheet status (payroll run-rate). */
+export async function listLaborEntriesSince(date: string): Promise<LaborEntry[]> {
+  const { data, error } = await supabase.from("labor_entries").select("*, timesheet:timesheets(status)").gte("entry_date", date);
+  if (error) return [];
+  return (data ?? []) as LaborEntry[];
+}

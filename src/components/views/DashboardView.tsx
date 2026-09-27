@@ -11,6 +11,7 @@ import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { WeatherStrip } from "@/components/dashboard/WeatherStrip";
 import { WeatherRisksCard } from "@/components/dashboard/WeatherRisksCard";
 import { MaintenanceDueCard } from "@/components/dashboard/MaintenanceDueCard";
+import { BusinessHealthCard } from "@/components/dashboard/BusinessHealthCard";
 import { UpdatesToReviewCard } from "@/components/dashboard/UpdatesToReviewCard";
 import { BookingsCard } from "@/components/dashboard/BookingsCard";
 import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliveriesCard";
@@ -196,6 +197,9 @@ export function DashboardView() {
 
       {/* ---- Scheduled jobs with risky work days (hidden when none) ---- */}
       <WeatherRisksCard />
+
+      {/* Business health one-liner (0132) → the full page. */}
+      <BusinessHealthCard />
 
       {/* Crew progress posts waiting to be shared (0126) — hidden when none. */}
       <UpdatesToReviewCard />

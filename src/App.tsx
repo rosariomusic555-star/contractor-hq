@@ -82,6 +82,8 @@ import { SettingsPreconView } from "@/components/views/SettingsPreconView";
 import { SettingsProgressView } from "@/components/views/SettingsProgressView";
 import { SettingsMaintenanceView } from "@/components/views/SettingsMaintenanceView";
 import { SettingsPayrollView } from "@/components/views/SettingsPayrollView";
+import { SettingsBusinessHealthView } from "@/components/views/SettingsBusinessHealthView";
+import { BusinessHealthView } from "@/components/health/BusinessHealthView";
 import { TimesheetsView } from "@/components/timesheets/TimesheetsView";
 import { TimesheetDetailView } from "@/components/timesheets/TimesheetDetailView";
 import { PayrollView } from "@/components/timesheets/PayrollView";
@@ -244,6 +246,8 @@ const router = createBrowserRouter(
         <Route path="/settings/progress" element={<SettingsProgressView />} />
         <Route path="/settings/maintenance" element={<SettingsMaintenanceView />} />
         <Route path="/settings/payroll" element={<SettingsPayrollView />} />
+        <Route path="/settings/business-health" element={<SettingsBusinessHealthView />} />
+        <Route path="/business-health" element={<BusinessHealthView />} />
         <Route path="/timesheets" element={<TimesheetsView />} />
         <Route path="/timesheets/payroll/:start" element={<PayrollView />} />
         <Route path="/timesheets/:id" element={<TimesheetDetailView />} />
