@@ -109,6 +109,10 @@ interface ProjectRef {
 export interface Project {
   id: string;
   user_id: string;
+  /** 0122 — set when the project becomes Complete. */
+  completed_at?: string | null;
+  /** 0127 — "No maintenance reminders" for this job. */
+  maintenance_dismissed?: boolean;
   /** Structured job context (0114) — comparable across jobs. */
   job_slope?: "flat" | "slight" | "moderate" | "steep" | null;
   job_access?: "easy" | "tight" | "difficult" | null;
@@ -5390,6 +5394,8 @@ export interface Opportunity {
   last_contact_date: string | null;
   quote_id: string | null;
   project_id: string | null;
+  /** 0127 — a maintenance lead: the original job it came from. */
+  source_project_id?: string | null;
   created_at: string;
   updated_at: string;
   client?: { name: string } | null;
@@ -6992,6 +6998,8 @@ export interface NotificationSettings {
   review_activity: boolean;
   /** Pre-construction (0124) — required items open close to the start date. */
   precon: boolean;
+  /** Maintenance reminders (0127) — due soon, and client service requests. */
+  maintenance: boolean;
 }
 
 export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
@@ -7004,6 +7012,7 @@ export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
   weather_risk: true,
   review_activity: true,
   precon: true,
+  maintenance: true,
 };
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {
@@ -7030,7 +7039,10 @@ export type AutomationTrigger =
   // Pre-construction checklist (0124)
   | "precon_overdue"
   | "precon_ready"
-  | "locate_expiring";
+  | "locate_expiring"
+  // Maintenance reminders (0127)
+  | "maintenance_due"
+  | "maintenance_overdue";
 
 export interface AutomationRule {
   id: string;
@@ -7776,4 +7788,148 @@ export async function setClientMarketingOk(clientId: string, ok: boolean | null)
 export async function getClientMarketingOk(clientId: string): Promise<boolean | null> {
   const { data } = await supabase.from("clients").select("marketing_ok").eq("id", clientId).maybeSingle();
   return (data?.marketing_ok as boolean | null) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Maintenance reminders (0127). Math: src/lib/maintenance.ts.
+// ---------------------------------------------------------------------------
+
+export interface MaintenanceTemplate {
+  id: string;
+  build_type: string;
+  label: string;
+  description: string | null;
+  interval_months: number | null;
+  interval_months_max: number | null;
+  as_needed: boolean;
+  remind_month: number | null;
+  sort_order: number;
+  active: boolean;
+}
+
+export async function listMaintenanceTemplates(): Promise<MaintenanceTemplate[]> {
+  await supabase.rpc("maintenance_seed_templates");
+  const { data, error } = await supabase.from("maintenance_templates").select("*").order("build_type").order("sort_order");
+  if (error) return [];
+  return (data ?? []) as MaintenanceTemplate[];
+}
+
+export async function saveMaintenanceTemplate(t: Partial<MaintenanceTemplate> & { build_type: string; label: string }): Promise<void> {
+  const { id, ...row } = t;
+  const q = id ? supabase.from("maintenance_templates").update(row).eq("id", id) : supabase.from("maintenance_templates").insert(row);
+  const { error } = await q;
+  if (error) throw error;
+}
+
+export async function deleteMaintenanceTemplate(id: string): Promise<void> {
+  const { error } = await supabase.from("maintenance_templates").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export interface MaintenanceSettings {
+  lead_days: number;
+  warranties: Record<string, number>;
+}
+
+export async function getMaintenanceSettings(): Promise<MaintenanceSettings> {
+  const { data, error } = await supabase.from("maintenance_settings").select("lead_days, warranties").maybeSingle();
+  if (error || !data) return { lead_days: 30, warranties: {} };
+  return data as MaintenanceSettings;
+}
+
+export async function saveMaintenanceSettings(patch: Partial<MaintenanceSettings>): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("maintenance_settings").upsert({ user_id: auth.user?.id, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export interface MaintenanceItem {
+  id: string;
+  project_id: string;
+  feature_id: string | null;
+  template_id: string | null;
+  label: string;
+  description: string | null;
+  interval_months: number | null;
+  as_needed: boolean;
+  remind_month: number | null;
+  next_due: string | null;
+  snoozed_until: string | null;
+  status: "active" | "stopped";
+  opportunity_id: string | null;
+  last_done_on: string | null;
+  created_at: string;
+  project?: { name: string; status: ProjectStatus; completed_at: string | null; client_id: string | null; client?: { name: string; phone: string | null; email: string | null; maintenance_opt_out: boolean } | null } | null;
+  events?: { id: string; kind: string; note: string | null; created_at: string }[];
+}
+
+const MAINT_SELECT = "*, project:projects(name, status, completed_at, client_id, client:clients(name, phone, email, maintenance_opt_out)), events:maintenance_events(id, kind, note, created_at)";
+
+export async function listMaintenanceItems(projectId?: string): Promise<MaintenanceItem[]> {
+  let q = supabase.from("project_maintenance_items").select(MAINT_SELECT).order("next_due", { ascending: true, nullsFirst: false });
+  if (projectId) q = q.eq("project_id", projectId);
+  const { data, error } = await q;
+  if (error) return [];
+  return ((data ?? []) as MaintenanceItem[]).map((i) => ({ ...i, events: (i.events ?? []).sort((a, b) => b.created_at.localeCompare(a.created_at)) }));
+}
+
+/** The completion step's confirm: items + warranty end dates. */
+export async function createMaintenanceItems(
+  projectId: string,
+  items: { feature_id: string | null; template_id: string | null; label: string; description: string | null; interval_months: number | null; as_needed: boolean; remind_month: number | null; next_due: string | null }[],
+  warranties: { feature_id: string; ends_on: string | null }[],
+): Promise<void> {
+  if (items.length) {
+    const { data, error } = await supabase
+      .from("project_maintenance_items")
+      .insert(items.map((i) => ({ ...i, project_id: projectId })))
+      .select("id");
+    if (error) throw error;
+    await supabase.from("maintenance_events").insert((data ?? []).map((r) => ({ item_id: r.id, kind: "set_up" })));
+  }
+  for (const w of warranties) {
+    await supabase.from("project_features").update({ warranty_ends_on: w.ends_on }).eq("id", w.feature_id);
+  }
+}
+
+export async function updateMaintenanceItem(
+  id: string,
+  patch: Partial<Pick<MaintenanceItem, "next_due" | "snoozed_until" | "status" | "last_done_on" | "opportunity_id" | "label" | "description">>,
+): Promise<void> {
+  const { error } = await supabase.from("project_maintenance_items").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function addMaintenanceEvent(itemId: string, kind: "reached_out" | "snoozed" | "skipped" | "done" | "stopped", note: string | null = null): Promise<void> {
+  await supabase.from("maintenance_events").insert({ item_id: itemId, kind, note });
+}
+
+export async function createMaintenanceOpportunity(projectId: string, itemIds: string[] | null): Promise<string> {
+  const { data, error } = await supabase.rpc("create_maintenance_opportunity", { p_project_id: projectId, p_item_ids: itemIds });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function dismissMaintenanceSetup(projectId: string): Promise<void> {
+  const { error } = await supabase.from("projects").update({ maintenance_dismissed: true }).eq("id", projectId);
+  if (error) throw error;
+}
+
+export async function runMaintenanceChecksRpc(): Promise<number> {
+  const { data, error } = await supabase.rpc("run_maintenance_checks");
+  if (error) return 0;
+  return (data as number) ?? 0;
+}
+
+/** Warranty end per feature (0127) — separate from listProjectFeatures so
+ * that stays working before the migration. */
+export async function listFeatureWarranties(projectId: string): Promise<{ id: string; warranty_ends_on: string }[]> {
+  const { data, error } = await supabase
+    .from("project_features")
+    .select("id, warranty_ends_on")
+    .eq("project_id", projectId)
+    .neq("status", "removed")
+    .not("warranty_ends_on", "is", null);
+  if (error) return [];
+  return (data ?? []) as { id: string; warranty_ends_on: string }[];
 }

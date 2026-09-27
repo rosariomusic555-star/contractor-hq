@@ -57,6 +57,11 @@ const raw = withLeaks({
     before_after: [withLeaks({ feature: "f1", before: "projects/p/b.jpg", after: "projects/p/c.jpg" })],
     marketing_ok: null,
   }),
+  care: withLeaks({
+    items: [withLeaks({ label: "Clean & reseal", description: "Keeps it new", as_needed: false, next_month: "2028-04", feature: "Patio" })],
+    warranties: [withLeaks({ feature: "Patio", ends_on: "2031-09-15" })],
+    opted_out: false,
+  }),
   schedule_updates: [withLeaks({ id: "su", posted_at: "x", reason: "rain", from_start: "2026-10-01", from_end: "2026-10-06", to_start: "2026-10-02", to_end: "2026-10-07" })],
 }) as unknown as PortalProjectDetail;
 
@@ -73,7 +78,7 @@ describe("client-facing serializer", () => {
   });
 
   it("only ever outputs whitelisted keys", () => {
-    const whitelisted = new Set<string>([...Object.values(CLIENT_FIELDS).flat(), "project", "business", "client", "quotes", "change_orders", "invoices", "payments", "versions", "money", "photos", "deliveries", "events", "schedule_updates", "review", "progress", "paver_patio"]);
+    const whitelisted = new Set<string>([...Object.values(CLIENT_FIELDS).flat(), "project", "business", "client", "quotes", "change_orders", "invoices", "payments", "versions", "money", "photos", "deliveries", "events", "schedule_updates", "review", "progress", "paver_patio", "care"]);
     const unknown = [...allKeys(clientSafeProjectDetail(raw))].filter((k) => !whitelisted.has(k));
     expect(unknown).toEqual([]);
   });
@@ -87,6 +92,7 @@ describe("client-facing serializer", () => {
     expect(d.deliveries[0].supplier).toBe("Stone Co");
     expect(d.review).toEqual({ link_path: "/r/tok" });
     expect(d.progress?.updates[0]).toEqual({ id: "u1", date: "x", text: "Base done", milestone: "Base installed", feature: "f1", photos: ["projects/p/a.jpg"], liked: true, comments: [{ author: "client", name: "Pat", body: "Looks great", created_at: "x" }] });
+    expect(d.care?.items[0]).toEqual({ label: "Clean & reseal", description: "Keeps it new", as_needed: false, next_month: "2028-04", feature: "Patio" });
     expect(d.progress?.before_after[0]).toEqual({ feature: "f1", before: "projects/p/b.jpg", after: "projects/p/c.jpg" });
     expect(d.schedule_updates?.[0]).toEqual({ id: "su", posted_at: "x", reason: "rain", from_start: "2026-10-01", from_end: "2026-10-06", to_start: "2026-10-02", to_end: "2026-10-07" });
     const g = d.quotes[0].sections[0].selections![0];

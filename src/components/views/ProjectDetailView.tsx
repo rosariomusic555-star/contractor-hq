@@ -151,6 +151,7 @@ import { ProjectReviewCard } from "@/components/reviews/ProjectReviewCard";
 import { PreconCard } from "@/components/precon/PreconCard";
 import { CrewWorkOrderCard } from "@/components/workorder/CrewWorkOrderCard";
 import { ProgressUpdatesCard } from "@/components/progress/ProgressUpdatesCard";
+import { MaintenanceCard } from "@/components/maintenance/MaintenanceCard";
 import type { PreconBundle } from "@/lib/preconSignals";
 import {
   AlertDialog,
@@ -943,6 +944,8 @@ export function ProjectDetailView() {
 
           {/* Google review request (0122) — completed jobs with a client. */}
           {project.status === "complete" && project.client_id && <ProjectReviewCard projectId={project.id} />}
+          {/* Care & maintenance (0127) — reminders to bring past clients back. */}
+          {project.status === "complete" && project.client_id && <MaintenanceCard project={project} />}
 
           <section id="schedule-card" className="card-surface scroll-mt-4 p-5">
             <div className="flex items-center justify-between gap-2">
