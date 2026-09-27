@@ -16,3 +16,15 @@ export function useRainDelay(): ((t: RainDelayTarget) => void) | null {
   const { role } = useAuth();
   return role === "owner" ? open : null;
 }
+
+/** Client heads-up (0121): which schedule updates the sheet works through. */
+export type HeadsUpTarget = { ids: string[] } | { projectId: string };
+
+export const HeadsUpContext = createContext<((t: HeadsUpTarget) => void) | null>(null);
+
+/** Opens the heads-up sheet — null for employees. */
+export function useHeadsUp(): ((t: HeadsUpTarget) => void) | null {
+  const open = useContext(HeadsUpContext);
+  const { role } = useAuth();
+  return role === "owner" ? open : null;
+}

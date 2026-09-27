@@ -49,6 +49,7 @@ import { clientGroupLike, clientQuoteTotal, missingRequired, priceLabel, section
 import { PortalPhotoGrid } from "./PortalPhotoGrid";
 import { ProjectMoneyBlocks } from "@/components/client-hub/ProjectMoneyBlocks";
 import { ProjectHistoryTimeline } from "@/components/client-hub/ProjectHistoryTimeline";
+import { ScheduleUpdatesCard } from "@/components/client-hub/ScheduleUpdatesCard";
 import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 
@@ -117,6 +118,9 @@ export function PortalProjectOverview() {
           </span>
         </div>
       </div>
+
+      {/* Schedule updates (0121) — the latest change, top of the page */}
+      <ScheduleUpdatesCard detail={detail} />
 
       {/* Pending approvals — prominent, top of page */}
       {(pendingQuotes.length > 0 || pendingChangeOrders.length > 0) && (

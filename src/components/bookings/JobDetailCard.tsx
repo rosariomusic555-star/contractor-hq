@@ -11,6 +11,7 @@ import type { BookingJob } from "@/lib/bookings";
 import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 import { CrewSelect } from "@/components/schedule/CrewSelect";
 import { ScheduleMenu } from "@/components/schedule/ScheduleMenu";
+import { HeadsUpReminder } from "@/components/schedule/HeadsUpReminder";
 
 /**
  * One job's full detail, as a card — the unit the Year view's side panel
@@ -83,6 +84,8 @@ export function JobDetailCard({
           />
         </div>
       </div>
+
+      <HeadsUpReminder projectId={job.projectId} />
 
       <div className="mt-2 space-y-1">
         <Label className="text-[11px] font-semibold text-muted-foreground">Crew</Label>
