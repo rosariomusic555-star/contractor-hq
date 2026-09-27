@@ -1,3 +1,4 @@
+import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { NavLink } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ export function Sidebar() {
           <h1 className="text-sm font-bold leading-tight text-foreground">ContractorPro</h1>
           <p className="text-[11px] text-muted-subtle">Business Manager</p>
         </div>
+        <NotificationsBell />
       </div>
 
       {/* Navigation */}

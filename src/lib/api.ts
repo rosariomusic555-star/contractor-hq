@@ -359,6 +359,14 @@ export interface Quote {
   overhead_rate?: number | null;
   target_margin_pct?: number | null;
   kind?: "original" | "addon";
+  /** Quote activity (0117) — client engagement rollups, internal only. */
+  sent_at?: string | null;
+  view_count?: number;
+  first_viewed_at?: string | null;
+  last_viewed_at?: string | null;
+  last_view_device?: "mobile" | "tablet" | "desktop" | null;
+  last_activity_at?: string | null;
+  selections_changed_at?: string | null;
   status: QuoteStatus;
   deposit_percentage: number;
   notes: string | null;
@@ -5159,6 +5167,8 @@ export type ActivityKind =
   | "quote_created"
   | "quote_sent"
   | "quote_viewed"
+  | "quote_selection_changed"
+  | "quote_optional_changed"
   | "proposal_approved"
   | "proposal_rejected"
   | "opportunity_won"
@@ -6831,4 +6841,138 @@ export async function listEmployeeProjectSelections(projectId: string): Promise<
   const { data, error } = await supabase.rpc("employee_project_selections", { p_project_id: projectId });
   if (error) return [];
   return (data ?? []) as { section: string; group: string; choices: string[] }[];
+}
+
+// ---------------------------------------------------------------------------
+// Quote activity tracking (0117) — internal only.
+// ---------------------------------------------------------------------------
+
+export interface QuoteViewSession {
+  id: string;
+  quote_id: string;
+  version: number | null;
+  channel: "hub" | "link";
+  device: "mobile" | "tablet" | "desktop";
+  started_at: string;
+  last_seen_at: string;
+  active_seconds: number;
+  sections: string[];
+}
+
+export interface QuoteActivityEvent {
+  id: string;
+  quote_id: string;
+  session_id: string | null;
+  version: number | null;
+  kind: "opened" | "selection_changed" | "optional_changed" | "pdf_downloaded" | "approved" | "declined";
+  summary: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function listQuoteActivity(quoteId: string): Promise<{ sessions: QuoteViewSession[]; events: QuoteActivityEvent[] }> {
+  const [s, e] = await Promise.all([
+    supabase.from("quote_view_sessions").select("*").eq("quote_id", quoteId).order("started_at", { ascending: false }),
+    supabase.from("quote_activity_events").select("*").eq("quote_id", quoteId).order("created_at", { ascending: false }),
+  ]);
+  return { sessions: (s.data ?? []) as QuoteViewSession[], events: (e.data ?? []) as QuoteActivityEvent[] };
+}
+
+/** Share-link tracking (anon). The page skips it while signed in to the app. */
+export async function trackSharedQuoteView(token: string, sessionKey: string, device: string, activeSeconds: number, sections: string[]): Promise<void> {
+  await supabase.rpc("track_shared_quote_view", { p_token: token, p_session_key: sessionKey, p_device: device, p_active_seconds: activeSeconds, p_sections: sections });
+}
+
+export async function trackSharedQuoteEvent(token: string, sessionKey: string, kind: "pdf_downloaded" | "optional_changed", detail: Record<string, unknown> = {}): Promise<void> {
+  await supabase.rpc("track_quote_event", { p_quote_id: null, p_token: token, p_session_key: sessionKey, p_kind: kind, p_detail: detail });
+}
+
+export interface AppNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  quote_id: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export async function listNotifications(limit = 30): Promise<AppNotification[]> {
+  const { data, error } = await supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(limit);
+  if (error) return [];
+  return (data ?? []) as AppNotification[];
+}
+
+export async function markNotificationsRead(ids?: string[]): Promise<void> {
+  let q = supabase.from("notifications").update({ read_at: new Date().toISOString() }).is("read_at", null);
+  if (ids?.length) q = q.in("id", ids);
+  const { error } = await q;
+  if (error) throw error;
+}
+
+export interface NotificationSettings {
+  quote_first_open: boolean;
+  quote_selections: boolean;
+  quote_decided: boolean;
+  quote_viewed_again: boolean;
+  cold_unopened_days: number;
+  cold_unsigned_days: number;
+}
+
+export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
+  quote_first_open: true,
+  quote_selections: true,
+  quote_decided: true,
+  quote_viewed_again: true,
+  cold_unopened_days: 3,
+  cold_unsigned_days: 5,
+};
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  const { data, error } = await supabase.from("notification_settings").select("*").maybeSingle();
+  if (error || !data) return NOTIFICATION_SETTINGS_DEFAULTS;
+  return { ...NOTIFICATION_SETTINGS_DEFAULTS, ...(data as Partial<NotificationSettings>) };
+}
+
+export async function saveNotificationSettings(patch: Partial<NotificationSettings>): Promise<void> {
+  const current = await getNotificationSettings();
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("notification_settings").upsert({ user_id: auth.user?.id, ...current, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export type AutomationTrigger = "quote_viewed" | "quote_not_opened" | "quote_viewed_not_signed";
+
+export interface AutomationRule {
+  id: string;
+  trigger: AutomationTrigger;
+  enabled: boolean;
+  task_title: string;
+  task_type: string;
+  due_in_days: number;
+}
+
+export async function listAutomationRules(): Promise<AutomationRule[]> {
+  const { data, error } = await supabase.from("automation_rules").select("*").order("created_at");
+  if (error) return [];
+  return (data ?? []) as AutomationRule[];
+}
+
+export async function saveAutomationRule(rule: Omit<AutomationRule, "id"> & { id?: string }): Promise<void> {
+  const row = { trigger: rule.trigger, enabled: rule.enabled, task_title: rule.task_title.trim(), task_type: rule.task_type, due_in_days: rule.due_in_days };
+  const { error } = rule.id ? await supabase.from("automation_rules").update(row).eq("id", rule.id) : await supabase.from("automation_rules").insert(row);
+  if (error) throw error;
+}
+
+export async function deleteAutomationRule(id: string): Promise<void> {
+  const { error } = await supabase.from("automation_rules").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** "Going cold" automation checks — idempotent; run on app load. */
+export async function runQuoteColdChecks(): Promise<number> {
+  const { data, error } = await supabase.rpc("run_quote_cold_checks");
+  if (error) return 0;
+  return Number(data) || 0;
 }

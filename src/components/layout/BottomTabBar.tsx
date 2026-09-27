@@ -1,3 +1,4 @@
+import { useNotifications } from "@/hooks/use-notifications";
 import { useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -14,6 +15,7 @@ import {
   TrendingUp,
   Users,
   MoreHorizontal,
+  Bell,
   LogOut,
   Kanban,
   ListChecks,
@@ -71,6 +73,7 @@ export function BottomTabBar() {
   const [createOpen, setCreateOpen] = useState(false);
   const [pickingProjectForCO, setPickingProjectForCO] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const { unread } = useNotifications();
 
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
 
@@ -118,8 +121,9 @@ export function BottomTabBar() {
           onClick={() => setMoreOpen(true)}
           className="flex flex-1 flex-col items-center gap-[3px] py-1.5 text-[10px] font-semibold text-muted-foreground transition-colors"
         >
-          <span className="flex h-[30px] w-12 items-center justify-center rounded-full">
+          <span className="relative flex h-[30px] w-12 items-center justify-center rounded-full">
             <MoreHorizontal className="h-5 w-5" />
+            {unread > 0 && <span className="absolute right-2 top-0.5 h-2 w-2 rounded-full bg-destructive" aria-label={`${unread} unread notifications`} />}
           </span>
           More
         </button>
@@ -202,6 +206,11 @@ export function BottomTabBar() {
         <SheetContent side="bottom" className="rounded-t-card border-border pb-[max(env(safe-area-inset-bottom),1rem)]">
           <div className="mx-auto w-full max-w-sm space-y-1 pt-2">
             <h2 className="px-1 pb-2 text-base font-bold text-foreground">More</h2>
+            <ActionRow
+              icon={Bell}
+              label={unread > 0 ? `Notifications (${unread} new)` : "Notifications"}
+              onClick={() => go("/notifications", () => setMoreOpen(false))}
+            />
             <ActionRow icon={Kanban} label="Pipeline" onClick={() => go("/pipeline", () => setMoreOpen(false))} />
             <ActionRow icon={ListChecks} label="Tasks" onClick={() => go("/tasks", () => setMoreOpen(false))} />
             <ActionRow icon={CalendarClock} label="Appointments" onClick={() => go("/appointments", () => setMoreOpen(false))} />

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useQuoteTracking } from "@/hooks/use-quote-tracking";
 import { ClientSelectionGroups } from "@/components/selections/ClientSelectionGroups";
 import { clientGroupLike, groupPrice, missingRequired, priceLabel } from "@/lib/selections";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -70,6 +71,10 @@ export default function SharedQuotePage() {
     setItemSelected(items);
     seeded.current = true;
   }, [data]);
+
+  // Quote activity (0117): views / time / sections — never while signed in
+  // to the app (the contractor), and ignored server-side for the team.
+  const { trackEvent } = useQuoteTracking({ channel: "link", token, enabled: !!data });
 
   // Client Selections (0115): picks are saved as a draft on every tap.
   const [picks, setPicks] = useState<Record<string, string[]>>({});
@@ -191,7 +196,20 @@ export default function SharedQuotePage() {
             <h1 className="min-w-0 text-2xl font-bold text-foreground [overflow-wrap:anywhere]">
               {project ? `${project.name} — Proposal` : "Proposal"}
             </h1>
-            {isApproved && <span className="badge-status badge-paid shrink-0">Approved ✓</span>}
+            <div className="flex shrink-0 items-center gap-2">
+              {isApproved && <span className="badge-status badge-paid shrink-0">Approved ✓</span>}
+              <Button
+                variant="outline"
+                size="sm"
+                className="no-print"
+                onClick={() => {
+                  trackEvent("pdf_downloaded", {});
+                  window.print();
+                }}
+              >
+                Print / Save as PDF
+              </Button>
+            </div>
           </div>
           {client?.name && (
             <p className="text-muted-foreground [overflow-wrap:anywhere]">Prepared for {client.name}</p>
@@ -201,20 +219,23 @@ export default function SharedQuotePage() {
         {sections.length > 0 && (
           <div className="space-y-6">
             {sections.map((section) => (
+              <div key={section.id} data-track-section={section.name}>
               <SectionBlock
-                key={section.id}
                 section={section}
                 sectionChecked={isSectionSelected(section.id)}
                 itemChecked={isItemSelected}
                 locked={isApproved}
                 signedUrls={signedUrls}
                 onImageClick={setLightboxUrl}
-                onToggleSection={(checked) =>
-                  setSectionSelected((prev) => ({ ...prev, [section.id]: checked }))
-                }
-                onToggleItem={(itemId, checked) =>
-                  setItemSelected((prev) => ({ ...prev, [itemId]: checked }))
-                }
+                onToggleSection={(checked) => {
+                  setSectionSelected((prev) => ({ ...prev, [section.id]: checked }));
+                  trackEvent("optional_changed", { summary: `${checked ? "Added" : "Dropped"} optional section ${section.name}`, section: section.name, selected: checked });
+                }}
+                onToggleItem={(itemId, checked) => {
+                  setItemSelected((prev) => ({ ...prev, [itemId]: checked }));
+                  const item = section.items.find((i) => i.id === itemId);
+                  trackEvent("optional_changed", { summary: `${checked ? "Added" : "Dropped"} ${item?.name ?? "an optional item"}`, item: item?.name, selected: checked });
+                }}
                 selections={
                   (section.selections ?? []).length > 0 && sectionKept(section) ? (
                     <ClientSelectionGroups
@@ -228,6 +249,7 @@ export default function SharedQuotePage() {
                   ) : null
                 }
               />
+              </div>
             ))}
           </div>
         )}

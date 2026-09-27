@@ -7,10 +7,25 @@ import { AssistantProvider } from "@/components/assistant/AssistantProvider";
 import { AssistantButton } from "@/components/assistant/AssistantButton";
 import { AssistantPanel } from "@/components/assistant/AssistantPanel";
 import { useAuth } from "@/lib/auth";
+import { useEffect } from "react";
+import { runQuoteColdChecks } from "@/lib/api";
 
 export function AppLayout() {
   const { session, loading, role } = useAuth();
   const location = useLocation();
+
+  // "Going cold" automations (0117): once per app session for the owner —
+  // idempotent server-side (one task per quote per rule, ever).
+  useEffect(() => {
+    if (!session || role !== "owner") return;
+    try {
+      if (sessionStorage.getItem("cold-checks-ran")) return;
+      sessionStorage.setItem("cold-checks-ran", "1");
+    } catch {
+      // no storage — still fine to run
+    }
+    void runQuoteColdChecks();
+  }, [session, role]);
 
   if (loading) {
     return (

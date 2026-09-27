@@ -1,3 +1,4 @@
+import { QuoteActivityLine } from "@/components/quote-activity/QuoteActivityLine";
 import { JobContextChips } from "@/components/planned-actual/JobContextChips";
 import { useRef, useState } from "react";
 import { costPlanTotal } from "@/lib/costPlanMath";
@@ -99,6 +100,9 @@ const ACTIVITY_KIND_LABEL: Partial<Record<ActivityKind, string>> = {
   text: "Text",
   email: "Email",
   stage_changed: "Stage change",
+  quote_viewed: "Quote viewed",
+  quote_selection_changed: "Selections",
+  quote_optional_changed: "Optional items",
   other: "Other",
 };
 
@@ -922,6 +926,10 @@ function EstimateCard({
           <FileText className="mr-2 h-3.5 w-3.5" />
           {creatingQuote ? "Creating…" : hasQuote ? "Open quote" : "Create quote"}
         </Button>
+        {/* Quote activity (0117) — how the client is engaging with it. */}
+        {pickHeadlineQuote(quotes) && pickHeadlineQuote(quotes)!.status !== "draft" && (
+          <QuoteActivityLine quote={pickHeadlineQuote(quotes)!} className="mt-1" />
+        )}
         {/* Each option sits under the button it applies to. */}
         {offerPreAdd && (
           <label className="flex items-start gap-2 text-xs text-muted-foreground">

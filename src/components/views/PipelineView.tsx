@@ -1,3 +1,4 @@
+import { QuoteActivityBadge } from "@/components/quote-activity/QuoteActivityBadge";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +20,7 @@ import {
   moveOpportunityStage,
   markOpportunityWon,
   listQuotes,
+  getNotificationSettings,
   listCategories,
   quoteTotal,
   pickHeadlineQuote,
@@ -316,6 +318,15 @@ function OpportunityCard({
   // A lead's value on this card is its linked quote's real total, never a
   // manual estimate — nothing shows until a quote actually exists.
   const quoteValue = opportunity.project_id ? quoteValueByProjectId.get(opportunity.project_id) : undefined;
+  // Quote activity (0117) on proposal-stage cards: "Viewed" + last viewed,
+  // and "Going cold". Reads the cached quotes list — no extra fetch.
+  const showActivity = opportunity.stage === "proposal_sent" || opportunity.stage === "revisions";
+  const { data: allQuotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes(), enabled: showActivity });
+  const { data: activitySettings } = useQuery({ queryKey: ["notification-settings"], queryFn: getNotificationSettings, enabled: showActivity, staleTime: 5 * 60_000 });
+  const activityQuote = showActivity
+    ? (allQuotes.find((q) => q.id === opportunity.quote_id) ??
+      (opportunity.project_id ? pickHeadlineQuote(allQuotes.filter((q) => q.project_id === opportunity.project_id)) : undefined))
+    : undefined;
   return (
     <Link
       to={`/pipeline/${opportunity.id}`}
@@ -342,6 +353,9 @@ function OpportunityCard({
           <span className="truncate text-[10px] font-semibold text-muted-subtle">{opportunity.lead_source}</span>
         )}
       </div>
+      {activityQuote && activityQuote.status === "sent" && (
+        <QuoteActivityBadge quote={activityQuote} settings={activitySettings} className="mt-1.5" />
+      )}
       {(opportunity.next_action || opportunity.next_action_date) && (
         <div
           className={cn(

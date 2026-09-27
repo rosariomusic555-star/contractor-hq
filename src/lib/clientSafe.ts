@@ -68,6 +68,9 @@ export const INTERNAL_FIELDS = [
   "recommendation", "adjustments", "tunables", "labor_default",
   // Client Selections — internal cost, Cost plan link, Catalog / supplier
   "cost_delta", "link_item_id", "link_set", "catalog_product_id", "vendor", "approved_price",
+  // Quote activity tracking — never client-facing
+  "view_count", "first_viewed_at", "last_viewed_at", "last_view_device", "last_activity_at", "selections_changed_at",
+  "sessions", "active_seconds", "session_key",
 ] as const;
 
 type Row = Record<string, unknown>;

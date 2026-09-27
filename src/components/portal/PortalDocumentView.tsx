@@ -15,6 +15,7 @@ import {
 } from "@/lib/portalApi";
 import { clientQuoteTotal, priceLabel } from "@/lib/selections";
 import { RequestSelectionChangeDialog } from "@/components/selections/RequestSelectionChangeDialog";
+import { useQuoteTracking } from "@/hooks/use-quote-tracking";
 import { getClientViewProject } from "@/lib/api";
 import { versionDate, versionsOf } from "@/lib/projectHistory";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,13 @@ export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "pre
   const { data: detail, isLoading } = useQuery({
     queryKey: [mode === "preview" ? "client-view" : "portal-project", projectId],
     queryFn: () => (mode === "preview" ? getClientViewProject(projectId) : getPortalProjectDetail(projectId)),
+  });
+  // Quote activity (0117): only the client in the Hub, on the current
+  // version — never the contractor's Client view preview.
+  const { trackEvent } = useQuoteTracking({
+    channel: "hub",
+    quoteId: id,
+    enabled: mode === "portal" && kind === "quote" && !vParam && !!detail,
   });
 
   if (isLoading) {
@@ -84,7 +92,14 @@ export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "pre
           to={projectBase}
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
         >Back to project</BackLink>
-        <Button size="sm" variant="outline" onClick={() => window.print()}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (kind === "quote") trackEvent("pdf_downloaded", {});
+            window.print();
+          }}
+        >
           <Printer className="h-3.5 w-3.5" />
           Print / Save as PDF
         </Button>
