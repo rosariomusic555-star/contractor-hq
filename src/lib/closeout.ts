@@ -51,6 +51,14 @@ export interface CloseoutSnapshot {
   report: PlannedActualReport;
   materials_reconciled: boolean;
   unreconciled_lines: number;
+  /** Duration at closeout (0120). Weather delay days are tagged separately
+   * so estimates aren't judged on rain; absent on older closeouts. */
+  schedule?: {
+    estimated_days: number | null;
+    actual_working_days: number | null;
+    weather_delay_days: number;
+    other_delay_days: number;
+  };
 }
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000;

@@ -4,6 +4,7 @@ import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { EmployeeLayout } from "@/components/layout/EmployeeLayout";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { AssistantProvider } from "@/components/assistant/AssistantProvider";
+import { RainDelayProvider } from "@/components/schedule/RainDelayProvider";
 import { AssistantButton } from "@/components/assistant/AssistantButton";
 import { AssistantPanel } from "@/components/assistant/AssistantPanel";
 import { useAuth } from "@/lib/auth";
@@ -75,6 +76,7 @@ export function AppLayout() {
 
   return (
     <AssistantProvider>
+      <RainDelayProvider>
       <div className="min-h-screen bg-background">
         <Sidebar />
         <BottomTabBar />
@@ -86,6 +88,7 @@ export function AppLayout() {
         <AssistantButton />
         <AssistantPanel />
       </div>
+      </RainDelayProvider>
     </AssistantProvider>
   );
 }

@@ -20,6 +20,8 @@ import {
 } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
 import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
+import { ScheduleDelaysList } from "@/components/schedule/ScheduleDelaysList";
+import { delayDayLabel } from "@/lib/scheduleShift";
 
 /**
  * The whole of an employee's work on one project: upload photos, post a
@@ -120,8 +122,16 @@ export function EmployeeProjectDetailView() {
       {/* Forecast on the schedule (0119) — weather only, no prices. */}
       {project.scheduled_start_date && project.status !== "complete" && (
         <div className="card-surface p-4">
-          <h2 className="mb-2 text-sm font-bold text-foreground">Forecast</h2>
+          <h2 className="text-sm font-bold text-foreground">Schedule</h2>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {delayDayLabel(project.scheduled_start_date)}
+            {project.scheduled_end_date && project.scheduled_end_date !== project.scheduled_start_date
+              ? ` – ${delayDayLabel(project.scheduled_end_date)}`
+              : ""}
+          </p>
           <ProjectForecastStrip projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
+          {/* Rain delay markers (0120) — read-only for the crew. */}
+          <ScheduleDelaysList projectId={project.id} canUndo={false} className="mt-3" />
         </div>
       )}
 
