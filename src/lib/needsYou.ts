@@ -1,4 +1,5 @@
 import { pluralize, formatCurrency } from "./utils";
+import { reviewNeedsYouItems, type ReviewNeedsYouInput, type ReviewSettingsLike } from "./reviews";
 import { quoteTotal, type Appointment, type Invoice, type Opportunity, type Quote } from "./api";
 import { invoiceDaysLate } from "./financials";
 import { overdueSiteVisitsByOpportunity, siteVisitDateLabel } from "./siteVisitCheck";
@@ -125,7 +126,7 @@ function siteVisitConfirmItems(opportunities: Opportunity[], appointments: Appoi
 
 /**
  * The full "Needs you" action queue — site visits to confirm, overdue
- * chases, deposit prompts, quote follow-ups — combined and sorted most-urgent-first (highest raw day
+ * chases, deposit prompts, quote follow-ups, review requests (0122) — combined and sorted most-urgent-first (highest raw day
  * count, regardless of category). Single source of truth for both the
  * Dashboard card (NeedsYou.tsx, capped to 5) and the full list (/needs-you,
  * NeedsYouView.tsx, uncapped) so the two can never disagree on contents or
@@ -136,8 +137,10 @@ export function buildNeedsYouItems(
   invoices: Invoice[],
   now: Date = new Date(),
   siteVisits: { opportunities: Opportunity[]; appointments: Appointment[] } = { opportunities: [], appointments: [] },
+  reviews: { requests: ReviewNeedsYouInput[]; settings: ReviewSettingsLike | null } = { requests: [], settings: null },
 ): NeedsYouItem[] {
   return [
+    ...reviewNeedsYouItems(reviews.requests, reviews.settings, now),
     ...siteVisitConfirmItems(siteVisits.opportunities, siteVisits.appointments, now),
     ...overdueInvoiceItems(invoices, now),
     ...depositItems(quotes, invoices, now),

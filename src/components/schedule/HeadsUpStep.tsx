@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Mail, MessageSquare, MessageSquareText } from "lucide-react";
+import { Check, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -16,7 +14,8 @@ import {
   updateScheduleUpdate,
   type ScheduleUpdate,
 } from "@/lib/api";
-import { sendClientMessage, type MessageChannel } from "@/lib/clientMessaging";
+import type { MessageChannel } from "@/lib/clientMessaging";
+import { ClientMessageComposer } from "@/components/messaging/ClientMessageComposer";
 import {
   DEFAULT_TEMPLATES,
   clientHubLink,
@@ -142,30 +141,16 @@ function HeadsUpCard({
 }) {
   const { toast } = useToast();
   const [message, setMessage] = useState(initialMessage);
-  const [asked, setAsked] = useState<MessageChannel | null>(null);
   // Templates / profile load after the first render — follow them until edited.
   const [edited, setEdited] = useState(false);
   useEffect(() => {
     if (!edited) setMessage(initialMessage);
   }, [initialMessage, edited]);
 
-  const phone = u.client?.phone?.trim() || null;
-  const email = u.client?.email?.trim() || null;
   const done = u.heads_up_status !== "pending";
-
-  const send = async (channel: MessageChannel) => {
-    const r = await sendClientMessage(channel, channel === "text" ? phone : channel === "email" ? email : null, message, subject);
-    if (r.status === "failed") return toast({ title: "Couldn't open that", description: r.error, variant: "destructive" });
-    if (r.status === "copied") toast({ title: "Message copied" });
-    if (r.status === "sent") return markSent.mutate(channel);
-    setAsked(channel);
-  };
   const markSent = useMutation({
     mutationFn: (channel: MessageChannel) => markHeadsUpSent(u, channel, message, templateKey),
-    onSuccess: () => {
-      setAsked(null);
-      onChanged();
-    },
+    onSuccess: onChanged,
     onError: (err: Error) => toast({ title: "Couldn't mark as sent", description: err.message, variant: "destructive" }),
   });
   const setStatus = useMutation({
@@ -190,58 +175,22 @@ function HeadsUpCard({
       </div>
 
       {!done && (
-        <>
-          <Textarea
-            value={message}
-            onChange={(e) => {
-              setEdited(true);
-              setMessage(e.target.value);
-            }}
-            rows={4}
-            className="text-sm"
-            aria-label={`Message to ${u.client?.name ?? "client"}`}
-          />
-          {asked ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-info/10 p-2.5">
-              <span className="text-sm font-semibold text-foreground">Mark as sent?</span>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setAsked(null)}>
-                  Not yet
-                </Button>
-                <Button size="sm" className="font-bold" disabled={markSent.isPending} onClick={() => markSent.mutate(asked)}>
-                  Yes, sent
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                {phone ? (
-                  <Button className="h-12 text-base font-bold" onClick={() => void send("text")}>
-                    <MessageSquareText className="mr-2 h-5 w-5" /> Text
-                  </Button>
-                ) : (
-                  <MissingContact label="No phone number on file" clientId={u.client?.id} />
-                )}
-                {email ? (
-                  <Button variant="outline" className="h-12 text-base font-bold" onClick={() => void send("email")}>
-                    <Mail className="mr-2 h-5 w-5" /> Email
-                  </Button>
-                ) : (
-                  <MissingContact label="No email on file" clientId={u.client?.id} />
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <Button size="sm" variant="ghost" className="h-9" onClick={() => void send("copy")}>
-                  <Copy className="mr-1.5 h-4 w-4" /> Copy
-                </Button>
-                <Button size="sm" variant="ghost" className="h-9 text-muted-foreground" disabled={setStatus.isPending} onClick={() => setStatus.mutate("skipped")}>
-                  Skip
-                </Button>
-              </div>
-            </>
-          )}
-        </>
+        <ClientMessageComposer
+          message={message}
+          onMessageChange={(v) => {
+            setEdited(true);
+            setMessage(v);
+          }}
+          subject={subject}
+          phone={u.client?.phone}
+          email={u.client?.email}
+          clientId={u.client?.id}
+          clientName={u.client?.name}
+          onMarkSent={(ch) => markSent.mutate(ch)}
+          marking={markSent.isPending}
+          onSkip={() => setStatus.mutate("skipped")}
+          skipping={setStatus.isPending}
+        />
       )}
       {u.heads_up_status === "skipped" && (
         <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setStatus.mutate("pending")}>
@@ -249,21 +198,5 @@ function HeadsUpCard({
         </Button>
       )}
     </div>
-  );
-}
-
-function MissingContact({ label, clientId }: { label: string; clientId?: string }) {
-  return (
-    <p className="flex h-12 items-center justify-center rounded-md border border-dashed border-border px-2 text-center text-xs text-muted-foreground">
-      {label}
-      {clientId && (
-        <>
-          {" · "}
-          <Link to={`/clients/${clientId}`} className="ml-1 font-semibold text-primary hover:text-primary/80">
-            Add
-          </Link>
-        </>
-      )}
-    </p>
   );
 }

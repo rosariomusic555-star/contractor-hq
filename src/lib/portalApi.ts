@@ -324,6 +324,8 @@ export interface PortalProjectDetail {
   /** 0121 — schedule changes posted to the Hub, newest first. Dates and a
    * generic reason only. */
   schedule_updates?: PortalScheduleUpdate[];
+  /** 0122 — completed projects: the tracked review link (a path, /r/{token}). */
+  review?: { link_path: string } | null;
 }
 
 export interface PortalScheduleUpdate {

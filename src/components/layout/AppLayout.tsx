@@ -10,7 +10,7 @@ import { AssistantPanel } from "@/components/assistant/AssistantPanel";
 import { useAuth } from "@/lib/auth";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { runQuoteColdChecks } from "@/lib/api";
+import { runQuoteColdChecks, runReviewChecks } from "@/lib/api";
 import { runWeatherRiskAlerts } from "@/lib/forecast";
 
 export function AppLayout() {
@@ -29,7 +29,14 @@ export function AppLayout() {
       // no storage — still fine to run
     }
     void runQuoteColdChecks();
-  }, [session, role]);
+    // Review requests (0122): mark finished jobs ready to ask (+ notify).
+    void runReviewChecks().then((n) => {
+      if (n > 0) {
+        qc.invalidateQueries({ queryKey: ["review-requests"] });
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+      }
+    });
+  }, [session, role, qc]);
 
   // Forecast on the schedule (0119) — morning weather-risk alerts, once per
   // local day on the first app open (deduped per job/day/level server-side

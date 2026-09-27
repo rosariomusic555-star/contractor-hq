@@ -27,6 +27,14 @@ const TOGGLES: { key: keyof NotificationSettings; label: string; hint: string }[
   { key: "quote_viewed_again", label: "A client views a quote again", hint: "A \"viewed again\" summary, at most once a day per quote" },
 ];
 
+const REVIEW_TOGGLES: typeof TOGGLES = [
+  {
+    key: "review_activity",
+    label: "Review requests",
+    hint: "A finished job is ready to ask for a review, and a client opens your review link",
+  },
+];
+
 const SCHEDULE_TOGGLES: typeof TOGGLES = [
   {
     key: "weather_risk",
@@ -39,6 +47,9 @@ const TRIGGERS: { value: AutomationTrigger; label: string }[] = [
   { value: "quote_viewed", label: "Quote viewed" },
   { value: "quote_not_opened", label: "Quote not opened after X days" },
   { value: "quote_viewed_not_signed", label: "Quote viewed but not signed after Y days" },
+  { value: "review_eligible", label: "Project ready for a review request" },
+  { value: "review_requested", label: "Review requested" },
+  { value: "review_link_clicked", label: "Review link clicked" },
 ];
 
 const TASK_TYPES = [
@@ -107,10 +118,10 @@ export function SettingsNotificationsView() {
       </section>
 
       <section className="card-surface p-5 md:p-6">
-        <h2 className="text-[17px] font-bold tracking-tight text-foreground">Schedule</h2>
+        <h2 className="text-[17px] font-bold tracking-tight text-foreground">Schedule & reviews</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">What counts as risky is set in Settings › Schedule & weather.</p>
         <div className="mt-2 divide-y divide-hairline">
-          {SCHEDULE_TOGGLES.map((t) => (
+          {[...SCHEDULE_TOGGLES, ...REVIEW_TOGGLES].map((t) => (
             <label key={t.key} className="flex cursor-pointer items-center justify-between gap-4 py-3.5">
               <div>
                 <div className="text-sm font-semibold text-foreground">{t.label}</div>
@@ -167,7 +178,11 @@ function AutomationsCard({ rules, x, y }: { rules: AutomationRule[]; x: number; 
   });
   const remove = useMutation({ mutationFn: deleteAutomationRule, onSuccess: invalidate });
   const triggerLabel = (t: AutomationTrigger) =>
-    t === "quote_not_opened" ? `Quote not opened after ${x} days` : t === "quote_viewed_not_signed" ? `Quote viewed but not signed after ${y} days` : "Quote viewed";
+    t === "quote_not_opened"
+      ? `Quote not opened after ${x} days`
+      : t === "quote_viewed_not_signed"
+        ? `Quote viewed but not signed after ${y} days`
+        : (TRIGGERS.find((o) => o.value === t)?.label ?? t);
 
   return (
     <section className="card-surface space-y-3 p-5 md:p-6">

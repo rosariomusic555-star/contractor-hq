@@ -147,6 +147,7 @@ import { CrewSelect } from "@/components/schedule/CrewSelect";
 import { ScheduleMenu } from "@/components/schedule/ScheduleMenu";
 import { ScheduleDelaysList } from "@/components/schedule/ScheduleDelaysList";
 import { HeadsUpReminder } from "@/components/schedule/HeadsUpReminder";
+import { ProjectReviewCard } from "@/components/reviews/ProjectReviewCard";
 import { useProjectDelays } from "@/components/schedule/useUndoScheduleDelay";
 import { delayDays } from "@/lib/scheduleShift";
 
@@ -869,6 +870,9 @@ export function ProjectDetailView() {
               </div>
             )}
           </section>
+
+          {/* Google review request (0122) — completed jobs with a client. */}
+          {project.status === "complete" && project.client_id && <ProjectReviewCard projectId={project.id} />}
 
           <section className="card-surface p-5">
             <div className="flex items-center justify-between gap-2">
