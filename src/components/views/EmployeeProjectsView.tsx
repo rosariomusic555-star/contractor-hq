@@ -1,3 +1,4 @@
+import { CrewClockCard, CrewJobWeather, CrewUpcoming } from "@/components/timesheets/CrewHomeCards";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardList, MapPin, Clock } from "lucide-react";
@@ -30,6 +31,8 @@ export function EmployeeProjectsView() {
 
   return (
     <div className="animate-fade-in space-y-5">
+      {/* Crew home (dashboard refresh): clock in / out + this week's hours. */}
+      <CrewClockCard todayJobs={todays} />
       {todays.map((p) => (
         <Link key={p.id} to={`/employee/projects/${p.id}/work-order`} className="block rounded-2xl bg-primary p-5 text-primary-foreground shadow-card">
           <p className="text-xs font-bold uppercase tracking-wide opacity-80">Today</p>
@@ -39,18 +42,13 @@ export function EmployeeProjectsView() {
               <MapPin className="h-3.5 w-3.5" /> {p.address}
             </p>
           )}
+          <CrewJobWeather project={p} />
           <p className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-background/20 px-3 py-2 text-sm font-bold">
             <ClipboardList className="h-4 w-4" /> Open work order
           </p>
         </Link>
       ))}
-      {/* Timesheets (0131) */}
-      <Link to="/employee/time" className="card-surface flex items-center justify-between gap-3 p-4">
-        <span className="flex items-center gap-2 font-bold text-foreground">
-          <Clock className="h-5 w-5 text-primary" /> Clock in / out · My time
-        </span>
-        <span className="text-sm font-semibold text-primary">Open</span>
-      </Link>
+      <CrewUpcoming projects={projects} />
       <div>
         <h1 className="text-[22px] font-bold tracking-tight text-foreground">My projects</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Projects you've been assigned to.</p>

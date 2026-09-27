@@ -11,6 +11,8 @@ export interface UpcomingDelivery {
   supplier: string | null;
   expectedDeliveryDate: string;
   dayLabel: string;
+  /** Expected delivery date, YYYY-MM-DD. */
+  date: string;
   status: MaterialOrderStatus;
   /** The job's scheduled_start_date (0058) has already begun before this
    * delivery is expected to land. */
@@ -67,6 +69,7 @@ export function upcomingDeliveries(
         supplier: order.supplier,
         expectedDeliveryDate: order.expected_delivery_date,
         dayLabel: deliveryDayLabel(order.expected_delivery_date, from),
+        date: order.expected_delivery_date,
         status: order.status,
         conflict,
       });

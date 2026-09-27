@@ -8338,3 +8338,36 @@ export async function listLaborEntriesSince(date: string): Promise<LaborEntry[]>
   if (error) return [];
   return (data ?? []) as LaborEntry[];
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard refresh — read-only lists over existing tables (no new data).
+// ---------------------------------------------------------------------------
+
+/** Client change requests on approved selections (0115) still open, across all jobs. */
+export async function listOpenSelectionChangeRequests(): Promise<{ id: string; project_id: string | null; note: string | null; created_at: string; requested_by: string | null; project: { name: string } | null }[]> {
+  const { data, error } = await supabase
+    .from("selection_change_requests")
+    .select("id, project_id, note, created_at, requested_by, project:projects(name)")
+    .eq("status", "open")
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as never;
+}
+
+/** Timesheets submitted and waiting for approval (0131). */
+export async function listSubmittedTimesheets(): Promise<{ id: string; employee_id: string; period_start: string; submitted_at: string | null; employee: { name: string } | null }[]> {
+  const { data, error } = await supabase.from("timesheets").select("id, employee_id, period_start, submitted_at, employee:employees(name)").eq("status", "submitted");
+  if (error) return [];
+  return (data ?? []) as never;
+}
+
+/** Who's clocked in right now (a timer with no end, 0131). */
+export async function listRunningTimers(): Promise<{ id: string; employee_id: string; project_id: string; start_at: string; worker_name: string | null; project: { name: string } | null }[]> {
+  const { data, error } = await supabase
+    .from("labor_entries")
+    .select("id, employee_id, project_id, start_at, worker_name, project:projects(name)")
+    .not("start_at", "is", null)
+    .is("end_at", null);
+  if (error) return [];
+  return (data ?? []) as never;
+}

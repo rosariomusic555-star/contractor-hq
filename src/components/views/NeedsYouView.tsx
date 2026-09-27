@@ -1,33 +1,21 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
-import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@/lib/api";
-import { buildNeedsYouItems } from "@/lib/needsYou";
-import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
-import { usePreconNeedsYou } from "@/components/precon/usePrecon";
-import { useMaintenanceNeedsYou } from "@/components/maintenance/useMaintenance";
 import { BackLink } from "@/components/common/BackLink";
+import { NeedsYouChips } from "@/components/dashboard/NeedsYouChips";
+import { useNeedsYouItems } from "@/components/dashboard/useNeedsYouItems";
+import { categoryOf, type NeedsYouCategory } from "@/lib/needsYou";
 
-/** Full, uncapped "Needs you" queue — the Dashboard card (NeedsYou.tsx)
- * shows the 5 most urgent of this same list and links here for the rest.
- * Same buildNeedsYouItems() source, same sort, so the two never disagree. */
+/** Full, uncapped "Needs you" queue — the Dashboard cards show the 5 most
+ * urgent of this same list (useNeedsYouItems) and link here for the rest,
+ * so they never disagree. Filter chips: All / Jobs / Money / Clients / Crew. */
 export function NeedsYouView() {
-  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
-  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
-  const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
-  // Review requests (0122) — "Ask Greg Gray for a review" / "Remind Greg…".
-  const reviews = useReviewNeedsYou();
-  // Pre-construction (0124) — jobs starting soon with required items open.
-  const precon = usePreconNeedsYou();
-  // Maintenance reminders (0127) — set-up prompts + past clients coming due.
-  const maintenance = useMaintenanceNeedsYou();
-
-  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, [...precon, ...maintenance]);
-
+  const { items: all } = useNeedsYouItems();
+  const [filter, setFilter] = useState<NeedsYouCategory | "all">("all");
+  const items = filter === "all" ? all : all.filter((i) => categoryOf(i) === filter);
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
       <MobilePageHeader title="Needs you" back={{ to: "/dashboard", label: "Dashboard" }} />
@@ -38,7 +26,9 @@ export function NeedsYouView() {
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
         >Dashboard</BackLink>
       </div>
-      <PageHeader title="Needs you" subtitle={`${items.length} ${items.length === 1 ? "item" : "items"} needing attention, most urgent first`} />
+      <PageHeader title="Needs you" subtitle={`${all.length} ${all.length === 1 ? "item" : "items"} needing attention, most urgent first`} />
+
+      <NeedsYouChips items={all} value={filter} onChange={setFilter} />
 
       <section className="card-surface p-5">
         {items.length === 0 ? (
