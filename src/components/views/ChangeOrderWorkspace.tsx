@@ -77,6 +77,7 @@ import {
   CHANGE_ORDER_REASONS,
   type ChangeOrder,
   type ChangeOrderReason,
+  snapshotDocument,
 } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -494,6 +495,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     },
     onSuccess: () => {
       dirty.current = false;
+      if (changeOrder.status === "sent") void snapshotDocument("change_order", changeOrder.id);
       invalidate();
       qc.invalidateQueries({ queryKey: ["change-order-cost-changes", changeOrder.id] });
       qc.invalidateQueries({ queryKey: ["pending-cost-changes", projectId] });

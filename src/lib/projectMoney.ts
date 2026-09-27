@@ -138,3 +138,76 @@ export function suggestAllocations(amount: number, invoices: Pick<Invoice, "id" 
     })
     .filter((a) => a.amount > 0);
 }
+
+// ---------------------------------------------------------------------------
+// Contract breakdown (0113) — the Client Hub / project summary "math block":
+//   Original contract            (headline original quote)
+//   + Approved change order #1    (credits show as subtractions)
+//   + Approved add-on quote #1
+//   = Current contract value      (== projectContractValue)
+// Same selection rules as pickHeadlineQuote / projectContractValue in
+// api.ts; pending / declined change orders and add-ons never count.
+// ---------------------------------------------------------------------------
+
+export interface BreakdownQuote {
+  id: string;
+  kind?: "original" | "addon";
+  status: string;
+  total?: number;
+  created_at?: string;
+  addon_number?: number | null;
+}
+
+export interface BreakdownChangeOrder {
+  id: string;
+  status: string;
+  amount: number;
+  total?: number;
+  number?: number;
+  title: string;
+  created_at?: string;
+}
+
+export interface ContractLine {
+  kind: "original" | "change_order" | "addon";
+  id: string;
+  label: string;
+  /** Signed — a credit change order is negative. */
+  amount: number;
+  date?: string | null;
+}
+
+export function headlineOriginalQuote<T extends BreakdownQuote>(quotes: T[]): T | undefined {
+  const originals = quotes.filter((q) => (q.kind ?? "original") === "original");
+  const recent = (status: string) =>
+    originals.filter((q) => q.status === status).sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
+  return recent("approved") ?? recent("sent") ?? recent("draft");
+}
+
+export function contractBreakdown(quotes: BreakdownQuote[], changeOrders: BreakdownChangeOrder[]) {
+  const headline = headlineOriginalQuote(quotes);
+  const lines: ContractLine[] = [];
+  if (headline) {
+    lines.push({ kind: "original", id: headline.id, label: "Original contract", amount: r2(Number(headline.total ?? 0)), date: headline.created_at });
+  }
+  const dated = <T extends { created_at?: string }>(a: T, b: T) => (a.created_at ?? "").localeCompare(b.created_at ?? "");
+  for (const co of changeOrders.filter((c) => c.status === "approved").sort(dated)) {
+    lines.push({
+      kind: "change_order",
+      id: co.id,
+      label: `Approved change order${co.number ? ` #${co.number}` : ""}${co.title ? ` (${co.title})` : ""}`,
+      amount: r2(Number(co.total ?? co.amount)),
+      date: co.created_at,
+    });
+  }
+  for (const q of quotes.filter((x) => x.kind === "addon" && x.status === "approved").sort(dated)) {
+    lines.push({
+      kind: "addon",
+      id: q.id,
+      label: `Approved add-on quote${q.addon_number ? ` #${q.addon_number}` : ""}`,
+      amount: r2(Number(q.total ?? 0)),
+      date: q.created_at,
+    });
+  }
+  return { lines, total: r2(lines.reduce((s, l) => s + l.amount, 0)) };
+}

@@ -82,6 +82,7 @@ import { EmployeeAccountView } from "@/components/views/EmployeeAccountView";
 import SharedQuotePage from "./pages/SharedQuote";
 import SharedInvoicePage from "./pages/SharedInvoice";
 import SharedReceiptPage from "./pages/SharedReceipt";
+import { ClientViewPage } from "@/components/views/ClientViewPage";
 import SharedChangeOrderPage from "./pages/SharedChangeOrder";
 import NotFound from "./pages/NotFound";
 
@@ -148,6 +149,8 @@ const router = createBrowserRouter(
         <Route path="/projects" element={<ProjectsView />} />
         <Route path="/projects/new" element={<NewProjectView />} />
         <Route path="/projects/:id" element={<ProjectDetailView />} />
+        <Route path="/projects/:id/client-view" element={<ClientViewPage />} />
+        <Route path="/projects/:projectId/client-view/documents/:kind/:id" element={<PortalDocumentView mode="preview" />} />
         {/* The old Cost Plan hub — the Cost plan is the builder now. */}
         <Route path="/projects/:id/cost-plan" element={<CostPlanRedirect />} />
         <Route path="/projects/:id/labor" element={<ProjectLaborView />} />

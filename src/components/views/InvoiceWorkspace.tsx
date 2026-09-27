@@ -43,6 +43,7 @@ import {
   applyProjectCredit,
   type Invoice,
   type Quote,
+  snapshotDocument,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceDaysLate } from "@/lib/financials";
@@ -206,6 +207,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
     },
     onSuccess: () => {
       dirty.current = false;
+      if (invoice.status !== "draft") void snapshotDocument("invoice", invoice.id);
       invalidate();
       toast({ title: "Invoice saved" });
     },

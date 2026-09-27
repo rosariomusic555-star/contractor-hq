@@ -131,6 +131,7 @@ import {
   advanceStageOnQuoteSent,
   type Quote,
   type Category,
+  snapshotDocument,
 } from "@/lib/api";
 import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
 import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
@@ -842,6 +843,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     },
     onSuccess: ({ wasApproved }) => {
       dirty.current = false;
+      // Out with the client → a revision is a new version (0113). An
+      // approved quote reverted to draft here gets its next version when
+      // it's sent again.
+      if (!wasApproved && quote.status !== "draft") void snapshotDocument("quote", quote.id);
       invalidate();
       qc.invalidateQueries({ queryKey: ["project-features", projectId] });
       qc.invalidateQueries({ queryKey: ["materials"] });
@@ -881,6 +886,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       return token;
     },
     onSuccess: async (token) => {
+      // Re-sending an already-sent quote doesn't change its status, so the
+      // status trigger doesn't fire — snapshot explicitly (no-op if unchanged).
+      void snapshotDocument("quote", quote.id);
       invalidate();
       void logProjectEvent(projectId, "quote_sent", `Quote shared · ${formatCurrency(grandTotal)}`, {
         quote_id: quote.id,

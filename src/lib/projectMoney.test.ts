@@ -71,3 +71,40 @@ describe("allocations", () => {
     ]);
   });
 });
+
+describe("contract breakdown", () => {
+  it("original + approved COs (credits subtract) + approved add-ons = contract value; pending/declined never count", async () => {
+    const { contractBreakdown } = await import("./projectMoney");
+    const { projectContractValue } = await import("./api");
+    const mkQuote = (id: string, kind: "original" | "addon", status: string, price: number, created_at: string) => ({
+      id, kind, status, created_at, deposit_percentage: 0,
+      quote_sections: [{ id: `${id}-s`, is_optional: false, quote_items: [{ id: `${id}-i`, price, quantity: 1, is_optional: false, client_selected: false }] }],
+    });
+    const quotes = [
+      mkQuote("old", "original", "declined", 30_000, "2026-01-01"),
+      mkQuote("orig", "original", "approved", 28_000, "2026-01-02"),
+      mkQuote("add1", "addon", "approved", 2_000, "2026-02-01"),
+      mkQuote("add2", "addon", "sent", 9_000, "2026-02-02"),
+    ];
+    const cos = [
+      { id: "co1", status: "approved", amount: 3_500, number: 1, title: "paver upgrade", created_at: "2026-01-10" },
+      { id: "co2", status: "approved", amount: -500, number: 2, title: "credit", created_at: "2026-01-11" },
+      { id: "co3", status: "declined", amount: 7_000, number: 3, title: "no", created_at: "2026-01-12" },
+      { id: "co4", status: "sent", amount: 1_000, number: 4, title: "pending", created_at: "2026-01-13" },
+    ];
+    const b = contractBreakdown(
+      quotes.map((q) => ({ ...q, total: q.quote_sections[0].quote_items[0].price })),
+      cos,
+    );
+    expect(b.lines.map((l) => [l.kind, l.amount])).toEqual([
+      ["original", 28_000],
+      ["change_order", 3_500],
+      ["change_order", -500],
+      ["addon", 2_000],
+    ]);
+    expect(b.lines[1].label).toBe("Approved change order #1 (paver upgrade)");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(b.total).toBe(projectContractValue(quotes as any, cos as any));
+    expect(b.total).toBe(33_000);
+  });
+});

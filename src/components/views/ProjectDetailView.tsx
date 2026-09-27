@@ -20,6 +20,7 @@ import {
   Trash2,
   X,
   Plus,
+  Eye,
 } from "lucide-react";
 import {
   Select,
@@ -37,6 +38,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { PaymentsList } from "@/components/payments/PaymentsList";
+import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 import { RecordPaymentSheet } from "@/components/payments/RecordPaymentSheet";
 import { projectMoneySummary } from "@/lib/projectMoney";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
@@ -52,6 +54,7 @@ import {
   listQuotes,
   listInvoices,
   listPayments,
+  getClientViewProject,
   listMaterials,
   listMaterialsSheets,
   listExpenses,
@@ -795,6 +798,21 @@ export function ProjectDetailView() {
               <PaymentsList payments={payments} invoices={invoices} projectId={id} />
             </div>
             <RecordPaymentSheet open={recordPaymentOpen} onOpenChange={setRecordPaymentOpen} projectId={id} invoices={invoices} />
+            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-hairline pt-4">
+              <Button variant="ghost" size="sm" className="justify-center" asChild>
+                <Link to={`/projects/${id}/client-view`}>
+                  <Eye className="mr-1.5 h-4 w-4" />
+                  Client view
+                </Link>
+              </Button>
+              <DownloadSummaryButton
+                variant="ghost"
+                label="Project summary"
+                className="h-9 justify-center px-3 text-sm"
+                loadDetail={() => getClientViewProject(id)}
+                getLogoUrl={async (path) => (await getSignedImageUrls([path]))[path] ?? null}
+              />
+            </div>
             {depositOverdue && (
               <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />

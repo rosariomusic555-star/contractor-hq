@@ -1,8 +1,19 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Loader2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getPortalProjectDetail, portalChangeOrderLabel, portalQuoteLabel, type PortalQuote, type PortalChangeOrder, type PortalInvoice } from "@/lib/portalApi";
+import {
+  getPortalProjectDetail,
+  portalChangeOrderLabel,
+  portalQuoteLabel,
+  type PortalDocType,
+  type PortalQuote,
+  type PortalChangeOrder,
+  type PortalInvoice,
+} from "@/lib/portalApi";
+import { getClientViewProject } from "@/lib/api";
+import { versionDate, versionsOf } from "@/lib/projectHistory";
+import { cn } from "@/lib/utils";
 import { BackLink } from "@/components/common/BackLink";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -11,18 +22,22 @@ const dateStr = (iso: string | null) =>
 
 /**
  * A single document — quote, change order, or invoice — as a clean,
- * printable page. "Downloadable as PDF" here is the browser's own
- * print-to-PDF (this codebase has no PDF library or rendering service at
- * all, see src/index.css's .no-print doc comment) — the Print button below
- * triggers window.print(), and everything with the `no-print` class (the
- * hub's own header, this button) drops out of that output.
+ * printable page (the browser's print-to-PDF; everything `no-print` drops
+ * out). ?v=N shows an earlier version exactly as it was sent / approved
+ * (0113), labeled "Superseded by vN"; the version strip links them all.
+ *
+ * mode "preview" is the contractor's Client view: same page, same
+ * client-safe data, loaded through the contractor's session.
  */
-export function PortalDocumentView() {
+export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "preview" }) {
   const { projectId = "", kind = "", id = "" } = useParams();
+  const [params] = useSearchParams();
+  const vParam = Number(params.get("v")) || null;
+  const projectBase = mode === "preview" ? `/projects/${projectId}/client-view` : `/portal/projects/${projectId}`;
 
   const { data: detail, isLoading } = useQuery({
-    queryKey: ["portal-project", projectId],
-    queryFn: () => getPortalProjectDetail(projectId),
+    queryKey: [mode === "preview" ? "client-view" : "portal-project", projectId],
+    queryFn: () => (mode === "preview" ? getClientViewProject(projectId) : getPortalProjectDetail(projectId)),
   });
 
   if (isLoading) {
@@ -37,19 +52,32 @@ export function PortalDocumentView() {
     return <div className="py-16 text-center text-sm text-muted-foreground">That document isn't available.</div>;
   }
 
-  const quote = kind === "quote" ? detail.quotes.find((q) => q.id === id) : null;
-  const changeOrder = kind === "change-order" ? detail.change_orders.find((c) => c.id === id) : null;
-  const invoice = kind === "invoice" ? detail.invoices.find((i) => i.id === id) : null;
+  const docType: PortalDocType | null = kind === "quote" ? "quote" : kind === "change-order" ? "change_order" : kind === "invoice" ? "invoice" : null;
+  const live =
+    kind === "quote"
+      ? detail.quotes.find((q) => q.id === id)
+      : kind === "change-order"
+        ? detail.change_orders.find((c) => c.id === id)
+        : kind === "invoice"
+          ? detail.invoices.find((i) => i.id === id)
+          : undefined;
+  const versions = docType ? versionsOf(detail, docType, id) : [];
+  const latest = versions[versions.length - 1]?.version ?? null;
+  const shown = vParam && vParam !== latest ? versions.find((v) => v.version === vParam) : undefined;
+  const doc = (shown?.content ?? live) as PortalQuote | PortalChangeOrder | PortalInvoice | undefined;
 
-  if (!quote && !changeOrder && !invoice) {
+  if (!doc || !live) {
     return <div className="py-16 text-center text-sm text-muted-foreground">That document isn't available.</div>;
   }
+  // An old version shows the state it was left in; the current one, live.
+  const statusOverride = shown ? (shown.state === "issued" ? undefined : shown.state === "sent" ? "superseded" : shown.state) : undefined;
+  const docPath = `${projectBase}/documents/${kind}/${id}`;
 
   return (
     <div className="space-y-4">
-      <div className="no-print flex items-center justify-between">
+      <div className="no-print flex items-center justify-between gap-2">
         <BackLink
-          to={`/portal/projects/${projectId}`}
+          to={projectBase}
           className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
         >Back to project</BackLink>
         <Button size="sm" variant="outline" onClick={() => window.print()}>
@@ -58,7 +86,40 @@ export function PortalDocumentView() {
         </Button>
       </div>
 
+      {versions.length > 1 && (
+        <div className="no-print flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="font-semibold text-muted-foreground">Versions:</span>
+          {versions.map((v) => {
+            const active = (shown?.version ?? latest) === v.version;
+            return (
+              <Link
+                key={v.version}
+                to={v.version === latest ? docPath : `${docPath}?v=${v.version}`}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 font-semibold",
+                  active ? "border-primary bg-primary/15 text-foreground" : "border-border text-muted-foreground hover:bg-muted",
+                )}
+              >
+                v{v.version}
+                {v.version === latest ? " · current" : ""}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
       <div className="card-surface space-y-5 p-6">
+        {shown && latest && (
+          <div className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+            <span className="font-bold text-foreground">Version {shown.version} — superseded by v{latest}.</span>{" "}
+            <span className="text-muted-foreground">
+              This is exactly what was sent on {dateStr(versionDate(shown, (live as { created_at?: string }).created_at))}.{" "}
+              <Link to={docPath} className="font-semibold text-primary hover:underline">
+                See the current version
+              </Link>
+            </span>
+          </div>
+        )}
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-muted-subtle">
             {detail.business.company_name ?? "Your contractor"}
@@ -66,15 +127,16 @@ export function PortalDocumentView() {
           <h1 className="mt-1 text-xl font-bold text-foreground">{detail.project.name}</h1>
         </div>
 
-        {quote && <QuoteDocument quote={quote} />}
-        {changeOrder && <ChangeOrderDocument changeOrder={changeOrder} />}
-        {invoice && <InvoiceDocument invoice={invoice} />}
+        {kind === "quote" && <QuoteDocument quote={doc as PortalQuote} statusOverride={statusOverride} version={shown?.version ?? (versions.length > 1 ? latest : null)} />}
+        {kind === "change-order" && <ChangeOrderDocument changeOrder={statusOverride && statusOverride !== "superseded" ? { ...(doc as PortalChangeOrder), status: statusOverride as PortalChangeOrder["status"] } : (doc as PortalChangeOrder)} />}
+        {kind === "invoice" && <InvoiceDocument invoice={shown ? { ...(doc as PortalInvoice), status: (live as PortalInvoice).status, amount_paid: (live as PortalInvoice).amount_paid } : (doc as PortalInvoice)} />}
       </div>
     </div>
   );
 }
 
-function QuoteDocument({ quote }: { quote: PortalQuote }) {
+function QuoteDocument({ quote, statusOverride, version }: { quote: PortalQuote; statusOverride?: string; version?: number | null }) {
+  const status = statusOverride ?? quote.status;
   const included = quote.sections.flatMap((s) =>
     s.items.filter((i) => !(s.is_optional || i.is_optional) || i.client_selected),
   );
@@ -84,9 +146,12 @@ function QuoteDocument({ quote }: { quote: PortalQuote }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between border-b border-hairline pb-3">
-        <h2 className="text-lg font-bold text-foreground">{portalQuoteLabel(quote)}</h2>
+        <h2 className="text-lg font-bold text-foreground">
+          {portalQuoteLabel(quote)}
+          {version ? ` · v${version}` : ""}
+        </h2>
         <span className="text-sm font-bold text-foreground">
-          {quote.status === "approved" ? "Approved" : quote.status === "declined" ? "Declined" : "Pending"}
+          {status === "approved" ? "Approved" : status === "declined" ? "Declined" : status === "superseded" ? "Superseded" : "Pending"}
         </span>
       </div>
 
@@ -120,12 +185,25 @@ function QuoteDocument({ quote }: { quote: PortalQuote }) {
         </div>
       </div>
 
-      {quote.signed_at && (
+      {quote.notes && (
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Notes</h3>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{quote.notes}</p>
+        </div>
+      )}
+      {quote.terms && (
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Terms</h3>
+          <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{quote.terms}</p>
+        </div>
+      )}
+
+      {status === "approved" && quote.signed_at && (
         <p className="text-xs text-muted-subtle">
           Signed by {quote.signed_by ?? "client"} on {dateStr(quote.signed_at)}
         </p>
       )}
-      {quote.declined_at && <p className="text-xs text-muted-subtle">Declined on {dateStr(quote.declined_at)}</p>}
+      {status === "declined" && quote.declined_at && <p className="text-xs text-muted-subtle">Declined on {dateStr(quote.declined_at)}</p>}
     </div>
   );
 }
@@ -210,6 +288,23 @@ function InvoiceDocument({ invoice }: { invoice: PortalInvoice }) {
           {invoice.status === "paid" ? "Paid" : partial ? "Partially paid" : invoice.status === "overdue" ? "Overdue" : "Due"}
         </span>
       </div>
+      {(invoice.items ?? []).length > 0 && (
+        <div className="divide-y divide-hairline">
+          {(invoice.items ?? []).map((it, i) => (
+            <div key={i} className="flex items-start justify-between gap-3 py-2 text-sm">
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                <span className="font-semibold text-foreground">{it.description || "Item"}</span>
+                {Number(it.quantity) !== 1 && (
+                  <span className="block text-xs text-muted-foreground">
+                    {Number(it.quantity)} × {money(Number(it.unit_price))}
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 font-bold tabular-nums text-foreground">{money(Number(it.quantity) * Number(it.unit_price))}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between text-base font-extrabold text-foreground">
         <span>Amount</span>
         <span className="tabular-nums">{money(invoice.amount)}</span>
@@ -234,6 +329,16 @@ function InvoiceDocument({ invoice }: { invoice: PortalInvoice }) {
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>Paid on</span>
           <span>{dateStr(invoice.paid_at)}</span>
+        </div>
+      )}
+      {invoice.notes && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{invoice.notes}</p>}
+      {invoice.status !== "paid" && (
+        <div id="pay" className="no-print rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+          <p className="font-semibold text-foreground">How to pay</p>
+          <p className="mt-1">
+            Pay by check, bank transfer, Zelle or another method your contractor accepts — contact them for details.
+            You'll get a receipt for every payment.
+          </p>
         </div>
       )}
     </div>
