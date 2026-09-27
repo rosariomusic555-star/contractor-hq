@@ -1,14 +1,16 @@
 import { useNavigate, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusPill } from "@/components/common/StatusPill";
 import { formatCurrency } from "@/lib/utils";
-import { listQuotes, listMaterialsSheets, pickHeadlineQuote } from "@/lib/api";
+import { listProjects, listQuotes, listMaterialsSheets, pickHeadlineQuote, updateProject } from "@/lib/api";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import type { BookingJob } from "@/lib/bookings";
 import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
+import { CrewSelect } from "@/components/schedule/CrewSelect";
+import { ScheduleMenu } from "@/components/schedule/ScheduleMenu";
 
 /**
  * One job's full detail, as a card — the unit the Year view's side panel
@@ -37,13 +39,24 @@ export function JobDetailCard({
   });
 
   const headlineQuote = pickHeadlineQuote(quotes);
+  // Real crews (0120) — read from the shared projects list.
+  const qc = useQueryClient();
+  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
+  const crewId = projects.find((p) => p.id === job.projectId)?.crew_id ?? null;
+  const crewMut = useMutation({
+    mutationFn: (id: string | null) => updateProject(job.projectId, { crew_id: id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+  });
   const meta = projectStatusMeta(job.status);
 
   return (
     <div className="rounded-xl border border-border p-4">
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 truncate text-base font-bold text-foreground">{job.projectName}</p>
-        <StatusPill meta={meta} className="shrink-0" />
+        <div className="flex shrink-0 items-center gap-1">
+          <StatusPill meta={meta} />
+          <ScheduleMenu projectId={job.projectId} start={job.startDate} end={job.endDate} />
+        </div>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{job.clientName ?? "No client"}</p>
       {job.scopeLabel && <p className="text-sm text-muted-foreground">{job.scopeLabel}</p>}
@@ -69,6 +82,11 @@ export function JobDetailCard({
             className="h-9 text-sm"
           />
         </div>
+      </div>
+
+      <div className="mt-2 space-y-1">
+        <Label className="text-[11px] font-semibold text-muted-foreground">Crew</Label>
+        <CrewSelect value={crewId} onChange={(id) => crewMut.mutate(id)} className="h-9 text-sm" />
       </div>
 
       {/* Forecast on the schedule (0119) — this job's upcoming work days. */}

@@ -25,15 +25,18 @@ export function countWorkingDays(startISO: string, endISO: string): number {
 export type ProjectDurationStatus =
   | { state: "empty" }
   | { state: "not_started"; estimateDays: number }
-  | { state: "in_progress"; estimateDays: number; elapsedDays: number; overDays: number }
-  | { state: "complete"; estimateDays: number; totalDays: number; diffDays: number };
+  | { state: "in_progress"; estimateDays: number; elapsedDays: number; overDays: number; weatherDays: number }
+  | { state: "complete"; estimateDays: number; totalDays: number; diffDays: number; weatherDays: number };
 
 /** Derives the Estimated duration card's status. Elapsed/total days count
  * working days from the *actual* start date, never the scheduled one — the
- * estimate is measured against real progress, not the plan. */
+ * estimate is measured against real progress, not the plan. Weather delay
+ * days (rain-delay records, 0120) are reported separately and never count
+ * as the job running over its estimate. */
 export function projectDurationStatus(
   project: Pick<Project, "estimated_duration_days" | "actual_start_date" | "actual_end_date">,
   now: Date = new Date(),
+  weatherDays = 0,
 ): ProjectDurationStatus {
   const estimateDays = project.estimated_duration_days;
   if (!estimateDays) return { state: "empty" };
@@ -41,11 +44,11 @@ export function projectDurationStatus(
 
   if (project.actual_end_date) {
     const totalDays = countWorkingDays(project.actual_start_date, project.actual_end_date);
-    return { state: "complete", estimateDays, totalDays, diffDays: totalDays - estimateDays };
+    return { state: "complete", estimateDays, totalDays, diffDays: totalDays - weatherDays - estimateDays, weatherDays };
   }
 
   const elapsedDays = countWorkingDays(project.actual_start_date, todayISO(now));
-  return { state: "in_progress", estimateDays, elapsedDays, overDays: Math.max(0, elapsedDays - estimateDays) };
+  return { state: "in_progress", estimateDays, elapsedDays, overDays: Math.max(0, elapsedDays - weatherDays - estimateDays), weatherDays };
 }
 
 /** Working days available in the *planned* crew window (the Schedule

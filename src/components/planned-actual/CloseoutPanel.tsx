@@ -88,6 +88,19 @@ export function CloseoutSummary({ closeout, supersededCount = 0 }: { closeout: C
         <Stat label={`Expected ${loaded ? "(loaded)" : "profit"}`} value={formatCurrency(exp)} />
         <Stat label={`Actual ${loaded ? "(loaded)" : "profit"}`} value={`${formatCurrency(act)}`} sub={signedMoney(act - exp)} tone={act - exp < 0 ? "text-destructive" : "text-success"} />
       </div>
+      {closeout.snapshot.schedule && (closeout.snapshot.schedule.actual_working_days != null || closeout.snapshot.schedule.weather_delay_days > 0) && (
+        <p className="text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">Duration:</span>{" "}
+          {[
+            closeout.snapshot.schedule.actual_working_days != null ? `${closeout.snapshot.schedule.actual_working_days} working days` : null,
+            closeout.snapshot.schedule.estimated_days != null ? `estimated ${closeout.snapshot.schedule.estimated_days}` : null,
+            closeout.snapshot.schedule.weather_delay_days > 0 ? `+${closeout.snapshot.schedule.weather_delay_days} weather (not counted against the estimate)` : null,
+            closeout.snapshot.schedule.other_delay_days > 0 ? `${closeout.snapshot.schedule.other_delay_days} other delay days` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      )}
       {(ctx || closeout.context.crew_size) && (
         <p className="text-xs text-muted-foreground">
           <span className="font-semibold text-foreground">Context:</span> {[ctx, closeout.context.crew_size ? `crew of ${closeout.context.crew_size}` : null].filter(Boolean).join(", ")}

@@ -1,5 +1,7 @@
-import type { ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { AlertTriangle, CloudRain } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useRainDelay } from "@/components/schedule/rainDelayContext";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { formatInches, shortDayLabel, type DayRisk, type DayWeather } from "@/lib/weatherRisk";
@@ -7,13 +9,21 @@ import { WeatherIcon } from "./WeatherIcon";
 import { RISK_TEXT } from "./riskStyles";
 
 /**
- * Placeholder for the next feature — the "Push job" rain-delay action on a
- * flagged work day. It will get the job and the flagged date from here
- * (see riskyWorkDays() in src/lib/weatherRisk.ts for the list it will act
- * on). Deliberately renders nothing until that feature is built.
+ * The "Rain delay" action on a flagged work day (0120) — opens the delay
+ * sheet for this job and day. Owners only (renders nothing for crew).
  */
-export function PushJobSlot(_props: { projectId: string; date: string }) {
-  return null;
+export function RainDelayAction({ projectId, date, onOpen }: { projectId: string; date: string; onOpen?: () => void }) {
+  const openDelay = useRainDelay();
+  if (!openDelay) return null;
+  return (
+    <Button size="sm" className="mt-3 h-9 w-full font-bold" onClick={() => {
+        onOpen?.();
+        openDelay({ projectId, date, reason: "rain" });
+      }}>
+      <CloudRain className="mr-1.5 h-4 w-4" />
+      Rain delay
+    </Button>
+  );
 }
 
 /**
@@ -37,8 +47,9 @@ export function WeatherDayPopover({
   children: ReactNode;
   className?: string;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" className={className} aria-label={`Forecast ${shortDayLabel(weather.date)}${risk.level !== "none" ? ` — ${risk.summary}` : ""}`}>
           {children}
@@ -67,7 +78,7 @@ export function WeatherDayPopover({
           {weather.highF != null && ` · High ${weather.highF}°F`}
           {weather.lowF != null && ` / Low ${weather.lowF}°F`}
         </p>
-        {projectId && risk.level !== "none" && <PushJobSlot projectId={projectId} date={weather.date} />}
+        {projectId && risk.level !== "none" && <RainDelayAction projectId={projectId} date={weather.date} onOpen={() => setOpen(false)} />}
       </PopoverContent>
     </Popover>
   );

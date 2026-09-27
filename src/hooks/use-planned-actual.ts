@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  listScheduleDelays,
   getOverheadSettings,
   getProject,
   getVarianceThresholds,
@@ -25,6 +26,8 @@ import { burdenPerHour } from "@/lib/overhead";
 import { needsReconciliation, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
 import { plannedActualReport } from "@/lib/plannedActual";
 import { closeoutFeatures, type CloseoutSnapshot } from "@/lib/closeout";
+import { delayDays } from "@/lib/scheduleShift";
+import { countWorkingDays } from "@/lib/projectDuration";
 import { crewSizeFromLabor, projectContext, type JobContext } from "@/lib/jobContext";
 
 /**
@@ -51,6 +54,7 @@ export function usePlannedActual(projectId: string) {
   });
   const { data: catalog = [] } = useQuery({ queryKey: ["product-catalog"], queryFn: listProductCatalog });
   const { data: closeouts = [] } = useQuery({ queryKey: ["closeouts", projectId], queryFn: () => listProjectCloseouts(projectId) });
+  const { data: scheduleDelays = [] } = useQuery({ queryKey: ["schedule-delays", projectId], queryFn: () => listScheduleDelays(projectId) });
 
   const materialLines: MaterialsItem[] = useMemo(
     () => sections.filter(countsTowardTotals).flatMap((s) => s.materials_items).filter((i) => (i.cost_type ?? "material") === "material"),
@@ -104,7 +108,23 @@ export function usePlannedActual(projectId: string) {
      * is Complete (the dialog warns when lines aren't reconciled). */
     const buildCloseout = () => {
       const closeReport = build(true);
-      const snapshot: CloseoutSnapshot = { version: 1, report: closeReport, materials_reconciled: reconciled, unreconciled_lines: unreconciled };
+      // Rain delay action (0120): duration with weather days tagged
+      // separately, so comparisons can leave them out.
+      const d = delayDays(scheduleDelays, projectId);
+      const actualDays =
+        project.actual_start_date && project.actual_end_date ? countWorkingDays(project.actual_start_date, project.actual_end_date) : null;
+      const snapshot: CloseoutSnapshot = {
+        version: 1,
+        report: closeReport,
+        materials_reconciled: reconciled,
+        unreconciled_lines: unreconciled,
+        schedule: {
+          estimated_days: project.estimated_duration_days ?? null,
+          actual_working_days: actualDays,
+          weather_delay_days: d.weather,
+          other_delay_days: d.other,
+        },
+      };
       return {
         snapshot,
         context,
@@ -127,6 +147,8 @@ export function usePlannedActual(projectId: string) {
       laborEntries,
     };
   }, [
+    projectId,
+    scheduleDelays,
     project,
     quotes,
     changeOrders,

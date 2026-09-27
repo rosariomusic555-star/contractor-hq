@@ -66,6 +66,7 @@ import {
   listChangeOrders,
   listMaterialOrders,
   listProjectEvents,
+  listCrews,
   quoteTotal,
   logProjectEvent,
   updateProject,
@@ -137,12 +138,16 @@ import {
 } from "@/lib/materialTracking";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
-import { demoJobMeta } from "@/lib/demoData";
 import { actualCostByType, costPlanSummary } from "@/lib/costPlan";
 import { COST_BUCKETS, COST_TYPE_GROUP_LABEL, sectionLaborHours, type CostTotals } from "@/lib/costPlanMath";
 import { materialLineLabel } from "@/lib/materialsMath";
 import { BackLink } from "@/components/common/BackLink";
 import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
+import { CrewSelect } from "@/components/schedule/CrewSelect";
+import { ScheduleMenu } from "@/components/schedule/ScheduleMenu";
+import { ScheduleDelaysList } from "@/components/schedule/ScheduleDelaysList";
+import { useProjectDelays } from "@/components/schedule/useUndoScheduleDelay";
+import { delayDays } from "@/lib/scheduleShift";
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -192,6 +197,10 @@ export function ProjectDetailView() {
     queryFn: () => listMaterialOrders(id),
   });
   const { data: events = [] } = useQuery({ queryKey: ["project-events", id], queryFn: () => listProjectEvents(id) });
+  // Rain delay action (0120) — delay history + weather days for the
+  // Estimated duration card; crews for the Schedule card's picker.
+  const { data: scheduleDelays = [] } = useProjectDelays(id);
+  const { data: crews = [] } = useQuery({ queryKey: ["crews"], queryFn: listCrews });
   // The Material Tracker shows on every project regardless of quote/CO
   // approval or project status — see effectiveEstimate()'s doc comment for
   // how "Estimated" stays a real number (live sheet values) before a real
@@ -238,7 +247,7 @@ export function ProjectDetailView() {
   });
 
   const scheduleMutation = useMutation({
-    mutationFn: (patch: { scheduled_start_date?: string | null; scheduled_end_date?: string | null }) =>
+    mutationFn: (patch: { scheduled_start_date?: string | null; scheduled_end_date?: string | null; crew_id?: string | null }) =>
       updateProject(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
@@ -467,7 +476,9 @@ export function ProjectDetailView() {
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
   const marginProfit = realCost != null ? contract - realCost : null;
 
-  const durationStatus = projectDurationStatus(project);
+  const weatherDelayDays = delayDays(scheduleDelays, project.id).weather;
+  const durationStatus = projectDurationStatus(project, new Date(), weatherDelayDays);
+  const crewName = crews.find((c) => c.id === project.crew_id)?.name ?? null;
   const scheduledWindowDays = scheduledWindowWorkingDays(project);
   const windowNote =
     project.estimated_duration_days &&
@@ -477,7 +488,6 @@ export function ProjectDetailView() {
       : null;
 
   const meta = projectStatusMeta(project.status);
-  const demo = demoJobMeta(project);
   const recentExpenses = [...expenses]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 5);
@@ -531,7 +541,7 @@ export function ProjectDetailView() {
     <div className="animate-fade-in space-y-5">
       <MobilePageHeader
         title={project.name}
-        subtitle={`${project.client?.name ?? "No client"} · ${demo.crew}`}
+        subtitle={`${project.client?.name ?? "No client"}${crewName ? ` · ${crewName}` : ""}`}
         back={{ to: "/projects", label: "Projects" }}
         pills={<StatusPill meta={meta} className="!bg-white/20 !text-sidebar-foreground" />}
       />
@@ -546,7 +556,8 @@ export function ProjectDetailView() {
               <StatusPill meta={meta} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {project.client?.name ?? "No client"} · {demo.crew}
+              {project.client?.name ?? "No client"}
+              {crewName ? ` · ${crewName}` : ""}
             </p>
           </div>
           {statusSelect}
@@ -858,7 +869,10 @@ export function ProjectDetailView() {
           </section>
 
           <section className="card-surface p-5">
-            <h3 className="text-base font-bold text-foreground">Schedule</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold text-foreground">Schedule</h3>
+              <ScheduleMenu projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
+            </div>
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="scheduled-start" className="text-xs font-semibold text-muted-foreground">
@@ -890,6 +904,14 @@ export function ProjectDetailView() {
               Feeds the Dashboard Bookings card and the Bookings calendar once this job is
               scheduled.
             </p>
+            <div className="mt-3 space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground">Crew</Label>
+              <CrewSelect
+                value={project.crew_id}
+                onChange={(crewId) => scheduleMutation.mutate({ crew_id: crewId })}
+                className="h-10"
+              />
+            </div>
 
             {/* Forecast on the schedule (0119) — upcoming work days within
                 the forecast range; tap a day for why it's flagged. */}
@@ -901,6 +923,14 @@ export function ProjectDetailView() {
                   start={project.scheduled_start_date}
                   end={project.scheduled_end_date}
                 />
+              </div>
+            )}
+
+            {/* Rain delay action (0120) — this job's delays, with Undo. */}
+            {scheduleDelays.length > 0 && (
+              <div className="mt-4 border-t border-hairline pt-4">
+                <h4 className="mb-2 text-sm font-bold text-foreground">Delays</h4>
+                <ScheduleDelaysList projectId={project.id} canUndo />
               </div>
             )}
 
@@ -957,6 +987,11 @@ export function ProjectDetailView() {
                     />
                     <span className="text-sm text-muted-foreground">crew days estimated</span>
                   </div>
+                  {weatherDelayDays > 0 && (
+                    <p className="mt-1 text-xs font-semibold text-info">
+                      {pluralize(project.estimated_duration_days, "working day")} · +{pluralize(weatherDelayDays, "weather day")} (not counted as running over)
+                    </p>
+                  )}
 
                   <div className="mt-3 grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
@@ -999,11 +1034,15 @@ export function ProjectDetailView() {
                         const label =
                           durationStatus.state === "in_progress"
                             ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}${
+                                durationStatus.weatherDays > 0 ? ` +${durationStatus.weatherDays} weather` : ""
+                              }${
                                 durationStatus.overDays > 0
                                   ? ` · ${pluralize(durationStatus.overDays, "day")} over`
                                   : ""
                               }`
-                            : `Took ${pluralize(durationStatus.totalDays, "day")} · ${
+                            : `Took ${pluralize(durationStatus.totalDays, "day")}${
+                                durationStatus.weatherDays > 0 ? ` (${durationStatus.weatherDays} weather)` : ""
+                              } · ${
                                 durationStatus.diffDays > 0
                                   ? `${pluralize(durationStatus.diffDays, "day")} over estimate`
                                   : durationStatus.diffDays < 0
@@ -1012,9 +1051,9 @@ export function ProjectDetailView() {
                               }`;
                         const progressPct = Math.min(
                           100,
-                          ((durationStatus.state === "in_progress"
+                          ((Math.max(0, (durationStatus.state === "in_progress"
                             ? durationStatus.elapsedDays
-                            : durationStatus.totalDays) /
+                            : durationStatus.totalDays) - durationStatus.weatherDays)) /
                             durationStatus.estimateDays) *
                             100,
                         );

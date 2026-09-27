@@ -16,6 +16,7 @@ import {
   listQuotes,
   listChangeOrders,
   listCategories,
+  listCrews,
   projectContractValue,
   projectCategoryIds,
   type ProjectStatus,
@@ -39,6 +40,9 @@ export function ProjectsView() {
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  // Real crews (0120) — replaces the old demo crew label.
+  const { data: crews = [] } = useQuery({ queryKey: ["crews"], queryFn: listCrews });
+  const crewName = (p: { crew_id?: string | null }) => crews.find((c) => c.id === p.crew_id)?.name ?? null;
 
   /** Real contract value per project = its headline quote's total, plus its approved change orders. */
   const contractOf = useMemo(() => {
@@ -175,7 +179,7 @@ export function ProjectsView() {
                             <div className="h-full rounded-full bg-primary" style={{ width: `${demo.progressPct}%` }} />
                           </div>
                           <div className="mt-1 text-[11px] font-semibold text-muted-subtle">
-                            {demo.dayOfTotal ? `Day ${demo.dayOfTotal.day} of ${demo.dayOfTotal.total} · ${demo.crew}` : demo.crew}
+                            {[demo.dayOfTotal ? `Day ${demo.dayOfTotal.day} of ${demo.dayOfTotal.total}` : null, crewName(p)].filter(Boolean).join(" · ")}
                           </div>
                         </td>
                         <td className="text-[13px] text-muted-foreground">{demo.nextAction}</td>
@@ -205,7 +209,7 @@ export function ProjectsView() {
                   eyebrowColor={meta.border}
                   eyebrowRight={contract > 0 ? formatCurrency(contract) : ""}
                   title={p.name}
-                  subtitle={`${p.client?.name ?? "No client"} · ${demo.crew}`}
+                  subtitle={`${p.client?.name ?? "No client"}${crewName(p) ? ` · ${crewName(p)}` : ""}`}
                 >
                   <CategoryChips categoryIds={projectCategoryIds(p)} className="mt-1.5" max={3} />
                   <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">

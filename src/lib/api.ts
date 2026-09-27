@@ -133,6 +133,9 @@ export interface Project {
    * single-day bar; neither means the job sits in the Unscheduled rail. */
   scheduled_start_date: string | null;
   scheduled_end_date: string | null;
+  /** Real crews (0120) — which crew works this job; the rain-delay
+   * cascade shifts only the same crew's jobs. Names via listCrews(). */
+  crew_id?: string | null;
   /** Estimated duration card (0061) — owner-entered estimate in working
    * (crew) days, plus the actual start/end dates measured against it once
    * the job runs. Deliberately separate from scheduled_start_date/
@@ -1464,6 +1467,7 @@ export async function updateProject(
       | "target_install_month"
       | "scheduled_start_date"
       | "scheduled_end_date"
+      | "crew_id"
       | "estimated_duration_days"
       | "actual_start_date"
       | "actual_end_date"
@@ -4655,7 +4659,9 @@ export type ProjectEventKind =
   | "project_started"
   | "labor_logged"
   | "payment_received"
-  | "payment_voided";
+  | "payment_voided"
+  | "schedule_delay"
+  | "schedule_delay_undone";
 
 export interface ProjectEvent {
   id: string;
@@ -7021,4 +7027,114 @@ export async function runQuoteColdChecks(): Promise<number> {
   const { data, error } = await supabase.rpc("run_quote_cold_checks");
   if (error) return 0;
   return Number(data) || 0;
+}
+
+// ---------------------------------------------------------------------------
+// Crews (0120) — real now (was demo-only). One optional crew per project.
+// ---------------------------------------------------------------------------
+
+export interface Crew {
+  id: string;
+  name: string;
+  lead: string | null;
+  sort_order: number;
+}
+
+export async function listCrews(): Promise<Crew[]> {
+  const { data, error } = await supabase.from("crews").select("id, name, lead, sort_order").order("sort_order").order("name");
+  if (error) return [];
+  return (data ?? []) as Crew[];
+}
+
+export async function saveCrew(crew: { id?: string; name: string; lead?: string | null; sort_order?: number }): Promise<Crew> {
+  const row = { name: crew.name.trim(), lead: crew.lead?.trim() || null, ...(crew.sort_order != null ? { sort_order: crew.sort_order } : {}) };
+  const q = crew.id ? supabase.from("crews").update(row).eq("id", crew.id) : supabase.from("crews").insert(row);
+  const { data, error } = await q.select("id, name, lead, sort_order").single();
+  if (error) throw error;
+  return data as Crew;
+}
+
+/** Jobs on this crew fall back to "No crew" (FK on delete set null). */
+export async function deleteCrew(id: string): Promise<void> {
+  const { error } = await supabase.from("crews").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Schedule delays (0120) — the Rain delay action. The math is
+// src/lib/scheduleShift.ts; apply/undo are all-or-nothing RPCs.
+// ---------------------------------------------------------------------------
+
+export interface ScheduleDelayChange {
+  project_id: string;
+  name: string;
+  client_name: string | null;
+  role: "primary" | "cascade";
+  shift_days: number;
+  from: { start: string | null; end: string | null };
+  to: { start: string | null; end: string | null };
+}
+
+export interface ScheduleDelayDelivery {
+  order_id: string;
+  project_id: string;
+  label: string;
+  from: string;
+  to: string;
+}
+
+export interface ScheduleDelay {
+  id: string;
+  project_id: string;
+  delay_date: string;
+  days: number;
+  reason: "rain" | "weather_other" | "material" | "client" | "other";
+  note: string | null;
+  mode: "shift" | "extend";
+  cascaded: boolean;
+  crew_name: string | null;
+  changes: ScheduleDelayChange[];
+  deliveries: ScheduleDelayDelivery[];
+  created_by_name: string | null;
+  created_at: string;
+  undone_at: string | null;
+}
+
+/** A project's delays — as the primary job, or cascaded into by another
+ * job's delay (so its history shows why its dates moved). */
+export async function listScheduleDelays(projectId?: string): Promise<ScheduleDelay[]> {
+  const base = () => supabase.from("schedule_delays").select("*").order("created_at", { ascending: false });
+  if (!projectId) {
+    const { data, error } = await base();
+    return error ? [] : ((data ?? []) as ScheduleDelay[]);
+  }
+  const [own, cascaded] = await Promise.all([
+    base().eq("project_id", projectId),
+    base().neq("project_id", projectId).contains("changes", [{ project_id: projectId }]),
+  ]);
+  if (own.error) return [];
+  return [...(own.data ?? []), ...(cascaded.data ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)) as ScheduleDelay[];
+}
+
+export async function applyScheduleDelay(payload: {
+  project_id: string;
+  project_name: string;
+  delay_date: string;
+  days: number;
+  reason: ScheduleDelay["reason"];
+  note: string | null;
+  mode: ScheduleDelay["mode"];
+  crew_name: string | null;
+  changes: ScheduleDelayChange[];
+  deliveries: ScheduleDelayDelivery[];
+  created_by_name: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("apply_schedule_delay", { p: payload });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function undoScheduleDelay(id: string): Promise<void> {
+  const { error } = await supabase.rpc("undo_schedule_delay", { p_id: id });
+  if (error) throw error;
 }
