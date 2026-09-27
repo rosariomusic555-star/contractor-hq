@@ -13,6 +13,14 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
+    // Never on /portal: a client's magic link lands there with its tokens
+    // in the URL, and picking them up here would sign the contractor's own
+    // app in as the client (replacing their session in this browser).
+    detectSessionInUrl: !isPortalPath(),
   },
 });
+
+/** The Client Hub's routes — their URL sessions belong to portalSupabase. */
+export function isPortalPath(): boolean {
+  return typeof window !== "undefined" && window.location.pathname.startsWith("/portal");
+}
