@@ -82,7 +82,9 @@ create index if not exists maintenance_events_item_idx on public.maintenance_eve
 
 alter table public.project_features add column if not exists warranty_ends_on date;
 alter table public.clients add column if not exists maintenance_opt_out boolean not null default false;
-alter table public.opportunities add column if not exists source_project_id uuid references public.projects (id) on delete set null;
+-- Plain uuid, NOT a foreign key: a second FK between opportunities and
+-- projects makes every unhinted PostgREST embed ambiguous (see 0129).
+alter table public.opportunities add column if not exists source_project_id uuid;
 alter table public.projects add column if not exists maintenance_dismissed boolean not null default false;
 
 drop trigger if exists project_maintenance_items_set_updated_at on public.project_maintenance_items;

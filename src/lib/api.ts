@@ -1418,8 +1418,11 @@ export async function deleteLeadSource(id: string): Promise<void> {
 // Projects
 // ---------------------------------------------------------------------------
 
+// The opportunities embed names its FK: opportunities also carries
+// source_project_id (0127), and two FKs between the tables make an unhinted
+// embed ambiguous (PGRST201) — see 0129.
 const PROJECT_SELECT =
-  "*, client:clients(name, email, phone, address), project_categories(category_id), opportunities(id, stage)";
+  "*, client:clients(name, email, phone, address), project_categories(category_id), opportunities!opportunities_project_id_fkey(id, stage)";
 
 /** Every real job — pre-sale projects (see isPreSaleProject) excluded. */
 export async function listProjects(): Promise<Project[]> {
@@ -5423,7 +5426,7 @@ export function opportunityCategoryIds(o: Opportunity): string[] {
 }
 
 const OPPORTUNITY_SELECT =
-  "*, client:clients(name), opportunity_categories(category_id), project:projects(project_categories(category_id))";
+  "*, client:clients(name), opportunity_categories(category_id), project:projects!opportunities_project_id_fkey(project_categories(category_id))";
 
 export async function listOpportunities(): Promise<Opportunity[]> {
   const { data, error } = await supabase
