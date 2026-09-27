@@ -35,6 +35,14 @@ const PRECON_TOGGLES: typeof TOGGLES = [
   },
 ];
 
+const MAINTENANCE_TOGGLES: typeof TOGGLES = [
+  {
+    key: "maintenance",
+    label: "Maintenance reminders",
+    hint: "A past client's maintenance is coming due, and a client requests service from the Client Hub",
+  },
+];
+
 const REVIEW_TOGGLES: typeof TOGGLES = [
   {
     key: "review_activity",
@@ -61,6 +69,8 @@ const TRIGGERS: { value: AutomationTrigger; label: string }[] = [
   { value: "precon_overdue", label: "Pre-construction item overdue" },
   { value: "precon_ready", label: "Project ready to start" },
   { value: "locate_expiring", label: "811 ticket expiring" },
+  { value: "maintenance_due", label: "Maintenance due soon" },
+  { value: "maintenance_overdue", label: "Maintenance overdue" },
 ];
 
 const TASK_TYPES = [
@@ -132,7 +142,7 @@ export function SettingsNotificationsView() {
         <h2 className="text-[17px] font-bold tracking-tight text-foreground">Schedule & reviews</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">What counts as risky is set in Settings › Schedule & weather.</p>
         <div className="mt-2 divide-y divide-hairline">
-          {[...SCHEDULE_TOGGLES, ...PRECON_TOGGLES, ...REVIEW_TOGGLES].map((t) => (
+          {[...SCHEDULE_TOGGLES, ...PRECON_TOGGLES, ...REVIEW_TOGGLES, ...MAINTENANCE_TOGGLES].map((t) => (
             <label key={t.key} className="flex cursor-pointer items-center justify-between gap-4 py-3.5">
               <div>
                 <div className="text-sm font-semibold text-foreground">{t.label}</div>

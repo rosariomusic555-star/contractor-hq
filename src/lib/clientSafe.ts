@@ -58,6 +58,9 @@ export const CLIENT_FIELDS = {
   progressComment: ["author", "name", "body", "created_at"],
   progressFeature: ["id", "label", "category"],
   beforeAfter: ["feature", "before", "after"],
+  care: ["items", "warranties", "opted_out"],
+  careItem: ["label", "description", "as_needed", "next_month", "feature"],
+  warranty: ["feature", "ends_on"],
 } as const;
 
 /** Fields that must never reach a client. The test checks none of these
@@ -173,6 +176,12 @@ export function clientSafeProjectDetail(d: PortalProjectDetail): PortalProjectDe
               ? Object.fromEntries(Object.entries(v as Row).map(([k, x]) => [k, Array.isArray(x) ? x.filter((y) => typeof y === "string") : []]))
               : {},
           before_after: list((b) => pick(b, CLIENT_FIELDS.beforeAfter)),
+        })
+      : null,
+    care: r.care
+      ? pick(r.care, CLIENT_FIELDS.care, {
+          items: list((i) => pick(i, CLIENT_FIELDS.careItem)),
+          warranties: list((w) => pick(w, CLIENT_FIELDS.warranty)),
         })
       : null,
   } as PortalProjectDetail;

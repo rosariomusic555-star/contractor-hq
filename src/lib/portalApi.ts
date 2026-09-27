@@ -328,6 +328,14 @@ export interface PortalProjectDetail {
   review?: { link_path: string } | null;
   /** 0126 — shared progress updates, milestone presets, before/after pairs. */
   progress?: PortalProgress | null;
+  /** 0127 — completed projects: care & maintenance (no prices). */
+  care?: PortalCare | null;
+}
+
+export interface PortalCare {
+  items: { label: string; description: string | null; as_needed: boolean; next_month: string | null; feature: string | null }[];
+  warranties: { feature: string; ends_on: string }[];
+  opted_out: boolean;
 }
 
 export interface PortalProgressUpdate {
@@ -526,5 +534,15 @@ export async function portalCommentProgress(updateId: string, body: string): Pro
 }
 export async function portalSetMarketingOk(projectId: string, ok: boolean): Promise<void> {
   const { error } = await portalSupabase.rpc("portal_set_marketing_ok", { p_project_id: projectId, p_ok: ok });
+  if (error) throw error;
+}
+
+// Maintenance (0127) — "Request service" and "Don't remind me".
+export async function portalRequestService(projectId: string): Promise<void> {
+  const { error } = await portalSupabase.rpc("portal_request_service", { p_project_id: projectId });
+  if (error) throw error;
+}
+export async function portalMaintenanceOptOut(projectId: string, optOut: boolean): Promise<void> {
+  const { error } = await portalSupabase.rpc("portal_maintenance_opt_out", { p_project_id: projectId, p_opt_out: optOut });
   if (error) throw error;
 }

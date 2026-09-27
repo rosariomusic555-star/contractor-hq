@@ -10,6 +10,7 @@ import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { WeatherStrip } from "@/components/dashboard/WeatherStrip";
 import { WeatherRisksCard } from "@/components/dashboard/WeatherRisksCard";
+import { MaintenanceDueCard } from "@/components/dashboard/MaintenanceDueCard";
 import { UpdatesToReviewCard } from "@/components/dashboard/UpdatesToReviewCard";
 import { BookingsCard } from "@/components/dashboard/BookingsCard";
 import { MaterialDeliveriesCard } from "@/components/dashboard/MaterialDeliveriesCard";
@@ -290,6 +291,9 @@ export function DashboardView() {
         <FollowUpsCard />
         <NeedsYou />
       </div>
+
+      {/* ---- Maintenance due (0127) — past clients; hidden until reminders exist ---- */}
+      <MaintenanceDueCard />
 
       {/* ---- Recent activity ---- */}
       <RecentActivity />

@@ -5,6 +5,7 @@ import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@
 import { buildNeedsYouItems } from "@/lib/needsYou";
 import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
 import { usePreconNeedsYou } from "@/components/precon/usePrecon";
+import { useMaintenanceNeedsYou } from "@/components/maintenance/useMaintenance";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
 
 const MAX_ITEMS = 5;
@@ -21,8 +22,10 @@ export function NeedsYou({ className }: { className?: string }) {
   const reviews = useReviewNeedsYou();
   // Pre-construction (0124) — jobs starting soon with required items open.
   const precon = usePreconNeedsYou();
+  // Maintenance reminders (0127) — set-up prompts + past clients coming due.
+  const maintenance = useMaintenanceNeedsYou();
 
-  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, precon);
+  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, [...precon, ...maintenance]);
   const shown = items.slice(0, MAX_ITEMS);
 
   return (
