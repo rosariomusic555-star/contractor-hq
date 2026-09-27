@@ -12,6 +12,7 @@ import {
   MessagesSquare,
   Layers,
   Wallet,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ export const navItems: NavItem[] = [
   { to: "/quotes", label: "Quotes", icon: FileText },
   { to: "/invoices", label: "Invoices", icon: Receipt },
   { to: "/expenses", label: "Expenses", icon: Wallet },
+  { to: "/timesheets", label: "Timesheets", icon: Clock },
   { to: "/revenue", label: "Revenue", icon: TrendingUp },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -48,7 +50,7 @@ const byTo = (to: string) => navItems.find((item) => item.to === to)!;
 // BottomTabBar and its "More" sheet intentionally keep their own flat list.
 export const navGroups: NavGroup[] = [
   { label: "Overview", items: ["/dashboard"].map(byTo) },
-  { label: "Work", items: ["/projects", "/materials", "/quotes", "/invoices", "/expenses"].map(byTo) },
+  { label: "Work", items: ["/projects", "/materials", "/quotes", "/invoices", "/expenses", "/timesheets"].map(byTo) },
   { label: "Pipeline", items: ["/pipeline", "/tasks", "/appointments", "/communications"].map(byTo) },
   { label: "Money", items: ["/revenue"].map(byTo) },
   { label: "Business", items: ["/clients", "/settings"].map(byTo) },

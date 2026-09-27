@@ -43,6 +43,10 @@ const MAINTENANCE_TOGGLES: typeof TOGGLES = [
   },
 ];
 
+const TIMESHEET_TOGGLES: typeof TOGGLES = [
+  { key: "timesheets", label: "Timesheets", hint: "An employee submits a timesheet, and timesheets are waiting for approval" },
+];
+
 const REVIEW_TOGGLES: typeof TOGGLES = [
   {
     key: "review_activity",
@@ -142,7 +146,7 @@ export function SettingsNotificationsView() {
         <h2 className="text-[17px] font-bold tracking-tight text-foreground">Schedule & reviews</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">What counts as risky is set in Settings › Schedule & weather.</p>
         <div className="mt-2 divide-y divide-hairline">
-          {[...SCHEDULE_TOGGLES, ...PRECON_TOGGLES, ...REVIEW_TOGGLES, ...MAINTENANCE_TOGGLES].map((t) => (
+          {[...SCHEDULE_TOGGLES, ...PRECON_TOGGLES, ...REVIEW_TOGGLES, ...MAINTENANCE_TOGGLES, ...TIMESHEET_TOGGLES].map((t) => (
             <label key={t.key} className="flex cursor-pointer items-center justify-between gap-4 py-3.5">
               <div>
                 <div className="text-sm font-semibold text-foreground">{t.label}</div>

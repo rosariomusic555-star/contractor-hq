@@ -81,6 +81,11 @@ import { SettingsReviewsView } from "@/components/views/SettingsReviewsView";
 import { SettingsPreconView } from "@/components/views/SettingsPreconView";
 import { SettingsProgressView } from "@/components/views/SettingsProgressView";
 import { SettingsMaintenanceView } from "@/components/views/SettingsMaintenanceView";
+import { SettingsPayrollView } from "@/components/views/SettingsPayrollView";
+import { TimesheetsView } from "@/components/timesheets/TimesheetsView";
+import { TimesheetDetailView } from "@/components/timesheets/TimesheetDetailView";
+import { PayrollView } from "@/components/timesheets/PayrollView";
+import { EmployeeTimeView } from "@/components/timesheets/EmployeeTimeView";
 import { PortfolioView } from "@/components/views/PortfolioView";
 import { EmployeeWorkOrderPage, WorkOrderPreviewPage } from "@/components/views/WorkOrderPage";
 import { NotificationsView } from "@/components/views/NotificationsView";
@@ -238,6 +243,10 @@ const router = createBrowserRouter(
         <Route path="/settings/precon" element={<SettingsPreconView />} />
         <Route path="/settings/progress" element={<SettingsProgressView />} />
         <Route path="/settings/maintenance" element={<SettingsMaintenanceView />} />
+        <Route path="/settings/payroll" element={<SettingsPayrollView />} />
+        <Route path="/timesheets" element={<TimesheetsView />} />
+        <Route path="/timesheets/payroll/:start" element={<PayrollView />} />
+        <Route path="/timesheets/:id" element={<TimesheetDetailView />} />
         <Route path="/portfolio" element={<PortfolioView />} />
         {/* Crew work order (0125) — the owner's preview of the crew page. */}
         <Route path="/projects/:id/work-order" element={<WorkOrderPreviewPage />} />
@@ -251,6 +260,7 @@ const router = createBrowserRouter(
         <Route path="/employee/projects/:id" element={<EmployeeProjectDetailView />} />
         <Route path="/employee/projects/:id/work-order" element={<EmployeeWorkOrderPage />} />
         <Route path="/employee/account" element={<EmployeeAccountView />} />
+        <Route path="/employee/time" element={<EmployeeTimeView />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Route>,

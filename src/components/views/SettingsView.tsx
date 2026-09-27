@@ -24,6 +24,7 @@ const SECTIONS = [
   { label: "Schedule & weather", to: "/settings/weather" },
   { label: "Pre-construction checklist", to: "/settings/precon" },
   { label: "Maintenance reminders", to: "/settings/maintenance" },
+  { label: "Payroll & time", to: "/settings/payroll" },
   { label: "Progress updates", to: "/settings/progress" },
   { label: "Portfolio", to: "/portfolio" },
   { label: "Messages", to: "/settings/messages" },

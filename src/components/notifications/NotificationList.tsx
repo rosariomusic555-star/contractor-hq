@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Camera, CheckCircle2, ClipboardCheck, MessageSquare, CloudRain, Eye, ListChecks, Star, XCircle, Bell, Wrench } from "lucide-react";
+import { Camera, CheckCircle2, ClipboardCheck, MessageSquare, CloudRain, Eye, ListChecks, Star, XCircle, Bell, Wrench, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AppNotification } from "@/lib/api";
 import { timeAgoShort } from "@/lib/quoteActivity";
@@ -18,6 +18,8 @@ const ICON: Record<string, typeof Bell> = {
   precon_locate_expiring: ClipboardCheck,
   maintenance_due: Wrench,
   maintenance_request: Wrench,
+  timesheet_submitted: Clock,
+  timesheets_waiting: Clock,
   progress_review: Camera,
   progress_comment: MessageSquare,
 };

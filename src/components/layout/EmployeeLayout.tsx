@@ -1,5 +1,5 @@
 import { Outlet, Link } from "react-router-dom";
-import { LogOut, KeyRound } from "lucide-react";
+import { LogOut, KeyRound, Clock } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +28,11 @@ export function EmployeeLayout() {
           <span className="text-sm font-bold text-sidebar-foreground">ContractorPro</span>
         </Link>
 
+        <div className="flex items-center gap-1">
+        {/* Timesheets (0131) — clock in / out and the week. */}
+        <Link to="/employee/time" className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-sidebar-foreground hover:bg-sidebar-accent/50">
+          <Clock className="h-4 w-4" /> My time
+        </Link>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -50,6 +55,7 @@ export function EmployeeLayout() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </header>
 
       <main className="p-4 md:p-8">
