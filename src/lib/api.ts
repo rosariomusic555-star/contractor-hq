@@ -4661,7 +4661,8 @@ export type ProjectEventKind =
   | "payment_received"
   | "payment_voided"
   | "schedule_delay"
-  | "schedule_delay_undone";
+  | "schedule_delay_undone"
+  | "client_heads_up";
 
 export interface ProjectEvent {
   id: string;
@@ -7137,4 +7138,137 @@ export async function applyScheduleDelay(payload: {
 export async function undoScheduleDelay(id: string): Promise<void> {
   const { error } = await supabase.rpc("undo_schedule_delay", { p_id: id });
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Client heads-up (0121) — message templates + schedule updates. Sending
+// goes through src/lib/clientMessaging.ts; template filling is
+// src/lib/messageTemplates.ts.
+// ---------------------------------------------------------------------------
+
+export interface StoredMessageTemplate {
+  key: "rain_delay" | "schedule_change" | "start_confirmed";
+  subject: string | null;
+  body: string;
+}
+
+export async function listMessageTemplates(): Promise<StoredMessageTemplate[]> {
+  const { data, error } = await supabase.from("message_templates").select("key, subject, body");
+  if (error) return [];
+  return (data ?? []) as StoredMessageTemplate[];
+}
+
+export async function saveMessageTemplate(t: StoredMessageTemplate): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from("message_templates")
+    .upsert({ user_id: auth.user?.id, key: t.key, subject: t.subject, body: t.body, updated_at: new Date().toISOString() }, { onConflict: "user_id,key" });
+  if (error) throw error;
+}
+
+/** Back to the built-in default. */
+export async function resetMessageTemplate(key: StoredMessageTemplate["key"]): Promise<void> {
+  const { error } = await supabase.from("message_templates").delete().eq("key", key);
+  if (error) throw error;
+}
+
+export type HeadsUpStatus = "pending" | "sent" | "skipped" | "dismissed";
+
+export interface ScheduleUpdate {
+  id: string;
+  project_id: string;
+  client_id: string | null;
+  source: "delay" | "manual" | "confirm";
+  delay_id: string | null;
+  reason: string | null;
+  from_start: string | null;
+  from_end: string | null;
+  to_start: string | null;
+  to_end: string | null;
+  client_visible: boolean;
+  heads_up_status: HeadsUpStatus;
+  channel: "text" | "email" | "copy" | null;
+  message: string | null;
+  sent_at: string | null;
+  withdrawn_at: string | null;
+  created_at: string;
+  project?: { name: string } | null;
+  client?: { id: string; name: string; phone: string | null; email: string | null } | null;
+  delay?: { project_id: string; delay_date: string; days: number } | null;
+}
+
+const SCHEDULE_UPDATE_SELECT = "*, project:projects(name), client:clients(id, name, phone, email), delay:schedule_delays(project_id, delay_date, days)";
+
+export async function listScheduleUpdates(filter: { projectId?: string; delayId?: string; ids?: string[]; pendingOnly?: boolean }): Promise<ScheduleUpdate[]> {
+  let q = supabase.from("schedule_updates").select(SCHEDULE_UPDATE_SELECT).is("withdrawn_at", null).order("created_at", { ascending: true });
+  if (filter.projectId) q = q.eq("project_id", filter.projectId);
+  if (filter.delayId) q = q.eq("delay_id", filter.delayId);
+  if (filter.ids) q = q.in("id", filter.ids);
+  if (filter.pendingOnly) q = q.eq("heads_up_status", "pending");
+  const { data, error } = await q;
+  if (error) return [];
+  return (data ?? []) as ScheduleUpdate[];
+}
+
+export async function updateScheduleUpdate(
+  id: string,
+  patch: Partial<Pick<ScheduleUpdate, "heads_up_status" | "client_visible" | "message" | "channel" | "sent_at">>,
+): Promise<void> {
+  const { error } = await supabase.from("schedule_updates").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setScheduleUpdatesClientVisible(ids: string[], visible: boolean): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from("schedule_updates").update({ client_visible: visible }).in("id", ids);
+  if (error) throw error;
+}
+
+/** "Confirm start date with client" — a heads-up only (never a Hub post). */
+export async function createStartConfirmation(project: Pick<Project, "id" | "client_id" | "scheduled_start_date" | "scheduled_end_date">): Promise<ScheduleUpdate> {
+  const { data, error } = await supabase
+    .from("schedule_updates")
+    .insert({
+      project_id: project.id,
+      client_id: project.client_id,
+      source: "confirm",
+      from_start: project.scheduled_start_date,
+      from_end: project.scheduled_end_date,
+      to_start: project.scheduled_start_date,
+      to_end: project.scheduled_end_date,
+      client_visible: false,
+    })
+    .select(SCHEDULE_UPDATE_SELECT)
+    .single();
+  if (error) throw error;
+  return data as ScheduleUpdate;
+}
+
+const HEADS_UP_LABEL: Record<"rain_delay" | "schedule_change" | "start_confirmed", string> = {
+  rain_delay: "Rain delay heads-up",
+  schedule_change: "Schedule update",
+  start_confirmed: "Start date confirmation",
+};
+const CHANNEL_WORD = { text: "text", email: "email", copy: "a copied message" } as const;
+
+/**
+ * "Mark as sent" — the app can't see the send itself (sms:/mailto: hand off
+ * to the phone), so the contractor confirms. Logs it in the communication
+ * center (activities: text / email / note) and on the project timeline.
+ */
+export async function markHeadsUpSent(
+  u: Pick<ScheduleUpdate, "id" | "project_id" | "client_id">,
+  channel: "text" | "email" | "copy",
+  message: string,
+  template: "rain_delay" | "schedule_change" | "start_confirmed",
+): Promise<void> {
+  await updateScheduleUpdate(u.id, { heads_up_status: "sent", channel, message, sent_at: new Date().toISOString() });
+  const label = HEADS_UP_LABEL[template];
+  if (u.client_id) {
+    await logActivity(u.client_id, channel === "copy" ? "note" : channel, `${label} (${CHANNEL_WORD[channel]}): ${message}`, {
+      project_id: u.project_id,
+      meta: { schedule_update_id: u.id, heads_up: true, channel },
+    });
+  }
+  await logProjectEvent(u.project_id, "client_heads_up", `${label} sent via ${CHANNEL_WORD[channel]}`, { schedule_update_id: u.id });
 }

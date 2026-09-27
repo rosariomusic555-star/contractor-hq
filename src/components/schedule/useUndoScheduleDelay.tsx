@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { listScheduleDelays, undoScheduleDelay } from "@/lib/api";
 
 export function invalidateScheduleQueries(qc: ReturnType<typeof useQueryClient>) {
-  for (const key of [["projects"], ["project"], ["schedule-delays"], ["material-orders"], ["forecast"], ["project-events"], ["employee-assigned-project"]]) {
+  for (const key of [["projects"], ["project"], ["schedule-delays"], ["material-orders"], ["forecast"], ["project-events"], ["employee-assigned-project"], ["schedule-updates"]]) {
     qc.invalidateQueries({ queryKey: key });
   }
 }
@@ -40,4 +40,11 @@ export function useUndoScheduleDelay() {
 /** A job's delays — its own, plus other jobs' delays that cascaded into it. */
 export function useProjectDelays(projectId: string) {
   return useQuery({ queryKey: ["schedule-delays", projectId], queryFn: () => listScheduleDelays(projectId) });
+}
+
+export function invalidateHeadsUp(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["schedule-updates"] });
+  qc.invalidateQueries({ queryKey: ["project-events"] });
+  qc.invalidateQueries({ queryKey: ["communications"] });
+  qc.invalidateQueries({ queryKey: ["activities"] });
 }

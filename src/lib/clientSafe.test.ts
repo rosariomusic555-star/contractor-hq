@@ -49,6 +49,7 @@ const raw = withLeaks({
   photos: [withLeaks({ id: "ph", storage_path: "p", caption: null })],
   deliveries: [withLeaks({ id: "d", supplier: "Stone Co", expected_delivery_date: null, status: "ordered", photos: [] })],
   events: [withLeaks({ id: "e", kind: "quote_sent", summary: "Quote sent", created_at: "x" })],
+  schedule_updates: [withLeaks({ id: "su", posted_at: "x", reason: "rain", from_start: "2026-10-01", from_end: "2026-10-06", to_start: "2026-10-02", to_end: "2026-10-07" })],
 }) as unknown as PortalProjectDetail;
 
 describe("client-facing serializer", () => {
@@ -64,7 +65,7 @@ describe("client-facing serializer", () => {
   });
 
   it("only ever outputs whitelisted keys", () => {
-    const whitelisted = new Set<string>([...Object.values(CLIENT_FIELDS).flat(), "project", "business", "client", "quotes", "change_orders", "invoices", "payments", "versions", "money", "photos", "deliveries", "events"]);
+    const whitelisted = new Set<string>([...Object.values(CLIENT_FIELDS).flat(), "project", "business", "client", "quotes", "change_orders", "invoices", "payments", "versions", "money", "photos", "deliveries", "events", "schedule_updates"]);
     const unknown = [...allKeys(clientSafeProjectDetail(raw))].filter((k) => !whitelisted.has(k));
     expect(unknown).toEqual([]);
   });
@@ -76,6 +77,7 @@ describe("client-facing serializer", () => {
     expect(d.payments?.[0].applied_to[0].invoice_number).toBe("INV-001");
     expect((d.versions?.[0].content as { total?: number }).total).toBe(20);
     expect(d.deliveries[0].supplier).toBe("Stone Co");
+    expect(d.schedule_updates?.[0]).toEqual({ id: "su", posted_at: "x", reason: "rain", from_start: "2026-10-01", from_end: "2026-10-06", to_start: "2026-10-02", to_end: "2026-10-07" });
     const g = d.quotes[0].sections[0].selections![0];
     expect(g.options[0]).toEqual({ id: "o1", name: "Shale Grey", description: null, image_path: "p", price_delta: 0, is_default: true });
     expect(g.picked).toEqual(["o1"]);

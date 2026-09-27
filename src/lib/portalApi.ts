@@ -321,6 +321,19 @@ export interface PortalProjectDetail {
   photos: PortalPhoto[];
   deliveries: PortalDelivery[];
   events: PortalEvent[];
+  /** 0121 — schedule changes posted to the Hub, newest first. Dates and a
+   * generic reason only. */
+  schedule_updates?: PortalScheduleUpdate[];
+}
+
+export interface PortalScheduleUpdate {
+  id: string;
+  posted_at: string;
+  reason: "rain" | "weather" | "schedule";
+  from_start: string | null;
+  from_end: string | null;
+  to_start: string | null;
+  to_end: string | null;
 }
 
 /** The hub's one call for everything a project overview needs — null if

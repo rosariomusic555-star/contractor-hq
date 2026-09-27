@@ -34,7 +34,7 @@ import {
 } from "@/lib/scheduleShift";
 import { isoDate } from "@/lib/weatherRisk";
 import { invalidateScheduleQueries, useUndoScheduleDelay } from "./useUndoScheduleDelay";
-import { ClientHeadsUpStep } from "./ClientHeadsUpStep";
+import { HeadsUpStep } from "./HeadsUpStep";
 
 const REASONS: DelayReason[] = ["rain", "weather_other", "material", "client", "other"];
 const ACTIVE = new Set(["scheduled", "in_progress"]);
@@ -82,7 +82,7 @@ export function RainDelaySheet({
   const [note, setNote] = useState("");
   const [cascade, setCascade] = useState(true);
   const [moveDeliveries, setMoveDeliveries] = useState<Set<string>>(new Set());
-  const [done, setDone] = useState<{ delayId: string; clients: { projectId: string; projectName: string; clientName: string | null }[] } | null>(null);
+  const [done, setDone] = useState<{ delayId: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -201,10 +201,7 @@ export function RainDelaySheet({
         description: moved > 1 ? `${moved - 1} more ${crew?.name ?? "crew"} job${moved - 1 === 1 ? "" : "s"} shifted` : undefined,
         action: undo.toastAction(delayId),
       });
-      setDone({
-        delayId,
-        clients: (plan?.changes ?? []).map((c) => ({ projectId: c.projectId, projectName: c.name, clientName: c.clientName })),
-      });
+      setDone({ delayId });
     },
     onError: (err: Error) => toast({ title: "Couldn't apply the delay", description: err.message, variant: "destructive" }),
   });
@@ -226,7 +223,7 @@ export function RainDelaySheet({
         </SheetHeader>
 
         {done ? (
-          <ClientHeadsUpStep delayId={done.delayId} clients={done.clients} onDone={() => onOpenChange(false)} />
+          <HeadsUpStep scope={{ delayId: done.delayId }} onDone={() => onOpenChange(false)} />
         ) : !project ? (
           <p className="p-5 text-sm text-muted-foreground">Loading…</p>
         ) : !project.scheduled_start_date ? (

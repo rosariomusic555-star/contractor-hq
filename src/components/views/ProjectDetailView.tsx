@@ -146,6 +146,7 @@ import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 import { CrewSelect } from "@/components/schedule/CrewSelect";
 import { ScheduleMenu } from "@/components/schedule/ScheduleMenu";
 import { ScheduleDelaysList } from "@/components/schedule/ScheduleDelaysList";
+import { HeadsUpReminder } from "@/components/schedule/HeadsUpReminder";
 import { useProjectDelays } from "@/components/schedule/useUndoScheduleDelay";
 import { delayDays } from "@/lib/scheduleShift";
 
@@ -252,6 +253,7 @@ export function ProjectDetailView() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["projects", id] });
+      qc.invalidateQueries({ queryKey: ["schedule-updates"] });
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't update schedule", description: err.message, variant: "destructive" }),
@@ -904,6 +906,8 @@ export function ProjectDetailView() {
               Feeds the Dashboard Bookings card and the Bookings calendar once this job is
               scheduled.
             </p>
+            {/* Client heads-up (0121) — until the change is sent or dismissed. */}
+            <HeadsUpReminder projectId={project.id} />
             <div className="mt-3 space-y-1.5">
               <Label className="text-xs font-semibold text-muted-foreground">Crew</Label>
               <CrewSelect

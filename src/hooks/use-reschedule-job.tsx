@@ -26,7 +26,10 @@ export function useRescheduleJob() {
   const { toast } = useToast();
 
   const commit = (projectId: string, dates: ScheduleDates) =>
-    updateProject(projectId, dates).then(() => qc.invalidateQueries({ queryKey: ["projects"] }));
+    updateProject(projectId, dates).then(() => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["schedule-updates"] });
+    });
 
   const reschedule = (projectId: string, projectName: string, next: ScheduleDates, previous: ScheduleDates) => {
     patchProjectsCache(qc, projectId, next);
