@@ -43,6 +43,7 @@ import {
   type Appointment,
   type AppointmentType,
 } from "@/lib/api";
+import { AppointmentForecastChip } from "@/components/weather/AppointmentForecastChip";
 
 type Filter = "upcoming" | "today" | "past" | "all";
 
@@ -187,6 +188,7 @@ export function AppointmentRow({
             {APPOINTMENT_TYPE_LABEL[appointment.type]}
           </span>
           <span className={meta.badge}>{meta.label}</span>
+          <AppointmentForecastChip appointment={appointment} />
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
           <span>{timeLabel ? `${dateLabel} · ${timeLabel}` : dateLabel}</span>

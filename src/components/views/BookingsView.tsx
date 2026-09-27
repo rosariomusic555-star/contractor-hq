@@ -21,6 +21,8 @@ import { UnscheduledRail } from "@/components/bookings/UnscheduledRail";
 import { BookingsLegend } from "@/components/bookings/BookingsLegend";
 import { DaySidePanel } from "@/components/bookings/DaySidePanel";
 import { BackLink } from "@/components/common/BackLink";
+import { scheduleWeatherByDate, useScheduleForecasts } from "@/lib/forecast";
+import { worstRisk, type RiskLevel } from "@/lib/weatherRisk";
 
 function groupById<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -67,6 +69,13 @@ export function BookingsView() {
   const { data: projects = [], isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
+
+  // Forecast on the schedule (0119) — one batched request for every job
+  // with work days in the forecast range; marks calendar days.
+  const { projects: forecastProjects, batch: forecastBatch } = useScheduleForecasts();
+  const weatherByDate = scheduleWeatherByDate(forecastProjects, forecastBatch);
+  const monthWeatherRisk = (key: string): RiskLevel =>
+    worstRisk([...weatherByDate.entries()].filter(([d]) => d.startsWith(key)).map(([, w]) => w.level));
 
   const quotesByProject = groupById<Quote>(quotes);
   const changeOrdersByProject = groupById<ChangeOrder>(changeOrders);
@@ -269,6 +278,7 @@ export function BookingsView() {
                       jobs={m.jobs}
                       today={today}
                       onOpen={() => setPanel({ mode: "month", monthIndex: i })}
+                      weatherRisk={monthWeatherRisk(m.key)}
                     />
                   </div>
                 );
@@ -295,6 +305,7 @@ export function BookingsView() {
                       onOpenMonth={() => setPanel({ mode: "month", monthIndex: i })}
                       onOpenDay={(date) => setPanel({ mode: "day", date })}
                       onMoveJob={handleMoveJob}
+                      weather={weatherByDate}
                     />
                   </div>
                 );

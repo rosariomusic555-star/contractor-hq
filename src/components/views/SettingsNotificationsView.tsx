@@ -27,6 +27,14 @@ const TOGGLES: { key: keyof NotificationSettings; label: string; hint: string }[
   { key: "quote_viewed_again", label: "A client views a quote again", hint: "A \"viewed again\" summary, at most once a day per quote" },
 ];
 
+const SCHEDULE_TOGGLES: typeof TOGGLES = [
+  {
+    key: "weather_risk",
+    label: "Weather risk on upcoming work days",
+    hint: "Each morning, scheduled work days in the next 3 days that newly became risky — again only if it gets worse",
+  },
+];
+
 const TRIGGERS: { value: AutomationTrigger; label: string }[] = [
   { value: "quote_viewed", label: "Quote viewed" },
   { value: "quote_not_opened", label: "Quote not opened after X days" },
@@ -87,6 +95,22 @@ export function SettingsNotificationsView() {
         <p className="mt-0.5 text-xs text-muted-foreground">In-app notifications (the bell). Email, text and push aren't available yet.</p>
         <div className="mt-2 divide-y divide-hairline">
           {TOGGLES.map((t) => (
+            <label key={t.key} className="flex cursor-pointer items-center justify-between gap-4 py-3.5">
+              <div>
+                <div className="text-sm font-semibold text-foreground">{t.label}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{t.hint}</div>
+              </div>
+              <Switch checked={!!settings?.[t.key]} disabled={!settings} onCheckedChange={(v) => save.mutate({ [t.key]: v } as Partial<NotificationSettings>)} />
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="card-surface p-5 md:p-6">
+        <h2 className="text-[17px] font-bold tracking-tight text-foreground">Schedule</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">What counts as risky is set in Settings › Schedule & weather.</p>
+        <div className="mt-2 divide-y divide-hairline">
+          {SCHEDULE_TOGGLES.map((t) => (
             <label key={t.key} className="flex cursor-pointer items-center justify-between gap-4 py-3.5">
               <div>
                 <div className="text-sm font-semibold text-foreground">{t.label}</div>

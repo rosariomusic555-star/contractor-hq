@@ -31,3 +31,12 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/portal-request-link/deno.json"
 entrypoint = "./functions/portal-request-link/index.ts"
+
+[functions.weather-forecast]
+enabled = true
+# Forecast on the schedule (0119). Platform verifies the JWT; the function
+# reads rows through the caller's RLS-scoped client and only uses the
+# service role for geocode write-back + the shared weather_cache table.
+verify_jwt = true
+import_map = "./functions/weather-forecast/deno.json"
+entrypoint = "./functions/weather-forecast/index.ts"

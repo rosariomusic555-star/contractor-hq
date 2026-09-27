@@ -75,6 +75,7 @@ import { SettingsQuickQuoteRatesView } from "@/components/views/SettingsQuickQuo
 import { SettingsTeamView } from "@/components/views/SettingsTeamView";
 import { SettingsEmployeesView } from "@/components/views/SettingsEmployeesView";
 import { SettingsNotificationsView } from "@/components/views/SettingsNotificationsView";
+import { SettingsWeatherView } from "@/components/views/SettingsWeatherView";
 import { NotificationsView } from "@/components/views/NotificationsView";
 import { SettingsBillingView } from "@/components/views/SettingsBillingView";
 import { EmployeeProjectsView } from "@/components/views/EmployeeProjectsView";
@@ -217,6 +218,7 @@ const router = createBrowserRouter(
         <Route path="/settings/team" element={<SettingsTeamView />} />
         <Route path="/settings/employees" element={<SettingsEmployeesView />} />
         <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
+        <Route path="/settings/weather" element={<SettingsWeatherView />} />
         <Route path="/notifications" element={<NotificationsView />} />
         <Route path="/settings/billing" element={<SettingsBillingView />} />
 

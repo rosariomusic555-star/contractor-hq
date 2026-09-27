@@ -2,8 +2,12 @@ import { useState } from "react";
 import { cn, formatCurrencyWhole, pluralize } from "@/lib/utils";
 import type { BookingJob } from "@/lib/bookings";
 import { TONE_TINT_CLASS, bookingDisplayStatus, projectStatusMeta, projectStatusSolidClass } from "@/lib/statusMeta";
-import { monthGridDays, jobsOnDate, JOB_DRAG_MIME, MAX_VISIBLE_DOTS } from "@/lib/bookingsSchedule";
+import { monthGridDays, jobsOnDate, dateKey, JOB_DRAG_MIME, MAX_VISIBLE_DOTS } from "@/lib/bookingsSchedule";
 import { DayTooltip } from "./DayTooltip";
+import { AlertTriangle } from "lucide-react";
+import type { CalendarDayWeather } from "@/lib/forecast";
+import { WeatherIcon } from "@/components/weather/WeatherIcon";
+import { RISK_TEXT } from "@/components/weather/riskStyles";
 
 const WEEKDAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -25,6 +29,7 @@ export function MiniMonth({
   onOpenDay,
   onMoveJob,
   enableDragDrop = true,
+  weather,
 }: {
   year: number;
   month: number;
@@ -39,6 +44,9 @@ export function MiniMonth({
   /** Off for the read-only Dashboard card — scheduling only happens on the
    * full Bookings page. */
   enableDragDrop?: boolean;
+  /** Forecast on the schedule (0119) — job days inside the forecast range:
+   * a tiny weather icon, or an amber/red flag on a risky day. */
+  weather?: Map<string, CalendarDayWeather>;
 }) {
   const days = monthGridDays(year, month, today);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -72,9 +80,10 @@ export function MiniMonth({
           // day circle + cell tint; the tooltip lists every job.
           const dayStatus = bookingDisplayStatus(dayJobs);
           const tintTone = dayStatus ? projectStatusMeta(dayStatus).tone : null;
+          const wx = dayJobs.length > 0 ? weather?.get(dateKey(day.date)) : undefined;
 
           return (
-            <DayTooltip key={day.key} jobs={dayJobs}>
+            <DayTooltip key={day.key} jobs={dayJobs} weatherLines={wx?.lines}>
               <button
                 type="button"
                 draggable={enableDragDrop && !!singleJob}
@@ -101,13 +110,22 @@ export function MiniMonth({
                 }
                 onClick={() => onOpenDay(day.date)}
                 className={cn(
-                  "flex aspect-square min-h-[30px] flex-col items-center justify-center gap-[2px] rounded text-[10px] transition-colors",
+                  "relative flex aspect-square min-h-[30px] flex-col items-center justify-center gap-[2px] rounded text-[10px] transition-colors",
                   !day.inMonth && "text-muted-subtle/40",
                   day.inMonth && "text-foreground",
                   tintTone && TONE_TINT_CLASS[tintTone],
                   dragOverKey === day.key ? "ring-2 ring-inset ring-primary" : "hover:bg-muted/70",
                 )}
               >
+                {wx &&
+                  (wx.level === "none" ? (
+                    <WeatherIcon condition={wx.condition} className="absolute right-0 top-0 h-2.5 w-2.5 text-muted-foreground" />
+                  ) : (
+                    <AlertTriangle
+                      className={cn("absolute right-0 top-0 h-2.5 w-2.5", RISK_TEXT[wx.level])}
+                      aria-label="Weather risk"
+                    />
+                  ))}
                 {/* Job day → filled circle in the legend's status color.
                     Today is a ring (drawn over any fill) rather than its
                     old green fill, which would read as a Complete day. */}

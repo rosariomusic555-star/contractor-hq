@@ -8,11 +8,14 @@ import { AssistantButton } from "@/components/assistant/AssistantButton";
 import { AssistantPanel } from "@/components/assistant/AssistantPanel";
 import { useAuth } from "@/lib/auth";
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { runQuoteColdChecks } from "@/lib/api";
+import { runWeatherRiskAlerts } from "@/lib/forecast";
 
 export function AppLayout() {
   const { session, loading, role } = useAuth();
   const location = useLocation();
+  const qc = useQueryClient();
 
   // "Going cold" automations (0117): once per app session for the owner —
   // idempotent server-side (one task per quote per rule, ever).
@@ -26,6 +29,23 @@ export function AppLayout() {
     }
     void runQuoteColdChecks();
   }, [session, role]);
+
+  // Forecast on the schedule (0119) — morning weather-risk alerts, once per
+  // local day on the first app open (deduped per job/day/level server-side
+  // by the notifications unique key).
+  useEffect(() => {
+    if (!session || role !== "owner") return;
+    const key = `weather-alerts-ran:${new Date().toDateString()}`;
+    try {
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+    } catch {
+      // no storage — still fine to run
+    }
+    void runWeatherRiskAlerts().then((n) => {
+      if (n > 0) qc.invalidateQueries({ queryKey: ["notifications"] });
+    });
+  }, [session, role, qc]);
 
   if (loading) {
     return (
