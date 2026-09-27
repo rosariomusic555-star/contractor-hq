@@ -36,6 +36,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
+import { PaymentsList } from "@/components/payments/PaymentsList";
+import { RecordPaymentSheet } from "@/components/payments/RecordPaymentSheet";
+import { projectMoneySummary } from "@/lib/projectMoney";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
@@ -48,6 +51,7 @@ import {
   getProject,
   listQuotes,
   listInvoices,
+  listPayments,
   listMaterials,
   listMaterialsSheets,
   listExpenses,
@@ -163,6 +167,8 @@ export function ProjectDetailView() {
   });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes", { project: id }], queryFn: () => listQuotes(id) });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: id }], queryFn: () => listInvoices(id) });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments", { project: id }], queryFn: () => listPayments(id) });
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: id }], queryFn: () => listMaterials(id) });
   const { data: materialsSheets = [] } = useQuery({
     queryKey: ["materials-sheets", { project: id }],
@@ -331,8 +337,9 @@ export function ProjectDetailView() {
   const headlineQuote = pickHeadlineQuote(quotes);
   const contract = projectContractValue(quotes, changeOrders);
   const projectInvoicedTotal = invoicedTotal(invoices, ALL_TIME_RANGE);
-  const paidTotal = collectedTotal(invoices, ALL_TIME_RANGE);
-  const leftToBill = Math.max(0, contract - projectInvoicedTotal);
+  // Project money (0111) — one shared summary (src/lib/projectMoney.ts).
+  const money = projectMoneySummary({ contractValue: contract, invoices, payments });
+  const paidTotal = money.received;
   const depositOverdue = isDepositOverdue(headlineQuote, contract, paidTotal);
   const depositRequired = headlineQuote ? contract * (headlineQuote.deposit_percentage / 100) : 0;
   const billing = projectBillingBadge(contract, projectInvoicedTotal, paidTotal, depositRequired);
@@ -766,11 +773,28 @@ export function ProjectDetailView() {
               {billing && <span className={projectBillingStatusMeta(billing).badge}>{projectBillingStatusMeta(billing).label}</span>}
             </div>
             <div className="mt-2">
-              <MoneyRow label="Contract" value={contract > 0 ? formatCurrency(contract) : "—"} />
-              <MoneyRow label="Invoiced" value={formatCurrency(projectInvoicedTotal)} />
-              <MoneyRow label="Paid" value={formatCurrency(paidTotal)} />
-              <MoneyRow label="Left to bill" value={formatCurrency(leftToBill)} strong />
+              <MoneyRow label="Contract value" value={contract > 0 ? formatCurrency(contract) : "—"} />
+              <MoneyRow label="Invoiced" value={formatCurrency(money.invoiced)} />
+              <MoneyRow label="Payments received" value={formatCurrency(money.received)} />
+              <MoneyRow label="Unpaid invoice balance" value={formatCurrency(money.unpaidInvoiceBalance)} />
+              {money.unallocatedCredit > 0.004 && (
+                <MoneyRow label="Unallocated credit" value={<span className="text-success">{formatCurrency(money.unallocatedCredit)}</span>} />
+              )}
+              <MoneyRow
+                label={money.overpaid > 0.004 ? "Credit balance (overpaid)" : "Remaining project balance"}
+                value={money.overpaid > 0.004 ? <span className="text-success">{formatCurrency(money.overpaid)}</span> : formatCurrency(money.remaining)}
+                strong
+              />
             </div>
+            <Button className="mt-3 w-full" variant="outline" onClick={() => setRecordPaymentOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Record payment
+            </Button>
+            <div className="mt-4">
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-subtle">Payments</div>
+              <PaymentsList payments={payments} invoices={invoices} projectId={id} />
+            </div>
+            <RecordPaymentSheet open={recordPaymentOpen} onOpenChange={setRecordPaymentOpen} projectId={id} invoices={invoices} />
             {depositOverdue && (
               <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />

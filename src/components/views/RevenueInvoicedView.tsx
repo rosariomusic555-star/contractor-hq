@@ -153,7 +153,7 @@ export function RevenueInvoicedView() {
                         {late > 0 ? (
                           <span className="badge-status badge-overdue">{late} days late</span>
                         ) : (
-                          <StatusPill meta={invoiceStatusMeta(inv.status)} />
+                          <StatusPill meta={invoiceStatusMeta(inv.status, inv.amount_paid)} />
                         )}
                       </td>
                     </tr>

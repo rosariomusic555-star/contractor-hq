@@ -110,7 +110,7 @@ export function ProjectInvoicesView() {
                 <span className="font-bold tabular-nums text-foreground">
                   {formatCurrency(Number(invoice.amount))}
                 </span>
-                <StatusPill meta={invoiceStatusMeta(invoice.status)} />
+                <StatusPill meta={invoiceStatusMeta(invoice.status, invoice.amount_paid)} />
                 <ChevronRight className="h-4 w-4 text-muted-subtle" />
               </div>
             </Link>

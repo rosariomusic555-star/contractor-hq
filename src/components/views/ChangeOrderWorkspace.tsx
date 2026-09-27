@@ -49,6 +49,7 @@ import {
   listQuotes,
   listChangeOrders,
   listInvoices,
+  listPayments,
   listMaterials,
   listMaterialsSheets,
   listCategories,
@@ -192,6 +193,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     queryFn: () => listChangeOrders(projectId),
   });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: projectId }], queryFn: () => listInvoices(projectId) });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments", { project: projectId }], queryFn: () => listPayments(projectId) });
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: projectId }], queryFn: () => listMaterials(projectId) });
 
   // Features (0107): a change order changes existing, active features.
@@ -329,6 +331,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         quotes,
         otherChangeOrders: projectChangeOrders.filter((co) => co.id !== changeOrder.id),
         invoices,
+        payments,
         materialsSections: materials,
         thisChangeOrderTotal: changeOrder.status === "approved" ? Number(changeOrder.amount) : total,
         thisChangeOrderItemCount: itemCount,

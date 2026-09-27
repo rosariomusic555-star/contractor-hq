@@ -81,6 +81,7 @@ import { EmployeeProjectDetailView } from "@/components/views/EmployeeProjectDet
 import { EmployeeAccountView } from "@/components/views/EmployeeAccountView";
 import SharedQuotePage from "./pages/SharedQuote";
 import SharedInvoicePage from "./pages/SharedInvoice";
+import SharedReceiptPage from "./pages/SharedReceipt";
 import SharedChangeOrderPage from "./pages/SharedChangeOrder";
 import NotFound from "./pages/NotFound";
 
@@ -118,6 +119,7 @@ const router = createBrowserRouter(
       <Route path="/quote/:token" element={<SharedQuotePage />} />
       <Route path="/change-order/:token" element={<SharedChangeOrderPage />} />
       <Route path="/invoice/:token" element={<SharedInvoicePage />} />
+      <Route path="/receipt/:token" element={<SharedReceiptPage />} />
 
       {/* Client Hub (/portal) — its own auth entirely (PortalAuthProvider,
           backed by portalSupabase's separate session), never the

@@ -35,6 +35,7 @@ import {
   listProjectsForClient,
   listQuotesForClient,
   listInvoicesForClient,
+  listPaymentsForClient,
   listOpportunitiesForClient,
   clientLifetimeRevenue,
   clientOutstandingBalance,
@@ -91,6 +92,11 @@ export function ClientDetailView() {
     queryKey: ["client-invoices", clientId],
     queryFn: () => listInvoicesForClient(clientId),
   });
+  const { data: clientPayments = [] } = useQuery({
+    queryKey: ["payments", { client: clientId }],
+    queryFn: () => listPaymentsForClient(clientId),
+    enabled: !!clientId,
+  });
   const { data: opportunities = [] } = useQuery({
     queryKey: ["client-opportunities", clientId],
     queryFn: () => listOpportunitiesForClient(clientId),
@@ -110,7 +116,7 @@ export function ClientDetailView() {
     return <p className="text-destructive">Failed to load client: {(error as Error)?.message}</p>;
 
   const meta = clientStatusMeta(client.status);
-  const lifetimeRevenue = clientLifetimeRevenue(invoices);
+  const lifetimeRevenue = clientLifetimeRevenue(clientPayments);
   const outstandingBalance = clientOutstandingBalance(invoices);
 
   const addTag = () => {
@@ -227,7 +233,7 @@ export function ClientDetailView() {
               id: i.id,
               to: `/invoices/${i.id}`,
               label: i.invoice_number ?? formatCurrency(Number(i.amount)),
-              pill: invoiceStatusMeta(i.status),
+              pill: invoiceStatusMeta(i.status, i.amount_paid),
             }))}
           />
 

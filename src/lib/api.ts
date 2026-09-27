@@ -352,6 +352,9 @@ export interface Invoice {
   notes: string | null;
   share_token: string | null;
   paid_at: string | null;
+  /** Σ ACTIVE payment allocations (0111) — trigger-maintained, drives
+   * "Partially paid" / balance. status 'paid' ⇔ amount_paid ≥ amount. */
+  amount_paid?: number;
   // Display number ("INV-001", …), set once at creation from the count of
   // invoices already on the project. Frozen — doesn't shift if an earlier
   // invoice is later deleted.
@@ -1142,7 +1145,7 @@ export function approvedAddonQuoteTotal(quotes: Quote[]): number {
 
 /** Won means signed (see the Pipeline's stage meanings) — deposit is
  * tracked separately, here, not as part of the pipeline. A project's
- * deposit counts as received once paid invoices cover the headline
+ * deposit counts as received once payments received (0111) cover the headline
  * quote's deposit_percentage of the contract total; there's no dedicated
  * "deposit invoice" concept in the schema, so this is derived, live, from
  * the same figures every other money screen already shows (no second
@@ -1167,21 +1170,18 @@ export function isDepositOverdue(
 }
 
 
-/** A customer's realized revenue — paid invoices only (0048), same
- * revenue-recognition rule as everywhere else in the app that talks
- * about real money received. */
-export function clientLifetimeRevenue(invoices: Invoice[]): number {
-  return invoices
-    .filter((i) => i.status === "paid")
-    .reduce((sum, i) => sum + Number(i.amount), 0);
+/** A customer's realized revenue — every active payment received (0111),
+ * same "collected" rule as everywhere else in the app. */
+export function clientLifetimeRevenue(payments: Pick<Payment, "status" | "amount">[]): number {
+  return payments.filter((p) => p.status !== "void").reduce((sum, p) => sum + Number(p.amount), 0);
 }
 
-/** What a customer still owes — sent/overdue invoices; a draft invoice
- * hasn't been issued to them yet, so it isn't a real obligation. */
+/** What a customer still owes on issued invoices — sent/overdue balances
+ * after applied payments; a draft hasn't been issued, so it isn't owed. */
 export function clientOutstandingBalance(invoices: Invoice[]): number {
   return invoices
     .filter((i) => i.status === "sent" || i.status === "overdue")
-    .reduce((sum, i) => sum + Number(i.amount), 0);
+    .reduce((sum, i) => sum + Math.max(0, Number(i.amount) - Number(i.amount_paid ?? 0)), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -3237,6 +3237,263 @@ export async function deleteInvoice(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Payments (0111) — money received, at the project level, independent of
+// invoices. Allocations apply part or all of a payment to one or more
+// invoices; the rest is unallocated project credit. Invoices only ever
+// reflect applied payments (amount_paid / status are trigger-synced).
+// Never hard-deleted: voided payments stay, crossed out, out of totals.
+// Every change is audited in payment_events by DB triggers.
+// ---------------------------------------------------------------------------
+
+export type PaymentMethod = "check" | "cash" | "card" | "ach" | "zelle" | "venmo" | "other";
+
+export interface PaymentAllocation {
+  id: string;
+  payment_id: string;
+  invoice_id: string;
+  amount: number;
+  created_at: string;
+  invoice?: { invoice_number: string | null } | null;
+}
+
+export interface Payment {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  amount: number;
+  paid_on: string;
+  method: PaymentMethod;
+  reference: string | null;
+  note: string | null;
+  status: "active" | "void";
+  voided_at: string | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  receipt_number: string | null;
+  share_token: string;
+  created_at: string;
+  updated_at: string;
+  payment_allocations: PaymentAllocation[];
+  project?: { name: string; client_id: string | null; client: { name: string } | null } | null;
+}
+
+export interface PaymentEvent {
+  id: string;
+  payment_id: string;
+  user_id: string | null;
+  action: "created" | "edited" | "voided" | "restored" | "applied" | "unapplied" | "migrated";
+  changes: Record<string, unknown>;
+  created_at: string;
+}
+
+const PAYMENT_SELECT =
+  "*, payment_allocations(*, invoice:invoices(invoice_number)), project:projects(name, client_id, client:clients(name))";
+
+/** Every payment (void included) — for one project, or all of them. */
+export async function listPayments(projectId?: string): Promise<Payment[]> {
+  let query = supabase.from("payments").select(PAYMENT_SELECT).order("paid_on", { ascending: false }).order("created_at", { ascending: false });
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as unknown as Payment[];
+}
+
+/** Payments with any allocation to this invoice (void included). */
+export async function listPaymentsForInvoice(invoiceId: string): Promise<Payment[]> {
+  const { data: allocs, error: aErr } = await supabase.from("payment_allocations").select("payment_id").eq("invoice_id", invoiceId);
+  if (aErr) throw aErr;
+  const ids = [...new Set((allocs ?? []).map((a) => a.payment_id))];
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("payments").select(PAYMENT_SELECT).in("id", ids).order("paid_on", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as Payment[];
+}
+
+export async function listPaymentsForClient(clientId: string): Promise<Payment[]> {
+  const projects = await listProjectsForClient(clientId);
+  if (projects.length === 0) return [];
+  const { data, error } = await supabase
+    .from("payments")
+    .select(PAYMENT_SELECT)
+    .in("project_id", projects.map((p) => p.id))
+    .order("paid_on", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as Payment[];
+}
+
+export interface PaymentInput {
+  project_id: string | null;
+  amount: number;
+  paid_on: string;
+  method: PaymentMethod;
+  reference?: string | null;
+  note?: string | null;
+}
+
+export interface AllocationInput {
+  invoice_id: string;
+  amount: number;
+}
+
+const cleanAllocations = (allocs: AllocationInput[]) =>
+  allocs.filter((a) => a.invoice_id && Number(a.amount) > 0.004).map((a) => ({ invoice_id: a.invoice_id, amount: Math.round(Number(a.amount) * 100) / 100 }));
+
+/** Records a payment (receipt number assigned by the DB) and applies it to
+ * the given invoices. The rest stays unallocated project credit. */
+export async function createPayment(input: PaymentInput, allocations: AllocationInput[] = []): Promise<Payment> {
+  const { data, error } = await supabase
+    .from("payments")
+    .insert({
+      project_id: input.project_id,
+      amount: Math.round(input.amount * 100) / 100,
+      paid_on: input.paid_on,
+      method: input.method,
+      reference: input.reference?.trim() || null,
+      note: input.note?.trim() || null,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  const rows = cleanAllocations(allocations).map((a) => ({ ...a, payment_id: data.id }));
+  if (rows.length) {
+    const { error: aErr } = await supabase.from("payment_allocations").insert(rows);
+    if (aErr) {
+      // Keep it atomic from the user's view — no half-recorded payment.
+      await supabase.from("payments").update({ status: "void", void_reason: "Allocation failed", voided_at: new Date().toISOString() }).eq("id", data.id);
+      throw aErr;
+    }
+  }
+  if (input.project_id) {
+    void logProjectEvent(input.project_id, "payment_received", `Payment received · $${input.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { payment_id: data.id });
+  }
+  return getPayment(data.id);
+}
+
+export async function getPayment(id: string): Promise<Payment> {
+  const { data, error } = await supabase.from("payments").select(PAYMENT_SELECT).eq("id", id).single();
+  if (error) throw error;
+  return data as unknown as Payment;
+}
+
+/** Edits the payment's own fields (audited by trigger). */
+export async function updatePayment(id: string, patch: Partial<Omit<PaymentInput, "project_id">>): Promise<void> {
+  const clean: Record<string, unknown> = { ...patch };
+  if ("amount" in patch) clean.amount = Math.round(Number(patch.amount) * 100) / 100;
+  if ("reference" in patch) clean.reference = patch.reference?.trim() || null;
+  if ("note" in patch) clean.note = patch.note?.trim() || null;
+  const { error } = await supabase.from("payments").update(clean).eq("id", id);
+  if (error) throw error;
+}
+
+/** Replaces a payment's allocations — diffed, so the audit trail records
+ * only what actually changed. Anything removed returns to credit. */
+export async function setPaymentAllocations(paymentId: string, next: AllocationInput[]): Promise<void> {
+  const { data: current, error } = await supabase.from("payment_allocations").select("id, invoice_id, amount").eq("payment_id", paymentId);
+  if (error) throw error;
+  const want = new Map(cleanAllocations(next).map((a) => [a.invoice_id, a.amount]));
+  const ops: PromiseLike<{ error: unknown }>[] = [];
+  // Removals / decreases first so the within-amount check never trips mid-way.
+  for (const c of current ?? []) {
+    if (!want.has(c.invoice_id)) {
+      const { error: e } = await supabase.from("payment_allocations").delete().eq("id", c.id);
+      if (e) throw e;
+    }
+  }
+  for (const c of current ?? []) {
+    const amt = want.get(c.invoice_id);
+    if (amt != null && Math.abs(amt - Number(c.amount)) > 0.004) {
+      const { error: e } = await supabase.from("payment_allocations").update({ amount: amt }).eq("id", c.id);
+      if (e) throw e;
+    }
+  }
+  const existing = new Set((current ?? []).map((c) => c.invoice_id));
+  const inserts = [...want].filter(([inv]) => !existing.has(inv)).map(([invoice_id, amount]) => ({ payment_id: paymentId, invoice_id, amount }));
+  if (inserts.length) {
+    const { error: e } = await supabase.from("payment_allocations").insert(inserts);
+    if (e) throw e;
+  }
+  void ops;
+}
+
+/** Voids a payment — it stays visible (crossed out) and leaves every
+ * total; its invoice allocations stop counting. Never deleted. */
+export async function voidPayment(id: string, reason: string | null): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from("payments")
+    .update({ status: "void", voided_at: new Date().toISOString(), voided_by: auth.user?.id ?? null, void_reason: reason?.trim() || null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function restorePayment(id: string): Promise<void> {
+  const { error } = await supabase.from("payments").update({ status: "active", voided_at: null, voided_by: null, void_reason: null }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function listPaymentEvents(paymentId: string): Promise<PaymentEvent[]> {
+  const { data, error } = await supabase.from("payment_events").select("*").eq("payment_id", paymentId).order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as PaymentEvent[];
+}
+
+/**
+ * Applies up to `amount` of the project's unallocated credit to an invoice —
+ * oldest payments with credit first, each topping up (or creating) its
+ * allocation to this invoice.
+ */
+export async function applyProjectCredit(projectId: string, invoiceId: string, amount: number): Promise<number> {
+  const payments = (await listPayments(projectId)).filter((p) => p.status === "active").reverse();
+  let left = Math.round(amount * 100) / 100;
+  for (const p of payments) {
+    if (left <= 0.004) break;
+    const applied = p.payment_allocations.reduce((s, a) => s + Number(a.amount), 0);
+    const free = Math.round((Number(p.amount) - applied) * 100) / 100;
+    if (free <= 0.004) continue;
+    const take = Math.min(free, left);
+    const next = p.payment_allocations.map((a) => ({ invoice_id: a.invoice_id, amount: Number(a.amount) }));
+    const mine = next.find((a) => a.invoice_id === invoiceId);
+    if (mine) mine.amount += take;
+    else next.push({ invoice_id: invoiceId, amount: take });
+    await setPaymentAllocations(p.id, next);
+    left = Math.round((left - take) * 100) / 100;
+  }
+  return Math.round((amount - left) * 100) / 100;
+}
+
+export interface SharedReceipt {
+  receipt: {
+    number: string | null;
+    amount: number;
+    paid_on: string;
+    method: PaymentMethod;
+    reference: string | null;
+    status: "active" | "void";
+    voided_at: string | null;
+  };
+  business: {
+    company_name: string | null;
+    phone: string | null;
+    email: string | null;
+    license: string | null;
+    address: string | null;
+  } | null;
+  client: { name: string } | null;
+  project: { name: string; address: string | null } | null;
+  applied_to: { invoice_number: string | null; amount: number }[];
+  contract_value: number | null;
+  received_through: number | null;
+  remaining_balance: number | null;
+}
+
+/** The public receipt (/receipt/:token) — client-facing fields only. */
+export async function getSharedReceipt(token: string): Promise<SharedReceipt | null> {
+  const { data, error } = await supabase.rpc("get_shared_receipt", { p_token: token });
+  if (error) throw error;
+  return (data as SharedReceipt) ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Expenses
 // ---------------------------------------------------------------------------
 
@@ -4256,7 +4513,9 @@ export type ProjectEventKind =
   | "change_order_rejected"
   | "quote_reverted"
   | "project_started"
-  | "labor_logged";
+  | "labor_logged"
+  | "payment_received"
+  | "payment_voided";
 
 export interface ProjectEvent {
   id: string;
@@ -4394,6 +4653,8 @@ export interface SharedInvoice {
     due_date: string | null;
     notes: string | null;
     paid_at: string | null;
+    /** Applied payments (0111). */
+    amount_paid?: number;
     invoice_number: string | null;
     created_at: string;
     updated_at: string;

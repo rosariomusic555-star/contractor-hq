@@ -6,6 +6,7 @@ import {
   listProjects,
   listQuotes,
   listInvoices,
+  listPayments,
   listChangeOrders,
   listOpportunities,
   listAppointments,
@@ -18,6 +19,7 @@ import {
   projectCategoryIds,
   type ChangeOrder,
   type Invoice,
+  type Payment,
   type MaterialsItem,
   type Opportunity,
   type Quote,
@@ -62,6 +64,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
   const { data: changeOrders = [] } = useQuery({ queryKey: ["change-orders"], queryFn: () => listChangeOrders() });
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: () => listOpportunities() });
   const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
@@ -88,6 +91,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   const quotesByProject = groupByProjectId<Quote>(quotes);
   const changeOrdersByProject = groupByProjectId<ChangeOrder>(changeOrders);
   const invoicesByProject = groupByProjectId<Invoice>(invoices);
+  const paymentsByProject = groupByProjectId<Payment>(payments);
   const opportunitiesById = new Map(opportunities.map((o: Opportunity) => [o.id, o]));
   const projectsById = new Map(projects.map((p) => [p.id, p]));
 
@@ -137,6 +141,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
     quotesByProject,
     changeOrdersByProject,
     invoicesByProject,
+    paymentsByProject,
     deliveries,
     appointmentRows,
     rainDates,

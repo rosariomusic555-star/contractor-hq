@@ -163,7 +163,17 @@ export interface PortalInvoice {
   status: "sent" | "paid" | "overdue";
   due_date: string | null;
   paid_at: string | null;
+  /** Applied payments (0111) — > 0 and not paid = partially paid. */
+  amount_paid?: number;
   created_at: string;
+}
+
+/** Project money for the client (0111) — contract, paid to date, receipts.
+ * Null while the project is still being estimated. */
+export interface PortalMoney {
+  contract_value: number;
+  received: number;
+  receipts: { number: string | null; amount: number; paid_on: string; token: string }[];
 }
 
 export interface PortalPhoto {
@@ -212,6 +222,7 @@ export interface PortalProjectDetail {
   quotes: PortalQuote[];
   change_orders: PortalChangeOrder[];
   invoices: PortalInvoice[];
+  money?: PortalMoney | null;
   photos: PortalPhoto[];
   deliveries: PortalDelivery[];
   events: PortalEvent[];

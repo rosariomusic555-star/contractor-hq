@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { RevenueDetailHeader } from "@/components/revenue/RevenueDetailHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
-import { listInvoices, type Invoice } from "@/lib/api";
+import { listInvoices, listPayments, type Invoice } from "@/lib/api";
+import { invoiceBalance, paymentAppliedToLabel, paymentMethodLabel } from "@/lib/projectMoney";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
 import { agingBuckets, invoiceDaysLate, collectedInRange, collectedTotal, collectionRate, rangeDateLabel } from "@/lib/financials";
 
@@ -15,18 +16,19 @@ export function RevenueCollectedView() {
   const { rangeKey, setRangeKey, customStart, customEnd, setCustom, range } = useRevenueRange("this_month");
 
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
 
-  const payments = useMemo(
-    () => [...collectedInRange(invoices, range)].sort((a, b) => (b.paid_at ?? "").localeCompare(a.paid_at ?? "")),
-    [invoices, range],
+  const received = useMemo(
+    () => [...collectedInRange(payments, range)].sort((a, b) => b.paid_on.localeCompare(a.paid_on) || b.created_at.localeCompare(a.created_at)),
+    [payments, range],
   );
-  const total = collectedTotal(invoices, range);
-  const rate = collectionRate(invoices, range);
+  const total = collectedTotal(payments, range);
+  const rate = collectionRate(invoices, payments, range);
 
   // Outstanding is always a right-now snapshot, not scoped to the selected
   // range — same reasoning as the aging card everywhere else in the app.
   const outstandingInvoices = useMemo(
-    () => invoices.filter((i) => i.status === "sent" || i.status === "overdue"),
+    () => invoices.filter((i) => (i.status === "sent" || i.status === "overdue") && invoiceBalance(i) > 0),
     [invoices],
   );
   const buckets = agingBuckets(invoices);
@@ -57,7 +59,7 @@ export function RevenueCollectedView() {
       <section className="card-surface overflow-hidden">
         <div className="flex items-center justify-between p-5 pb-0">
           <h3 className="text-base font-bold text-foreground">Payments received</h3>
-          <span className="text-xs font-semibold text-muted-foreground">{pluralize(payments.length, "payment")}</span>
+          <span className="text-xs font-semibold text-muted-foreground">{pluralize(received.length, "payment")}</span>
         </div>
         {isLoading ? (
           <p className="p-5 text-sm text-muted-foreground">Loading…</p>
@@ -68,22 +70,28 @@ export function RevenueCollectedView() {
                 <tr>
                   <th>Date</th>
                   <th>Client</th>
-                  <th>Invoice</th>
+                  <th>Method</th>
+                  <th>Applied to</th>
                   <th>Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {payments.map((inv) => (
-                  <tr key={inv.id} className="cursor-pointer" onClick={() => navigate(`/invoices/${inv.id}`)}>
-                    <td className="text-muted-foreground">{(inv.paid_at ?? inv.created_at).slice(0, 10)}</td>
-                    <td>{clientOf(inv)}</td>
-                    <td className="font-bold text-foreground">{inv.invoice_number ?? "—"}</td>
-                    <td className="font-bold tabular-nums text-success">{formatCurrency(Number(inv.amount))}</td>
+                {received.map((p) => (
+                  <tr
+                    key={p.id}
+                    className={cn(p.project_id && "cursor-pointer")}
+                    onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}
+                  >
+                    <td className="text-muted-foreground">{p.paid_on}</td>
+                    <td>{p.project?.client?.name ?? p.project?.name ?? "No client"}</td>
+                    <td className="text-muted-foreground">{paymentMethodLabel(p.method)}</td>
+                    <td className="font-bold text-foreground">{paymentAppliedToLabel(p)}</td>
+                    <td className="font-bold tabular-nums text-success">{formatCurrency(Number(p.amount))}</td>
                   </tr>
                 ))}
-                {payments.length === 0 && (
+                {received.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-muted-foreground">No payments received in this range.</td>
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">No payments received in this range.</td>
                   </tr>
                 )}
               </tbody>
@@ -117,7 +125,7 @@ export function RevenueCollectedView() {
                 <th>Client</th>
                 <th>Invoice</th>
                 <th>Due</th>
-                <th>Amount</th>
+                <th>Balance</th>
                 <th>Age</th>
               </tr>
             </thead>
@@ -137,7 +145,7 @@ export function RevenueCollectedView() {
                       <td>{clientOf(inv)}</td>
                       <td className="font-bold text-foreground">{inv.invoice_number ?? "—"}</td>
                       <td className="text-muted-foreground">{inv.due_date?.slice(0, 10) ?? "—"}</td>
-                      <td className="font-bold tabular-nums">{formatCurrency(Number(inv.amount))}</td>
+                      <td className="font-bold tabular-nums">{formatCurrency(invoiceBalance(inv))}</td>
                       <td>
                         {late > 0 ? (
                           <span className={cn("badge-status", flagged ? "badge-overdue" : "badge-pending")}>{late} days late</span>

@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn, formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
-import { listQuotes, listInvoices, quoteTotal, type Quote, type Invoice } from "@/lib/api";
+import { listQuotes, listInvoices, listPayments, quoteTotal, type Quote, type Invoice } from "@/lib/api";
 
 type ActivityType = "quote" | "invoice" | "payment";
 type ActivityStatus = "completed" | "pending" | "overdue";
@@ -56,7 +56,7 @@ const quoteStatus: Record<Quote["status"], ActivityStatus> = {
 const invoiceTitle: Record<Invoice["status"], string> = {
   draft: "Invoice drafted",
   sent: "Invoice shared",
-  paid: "Payment received",
+  paid: "Invoice paid",
   overdue: "Invoice overdue",
 };
 
@@ -73,6 +73,7 @@ const projectLabel = (project?: { name: string; client: { name: string } | null 
 export function RecentActivity({ className }: { className?: string }) {
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
 
   const activities: Activity[] = [
     ...quotes.map<Activity>((q) => ({
@@ -87,7 +88,7 @@ export function RecentActivity({ className }: { className?: string }) {
     })),
     ...invoices.map<Activity>((i) => ({
       id: `invoice-${i.id}`,
-      type: i.status === "paid" ? "payment" : "invoice",
+      type: "invoice",
       title: invoiceTitle[i.status],
       subtitle: projectLabel(i.project),
       amount: Number(i.amount),
@@ -95,6 +96,19 @@ export function RecentActivity({ className }: { className?: string }) {
       createdAt: i.created_at,
       linkTo: `/invoices/${i.id}`,
     })),
+    // Payments (0111) — money received, applied or not. Voids left out.
+    ...payments
+      .filter((p) => p.status !== "void")
+      .map<Activity>((p) => ({
+        id: `payment-${p.id}`,
+        type: "payment",
+        title: "Payment received",
+        subtitle: projectLabel(p.project),
+        amount: Number(p.amount),
+        status: "completed",
+        createdAt: p.created_at,
+        linkTo: p.project_id ? `/projects/${p.project_id}` : `/receipt/${p.share_token}`,
+      })),
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 6);

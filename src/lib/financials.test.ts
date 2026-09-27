@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeOrder, Client, Invoice, MaterialsSection, MaterialsSheet, Project, Quote, QuoteItem, QuoteSection } from "./api";
+import type { ChangeOrder, Client, Invoice, MaterialsSection, Payment, MaterialsSheet, Project, Quote, QuoteItem, QuoteSection } from "./api";
 import { projectContractValue } from "./api";
 import {
   ALL_TIME_RANGE,
@@ -125,6 +125,37 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
   };
 }
 
+function makePayment(overrides: Partial<Payment> = {}): Payment {
+  return {
+    id: nextId("payment"),
+    user_id: "user-1",
+    project_id: "project-1",
+    amount: 0,
+    paid_on: "2026-02-01",
+    method: "check",
+    reference: null,
+    note: null,
+    status: "active",
+    voided_at: null,
+    voided_by: null,
+    void_reason: null,
+    receipt_number: null,
+    share_token: nextId("token"),
+    created_at: "2026-02-01T00:00:00Z",
+    updated_at: "2026-02-01T00:00:00Z",
+    payment_allocations: [],
+    ...overrides,
+  };
+}
+
+const allocate = (invoiceId: string, amount: number) => ({
+  id: nextId("alloc"),
+  payment_id: "",
+  invoice_id: invoiceId,
+  amount,
+  created_at: "2026-02-01T00:00:00Z",
+});
+
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
     id: "project-1",
@@ -177,11 +208,15 @@ describe("Invoiced − Collected = Outstanding", () => {
       makeInvoice({ status: "draft", amount: 5_000 }), // never sent — must not count toward invoiced
       makeInvoice({ status: "sent", amount: 3_000 }),
       makeInvoice({ status: "overdue", amount: 1_500 }),
-      makeInvoice({ status: "paid", amount: 7_000, paid_at: "2026-02-01T00:00:00Z" }),
+      makeInvoice({ id: "inv-paid", status: "paid", amount: 7_000, amount_paid: 7_000, paid_at: "2026-02-01T00:00:00Z" }),
+    ];
+    const payments = [
+      makePayment({ amount: 7_000, payment_allocations: [allocate("inv-paid", 7_000)] }),
+      makePayment({ amount: 900, status: "void", payment_allocations: [] }), // voided — counts nowhere
     ];
 
     const invoiced = invoicedTotal(invoices, ALL_TIME_RANGE);
-    const collected = collectedTotal(invoices, ALL_TIME_RANGE);
+    const collected = collectedTotal(payments, ALL_TIME_RANGE);
     const outstanding = outstandingTotal(invoices);
 
     expect(invoiced).toBe(11_500); // sent + overdue + paid, draft excluded
@@ -190,10 +225,15 @@ describe("Invoiced − Collected = Outstanding", () => {
     expect(invoiced - collected).toBe(outstanding);
   });
 
+  it("partial payments leave only the balance outstanding", () => {
+    const invoices: Invoice[] = [makeInvoice({ status: "sent", amount: 10_000, amount_paid: 4_000 })];
+    expect(outstandingTotal(invoices)).toBe(6_000);
+  });
+
   it("draft invoices never move any of the three figures", () => {
     const invoices: Invoice[] = [makeInvoice({ status: "draft", amount: 99_000 })];
     expect(invoicedTotal(invoices, ALL_TIME_RANGE)).toBe(0);
-    expect(collectedTotal(invoices, ALL_TIME_RANGE)).toBe(0);
+    expect(collectedTotal([], ALL_TIME_RANGE)).toBe(0);
     expect(outstandingTotal(invoices)).toBe(0);
   });
 });
@@ -229,35 +269,41 @@ describe("Collected by client / by category reconcile with the total", () => {
     const project = makeProject({ id: "project-1", client_id: "client-1" });
 
     const invoices: Invoice[] = [
-      makeInvoice({ project_id: "project-1", quote_id: "quote-shared", status: "paid", amount: 10_000, paid_at: "2026-02-01T00:00:00Z" }),
+      makeInvoice({ id: "inv-10k", project_id: "project-1", quote_id: "quote-shared", status: "paid", amount: 10_000, amount_paid: 10_000, paid_at: "2026-02-01T00:00:00Z" }),
       makeInvoice({ project_id: "project-1", quote_id: "quote-shared", status: "sent", amount: 5_000 }), // unpaid — excluded from both breakdowns
+    ];
+    const payments: Payment[] = [
+      makePayment({ amount: 10_000, payment_allocations: [allocate("inv-10k", 10_000)] }),
+      // Unallocated project credit — split by the project's contract mix.
+      makePayment({ amount: 2_000 }),
     ];
 
     const projectFinancials = buildProjectFinancials(
       [project],
       new Map([["project-1", [quote]]]),
       new Map(),
-      new Map([["project-1", invoices]]),
+      new Map([["project-1", payments]]),
       [],
       [],
       new Map(),
       categories,
     );
 
-    const byCategory = collectedByCategory(invoices, [quote], categories, projectFinancials, ALL_TIME_RANGE);
-    const byClient = collectedByClient(invoices, [project], [client], ALL_TIME_RANGE);
-    const totalCollected = collectedTotal(invoices, ALL_TIME_RANGE);
+    const byCategory = collectedByCategory(payments, invoices, [quote], categories, projectFinancials, ALL_TIME_RANGE);
+    const byClient = collectedByClient(payments, invoices, [project], [client], ALL_TIME_RANGE);
+    const totalCollected = collectedTotal(payments, ALL_TIME_RANGE);
 
     const categorySum = byCategory.reduce((s, r) => s + r.revenue, 0);
     const clientSum = byClient.reduce((s, r) => s + r.revenue, 0);
 
-    expect(totalCollected).toBe(10_000);
-    expect(clientSum).toBe(10_000);
-    expect(categorySum).toBeCloseTo(10_000, 6);
-    // 70/30 split of the $10k paid invoice, proportional to the quote's
-    // category mix — not the unpaid $5k invoice.
-    expect(byCategory.find((r) => r.id === categoryA)?.revenue).toBeCloseTo(7_000, 6);
-    expect(byCategory.find((r) => r.id === categoryB)?.revenue).toBeCloseTo(3_000, 6);
+    expect(totalCollected).toBe(12_000);
+    expect(clientSum).toBe(12_000);
+    expect(categorySum).toBeCloseTo(12_000, 6);
+    // 70/30 split of the $10k applied payment (its invoice's quote mix) and
+    // of the $2k credit (the project's contract mix) — never the unpaid $5k.
+    expect(byCategory.find((r) => r.id === categoryA)?.revenue).toBeCloseTo(8_400, 6);
+    expect(byCategory.find((r) => r.id === categoryB)?.revenue).toBeCloseTo(3_600, 6);
+    expect(byClient[0].outstanding).toBe(5_000);
   });
 });
 
@@ -316,7 +362,6 @@ describe("Draft / declined / pending documents never count", () => {
   it("a draft invoice is invisible to invoiced, collected, and outstanding", () => {
     const invoices = [makeInvoice({ status: "draft", amount: 50_000 })];
     expect(invoicedTotal(invoices, ALL_TIME_RANGE)).toBe(0);
-    expect(collectedTotal(invoices, ALL_TIME_RANGE)).toBe(0);
     expect(outstandingTotal(invoices)).toBe(0);
   });
 
@@ -455,13 +500,13 @@ describe("Closed jobs are derived from collected vs. contract value", () => {
       project_id: "priced",
       quote_sections: [makeQuoteSection({ quote_items: [makeQuoteItem({ price: 5_000 })] })],
     });
-    const invoices = [makeInvoice({ project_id: "priced", status: "paid", amount: 5_000, paid_at: "2026-03-02T00:00:00Z" })];
+    const payments = [makePayment({ project_id: "priced", amount: 5_000, paid_on: "2026-03-02" })];
 
     const rows = buildProjectFinancials(
       [project],
       new Map([["priced", [quote]]]),
       new Map(),
-      new Map([["priced", invoices]]),
+      new Map([["priced", payments]]),
       [],
       [],
       new Map(),
@@ -479,13 +524,17 @@ describe("Closed jobs are derived from collected vs. contract value", () => {
       project_id: "priced",
       quote_sections: [makeQuoteSection({ quote_items: [makeQuoteItem({ price: 5_000 })] })],
     });
-    const invoices = [makeInvoice({ project_id: "priced", status: "sent", amount: 5_000 })];
+    // Billed, $4,999 received — one voided $1 payment doesn't close it.
+    const payments = [
+      makePayment({ project_id: "priced", amount: 4_999 }),
+      makePayment({ project_id: "priced", amount: 1, status: "void" }),
+    ];
 
     const rows = buildProjectFinancials(
       [project],
       new Map([["priced", [quote]]]),
       new Map(),
-      new Map([["priced", invoices]]),
+      new Map([["priced", payments]]),
       [],
       [],
       new Map(),
