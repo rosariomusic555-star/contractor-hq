@@ -73,6 +73,11 @@ describe("buildRoiRows", () => {
     expect(stillOpen).toBe(1);
   });
 
+  it("a paid source with no spend yet shows no cost per lead", () => {
+    const { rows } = buildRoiRows({ ...base, leads: [lead("g", "Google", "won", "2026-09-02T12:00:00Z", "pWon")], spend: [] });
+    expect(rows[0]).toMatchObject({ paid: true, spend: 0, costPerLead: null, costPerWon: null, roas: null });
+  });
+
   it("an unlisted source is free unless spend was entered", () => {
     const { rows } = buildRoiRows({ ...base, leads: [lead("x", null, "new_lead", "2026-09-02T12:00:00Z")], spend: [] });
     expect(rows[0]).toMatchObject({ source: "Unknown", paid: false, spend: null });

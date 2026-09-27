@@ -95,4 +95,4 @@ export function shouldPromptClient(mode: NotifyMode, lastPromptedAt: string | nu
   return now.getTime() - new Date(lastPromptedAt).getTime() >= 20 * 3600_000;
 }
 
-export const PROGRESS_MESSAGE = "Hi {client_first_name}, it's {company_name}. New progress photos on your {project_name} project: {client_hub_link}";
+export const PROGRESS_MESSAGE = "Hi {client_first_name}, it's {company_name}. There’s a new progress update on your {project_name} project: {client_hub_link}";

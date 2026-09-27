@@ -7,11 +7,11 @@ import { Input } from "@/components/ui/input";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { createMaintenanceItems, dismissMaintenanceSetup, listCategories, listMaintenanceTemplates, listProjectFeatures, type Project } from "@/lib/api";
+import { createMaintenanceItems, dismissMaintenanceSetup, listFeatureWarranties, listCategories, listMaintenanceTemplates, listProjectFeatures, type Project } from "@/lib/api";
 import { activeFeatures, featureBuildType, featureName } from "@/lib/features";
 import { intervalLabel, proposeItems, warrantyEnd, type ProposedItem } from "@/lib/maintenance";
 import { isoDate } from "@/lib/weatherRisk";
-import { useMaintenanceSettings } from "./useMaintenance";
+import { useMaintenanceItems, useMaintenanceSettings } from "./useMaintenance";
 
 /**
  * The completion step (0127): suggested maintenance items per feature (from
@@ -27,6 +27,9 @@ export function MaintenanceSetupSheet({ project, open, onOpenChange }: { project
   const { data: settings } = useMaintenanceSettings();
   const { data: features = [] } = useQuery({ queryKey: ["project-features", project.id], queryFn: () => listProjectFeatures(project.id), enabled: open });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories, enabled: open });
+  // Opened again (Add / a second setup link): never re-offer what's set up.
+  const { data: existing = [] } = useMaintenanceItems(project.id);
+  const { data: existingWarranties = [] } = useQuery({ queryKey: ["feature-warranties", project.id], queryFn: () => listFeatureWarranties(project.id), enabled: open });
   const completedOn = (project.completed_at ?? project.actual_end_date ?? isoDate(new Date())).slice(0, 10);
 
   const live = useMemo(() => activeFeatures(features), [features]);
@@ -36,8 +39,8 @@ export function MaintenanceSetupSheet({ project, open, onOpenChange }: { project
         live.map((f) => ({ id: f.id, label: featureName(f, categories), category: categories.find((c) => c.id === f.category_id)?.name ?? null })),
         templates,
         completedOn,
-      ),
-    [live, categories, templates, completedOn],
+      ).filter((p) => !existing.some((i) => i.status === "active" && i.template_id === p.template_id && i.feature_id === p.feature_id)),
+    [live, categories, templates, completedOn, existing],
   );
 
   const [picked, setPicked] = useState<Record<string, boolean>>({});
@@ -53,17 +56,19 @@ export function MaintenanceSetupSheet({ project, open, onOpenChange }: { project
     setWarranty(
       Object.fromEntries(
         live.map((f) => {
+          const saved = existingWarranties.find((w) => w.id === f.id)?.warranty_ends_on;
+          if (saved) return [f.id, saved];
           const bt = featureBuildType(f, categories);
           return [f.id, warrantyEnd(completedOn, bt ? settings?.warranties?.[bt] : null) ?? ""];
         }),
       ),
     );
-  }, [open, live, categories, settings, completedOn]);
+  }, [open, live, categories, settings, completedOn, existingWarranties]);
 
   const save = useMutation({
     mutationFn: async () => {
       // Warranty only → nothing to remind about; don't ask again.
-      if (count === 0) await dismissMaintenanceSetup(project.id);
+      if (count === 0 && existing.length === 0) await dismissMaintenanceSetup(project.id);
       await createMaintenanceItems(
         project.id,
         proposed
@@ -111,7 +116,11 @@ export function MaintenanceSetupSheet({ project, open, onOpenChange }: { project
             return (
               <section key={f.id} className="space-y-2">
                 <h3 className="text-sm font-bold text-foreground">{featureName(f, categories)}</h3>
-                {items.length === 0 && <p className="text-xs text-muted-foreground">No suggestions for this type.</p>}
+                {items.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {existing.some((i) => i.feature_id === f.id && i.status === "active") ? "Already set up — every suggestion for this type is on." : "No suggestions for this type."}
+                  </p>
+                )}
                 {items.map((p) => (
                   <div key={p.key} className="rounded-xl border border-hairline p-3">
                     <label className="flex items-start gap-2">

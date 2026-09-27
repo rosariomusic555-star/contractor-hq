@@ -249,8 +249,8 @@ begin
   select string_agg(i.label, ', ' order by i.label) into v_items
     from public.project_maintenance_items i where i.project_id = p_project_id and (p_item_ids is null or i.id = any(p_item_ids)) and i.status = 'active';
   insert into public.lead_sources (user_id, name, sort_order) values (p.user_id, v_src, 900) on conflict (user_id, name) do nothing;
-  insert into public.opportunities (client_id, user_id, title, address, description, lead_source, source_project_id)
-  values (p.client_id, p.user_id,
+  insert into public.opportunities (client_id, title, address, description, lead_source, source_project_id)
+  values (p.client_id,
           'Maintenance: ' || coalesce(v_items, 'service') || ' — ' || p.name,
           p.address,
           case when p_from_client then 'Requested by the client from the Client Hub. ' else '' end

@@ -279,7 +279,7 @@ function LeadSourceRow({
   const [name, setName] = useState(leadSource.name);
 
   return (
-    <div className="flex items-center gap-2 py-2.5">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2.5">
       <div className="flex shrink-0 flex-col">
         <button
           type="button"
@@ -309,18 +309,20 @@ function LeadSourceRow({
           if (trimmed && trimmed !== leadSource.name) onRename(trimmed);
           else setName(leadSource.name);
         }}
-        className="h-10 min-w-0 flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
+        className="h-10 min-w-[9rem] flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
       />
 
-      {(leadSource.paid ?? true) && (
-        <button type="button" onClick={onSpend} className="shrink-0 text-xs font-semibold text-primary hover:text-primary/80">
-          Monthly spend
-        </button>
-      )}
-      <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <Switch checked={leadSource.paid ?? true} onCheckedChange={onPaid} aria-label={`${leadSource.name} is paid`} />
-        Paid
-      </label>
+      {/* Wraps under the name on phones so the name is never cut off. */}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {(leadSource.paid ?? true) && (
+          <button type="button" onClick={onSpend} className="shrink-0 text-xs font-semibold text-primary hover:text-primary/80">
+            Monthly spend
+          </button>
+        )}
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <Switch checked={leadSource.paid ?? true} onCheckedChange={onPaid} aria-label={`${leadSource.name} is paid`} />
+          Paid
+        </label>
 
       <AlertDialog>
         <AlertDialogTrigger asChild>
@@ -351,6 +353,7 @@ function LeadSourceRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   );
 }

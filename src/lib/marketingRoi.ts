@@ -205,8 +205,10 @@ export function buildRoiRows(input: {
     const decided = r.won + r.lost;
     r.winRate = decided > 0 ? (r.won / decided) * 100 : null;
     r.spend = spendTotal;
-    r.costPerLead = div(r.spend, r.leads);
-    r.costPerWon = div(r.spend, r.won);
+    // No spend entered yet → "—", not "$0 per lead" (reads as free).
+    const spent = r.spend != null && r.spend > 0 ? r.spend : null;
+    r.costPerLead = div(spent, r.leads);
+    r.costPerWon = div(spent, r.won);
     r.roas = div(r.wonRevenue, r.spend);
     r.profitPerDollar = div(r.grossProfit ?? (r.won > 0 ? null : 0), r.spend);
     return r;

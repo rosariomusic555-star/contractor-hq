@@ -32,7 +32,7 @@ function useSaveSpend(onDone: () => void) {
 }
 
 /**
- * Desktop: paid sources × the period's months (up to 12) in one grid.
+ * Desktop: paid sources × the period's months (up to 12, newest first) in one grid.
  * Local draft + Save — nothing is written while typing. Clearing a cell
  * removes that month's spend.
  */
@@ -49,7 +49,8 @@ export function SpendGridDialog({
   months: string[];
   spend: LeadSourceSpend[];
 }) {
-  const shown = months.slice(-12);
+  // Newest first — this month is what you usually enter, so it's never off-screen.
+  const shown = months.slice(-12).reverse();
   const saved = useMemo(() => {
     const m = new Map<string, number>();
     for (const s of spend) m.set(key(s.lead_source, s.month.slice(0, 7)), s.amount);
