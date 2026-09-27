@@ -12,6 +12,7 @@ import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 import { CrewSelect } from "@/components/schedule/CrewSelect";
 import { ScheduleMenu } from "@/components/schedule/ScheduleMenu";
 import { HeadsUpReminder } from "@/components/schedule/HeadsUpReminder";
+import { PreconSummaryLine } from "@/components/precon/PreconSummaryLine";
 
 /**
  * One job's full detail, as a card — the unit the Year view's side panel
@@ -86,6 +87,7 @@ export function JobDetailCard({
       </div>
 
       <HeadsUpReminder projectId={job.projectId} />
+      <PreconSummaryLine projectId={job.projectId} />
 
       <div className="mt-2 space-y-1">
         <Label className="text-[11px] font-semibold text-muted-foreground">Crew</Label>

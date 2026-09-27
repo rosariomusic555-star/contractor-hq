@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@/lib/api";
 import { buildNeedsYouItems } from "@/lib/needsYou";
 import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
+import { usePreconNeedsYou } from "@/components/precon/usePrecon";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
 
 const MAX_ITEMS = 5;
@@ -18,8 +19,10 @@ export function NeedsYou({ className }: { className?: string }) {
   const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
   // Review requests (0122) — "Ask Greg Gray for a review" / "Remind Greg…".
   const reviews = useReviewNeedsYou();
+  // Pre-construction (0124) — jobs starting soon with required items open.
+  const precon = usePreconNeedsYou();
 
-  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews);
+  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, precon);
   const shown = items.slice(0, MAX_ITEMS);
 
   return (

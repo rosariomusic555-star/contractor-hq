@@ -148,6 +148,18 @@ import { ScheduleMenu } from "@/components/schedule/ScheduleMenu";
 import { ScheduleDelaysList } from "@/components/schedule/ScheduleDelaysList";
 import { HeadsUpReminder } from "@/components/schedule/HeadsUpReminder";
 import { ProjectReviewCard } from "@/components/reviews/ProjectReviewCard";
+import { PreconCard } from "@/components/precon/PreconCard";
+import type { PreconBundle } from "@/lib/preconSignals";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useProjectDelays } from "@/components/schedule/useUndoScheduleDelay";
 import { delayDays } from "@/lib/scheduleShift";
 
@@ -184,6 +196,15 @@ export function ProjectDetailView() {
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: id }], queryFn: () => listInvoices(id) });
   const { data: payments = [] } = useQuery({ queryKey: ["payments", { project: id }], queryFn: () => listPayments(id) });
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  // Pre-construction (0124): starting with required items open is a
+  // warning ("Start anyway"), never a block.
+  const [startGuard, setStartGuard] = useState<null | { apply: () => void; open: string[] }>(null);
+  const guardStart = (apply: () => void) => {
+    const b = qc.getQueryData<PreconBundle>(["precon", id]);
+    const open = b?.readiness.openRequired.map((v) => v.item.label) ?? [];
+    if (open.length) setStartGuard({ apply, open });
+    else apply();
+  };
   const { data: materials = [] } = useQuery({ queryKey: ["materials", { project: id }], queryFn: () => listMaterials(id) });
   const { data: materialsSheets = [] } = useQuery({
     queryKey: ["materials-sheets", { project: id }],
@@ -528,7 +549,12 @@ export function ProjectDetailView() {
       : `${pluralize(Math.round(laborPlannedHours), "hr")} planned${laborActualHours > 0 ? ` · ${Math.round(laborActualHours)} actual` : ""}`;
 
   const statusSelect = (
-    <Select value={project.status} onValueChange={(v) => statusMutation.mutate(v as ProjectStatus)}>
+    <Select
+      value={project.status}
+      onValueChange={(v) =>
+        v === "in_progress" ? guardStart(() => statusMutation.mutate("in_progress")) : statusMutation.mutate(v as ProjectStatus)
+      }
+    >
       <SelectTrigger className="h-9 w-40 rounded-[0.625rem] border-border bg-card text-sm font-semibold">
         <SelectValue />
       </SelectTrigger>
@@ -638,6 +664,42 @@ export function ProjectDetailView() {
           </div>
         </div>
       )}
+
+      {/* Pre-construction checklist (0124) — from Won until the job starts. */}
+      <PreconCard
+        projectId={id}
+        onRecordPayment={() => setRecordPaymentOpen(true)}
+        onAssignCrew={() => document.getElementById("schedule-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+      />
+
+      <AlertDialog open={!!startGuard} onOpenChange={(o) => !o && setStartGuard(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start with items still open?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p>These required pre-construction items aren't done:</p>
+                <ul className="mt-2 list-disc pl-5 text-foreground">
+                  {startGuard?.open.map((l) => (
+                    <li key={l}>{l}</li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                startGuard?.apply();
+                setStartGuard(null);
+              }}
+            >
+              Start anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Material alerts — one slim line; Review opens them grouped by feature. */}
       <MaterialAlertsBar
@@ -874,7 +936,7 @@ export function ProjectDetailView() {
           {/* Google review request (0122) — completed jobs with a client. */}
           {project.status === "complete" && project.client_id && <ProjectReviewCard projectId={project.id} />}
 
-          <section className="card-surface p-5">
+          <section id="schedule-card" className="card-surface scroll-mt-4 p-5">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-base font-bold text-foreground">Schedule</h3>
               <ScheduleMenu projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
@@ -1011,7 +1073,9 @@ export function ProjectDetailView() {
                         type="date"
                         value={project.actual_start_date ?? ""}
                         onChange={(e) =>
-                          durationMutation.mutate({ actual_start_date: e.target.value || null })
+                          e.target.value && !project.actual_start_date
+                            ? guardStart(() => durationMutation.mutate({ actual_start_date: e.target.value }))
+                            : durationMutation.mutate({ actual_start_date: e.target.value || null })
                         }
                         className="h-10"
                       />

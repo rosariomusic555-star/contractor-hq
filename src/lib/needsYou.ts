@@ -138,8 +138,11 @@ export function buildNeedsYouItems(
   now: Date = new Date(),
   siteVisits: { opportunities: Opportunity[]; appointments: Appointment[] } = { opportunities: [], appointments: [] },
   reviews: { requests: ReviewNeedsYouInput[]; settings: ReviewSettingsLike | null } = { requests: [], settings: null },
+  extra: NeedsYouItem[] = [],
 ): NeedsYouItem[] {
   return [
+    // Pre-construction (0124) and anything else computed elsewhere.
+    ...extra,
     ...reviewNeedsYouItems(reviews.requests, reviews.settings, now),
     ...siteVisitConfirmItems(siteVisits.opportunities, siteVisits.appointments, now),
     ...overdueInvoiceItems(invoices, now),

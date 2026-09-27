@@ -27,6 +27,14 @@ const TOGGLES: { key: keyof NotificationSettings; label: string; hint: string }[
   { key: "quote_viewed_again", label: "A client views a quote again", hint: "A \"viewed again\" summary, at most once a day per quote" },
 ];
 
+const PRECON_TOGGLES: typeof TOGGLES = [
+  {
+    key: "precon",
+    label: "Pre-construction",
+    hint: "A job starting soon with required items open, a job ready to start, an 811 ticket expiring",
+  },
+];
+
 const REVIEW_TOGGLES: typeof TOGGLES = [
   {
     key: "review_activity",
@@ -50,6 +58,9 @@ const TRIGGERS: { value: AutomationTrigger; label: string }[] = [
   { value: "review_eligible", label: "Project ready for a review request" },
   { value: "review_requested", label: "Review requested" },
   { value: "review_link_clicked", label: "Review link clicked" },
+  { value: "precon_overdue", label: "Pre-construction item overdue" },
+  { value: "precon_ready", label: "Project ready to start" },
+  { value: "locate_expiring", label: "811 ticket expiring" },
 ];
 
 const TASK_TYPES = [
@@ -121,7 +132,7 @@ export function SettingsNotificationsView() {
         <h2 className="text-[17px] font-bold tracking-tight text-foreground">Schedule & reviews</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">What counts as risky is set in Settings › Schedule & weather.</p>
         <div className="mt-2 divide-y divide-hairline">
-          {[...SCHEDULE_TOGGLES, ...REVIEW_TOGGLES].map((t) => (
+          {[...SCHEDULE_TOGGLES, ...PRECON_TOGGLES, ...REVIEW_TOGGLES].map((t) => (
             <label key={t.key} className="flex cursor-pointer items-center justify-between gap-4 py-3.5">
               <div>
                 <div className="text-sm font-semibold text-foreground">{t.label}</div>

@@ -6977,6 +6977,8 @@ export interface NotificationSettings {
   weather_risk: boolean;
   /** Review requests (0122) — a job ready to ask, and a client opening the review link. */
   review_activity: boolean;
+  /** Pre-construction (0124) — required items open close to the start date. */
+  precon: boolean;
 }
 
 export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
@@ -6988,6 +6990,7 @@ export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
   cold_unsigned_days: 5,
   weather_risk: true,
   review_activity: true,
+  precon: true,
 };
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {
@@ -7010,7 +7013,11 @@ export type AutomationTrigger =
   // Review requests (0122)
   | "review_eligible"
   | "review_requested"
-  | "review_link_clicked";
+  | "review_link_clicked"
+  // Pre-construction checklist (0124)
+  | "precon_overdue"
+  | "precon_ready"
+  | "locate_expiring";
 
 export interface AutomationRule {
   id: string;
@@ -7392,4 +7399,133 @@ export async function reviewClick(token: string): Promise<string | null> {
 export async function setClientNoReviewRequests(clientId: string, value: boolean): Promise<void> {
   const { error } = await supabase.from("clients").update({ no_review_requests: value }).eq("id", clientId);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-construction checklist (0124). Readiness math: src/lib/precon.ts;
+// the per-job data bundle: src/components/precon/usePrecon.ts.
+// ---------------------------------------------------------------------------
+
+export interface PreconSettings {
+  warn_days: number;
+  locate_wait_days: number;
+  locate_valid_days: number;
+}
+
+export async function getPreconSettings(): Promise<PreconSettings> {
+  const { data, error } = await supabase.from("precon_settings").select("warn_days, locate_wait_days, locate_valid_days").maybeSingle();
+  if (error || !data) return { warn_days: 5, locate_wait_days: 3, locate_valid_days: 15 };
+  return data as PreconSettings;
+}
+
+export async function savePreconSettings(patch: Partial<PreconSettings>): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("precon_settings").upsert({ user_id: auth.user?.id, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+export interface PreconTemplateItem {
+  id: string;
+  key: string;
+  label: string;
+  kind: PreconItem["kind"];
+  required: boolean;
+  sort_order: number;
+  active: boolean;
+}
+
+export async function listPreconTemplate(): Promise<PreconTemplateItem[]> {
+  await supabase.rpc("precon_seed_template");
+  const { data, error } = await supabase.from("precon_template_items").select("*").order("sort_order");
+  if (error) return [];
+  return (data ?? []) as PreconTemplateItem[];
+}
+
+export async function savePreconTemplateItem(item: Partial<PreconTemplateItem> & { label: string }): Promise<void> {
+  if (item.id) {
+    const { id, ...patch } = item;
+    const { error } = await supabase.from("precon_template_items").update(patch).eq("id", id);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase
+    .from("precon_template_items")
+    .insert({ key: `custom:${crypto.randomUUID()}`, kind: "custom", label: item.label.trim(), required: item.required ?? true, sort_order: item.sort_order ?? 999 });
+  if (error) throw error;
+}
+
+/** System items are turned off (kept for existing jobs); custom ones deleted. */
+export async function removePreconTemplateItem(item: Pick<PreconTemplateItem, "id" | "kind">): Promise<void> {
+  const q = item.kind === "custom" ? supabase.from("precon_template_items").delete() : supabase.from("precon_template_items").update({ active: false });
+  const { error } = await q.eq("id", item.id);
+  if (error) throw error;
+}
+
+export interface PreconItem {
+  id: string;
+  project_id: string;
+  key: string;
+  label: string;
+  kind: "quote" | "selections" | "deposit" | "materials" | "deliveries" | "crew" | "start_confirmed" | "hoa" | "permit" | "locate" | "custom";
+  required: boolean;
+  sort_order: number;
+  status: "open" | "done" | "na";
+  override: boolean;
+  note: string | null;
+  details: Record<string, unknown>;
+  done_at: string | null;
+  removed: boolean;
+}
+
+/** A job's checklist — copied from the template on first use. */
+export async function listProjectPrecon(projectId: string, ensure = true): Promise<PreconItem[]> {
+  if (ensure) await supabase.rpc("precon_ensure_project", { p_project_id: projectId });
+  const { data, error } = await supabase.from("project_precon_items").select("*").eq("project_id", projectId).order("sort_order");
+  if (error) return [];
+  return (data ?? []) as PreconItem[];
+}
+
+export async function updatePreconItem(
+  id: string,
+  patch: Partial<Pick<PreconItem, "status" | "override" | "note" | "details" | "removed" | "label" | "required">>,
+): Promise<void> {
+  const full = { ...patch, ...(patch.status ? { done_at: patch.status === "done" ? new Date().toISOString() : null } : {}) };
+  const { error } = await supabase.from("project_precon_items").update(full).eq("id", id);
+  if (error) throw error;
+}
+
+export async function addProjectPreconItem(projectId: string, label: string, required: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("project_precon_items")
+    .insert({ project_id: projectId, key: `custom:${crypto.randomUUID()}`, kind: "custom", label: label.trim(), required, sort_order: 999 });
+  if (error) throw error;
+}
+
+/** HOA / permit documents and 811 ticket photos — precon/{project}/… */
+export async function uploadPreconFile(projectId: string, file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase().slice(0, 5);
+  const path = `precon/${projectId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from(IMAGES_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+/** Reminder notification + automation (deduped server-side). */
+export async function preconNotify(projectId: string, kind: "overdue" | "ready" | "locate_expiring", title: string, body: string, dedupe: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc("precon_notify", { p_project_id: projectId, p_kind: kind, p_title: title, p_body: body, p_dedupe: dedupe });
+  if (error) return false;
+  return !!data;
+}
+
+/** 811 items for these jobs (rain delay preview). */
+export async function listLocateItems(projectIds: string[]): Promise<{ project_id: string; details: Record<string, unknown>; status: string }[]> {
+  if (projectIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("project_precon_items")
+    .select("project_id, details, status")
+    .eq("kind", "locate")
+    .eq("removed", false)
+    .in("project_id", projectIds);
+  if (error) return [];
+  return data ?? [];
 }

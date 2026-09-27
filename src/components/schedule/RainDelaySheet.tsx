@@ -17,6 +17,8 @@ import {
   APPOINTMENT_TYPE_LABEL,
   applyScheduleDelay,
   getProject,
+  getPreconSettings,
+  listLocateItems,
   listAppointments,
   listCrews,
   listMaterialOrders,
@@ -33,6 +35,7 @@ import {
   type DelayReason,
 } from "@/lib/scheduleShift";
 import { isoDate } from "@/lib/weatherRisk";
+import { locateDelayWarning } from "@/lib/precon";
 import { invalidateScheduleQueries, useUndoScheduleDelay } from "./useUndoScheduleDelay";
 import { HeadsUpStep } from "./HeadsUpStep";
 
@@ -166,6 +169,22 @@ export function RainDelaySheet({
     }
     return { deliveries, appts };
   }, [plan, orders, appointments, projects, project, projectId]);
+
+  // Pre-construction (0124): would the new dates outrun an 811 ticket?
+  const changedIds = (plan?.changes ?? []).map((c) => c.projectId);
+  const { data: locates = [] } = useQuery({
+    queryKey: ["precon-locates", changedIds.join(",")],
+    queryFn: () => listLocateItems(changedIds),
+    enabled: open && changedIds.length > 0,
+  });
+  const { data: preconSettings } = useQuery({ queryKey: ["precon-settings"], queryFn: getPreconSettings, enabled: open });
+  const locateWarnings = (plan?.changes ?? [])
+    .map((c) => {
+      const l = locates.find((x) => x.project_id === c.projectId && x.status !== "na");
+      const w = l && preconSettings ? locateDelayWarning(l.details, c.to.end ?? c.to.start, preconSettings) : null;
+      return w ? `${c.name}: ${w}` : null;
+    })
+    .filter(Boolean) as string[];
 
   const apply = useMutation({
     mutationFn: async () => {
@@ -313,6 +332,12 @@ export function RainDelaySheet({
                       </li>
                     ))}
                   </ul>
+                  {locateWarnings.map((w) => (
+                    <p key={w} className="flex items-start gap-1.5 text-xs font-semibold text-warning">
+                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      {w}
+                    </p>
+                  ))}
                   {plan.warnings.length > 0 && (
                     <ul className="space-y-1">
                       {plan.warnings.map((w) => (
