@@ -14,6 +14,8 @@ import {
   Layers,
   Pencil,
   ArrowRight,
+  ListChecks,
+  BookmarkPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +55,9 @@ import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { SectionTypeChip } from "@/components/common/SectionTypeChip";
+import { QuoteSectionSelections } from "@/components/selections/QuoteSectionSelections";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { groupCost, groupFromRows, sectionIncluded, selectionRange, selectionsTotal } from "@/lib/selections";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
@@ -132,6 +137,8 @@ import {
   type Quote,
   type Category,
   snapshotDocument,
+  listSelectionTemplates,
+  type SelectionGroupDraft,
 } from "@/lib/api";
 import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
 import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
@@ -644,6 +651,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     qc.invalidateQueries({ queryKey: ["quotes"] });
     qc.invalidateQueries({ queryKey: ["projects"] });
   };
+  // Client Selections (0115): which section's group dialog is open, and a
+  // saved template to seed a new group from.
+  const [selectionEditing, setSelectionEditing] = useState<{ sectionId: string; value: string | null; seed?: Partial<SelectionGroupDraft> | null } | null>(null);
+  const { data: selectionTemplates = [] } = useQuery({ queryKey: ["selection-templates"], queryFn: listSelectionTemplates });
+  const selectionsChanged = () => {
+    invalidate();
+    // Out with the client → editing selections is a new quote version.
+    if (quote.status !== "draft") void snapshotDocument("quote", quote.id);
+  };
+  const serverGroupsBySection = new Map(quote.quote_sections.map((s) => [s.id, s.quote_selection_groups ?? []]));
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
   const updateClientMut = useMutation({
@@ -950,7 +967,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // A section's own header subtotal is a plain sum of everything in it —
   // required or optional — so an optional section always shows its real
   // worth instead of $0 until a client checks it off on the live page.
-  const sectionSubtotal = (s: DraftSection) => s.items.reduce((sum, i) => sum + lineTotal(i), 0);
+  const sectionSubtotal = (s: DraftSection) =>
+    s.items.reduce((sum, i) => sum + lineTotal(i), 0) + selectionsTotal((serverGroupsBySection.get(s.id) ?? []).map(groupFromRows));
   const baseTotal = draft.sections.reduce((sum, s) => sum + baseSubtotal(s), 0);
   // Add-ons the client has actually picked on the live page — the quote
   // total only ever counts required items plus these, never an optional
@@ -994,7 +1012,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // never a real figure — removed). Matches quoteTotal() (api.ts) — a
   // quote's total means the same thing everywhere now: required items plus
   // selected optionals, the only work actually committed to.
-  const grandTotal = baseTotal + selectedAddonsTotal;
+  // Client Selections: each included section's chosen (or default) options.
+  const selectionsOf = (s: DraftSection) => (serverGroupsBySection.get(s.id) ?? []).map(groupFromRows);
+  const selectionsAmount = draft.sections.reduce((sum, s) => sum + (sectionIncluded(s) ? selectionsTotal(selectionsOf(s)) : 0), 0);
+  // Internal cost adjustments of the options that count now — until
+  // approval, when they're applied to the Cost plan itself.
+  const selectionsCost =
+    quote.status === "approved" ? 0 : draft.sections.reduce((sum, s) => sum + (sectionIncluded(s) ? selectionsOf(s).reduce((a, g) => a + groupCost(g), 0) : 0), 0);
+  const selectionsRange = selectionRange(draft.sections.filter(sectionIncluded).flatMap(selectionsOf));
+  const grandTotal = baseTotal + selectedAddonsTotal + selectionsAmount;
   // Deposit, cost, and margin all compare against the same all-in headline
   // — once optional work is part of "the total," it's part of everything
   // derived from it too.
@@ -1010,7 +1036,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // costPlanTotal() already sums the whole linked sheet unconditionally (a
   // materials sheet has no optional/required split of its own), so this
   // cost figure was never scoped down to "required only" to begin with.
-  const estCost = projectId ? materialsCost : null;
+  const estCost = projectId ? (materialsCost == null ? null : materialsCost + selectionsCost) : null;
 
   // True cost (0110, internal): overhead applied through planned labor at
   // the rate stored on this quote (drafts can recalculate to the current).
@@ -1267,12 +1293,66 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             onRename={(name) => renameSection(section.id, name)}
                             featurePicker={featurePickerFor(section.id)}
                             toolbarActions={
-                              <SectionQuickQuoteAction
-                                projectId={quote.project_id}
-                                buildType={quickQuoteBuildTypeFor(section)}
-                                hasQuickQuote={section.items.some((i) => i.quick_quote_build_type)}
-                                onClick={() => startSectionQuickQuote(section)}
-                              />
+                              <>
+                                <SectionQuickQuoteAction
+                                  projectId={quote.project_id}
+                                  buildType={quickQuoteBuildTypeFor(section)}
+                                  hasQuickQuote={section.items.some((i) => i.quick_quote_build_type)}
+                                  onClick={() => startSectionQuickQuote(section)}
+                                />
+                                {!isTmp(section.id) && quote.status !== "approved" && (
+                                  <>
+                                    <SectionToolbarAction
+                                      icon={ListChecks}
+                                      label="Add client selection"
+                                      onClick={() => setSelectionEditing({ sectionId: section.id, value: "new" })}
+                                    />
+                                    {selectionTemplates.length > 0 && (
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary">
+                                            <BookmarkPlus className="h-3.5 w-3.5" />
+                                            Insert saved group
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="start">
+                                          {selectionTemplates.map((t) => (
+                                            <DropdownMenuItem
+                                              key={t.id}
+                                              onSelect={() =>
+                                                setSelectionEditing({
+                                                  sectionId: section.id,
+                                                  value: "new",
+                                                  seed: { name: t.name, help_text: t.help_text, required: t.required, multi: t.multi, options: t.options },
+                                                })
+                                              }
+                                            >
+                                              {t.name}
+                                            </DropdownMenuItem>
+                                          ))}
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    )}
+                                  </>
+                                )}
+                              </>
+                            }
+                            afterItems={
+                              !isTmp(section.id) ? (
+                                <QuoteSectionSelections
+                                  quoteSectionId={section.id}
+                                  groups={serverGroupsBySection.get(section.id) ?? []}
+                                  approved={quote.status === "approved"}
+                                  linkableLines={materials
+                                    .filter((m) => (section.feature_id ? m.feature_id === section.feature_id : section.materialIds.includes(m.id)))
+                                    .flatMap((m) => m.materials_items ?? [])}
+                                  catalogItems={catalogItems}
+                                  onChanged={selectionsChanged}
+                                  editing={selectionEditing?.sectionId === section.id ? selectionEditing.value : null}
+                                  setEditing={(v) => setSelectionEditing(v === null ? null : { sectionId: section.id, value: v })}
+                                  templateSeed={selectionEditing?.sectionId === section.id ? selectionEditing.seed : null}
+                                />
+                              ) : undefined
                             }
                             onDeleteSection={() => removeSection(section.id)}
                             onAddItem={() => addItem(section.id)}
@@ -1400,6 +1480,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             {optionalAvailableTotal > 0 && (
               <p className="mt-2.5 text-[11px] text-muted-foreground">
                 + {formatCurrency(optionalAvailableTotal)} in optional add-ons the client can pick
+              </p>
+            )}
+            {selectionsRange.min !== selectionsRange.max && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Client selections: {formatCurrency(selectionsAmount)} now (defaults / picks) · could range{" "}
+                {formatCurrency(grandTotal - selectionsAmount + selectionsRange.min)} – {formatCurrency(grandTotal - selectionsAmount + selectionsRange.max)}
               </p>
             )}
           </div>

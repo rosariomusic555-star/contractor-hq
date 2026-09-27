@@ -10,6 +10,7 @@ import { OVERHEAD_SETTINGS_DEFAULTS, burdenPerHour, type OverheadSettings } from
 import { LUMP_SUM_UNIT } from "./costPlanMath";
 import { clientSafeProjectDetail, clientSharedChangeOrder, clientSharedInvoice, clientSharedQuote, clientSharedReceipt } from "./clientSafe";
 import type { PortalProjectDetail } from "./portalApi";
+import { groupFromRows, sectionIncluded, selectionsTotal } from "./selections";
 import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
 /** Private Storage bucket (0023) holding both quote-item and project
@@ -263,6 +264,49 @@ export interface QuoteSection {
   /** Manual picks (0095) — only on getQuote()'s read. */
   quote_section_material_links?: { materials_section_id: string }[];
   quote_items: QuoteItem[];
+  /** Client Selections (0115) — choice groups on this section. */
+  quote_selection_groups?: QuoteSelectionGroup[];
+}
+
+export interface QuoteSelectionOption {
+  id: string;
+  group_id: string;
+  name: string;
+  description: string | null;
+  image_path: string | null;
+  catalog_product_id: string | null;
+  color: string | null;
+  price_delta: number;
+  /** Internal only. */
+  cost_delta: number;
+  /** Internal only — the Cost plan line this option changes, and what it
+   * sets on it. */
+  link_item_id: string | null;
+  link_set: { catalog_product_id?: string | null; color?: string | null; unit_cost?: number | null; name?: string | null };
+  is_default: boolean;
+  sort_order: number;
+}
+
+export interface QuoteSelectionPick {
+  id: string;
+  group_id: string;
+  option_id: string;
+  picked_by: "client" | "contractor" | "default" | "change_order";
+  picked_at: string;
+}
+
+export interface QuoteSelectionGroup {
+  id: string;
+  quote_section_id: string;
+  name: string;
+  help_text: string | null;
+  required: boolean;
+  multi: boolean;
+  sort_order: number;
+  approved_price: number | null;
+  approved_at: string | null;
+  quote_selection_options?: QuoteSelectionOption[];
+  quote_selection_picks?: QuoteSelectionPick[];
 }
 
 /** Manual quote section → materials sheet section picks (0095). */
@@ -1096,6 +1140,11 @@ export function quoteTotal(sections: QuoteSection[] = []): number {
   for (const section of sections) {
     for (const item of section.quote_items ?? []) {
       if (quoteItemIncluded(section, item)) total += quoteLineTotal(item);
+    }
+    // Client Selections (0115): each group's chosen (or default) option
+    // prices, only on an included section — same as SQL quote_committed_total.
+    if (section.quote_selection_groups?.length && sectionIncluded(section)) {
+      total += selectionsTotal(section.quote_selection_groups.map(groupFromRows));
     }
   }
   return total;
@@ -2627,7 +2676,7 @@ export async function resetQuickQuoteRate(buildType: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const QUOTE_SELECT =
-  "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*, quote_item_images(*)))";
+  "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*, quote_item_images(*)), quote_selection_groups(*, quote_selection_options(*), quote_selection_picks(*)))";
 // Fallback for when migration 0024 (quote_item_images) hasn't been run yet.
 // Unlike a merely-missing column (which PostgREST just omits), an embedded
 // resource it can't resolve in its schema cache fails the WHOLE query — so
@@ -2641,6 +2690,8 @@ function sortQuote(quote: Quote): Quote {
   quote.quote_sections?.sort((a, b) => a.sort_order - b.sort_order);
   for (const s of quote.quote_sections ?? []) {
     s.quote_items?.sort((a, b) => a.sort_order - b.sort_order);
+    s.quote_selection_groups?.sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
+    for (const g of s.quote_selection_groups ?? []) g.quote_selection_options?.sort((a, b) => a.sort_order - b.sort_order);
     for (const i of s.quote_items ?? []) {
       // Absent entirely when the QUOTE_SELECT_NO_IMAGES fallback fired.
       i.quote_item_images = i.quote_item_images ?? [];
@@ -2670,7 +2721,7 @@ export async function listQuotes(projectId?: string): Promise<Quote[]> {
 // The builder's read — also embeds each section's manual materials links
 // (0095). Falls back to the plain select if that relationship is missing.
 const QUOTE_SELECT_WITH_MATERIAL_LINKS =
-  "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*, quote_item_images(*)), quote_section_material_links(materials_section_id))";
+  "*, project:projects(name, client:clients(name)), client:clients(name), quote_sections(*, quote_items(*, quote_item_images(*)), quote_section_material_links(materials_section_id), quote_selection_groups(*, quote_selection_options(*), quote_selection_picks(*)))";
 
 export async function getQuote(id: string): Promise<Quote> {
   const withLinks = await supabase.from("quotes").select(QUOTE_SELECT_WITH_MATERIAL_LINKS).eq("id", id).single();
@@ -4652,6 +4703,8 @@ export interface SharedQuoteSection {
   is_optional: boolean;
   sort_order: number;
   items: SharedQuoteItem[];
+  /** Client Selections (0115) — client-facing fields only. */
+  selections?: import("./portalApi").PortalSelectionGroup[];
 }
 
 export interface SharedQuote {
@@ -6494,4 +6547,288 @@ export async function undoEstimatingChange(change: EstimatingChange): Promise<vo
   const { error } = await supabase.from("estimating_changes").update({ undone_at: new Date().toISOString() }).eq("id", change.id);
   if (error) throw error;
   if (change.recommendation_key) await setRecommendationState(change.recommendation_key, "open");
+}
+
+// ---------------------------------------------------------------------------
+// Client Selections (0115) — contractor side. Groups / options are saved
+// straight from their dialog (not the builder draft); a quote that's out
+// with the client gets a new version afterwards (snapshotDocument).
+// ---------------------------------------------------------------------------
+
+export interface SelectionOptionDraft {
+  id?: string;
+  name: string;
+  description?: string | null;
+  image_path?: string | null;
+  catalog_product_id?: string | null;
+  color?: string | null;
+  price_delta: number;
+  cost_delta: number;
+  link_item_id?: string | null;
+  link_set?: QuoteSelectionOption["link_set"];
+  is_default: boolean;
+}
+
+export interface SelectionGroupDraft {
+  id?: string;
+  name: string;
+  help_text?: string | null;
+  required: boolean;
+  multi: boolean;
+  options: SelectionOptionDraft[];
+}
+
+/** Create or update a group and its options (options diffed by id). */
+export async function saveSelectionGroup(quoteSectionId: string, draft: SelectionGroupDraft, sortOrder = 0): Promise<string> {
+  let groupId = draft.id;
+  const groupRow = {
+    name: draft.name.trim(),
+    help_text: draft.help_text?.trim() || null,
+    required: draft.required,
+    multi: draft.multi,
+  };
+  if (groupId) {
+    const { error } = await supabase.from("quote_selection_groups").update(groupRow).eq("id", groupId);
+    if (error) throw error;
+  } else {
+    const { data, error } = await supabase
+      .from("quote_selection_groups")
+      .insert({ ...groupRow, quote_section_id: quoteSectionId, sort_order: sortOrder })
+      .select("id")
+      .single();
+    if (error) throw error;
+    groupId = data.id;
+  }
+  const { data: existing, error: exErr } = await supabase.from("quote_selection_options").select("id").eq("group_id", groupId);
+  if (exErr) throw exErr;
+  const keep = new Set(draft.options.map((o) => o.id).filter(Boolean));
+  const remove = (existing ?? []).map((o) => o.id).filter((id) => !keep.has(id));
+  // A removed option takes its picks with it (the client's draft pick is
+  // cleared; a required group then flags as not chosen).
+  if (remove.length) {
+    const { error } = await supabase.from("quote_selection_options").delete().in("id", remove);
+    if (error) throw error;
+  }
+  for (const [i, o] of draft.options.entries()) {
+    const row = {
+      name: o.name.trim(),
+      description: o.description?.trim() || null,
+      image_path: o.image_path ?? null,
+      catalog_product_id: o.catalog_product_id ?? null,
+      color: o.color?.trim() || null,
+      price_delta: Math.round((Number(o.price_delta) || 0) * 100) / 100,
+      cost_delta: Math.round((Number(o.cost_delta) || 0) * 100) / 100,
+      link_item_id: o.link_item_id ?? null,
+      link_set: o.link_item_id ? (o.link_set ?? {}) : {},
+      is_default: o.is_default,
+      sort_order: i,
+    };
+    if (o.id) {
+      const { error } = await supabase.from("quote_selection_options").update(row).eq("id", o.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from("quote_selection_options").insert({ ...row, group_id: groupId });
+      if (error) throw error;
+    }
+  }
+  return groupId!;
+}
+
+export async function deleteSelectionGroup(groupId: string): Promise<void> {
+  const { error } = await supabase.from("quote_selection_groups").delete().eq("id", groupId);
+  if (error) throw error;
+}
+
+/** The contractor picks on the client's behalf (before approval). */
+export async function setContractorSelectionPicks(groupId: string, optionIds: string[]): Promise<void> {
+  const { error: dErr } = await supabase.from("quote_selection_picks").delete().eq("group_id", groupId);
+  if (dErr) throw dErr;
+  if (!optionIds.length) return;
+  const { error } = await supabase
+    .from("quote_selection_picks")
+    .insert(optionIds.map((option_id) => ({ group_id: groupId, option_id, picked_by: "contractor" })));
+  if (error) throw error;
+}
+
+/** Share-link picks (by token) — the public quote page. */
+export async function setSharedQuoteSelection(token: string, groupId: string, optionIds: string[]): Promise<void> {
+  const { error } = await supabase.rpc("set_shared_quote_selection", { p_token: token, p_group_id: groupId, p_option_ids: optionIds });
+  if (error) throw error;
+}
+
+export async function uploadSelectionImage(file: File): Promise<string> {
+  const { data: auth } = await supabase.auth.getUser();
+  const compressed = await compressImageFile(file);
+  const path = `selection-options/${auth.user!.id}/${randomImageFilename(file.name)}`;
+  const { error } = await supabase.storage.from(IMAGES_BUCKET).upload(path, compressed, { upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+export interface SelectionGroupTemplate {
+  id: string;
+  name: string;
+  help_text: string | null;
+  required: boolean;
+  multi: boolean;
+  options: Omit<SelectionOptionDraft, "id" | "link_item_id" | "link_set">[];
+  updated_at: string;
+}
+
+export async function listSelectionTemplates(): Promise<SelectionGroupTemplate[]> {
+  const { data, error } = await supabase.from("selection_group_templates").select("*").order("name");
+  if (error) return [];
+  return (data ?? []) as SelectionGroupTemplate[];
+}
+
+export async function saveSelectionTemplate(t: Omit<SelectionGroupTemplate, "id" | "updated_at"> & { id?: string }): Promise<void> {
+  const row = { name: t.name.trim(), help_text: t.help_text?.trim() || null, required: t.required, multi: t.multi, options: t.options };
+  const { error } = t.id
+    ? await supabase.from("selection_group_templates").update(row).eq("id", t.id)
+    : await supabase.from("selection_group_templates").insert(row);
+  if (error) throw error;
+}
+
+export async function deleteSelectionTemplate(id: string): Promise<void> {
+  const { error } = await supabase.from("selection_group_templates").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export interface SelectionHistoryRow {
+  id: string;
+  group_id: string;
+  source: "original" | "change_order";
+  change_order_id: string | null;
+  option_ids: string[];
+  option_names: string[];
+  price: number;
+  created_at: string;
+}
+
+export interface SelectionChangeRequest {
+  id: string;
+  project_id: string | null;
+  quote_id: string | null;
+  group_id: string;
+  requested_option_id: string | null;
+  note: string | null;
+  status: "open" | "converted" | "completed" | "declined" | "closed";
+  change_order_id: string | null;
+  requested_by: string | null;
+  created_at: string;
+}
+
+/** A project's approved selections, with history and open change requests. */
+export async function listProjectSelections(projectId: string): Promise<{
+  groups: (QuoteSelectionGroup & { section: { id: string; name: string; feature_id: string | null; quote_id: string; is_optional: boolean }; quote: { id: string; status: string; kind: string | null } })[];
+  history: SelectionHistoryRow[];
+  requests: SelectionChangeRequest[];
+}> {
+  const { data, error } = await supabase
+    .from("quote_selection_groups")
+    .select("*, quote_selection_options(*), quote_selection_picks(*), section:quote_sections!inner(id, name, feature_id, quote_id, is_optional, quote:quotes!inner(id, status, kind, project_id))")
+    .eq("section.quote.project_id", projectId);
+  if (error) return { groups: [], history: [], requests: [] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const groups = ((data ?? []) as any[]).map((g) => ({ ...g, quote: g.section.quote }));
+  const ids = groups.map((g) => g.id);
+  const [{ data: history }, { data: requests }] = await Promise.all([
+    ids.length ? supabase.from("quote_selection_history").select("*").in("group_id", ids).order("created_at") : Promise.resolve({ data: [] }),
+    supabase.from("selection_change_requests").select("*").eq("project_id", projectId).order("created_at", { ascending: false }),
+  ]);
+  for (const g of groups) g.quote_selection_options?.sort((a: QuoteSelectionOption, b: QuoteSelectionOption) => a.sort_order - b.sort_order);
+  return { groups, history: (history ?? []) as SelectionHistoryRow[], requests: (requests ?? []) as SelectionChangeRequest[] };
+}
+
+export async function updateSelectionChangeRequest(id: string, patch: Partial<Pick<SelectionChangeRequest, "status" | "change_order_id">>): Promise<void> {
+  const { error } = await supabase.from("selection_change_requests").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * "Create change order" for an approved selection: a draft change order on
+ * the feature, prefilled with the swap (old → new option), the price
+ * difference as its line, the cost difference as a planned-cost change
+ * (the linked Cost plan line's new values, or an added line), and the
+ * selection change itself — which moves the pick only once the change
+ * order is approved. A same-price swap is a $0 change order, on record.
+ */
+export async function createSelectionChangeOrder(input: {
+  projectId: string;
+  group: QuoteSelectionGroup & { section: { name: string; feature_id: string | null } };
+  toOptionIds: string[];
+  requestId?: string | null;
+}): Promise<ChangeOrder> {
+  const options = input.group.quote_selection_options ?? [];
+  const fromIds = (input.group.quote_selection_picks ?? []).map((p) => p.option_id);
+  const from = options.filter((o) => fromIds.includes(o.id));
+  const to = options.filter((o) => input.toOptionIds.includes(o.id));
+  const names = (list: QuoteSelectionOption[]) => list.map((o) => o.name).join(", ") || "none";
+  const priceDelta = to.reduce((s, o) => s + Number(o.price_delta), 0) - from.reduce((s, o) => s + Number(o.price_delta), 0);
+  const costDelta = to.reduce((s, o) => s + Number(o.cost_delta), 0) - from.reduce((s, o) => s + Number(o.cost_delta), 0);
+  const title = `${input.group.name}: ${names(from)} → ${names(to)}`;
+
+  const co = await createChangeOrder({ project_id: input.projectId, title, reason: "client_request", description: "Client selection change" });
+  const section = await addChangeOrderSection(co.id, { name: input.group.section.name, feature_id: input.group.section.feature_id });
+  await addChangeOrderItem(section.id, { name: title, price: Math.round(priceDelta * 100) / 100, quantity: 1 });
+  await updateChangeOrder(co.id, { amount: Math.round(priceDelta * 100) / 100 });
+
+  // Planned-cost changes: the linked line's new product / price, else the
+  // internal cost difference as its own line.
+  const linked = to.find((o) => o.link_item_id);
+  if (linked?.link_item_id) {
+    const { data: item } = await supabase.from("materials_items").select("*").eq("id", linked.link_item_id).maybeSingle();
+    if (item) {
+      await createChangeOrderCostChange({
+        change_order_id: co.id,
+        section_id: section.id,
+        feature_id: input.group.section.feature_id,
+        kind: "edit",
+        materials_item_id: item.id,
+        materials_section_id: item.section_id,
+        line: {
+          name: linked.link_set?.name || item.name,
+          quantity: Number(item.quantity),
+          unit: item.unit,
+          unit_cost: linked.link_set?.unit_cost != null ? Number(linked.link_set.unit_cost) : Number(item.unit_cost),
+          waste_percent: Number(item.waste_percent ?? 0),
+          cost_type: item.cost_type ?? "material",
+          vendor: item.vendor ?? null,
+        },
+        before: { name: item.name, quantity: Number(item.quantity), unit: item.unit, unit_cost: Number(item.unit_cost), waste_percent: Number(item.waste_percent ?? 0), cost_type: item.cost_type ?? "material" },
+        sort_order: 0,
+      } as never);
+    }
+  } else if (Math.abs(costDelta) >= 0.01) {
+    await createChangeOrderCostChange({
+      change_order_id: co.id,
+      section_id: section.id,
+      feature_id: input.group.section.feature_id,
+      kind: "add",
+      materials_item_id: null,
+      materials_section_id: null,
+      line: { name: `Selection change: ${title}`, quantity: 1, unit: "lump sum", unit_cost: Math.round(costDelta * 100) / 100, waste_percent: 0, cost_type: "other" },
+      before: null,
+      sort_order: 0,
+    } as never);
+  }
+
+  const { error } = await supabase.from("change_order_selection_changes").insert({
+    change_order_id: co.id,
+    group_id: input.group.id,
+    from_option_ids: fromIds,
+    to_option_ids: input.toOptionIds,
+    price_delta: Math.round(priceDelta * 100) / 100,
+    cost_delta: Math.round(costDelta * 100) / 100,
+  });
+  if (error) throw error;
+  if (input.requestId) await updateSelectionChangeRequest(input.requestId, { status: "converted", change_order_id: co.id });
+  return getChangeOrder(co.id);
+}
+
+/** Crew view — approved choices only, no prices. */
+export async function listEmployeeProjectSelections(projectId: string): Promise<{ section: string; group: string; choices: string[] }[]> {
+  const { data, error } = await supabase.rpc("employee_project_selections", { p_project_id: projectId });
+  if (error) return [];
+  return (data ?? []) as { section: string; group: string; choices: string[] }[];
 }

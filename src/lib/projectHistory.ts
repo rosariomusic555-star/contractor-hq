@@ -96,7 +96,17 @@ function quoteEntries(detail: PortalProjectDetail, headlineId: string | undefine
         counted,
         note,
         struck: superseded,
-        details: [{ label: "Sent", value: historyDate(r.date) }, ...decision(r.state, r.approval ?? r.content.approval)],
+        details: [
+          { label: "Sent", value: historyDate(r.date) },
+          ...decision(r.state, r.approval ?? r.content.approval),
+          // Client Selections (0115): what was chosen (or still to choose).
+          ...(r.content.sections ?? []).flatMap((sec) =>
+            (sec.selections ?? []).map((g) => {
+              const chosen = g.options.filter((o) => g.picked.includes(o.id)).map((o) => o.name);
+              return { label: g.name, value: chosen.join(", ") || (status === "approved" ? "—" : "To choose") };
+            }),
+          ),
+        ],
         href: { doc: { kind: "quote", id: q.id, version: superseded ? r.n : undefined } },
       });
     }
@@ -232,4 +242,33 @@ export function clientProjectMoney(detail: PortalProjectDetail) {
   });
   const unpaidInvoices = detail.invoices.filter((i) => i.status !== "paid" && invoiceBalance({ ...i, status: i.status as "sent" }) > 0.004);
   return { breakdown, summary, unpaidInvoices };
+}
+
+/** Approved client selections (0115) across the project's approved quotes:
+ * section, group, the current choice, its price, and its history
+ * ("Original: Blu 60 → CO #1: Blu Grande"). Only included sections. */
+export function approvedSelections(detail: Pick<PortalProjectDetail, "quotes">) {
+  const out: { quoteId: string; section: string; group: string; choices: string[]; price: number; history: string | null; approvedAt: string | null }[] = [];
+  for (const q of detail.quotes.filter((x) => x.status === "approved")) {
+    for (const s of q.sections) {
+      const kept = !s.is_optional || s.items.some((i) => i.client_selected);
+      if (!kept) continue;
+      for (const g of s.selections ?? []) {
+        const chosen = g.options.filter((o) => g.picked.includes(o.id));
+        out.push({
+          quoteId: q.id,
+          section: s.name,
+          group: g.name,
+          choices: chosen.map((o) => o.name),
+          price: chosen.reduce((sum, o) => sum + Number(o.price_delta), 0),
+          history:
+            g.history.length > 1
+              ? g.history.map((h) => `${h.source === "original" ? "Original" : `CO #${h.change_order_number ?? "?"}`}: ${h.option_names.join(", ")}`).join(" → ")
+              : null,
+          approvedAt: g.approved_at,
+        });
+      }
+    }
+  }
+  return out;
 }

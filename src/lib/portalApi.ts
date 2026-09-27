@@ -111,6 +111,29 @@ export interface PortalQuoteSection {
   is_optional: boolean;
   sort_order: number;
   items: PortalQuoteItem[];
+  /** Client Selections (0115). */
+  selections?: PortalSelectionGroup[];
+}
+
+export interface PortalSelectionOption {
+  id: string;
+  name: string;
+  description: string | null;
+  image_path: string | null;
+  price_delta: number;
+  is_default: boolean;
+}
+
+export interface PortalSelectionGroup {
+  id: string;
+  name: string;
+  help_text: string | null;
+  required: boolean;
+  multi: boolean;
+  approved_at: string | null;
+  options: PortalSelectionOption[];
+  picked: string[];
+  history: { source: "original" | "change_order"; option_names: string[]; created_at: string; change_order_number: number | null }[];
 }
 
 export interface PortalQuote {
@@ -428,5 +451,19 @@ export async function uploadPortalProjectImage(
     p_storage_path: path,
     p_caption: caption,
   });
+  if (error) throw error;
+}
+
+/** Client Selections (0115): save the client's picks for a group (draft —
+ * only while the quote is waiting for approval). */
+export async function setPortalSelection(groupId: string, optionIds: string[]): Promise<void> {
+  const { error } = await portalSupabase.rpc("portal_set_quote_selection", { p_group_id: groupId, p_option_ids: optionIds });
+  if (error) throw error;
+}
+
+/** "Request a change" on an approved selection — a request to the
+ * contractor; nothing changes until they send a change order. */
+export async function requestPortalSelectionChange(groupId: string, optionId: string | null, note: string): Promise<void> {
+  const { error } = await portalSupabase.rpc("portal_request_selection_change", { p_group_id: groupId, p_option_id: optionId, p_note: note });
   if (error) throw error;
 }

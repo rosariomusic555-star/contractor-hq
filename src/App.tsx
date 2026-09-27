@@ -84,6 +84,7 @@ import SharedInvoicePage from "./pages/SharedInvoice";
 import SharedReceiptPage from "./pages/SharedReceipt";
 import { ClientViewPage } from "@/components/views/ClientViewPage";
 import { SettingsEstimatingInsightsView } from "@/components/views/SettingsEstimatingInsightsView";
+import { SettingsSelectionTemplatesView } from "@/components/views/SettingsSelectionTemplatesView";
 import SharedChangeOrderPage from "./pages/SharedChangeOrder";
 import NotFound from "./pages/NotFound";
 
@@ -198,6 +199,7 @@ const router = createBrowserRouter(
         <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
         <Route path="/settings/overhead" element={<SettingsOverheadView />} />
         <Route path="/settings/estimating-insights" element={<SettingsEstimatingInsightsView />} />
+        <Route path="/settings/selection-templates" element={<SettingsSelectionTemplatesView />} />
         <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
         <Route path="/settings/categories" element={<SettingsCategoriesView />} />
         <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />

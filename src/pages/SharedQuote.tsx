@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { ClientSelectionGroups } from "@/components/selections/ClientSelectionGroups";
+import { clientGroupLike, groupPrice, missingRequired, priceLabel } from "@/lib/selections";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   getSharedQuote,
@@ -15,6 +17,7 @@ import {
   quoteLineTotal,
   signSharedQuote,
   type SharedQuoteSection,
+  setSharedQuoteSelection,
 } from "@/lib/api";
 
 function PageShell({ children }: { children: ReactNode }) {
@@ -67,6 +70,27 @@ export default function SharedQuotePage() {
     setItemSelected(items);
     seeded.current = true;
   }, [data]);
+
+  // Client Selections (0115): picks are saved as a draft on every tap.
+  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const pickMut = useMutation({
+    mutationFn: ({ groupId, ids }: { groupId: string; ids: string[] }) => setSharedQuoteSelection(token, groupId, ids),
+    onError: (err: Error) => toast({ title: "Couldn't save your choice", description: err.message, variant: "destructive" }),
+  });
+  const choose = (groupId: string, ids: string[]) => {
+    setPicks((p) => ({ ...p, [groupId]: ids }));
+    pickMut.mutate({ groupId, ids });
+  };
+  const selectionImagePaths = useMemo(
+    () => (data?.sections ?? []).flatMap((s) => (s.selections ?? []).flatMap((g) => g.options.map((o) => o.image_path).filter(Boolean) as string[])),
+    [data],
+  );
+  const { data: selectionImageUrls = {} } = useQuery({
+    queryKey: ["shared-selection-image-urls", token, selectionImagePaths.join(",")],
+    queryFn: () => getSignedImageUrls(selectionImagePaths),
+    enabled: selectionImagePaths.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
 
   const signMut = useMutation({
     mutationFn: () => signSharedQuote(token, signerName.trim()),
@@ -136,12 +160,22 @@ export default function SharedQuotePage() {
   );
   // Base + whatever's currently checked — moves live as the client toggles
   // optional sections/items above.
-  const subtotal = sections.reduce(
-    (sum, section) =>
-      sum +
-      section.items.reduce((s, item) => (isIncluded(section, item) ? s + quoteLineTotal(item) : s), 0),
-    0,
-  );
+  // Selections count on a required section, or an optional one the client
+  // kept — each group's picks (or its default).
+  const sectionKept = (section: SharedQuoteSection) => !section.is_optional || isSectionSelected(section.id);
+  const keptGroups = sections.filter(sectionKept).flatMap((section) => (section.selections ?? []).map((g) => ({ g, section })));
+  const selectionsSubtotal = keptGroups.reduce((sum, { g }) => {
+    const like = clientGroupLike(g);
+    return sum + groupPrice(like, picks[g.id] ?? like.picked);
+  }, 0);
+  const missing = missingRequired(keptGroups.map(({ g }) => clientGroupLike(g)), picks);
+  const subtotal =
+    sections.reduce(
+      (sum, section) =>
+        sum +
+        section.items.reduce((s, item) => (isIncluded(section, item) ? s + quoteLineTotal(item) : s), 0),
+      0,
+    ) + selectionsSubtotal;
   // Deposit is a percentage of the full quote total — required items plus
   // whatever optional work the client currently has checked — matching how
   // the deposit is sized everywhere else a quote total is shown.
@@ -180,6 +214,18 @@ export default function SharedQuotePage() {
                 }
                 onToggleItem={(itemId, checked) =>
                   setItemSelected((prev) => ({ ...prev, [itemId]: checked }))
+                }
+                selections={
+                  (section.selections ?? []).length > 0 && sectionKept(section) ? (
+                    <ClientSelectionGroups
+                      groups={section.selections!}
+                      picks={picks}
+                      onChange={isApproved ? undefined : choose}
+                      locked={isApproved}
+                      imageUrls={selectionImageUrls}
+                      flagMissing={missing.length > 0}
+                    />
+                  ) : null
                 }
               />
             ))}
@@ -250,6 +296,33 @@ export default function SharedQuotePage() {
                 By signing below, you confirm you have read and agree to the terms above.
               </p>
             </div>
+            {keptGroups.length > 0 && (
+              <div className="max-w-md space-y-1 rounded-xl border border-border bg-muted/40 p-4 text-sm">
+                <p className="font-semibold text-foreground">Your selections</p>
+                {keptGroups.map(({ g, section }) => {
+                  const ids = picks[g.id] ?? g.picked;
+                  const eff = ids.length ? ids : g.options.filter((o) => o.is_default).map((o) => o.id);
+                  const chosen = g.options.filter((o) => eff.includes(o.id));
+                  return (
+                    <p key={g.id} className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">
+                        {section.name} · {g.name}
+                      </span>
+                      <span className={chosen.length ? "text-right font-semibold text-foreground" : "text-right font-semibold text-destructive"}>
+                        {chosen.map((o) => `${o.name}${o.price_delta ? ` (${priceLabel(o.price_delta)})` : ""}`).join(", ") || "Not chosen yet"}
+                      </span>
+                    </p>
+                  );
+                })}
+                <p className="flex justify-between border-t border-border pt-1.5 font-bold text-foreground">
+                  <span>Total</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </p>
+              </div>
+            )}
+            {missing.length > 0 && (
+              <p className="text-sm font-semibold text-destructive">Please choose {missing.map((g) => `"${g.name}"`).join(", ")} before signing.</p>
+            )}
             <div className="space-y-2 max-w-sm">
               <Label htmlFor="signer-name">Your full name</Label>
               <Input
@@ -261,7 +334,7 @@ export default function SharedQuotePage() {
             </div>
             <Button
               onClick={() => signerName.trim() && signMut.mutate()}
-              disabled={!signerName.trim() || signMut.isPending}
+              disabled={!signerName.trim() || signMut.isPending || missing.length > 0 || pickMut.isPending}
               className="bg-accent hover:bg-accent/90 text-accent-foreground"
             >
               {signMut.isPending ? "Submitting…" : "Approve & sign"}
@@ -291,6 +364,7 @@ function SectionBlock({
   onImageClick,
   onToggleSection,
   onToggleItem,
+  selections,
 }: {
   section: SharedQuoteSection;
   sectionChecked: boolean;
@@ -300,6 +374,8 @@ function SectionBlock({
   onImageClick: (url: string) => void;
   onToggleSection: (checked: boolean) => void;
   onToggleItem: (itemId: string, checked: boolean) => void;
+  /** Client Selections for this section (0115). */
+  selections?: ReactNode;
 }) {
   if (section.is_optional) {
     const subtotal = section.items.reduce((sum, i) => sum + quoteLineTotal(i), 0);
@@ -333,6 +409,7 @@ function SectionBlock({
               Subtotal: {formatCurrency(subtotal)}
             </p>
           )}
+          {selections}
         </div>
       </div>
     );
@@ -358,6 +435,7 @@ function SectionBlock({
       <p className="text-right text-sm font-medium text-foreground">
         Subtotal: {formatCurrency(subtotal)}
       </p>
+      {selections}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { PortalProjectDetail } from "./portalApi";
 import { clientSafeProjectDetail } from "./clientSafe";
-import { clientProjectMoney, historyDate, invoiceStatusLabel, paymentAppliedText, versionDate, versionsOf } from "./projectHistory";
+import { approvedSelections, clientProjectMoney, historyDate, invoiceStatusLabel, paymentAppliedText, versionDate, versionsOf } from "./projectHistory";
 import { invoiceBalance, invoicePaid, paymentMethodLabel } from "./projectMoney";
 
 /**
@@ -193,6 +193,16 @@ export function buildProjectSummaryPdf(raw: PortalProjectDetail, opts: { logoDat
   else {
     text("No quotes or change orders yet.", X, y + 6, { size: 9, color: MUTED });
     y += 22;
+  }
+
+  const selections = approvedSelections(detail);
+  if (selections.length) {
+    heading("Your selections");
+    table(
+      ["Area", "Selection", "Choice", "Price"],
+      selections.map((x) => [x.section, x.group, x.choices.join(", ") + (x.history ? `\n${x.history.replace(/→/g, "->")}` : ""), x.price ? (x.price < 0 ? `- ${usd(-x.price)}` : `+ ${usd(x.price)}`) : "Included"]),
+      ["left", "left", "left", "right"],
+    );
   }
 
   heading("Invoices");
