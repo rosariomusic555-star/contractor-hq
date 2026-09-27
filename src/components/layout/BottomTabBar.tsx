@@ -16,6 +16,7 @@ import {
   Users,
   MoreHorizontal,
   Clock,
+  Activity,
   Bell,
   LogOut,
   Kanban,
@@ -218,6 +219,7 @@ export function BottomTabBar() {
             <ActionRow icon={MessagesSquare} label="Communications" onClick={() => go("/communications", () => setMoreOpen(false))} />
             <ActionRow icon={Receipt} label="Invoices" onClick={() => go("/invoices", () => setMoreOpen(false))} />
             <ActionRow icon={Clock} label="Timesheets" onClick={() => go("/timesheets", () => setMoreOpen(false))} />
+            <ActionRow icon={Activity} label="Business health" onClick={() => go("/business-health", () => setMoreOpen(false))} />
             <ActionRow icon={Users} label="Clients" onClick={() => go("/clients", () => setMoreOpen(false))} />
             <ActionRow icon={SettingsIcon} label="Settings" onClick={() => go("/settings", () => setMoreOpen(false))} />
             <ActionRow
