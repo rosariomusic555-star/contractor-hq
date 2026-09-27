@@ -1,3 +1,6 @@
+import { useEstimatingContext } from "@/hooks/use-estimating-context";
+import { averageMetric, findSimilarJobs, similarSampleText } from "@/lib/similarJobs";
+import { SimilarJobsHint } from "@/components/planned-actual/SimilarJobsHint";
 import { useEffect, useState } from "react";
 import { ChevronLeft, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -190,6 +193,8 @@ export function QuickQuoteFormDialog({
                   onChange={(e) => setRateStr(e.target.value)}
                 />
               </div>
+
+              <QuickQuoteInsight buildType={template.id} label={template.label} quantity={quantity} unit={template.lineItemUnit} rate={rate} projectId={projectId ?? null} />
 
               <div className="rounded-xl bg-primary/10 px-4 py-3 text-sm font-semibold text-foreground">
                 {quantity.toLocaleString()} {template.lineItemUnit} × {formatCurrency(rate)} ={" "}
@@ -434,5 +439,49 @@ function AreaField({
         <p className="text-xs font-medium text-primary">= {Math.round(value).toLocaleString()} sq ft</p>
       )}
     </div>
+  );
+}
+
+/** Under the rate: what similar completed jobs actually cost to build and
+ * sold for per unit (Feature 5) — a reference for the rate, never applied. */
+function QuickQuoteInsight({
+  buildType,
+  label,
+  quantity,
+  unit,
+  rate,
+  projectId,
+}: {
+  buildType: string;
+  label: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  projectId: string | null;
+}) {
+  const ec = useEstimatingContext(projectId);
+  const sizeUnit = unit === "sf" ? "sq ft" : unit === "lf" ? "LF" : unit;
+  const res = findSimilarJobs(ec.closeouts, {
+    build_type: buildType,
+    size: quantity > 0 ? quantity : null,
+    size_unit: sizeUnit,
+    context: ec.context,
+    excludeProjectId: projectId,
+  });
+  const cost = averageMetric(res.matches, (f) => (f.size_unit === sizeUnit ? f.units.cost_per_unit : null));
+  const price = averageMetric(res.matches, (f) => (f.size_unit === sizeUnit ? f.units.price_per_unit : null));
+  if (cost.n === 0 || cost.avg == null) return null;
+  const money = (v: number) => formatCurrency(Math.round(v * 100) / 100);
+  const text = `${similarSampleText(res, cost.n, label)} ${cost.isAverage ? "averaged" : "cost"} ${money(cost.avg)}/${sizeUnit} to build${
+    price.avg != null ? `, sold at ${money(price.avg)}/${sizeUnit}` : ""
+  }${rate > 0 ? ` (your rate ${money(rate)})` : ""}${cost.isAverage ? "." : " — reference only."}`;
+  return (
+    <SimilarJobsHint
+      hintKey={`qq:${projectId}:${buildType}`}
+      text={text}
+      matches={res.matches.filter((m) => m.feature.size_unit === sizeUnit && m.feature.units.cost_per_unit != null)}
+      widened={res.widened}
+      metric={(m) => `cost ${money(m.feature.units.cost_per_unit!)}${m.feature.units.price_per_unit != null ? ` · sold ${money(m.feature.units.price_per_unit)}` : ""}/${sizeUnit}`}
+    />
   );
 }

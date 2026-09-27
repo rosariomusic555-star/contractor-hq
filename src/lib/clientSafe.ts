@@ -59,6 +59,10 @@ export const INTERNAL_FIELDS = [
   "cost_plan", "materials_items", "material_sheet_id", "supplier_cost", "price_book_item_id", "feature_id",
   "category_id", "note", "internal_notes", "site_conditions", "quick_quote_build_type", "viewed_at", "voided_by",
   "void_reason", "created_by", "estimated_cost", "cogs",
+  // Feature 5 — planned vs actual, closeouts, estimating insights
+  "job_slope", "job_access", "job_soil", "job_demo", "smart_inputs", "variance", "planned", "actual",
+  "closeout", "closeouts", "what_happened", "excluded", "snapshot", "report", "units", "labor_ratio",
+  "recommendation", "adjustments", "tunables", "labor_default",
 ] as const;
 
 type Row = Record<string, unknown>;

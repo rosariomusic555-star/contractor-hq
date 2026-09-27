@@ -106,6 +106,11 @@ interface ProjectRef {
 export interface Project {
   id: string;
   user_id: string;
+  /** Structured job context (0114) — comparable across jobs. */
+  job_slope?: "flat" | "slight" | "moderate" | "steep" | null;
+  job_access?: "easy" | "tight" | "difficult" | null;
+  job_soil?: "normal" | "clay" | "rocky" | "wet" | null;
+  job_demo?: "none" | "light" | "heavy" | null;
   /** The overhead burden ($/man-hour) and target margin it was sold with —
    * copied from the signed quote (0110). Actual fully loaded profit uses it. */
   overhead_rate?: number | null;
@@ -1406,6 +1411,10 @@ export async function updateProject(
       | "actual_start_date"
       | "actual_end_date"
       | "size_sqft"
+      | "job_slope"
+      | "job_access"
+      | "job_soil"
+      | "job_demo"
     >
   >,
 ): Promise<void> {
@@ -2359,7 +2368,7 @@ export async function createMaterialsSection(
 
 export async function updateMaterialsSection(
   id: string,
-  patch: Partial<Pick<MaterialsSection, "name" | "sort_order" | "job_category_id" | "feature_id"> & SectionLaborFields>,
+  patch: Partial<Pick<MaterialsSection, "name" | "sort_order" | "job_category_id" | "feature_id"> & SectionLaborFields & { smart_inputs?: Record<string, unknown> | null }>,
 ): Promise<void> {
   const { error } = await supabase.from("materials_sections").update(patch).eq("id", id);
   if (error) throw error;
@@ -6240,4 +6249,249 @@ export async function updateLaborEntry(
 export async function deleteLaborEntry(id: string): Promise<void> {
   const { error } = await supabase.from("labor_entries").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Planned vs actual feedback loop (0114) — closeouts, estimating insights.
+// Internal only: nothing here is ever read by the client-facing serializer.
+// ---------------------------------------------------------------------------
+
+export interface VarianceThresholdSettings {
+  variance_amber_pct: number;
+  variance_red_pct: number;
+}
+
+export async function getVarianceThresholds(): Promise<VarianceThresholdSettings> {
+  const { data, error } = await supabase.from("business_profile").select("variance_amber_pct, variance_red_pct").maybeSingle();
+  if (error || !data) return { variance_amber_pct: 0, variance_red_pct: 10 };
+  return { variance_amber_pct: Number(data.variance_amber_pct ?? 0), variance_red_pct: Number(data.variance_red_pct ?? 10) };
+}
+
+export async function saveVarianceThresholds(patch: VarianceThresholdSettings): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("business_profile").upsert({ user_id: auth.user?.id, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
+const CLOSEOUT_SELECT = "*, project:projects(name)";
+
+/** Every closeout the contractor has (current and superseded). */
+export async function listCloseouts(): Promise<import("./closeout").Closeout[]> {
+  const { data, error } = await supabase.from("project_closeouts").select(CLOSEOUT_SELECT).order("created_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205" || error.code === "42P01") return [];
+    throw error;
+  }
+  return (data ?? []) as unknown as import("./closeout").Closeout[];
+}
+
+export async function listProjectCloseouts(projectId: string): Promise<import("./closeout").Closeout[]> {
+  const { data, error } = await supabase
+    .from("project_closeouts")
+    .select(CLOSEOUT_SELECT)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as unknown as import("./closeout").Closeout[];
+}
+
+/** Snapshot a closeout; any earlier current closeout of the project is
+ * marked superseded (never overwritten). */
+export async function createCloseout(input: {
+  project_id: string;
+  snapshot: unknown;
+  context: unknown;
+  features: unknown;
+  what_happened?: string | null;
+  excluded?: boolean;
+}): Promise<void> {
+  const { error: sErr } = await supabase
+    .from("project_closeouts")
+    .update({ superseded_at: new Date().toISOString() })
+    .eq("project_id", input.project_id)
+    .is("superseded_at", null);
+  if (sErr) throw sErr;
+  const { error } = await supabase.from("project_closeouts").insert({
+    project_id: input.project_id,
+    snapshot: input.snapshot,
+    context: input.context,
+    features: input.features,
+    what_happened: input.what_happened?.trim() || null,
+    excluded: !!input.excluded,
+  });
+  if (error) throw error;
+}
+
+export async function updateCloseout(id: string, patch: { what_happened?: string | null; excluded?: boolean }): Promise<void> {
+  const clean = { ...patch, ...(patch.what_happened !== undefined ? { what_happened: patch.what_happened?.trim() || null } : {}) };
+  const { error } = await supabase.from("project_closeouts").update(clean).eq("id", id);
+  if (error) throw error;
+}
+
+export interface EstimatingAdjustment {
+  id: string;
+  build_type: string;
+  /** "slot:<calculator slot>" or "labor_hours" */
+  target: string;
+  condition: Record<string, string>;
+  factor: number;
+  label: string;
+  active: boolean;
+  recommendation_key: string | null;
+  created_at: string;
+}
+
+export async function listEstimatingAdjustments(): Promise<EstimatingAdjustment[]> {
+  const { data, error } = await supabase.from("estimating_adjustments").select("*").order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as EstimatingAdjustment[];
+}
+
+export async function setEstimatingAdjustmentActive(id: string, active: boolean): Promise<void> {
+  const { error } = await supabase.from("estimating_adjustments").update({ active }).eq("id", id);
+  if (error) throw error;
+}
+
+export type RecommendationStatus = "open" | "applied" | "applied_condition" | "dismissed" | "snoozed";
+
+export interface RecommendationState {
+  key: string;
+  status: RecommendationStatus;
+  snooze_until: string | null;
+  evidence: unknown;
+  updated_at: string;
+}
+
+export async function listRecommendationStates(): Promise<RecommendationState[]> {
+  const { data, error } = await supabase.from("estimating_recommendations").select("key, status, snooze_until, evidence, updated_at");
+  if (error) return [];
+  return (data ?? []) as RecommendationState[];
+}
+
+export async function setRecommendationState(key: string, status: RecommendationStatus, extra: { snooze_until?: string | null; evidence?: unknown } = {}): Promise<void> {
+  const { error } = await supabase
+    .from("estimating_recommendations")
+    .upsert({ key, status, snooze_until: extra.snooze_until ?? null, evidence: extra.evidence ?? null, updated_at: new Date().toISOString() }, { onConflict: "user_id,key" });
+  if (error) throw error;
+}
+
+export interface EstimatingChange {
+  id: string;
+  recommendation_key: string | null;
+  kind: "tunable" | "labor_default" | "adjustment";
+  build_type: string;
+  field: string | null;
+  adjustment_id: string | null;
+  before_value: unknown;
+  after_value: unknown;
+  summary: string;
+  applied_at: string;
+  undone_at: string | null;
+}
+
+export async function listEstimatingChanges(): Promise<EstimatingChange[]> {
+  const { data, error } = await supabase.from("estimating_changes").select("*").order("applied_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as EstimatingChange[];
+}
+
+/**
+ * The ONLY place a recommendation changes anything — called from an
+ * explicit Apply tap. Records before/after for undo.
+ *   mode "default":   base → the calculator's base coverage (tons per sq
+ *                     ft follow); labor → the build type's labor default
+ *                     days (or, with no labor default, an every-job labor
+ *                     adjustment).
+ *   mode "condition": an adjustment used only on jobs matching the
+ *                     recommendation's condition.
+ */
+export async function applyRecommendation(
+  rec: import("./estimatingInsights").Recommendation,
+  mode: "default" | "condition",
+  current: { tunables: Record<string, number>; laborDefault: SmartSectionLaborDefault | null; baseCoverageDefault: number },
+): Promise<string> {
+  const pct = Math.round((rec.median - 1) * 100);
+  const cond = mode === "condition" ? (rec.condition ?? {}) : {};
+  const addAdjustment = async (target: string, label: string) => {
+    const { data, error } = await supabase
+      .from("estimating_adjustments")
+      .insert({ build_type: rec.build_type, target, condition: cond, factor: rec.median, label, recommendation_key: rec.key })
+      .select("id")
+      .single();
+    if (error) throw error;
+    const summary = `${label}: ×${rec.median}`;
+    const { error: cErr } = await supabase.from("estimating_changes").insert({
+      recommendation_key: rec.key,
+      kind: "adjustment",
+      build_type: rec.build_type,
+      adjustment_id: data.id,
+      after_value: { factor: rec.median, condition: cond },
+      summary,
+    });
+    if (cErr) throw cErr;
+    return summary;
+  };
+
+  let summary: string;
+  if (rec.kind === "base") {
+    if (mode === "condition") {
+      summary = await addAdjustment("slot:base_material", `${rec.buildTypeLabel} base${rec.conditionLabel ? ` (${rec.conditionLabel})` : ""} ${pct >= 0 ? "+" : ""}${pct}%`);
+    } else {
+      const field = "base_coverage_sqft_per_ton";
+      const before = current.tunables[field] ?? current.baseCoverageDefault;
+      const after = Math.round((before / rec.median) * 10) / 10;
+      await saveSmartSectionSettings(rec.build_type, { tunables: { ...current.tunables, [field]: after } });
+      summary = `${rec.buildTypeLabel}: base coverage ${before} → ${after} sq ft per ton`;
+      const { error } = await supabase.from("estimating_changes").insert({
+        recommendation_key: rec.key,
+        kind: "tunable",
+        build_type: rec.build_type,
+        field,
+        before_value: current.tunables[field] ?? null,
+        after_value: after,
+        summary,
+      });
+      if (error) throw error;
+    }
+  } else if (mode === "default" && current.laborDefault?.days) {
+    const before = current.laborDefault;
+    const after = { ...before, days: Math.max(0.5, Math.round(before.days! * rec.median * 2) / 2) };
+    await saveSmartSectionSettings(rec.build_type, { labor_default: after });
+    summary = `${rec.buildTypeLabel}: default labor ${before.days} → ${after.days} days`;
+    const { error } = await supabase.from("estimating_changes").insert({
+      recommendation_key: rec.key,
+      kind: "labor_default",
+      build_type: rec.build_type,
+      field: "labor_default",
+      before_value: before,
+      after_value: after,
+      summary,
+    });
+    if (error) throw error;
+  } else {
+    summary = await addAdjustment("labor_hours", `${rec.buildTypeLabel} labor${mode === "condition" && rec.conditionLabel ? ` (${rec.conditionLabel})` : ""} ${pct >= 0 ? "+" : ""}${pct}%`);
+  }
+  await setRecommendationState(rec.key, mode === "condition" ? "applied_condition" : "applied", { evidence: { median: rec.median, jobs: rec.evidence.length } });
+  return summary;
+}
+
+/** Undo one applied change: restores the before value (or turns the
+ * adjustment off) and re-opens its recommendation. */
+export async function undoEstimatingChange(change: EstimatingChange): Promise<void> {
+  if (change.kind === "adjustment") {
+    if (change.adjustment_id) await setEstimatingAdjustmentActive(change.adjustment_id, false);
+  } else {
+    const settings = (await listSmartSectionSettings()).find((x) => x.build_type === change.build_type);
+    if (change.kind === "tunable" && change.field) {
+      const tunables = { ...(settings?.tunables ?? {}) };
+      if (change.before_value == null) delete tunables[change.field];
+      else tunables[change.field] = Number(change.before_value);
+      await saveSmartSectionSettings(change.build_type, { tunables });
+    } else if (change.kind === "labor_default") {
+      await saveSmartSectionSettings(change.build_type, { labor_default: (change.before_value as SmartSectionLaborDefault) ?? null });
+    }
+  }
+  const { error } = await supabase.from("estimating_changes").update({ undone_at: new Date().toISOString() }).eq("id", change.id);
+  if (error) throw error;
+  if (change.recommendation_key) await setRecommendationState(change.recommendation_key, "open");
 }

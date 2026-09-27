@@ -1,3 +1,4 @@
+import { JobContextChips } from "@/components/planned-actual/JobContextChips";
 import { useRef, useState } from "react";
 import { costPlanTotal } from "@/lib/costPlanMath";
 import { useParams, useNavigate, Link } from "react-router-dom";
@@ -503,6 +504,14 @@ export function OpportunityDetailView() {
                 className="py-2 text-sm leading-relaxed"
               />
             </div>
+            {/* Structured job context (0114) — same fields as the project
+                page, stored on the linked project. */}
+            {project && (
+              <div className="space-y-1.5">
+                <div className={FIELD_LABEL}>Job context</div>
+                <JobContextChips project={project} />
+              </div>
+            )}
             {opportunity.stage === "lost" && (
               <div className="space-y-1">
                 <div className={FIELD_LABEL}>Lost reason</div>

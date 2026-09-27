@@ -83,6 +83,7 @@ import SharedQuotePage from "./pages/SharedQuote";
 import SharedInvoicePage from "./pages/SharedInvoice";
 import SharedReceiptPage from "./pages/SharedReceipt";
 import { ClientViewPage } from "@/components/views/ClientViewPage";
+import { SettingsEstimatingInsightsView } from "@/components/views/SettingsEstimatingInsightsView";
 import SharedChangeOrderPage from "./pages/SharedChangeOrder";
 import NotFound from "./pages/NotFound";
 
@@ -196,6 +197,7 @@ const router = createBrowserRouter(
         <Route path="/settings" element={<SettingsView />} />
         <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
         <Route path="/settings/overhead" element={<SettingsOverheadView />} />
+        <Route path="/settings/estimating-insights" element={<SettingsEstimatingInsightsView />} />
         <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
         <Route path="/settings/categories" element={<SettingsCategoriesView />} />
         <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
