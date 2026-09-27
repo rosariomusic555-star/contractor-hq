@@ -119,6 +119,14 @@ export function EmployeeProjectDetailView() {
         <StatusPill meta={projectStatusMeta(project.status)} />
       </div>
 
+      {/* Crew work order (0125) — everything for the job site, no prices. */}
+      <Link
+        to={`/employee/projects/${project.id}/work-order`}
+        className="flex min-h-[56px] items-center justify-between rounded-2xl bg-primary px-5 py-3 text-base font-bold text-primary-foreground"
+      >
+        Open work order <span aria-hidden>›</span>
+      </Link>
+
       {/* Forecast on the schedule (0119) — weather only, no prices. */}
       {project.scheduled_start_date && project.status !== "complete" && (
         <div className="card-surface p-4">

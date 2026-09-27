@@ -138,6 +138,11 @@ export interface Project {
   /** Real crews (0120) — which crew works this job; the rain-delay
    * cascade shifts only the same crew's jobs. Names via listCrews(). */
   crew_id?: string | null;
+  /** Crew work order (0125) — contractor-side fields. */
+  crew_notes?: string | null;
+  crew_client_notes?: string | null;
+  crew_note_photos?: string[];
+  crew_hide_client_phone?: boolean;
   /** Estimated duration card (0061) — owner-entered estimate in working
    * (crew) days, plus the actual start/end dates measured against it once
    * the job runs. Deliberately separate from scheduled_start_date/
@@ -4849,6 +4854,10 @@ export interface Employee {
    * hourly_rate the moment this employee is picked. Null falls back to
    * business_profile.default_labor_rate. */
   default_hourly_rate: number | null;
+  /** Crew work order (0125) — may mark it Reviewed / download the PDF. */
+  is_lead?: boolean;
+  /** Crew work order (0125) — may log material usage from the work order. */
+  can_log_usage?: boolean;
   created_at: string;
 }
 
@@ -4958,25 +4967,23 @@ export interface AssignedProject {
   /** Crew forecast strip (0119) — the scheduled window, dates only. */
   scheduled_start_date: string | null;
   scheduled_end_date: string | null;
+  address?: string | null;
+  actual_start_date?: string | null;
 }
 
+/** The crew's own jobs — through crew_projects() (0125); crews can't read
+ * project rows directly (those hold overhead / margin / internal notes). */
 export async function listMyAssignedProjects(): Promise<AssignedProject[]> {
-  const { data, error } = await supabase
-    .from("projects")
-    .select("id, name, status, created_at, scheduled_start_date, scheduled_end_date")
-    .order("updated_at", { ascending: false });
+  const { data, error } = await supabase.rpc("crew_projects");
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as AssignedProject[];
 }
 
 export async function getAssignedProject(id: string): Promise<AssignedProject> {
-  const { data, error } = await supabase
-    .from("projects")
-    .select("id, name, status, created_at, scheduled_start_date, scheduled_end_date")
-    .eq("id", id)
-    .single();
-  if (error) throw error;
-  return data;
+  const all = await listMyAssignedProjects();
+  const p = all.find((x) => x.id === id);
+  if (!p) throw new Error("This job isn't assigned to you.");
+  return p;
 }
 
 export async function listProjectNotes(projectId: string): Promise<ProjectNote[]> {
@@ -7528,4 +7535,55 @@ export async function listLocateItems(projectIds: string[]): Promise<{ project_i
     .in("project_id", projectIds);
   if (error) return [];
   return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Crew work order (0125) — built ONLY by the crew-facing serializer
+// (get_crew_work_order); src/lib/crewSafe.ts whitelists it again here.
+// ---------------------------------------------------------------------------
+
+export async function getCrewWorkOrder(projectId: string): Promise<unknown> {
+  const { data, error } = await supabase.rpc("get_crew_work_order", { p_project_id: projectId });
+  if (error) throw error;
+  return data;
+}
+
+export async function crewWorkOrderOpened(projectId: string, version: string, snapshot: unknown): Promise<void> {
+  await supabase.rpc("crew_work_order_opened", { p_project_id: projectId, p_version: version, p_snapshot: snapshot });
+}
+
+export async function reviewCrewWorkOrder(projectId: string, version: string): Promise<void> {
+  const { error } = await supabase.rpc("crew_review_work_order", { p_project_id: projectId, p_version: version });
+  if (error) throw error;
+}
+
+export async function crewLogUsage(itemId: string, quantity: number, note: string | null): Promise<void> {
+  const { error } = await supabase.rpc("crew_log_usage", { p_item_id: itemId, p_quantity: quantity, p_note: note });
+  if (error) throw error;
+}
+
+export interface CrewWorkOrderSettings {
+  crew_notes: string | null;
+  crew_client_notes: string | null;
+  crew_note_photos: string[];
+  crew_hide_client_phone: boolean;
+}
+
+export async function saveCrewWorkOrderSettings(projectId: string, patch: Partial<CrewWorkOrderSettings>): Promise<void> {
+  const { error } = await supabase.from("projects").update(patch).eq("id", projectId);
+  if (error) throw error;
+}
+
+/** Crew-note photos — crew-notes/{project}/… (0125 storage policies). */
+export async function uploadCrewNotePhoto(projectId: string, file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().slice(0, 5);
+  const path = `crew-notes/${projectId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from(IMAGES_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+export async function updateEmployeeCrewRole(id: string, patch: { is_lead?: boolean; can_log_usage?: boolean }): Promise<void> {
+  const { error } = await supabase.from("employees").update(patch).eq("id", id);
+  if (error) throw error;
 }

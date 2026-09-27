@@ -409,9 +409,21 @@ Deno.serve(async (req: Request) => {
   };
 
   // Rows the caller can see (RLS decides).
-  const projects: GeoRow[] = projectIds.length
-    ? ((await caller.from("projects").select(`id, ${GEO_COLS}`).in("id", projectIds)).data ?? [])
-    : [];
+  // Crew members (0125) can't read `projects` rows directly any more — check
+  // their assignments, then read just the location columns with the service role.
+  let projects: GeoRow[] = [];
+  if (projectIds.length && emp) {
+    const { data: assigned } = await admin
+      .from("employee_project_assignments")
+      .select("project_id, employees!inner(auth_user_id, status)")
+      .eq("employees.auth_user_id", user.id)
+      .eq("employees.status", "active")
+      .in("project_id", projectIds);
+    const ok = (assigned ?? []).map((a: { project_id: string }) => a.project_id);
+    projects = ok.length ? ((await admin.from("projects").select(`id, ${GEO_COLS}`).in("id", ok)).data ?? []) : [];
+  } else if (projectIds.length) {
+    projects = (await caller.from("projects").select(`id, ${GEO_COLS}`).in("id", projectIds)).data ?? [];
+  }
   const appointments: GeoRow[] = appointmentIds.length
     ? ((await caller.from("appointments").select(`id, ${GEO_COLS}`).in("id", appointmentIds)).data ?? [])
     : [];
