@@ -16,7 +16,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
-  listInvoices,
+  listInvoices, listPayments,
   listQuotes,
   listCategories,
   listProjects,
@@ -26,7 +26,7 @@ import {
   listExpenses,
   listClients,
   type ChangeOrder,
-  type Invoice,
+  type Invoice, type Payment,
   type Quote,
 } from "@/lib/api";
 import {
@@ -63,6 +63,7 @@ const CARD_LINK_CLASS =
 
 export function RevenueView() {
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
@@ -78,16 +79,16 @@ export function RevenueView() {
   const thisMonthRange = useMemo(() => resolveRange("this_month", undefined), []);
   const last12Range = useMemo(() => resolveRange("last_12", undefined), []);
 
-  const invoicesByProject = useMemo(() => {
-    const map = new Map<string, Invoice[]>();
-    for (const inv of invoices) {
-      if (!inv.project_id) continue;
-      const list = map.get(inv.project_id);
-      if (list) list.push(inv);
-      else map.set(inv.project_id, [inv]);
+  const paymentsByProject = useMemo(() => {
+    const map = new Map<string, Payment[]>();
+    for (const p of payments) {
+      if (!p.project_id) continue;
+      const list = map.get(p.project_id);
+      if (list) list.push(p);
+      else map.set(p.project_id, [p]);
     }
     return map;
-  }, [invoices]);
+  }, [payments]);
 
   const expensesByProject = useMemo(() => {
     const map = new Map<string, { amount: number }[]>();
@@ -126,20 +127,20 @@ export function RevenueView() {
         projects,
         quotesByProject,
         changeOrdersByProject,
-        invoicesByProject,
+        paymentsByProject,
         materialsSheets,
         materialsSections,
         expensesByProject,
         categories,
       ),
-    [projects, quotesByProject, changeOrdersByProject, invoicesByProject, materialsSheets, materialsSections, expensesByProject, categories],
+    [projects, quotesByProject, changeOrdersByProject, paymentsByProject, materialsSheets, materialsSections, expensesByProject, categories],
   );
 
   // ---- 1. This month / Invoiced ----
   const thisMonthInvoiced = invoicedTotal(invoices, thisMonthRange);
 
   // ---- 2. Collected ----
-  const thisMonthCollected = collectedTotal(invoices, thisMonthRange);
+  const thisMonthCollected = collectedTotal(payments, thisMonthRange);
   const outstandingNow = outstandingTotal(invoices);
 
   // ---- 3. Avg. margin ----
@@ -153,7 +154,7 @@ export function RevenueView() {
 
   // ---- 6. Revenue by category (collected basis — see financials.ts) ----
   const byCategory = useMemo(() => {
-    const rows = collectedByCategory(invoices, quotes, categories, projectFinancials, last12Range).filter(
+    const rows = collectedByCategory(payments, invoices, quotes, categories, projectFinancials, last12Range).filter(
       (r) => r.revenue > 0,
     );
     const sum = rows.reduce((s, r) => s + r.revenue, 0) || 1;
@@ -162,16 +163,16 @@ export function RevenueView() {
       pct: Math.round((r.revenue / sum) * 100),
       color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
     }));
-  }, [invoices, quotes, categories, projectFinancials, last12Range]);
+  }, [payments, invoices, quotes, categories, projectFinancials, last12Range]);
 
   // ---- 7. Revenue by client (collected basis — see financials.ts) ----
   const byClient = useMemo(
-    () => collectedByClient(invoices, projects, clients, last12Range).filter((r) => r.revenue > 0).slice(0, 6),
-    [invoices, projects, clients, last12Range],
+    () => collectedByClient(payments, invoices, projects, clients, last12Range).filter((r) => r.revenue > 0).slice(0, 6),
+    [payments, invoices, projects, clients, last12Range],
   );
 
   const totalBilled = invoicedTotal(invoices, ALL_TIME_RANGE);
-  const totalPaid = collectedTotal(invoices, ALL_TIME_RANGE);
+  const totalPaid = collectedTotal(payments, ALL_TIME_RANGE);
 
   return (
     <div className="animate-fade-in space-y-5">

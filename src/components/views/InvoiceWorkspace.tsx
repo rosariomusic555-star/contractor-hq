@@ -37,11 +37,19 @@ import {
   quoteTotal,
   updateInvoice,
   generateShareLink,
+  listInvoices,
+  listPayments,
+  listPaymentsForInvoice,
+  applyProjectCredit,
   type Invoice,
   type Quote,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceDaysLate } from "@/lib/financials";
+import { invoiceBalance, invoicePaid, projectMoneySummary } from "@/lib/projectMoney";
+import { RecordPaymentSheet } from "@/components/payments/RecordPaymentSheet";
+import { PaymentsList } from "@/components/payments/PaymentsList";
+import { useInvalidateMoney } from "@/hooks/use-invalidate-money";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
 const FIELD_INPUT = "h-11 rounded-xl border-transparent bg-muted px-3.5 focus-visible:border-primary focus-visible:bg-card";
@@ -118,6 +126,29 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
     queryKey: ["invoice-items", invoice.id],
     queryFn: () => listInvoiceItems(invoice.id),
   });
+  // Payments (0111) — the project's (for its unallocated credit and the
+  // record-payment sheet's other open invoices) and this invoice's own.
+  const { data: projectInvoices = [] } = useQuery({
+    queryKey: ["invoices", { project: projectId }],
+    queryFn: () => listInvoices(projectId!),
+    enabled: !!projectId,
+  });
+  const { data: projectPayments = [] } = useQuery({
+    queryKey: ["payments", { project: projectId }],
+    queryFn: () => listPayments(projectId!),
+    enabled: !!projectId,
+  });
+  const { data: invoicePayments = [] } = useQuery({
+    queryKey: ["payments", { invoice: invoice.id }],
+    queryFn: () => listPaymentsForInvoice(invoice.id),
+  });
+  const projectCredit = projectId
+    ? projectMoneySummary({ contractValue: 0, invoices: projectInvoices, payments: projectPayments }).unallocatedCredit
+    : 0;
+  const invalidateMoney = useInvalidateMoney();
+  // "Apply credit when sent" — a new (draft) invoice on a project with
+  // credit offers it; it's applied as the invoice goes out.
+  const [applyCreditOnSend, setApplyCreditOnSend] = useState(true);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["invoice", invoice.id] });
@@ -193,7 +224,13 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
   const shareMut = useMutation({
     mutationFn: async () => {
       const token = invoice.share_token ?? (await generateShareLink("invoices", invoice.id));
-      if (invoice.status === "draft") await updateInvoice(invoice.id, { status: "sent" });
+      if (invoice.status === "draft") {
+        await updateInvoice(invoice.id, { status: "sent" });
+        if (projectId && applyCreditOnSend && projectCredit > 0.004 && invoiceBalance(invoice) > 0.004) {
+          await applyProjectCredit(projectId, invoice.id, Math.min(projectCredit, invoiceBalance(invoice)));
+          invalidateMoney();
+        }
+      }
       return token;
     },
     onSuccess: (token) => {
@@ -209,26 +246,16 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
     onError,
   });
 
-  const recordPaymentMut = useMutation({
-    mutationFn: (paidOn: string) =>
-      updateInvoice(invoice.id, {
-        status: "paid",
-        // Today → now; an earlier date → local noon of that day.
-        paid_at: paidOn === localYmd(new Date()) ? new Date().toISOString() : new Date(`${paidOn}T12:00:00`).toISOString(),
-      }),
-    onSuccess: () => {
-      void logProjectEvent(projectId, "invoice_paid", `Payment received · ${number} · ${formatCurrency(amount)}`, {
-        invoice_id: invoice.id,
-        invoice_number: invoice.invoice_number,
-      });
-      invalidate();
-      setPaymentOpen(false);
-      toast({ title: "Payment recorded" });
+  const applyCreditMut = useMutation({
+    mutationFn: (amt: number) => applyProjectCredit(projectId!, invoice.id, amt),
+    onSuccess: (applied) => {
+      invalidateMoney();
+      toast({ title: `${formatCurrency(applied)} credit applied` });
     },
     onError,
   });
 
-  const meta = invoiceStatusMeta(invoice.status);
+  const meta = invoiceStatusMeta(invoice.status, invoice.amount_paid);
   const number = invoice.invoice_number ?? "Invoice";
   const amount = Number(invoice.amount);
   const isPaid = invoice.status === "paid";
@@ -236,8 +263,9 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
   const shareLink = invoice.share_token ? `${window.location.origin}/invoice/${invoice.share_token}` : null;
   const clientName = invoice.project?.client?.name ?? null;
   const clientId = invoice.project?.client_id ?? null;
-  const paid = isPaid ? amount : 0;
-  const balance = Math.max(0, amount - paid);
+  const paid = invoicePaid(invoice);
+  const balance = invoiceBalance(invoice);
+  const creditToApply = Math.min(projectCredit, balance);
 
   // Project-level, change-order-inclusive contract for context.
   const projectContract = projectId ? projectContractValue(projectQuotes, changeOrders) : quote ? quoteTotal(quote.quote_sections) : 0;
@@ -597,7 +625,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
             </div>
             <div className="border-t border-hairline pt-2">
               <MoneyRow label="Invoice total" value={formatCurrency(amount)} />
-              <MoneyRow label="Paid" value={formatCurrency(paid)} />
+              <MoneyRow label="Payments applied" value={formatCurrency(paid)} />
               <MoneyRow label="Balance due" value={formatCurrency(balance)} strong />
               {isPaid && invoice.paid_at && (
                 <p className="mt-1 text-xs text-muted-foreground">Paid {new Date(invoice.paid_at).toLocaleDateString()}</p>
@@ -611,8 +639,32 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
                   {shareMut.isPending ? "Preparing…" : "Send invoice"}
                 </Button>
               )}
+              {invoice.status === "draft" && creditToApply > 0.004 && (
+                <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-success/10 p-3 text-xs text-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-[hsl(var(--primary))]"
+                    checked={applyCreditOnSend}
+                    onChange={(e) => setApplyCreditOnSend(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-semibold">Apply {formatCurrency(creditToApply)} project credit</span> when this invoice is sent —
+                    the project has {formatCurrency(projectCredit)} unallocated.
+                  </span>
+                </label>
+              )}
               {(invoice.status === "sent" || invoice.status === "overdue") && (
                 <>
+                  {creditToApply > 0.004 && (
+                    <Button
+                      variant="outline"
+                      className="h-11 rounded-xl border-success/40 font-bold text-success hover:text-success"
+                      disabled={applyCreditMut.isPending || isDirty}
+                      onClick={() => applyCreditMut.mutate(creditToApply)}
+                    >
+                      Apply {formatCurrency(creditToApply)} credit
+                    </Button>
+                  )}
                   <Button className="h-11 rounded-xl font-bold" disabled={isDirty} onClick={() => setPaymentOpen(true)}>
                     <Check className="mr-2 h-4 w-4" />
                     Record payment
@@ -627,6 +679,15 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
               {isDirty && <p className="text-center text-xs text-muted-foreground">Save your changes first.</p>}
             </div>
           </section>
+
+          {invoicePayments.length > 0 && (
+            <section className="card-surface p-5">
+              <h3 className="text-base font-bold text-foreground">Payments</h3>
+              <div className="mt-1">
+                <PaymentsList payments={invoicePayments} invoices={projectId ? projectInvoices : [invoice]} projectId={projectId} />
+              </div>
+            </section>
+          )}
 
           <section className="card-surface p-5">
             <h3 className="text-base font-bold text-foreground">History</h3>
@@ -650,50 +711,20 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
 
       <ShareLinkDialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)} url={shareUrl ?? ""} kind="invoice" />
 
-      <RecordPaymentDialog
+      <RecordPaymentSheet
         open={paymentOpen}
         onOpenChange={setPaymentOpen}
-        amount={amount}
-        saving={recordPaymentMut.isPending}
-        onRecord={(date) => recordPaymentMut.mutate(date)}
+        projectId={projectId}
+        invoices={projectId ? projectInvoices : [invoice]}
+        defaultInvoiceId={invoice.id}
+        onSaved={() => {
+          void logProjectEvent(projectId, "invoice_paid", `Payment recorded · ${number}`, {
+            invoice_id: invoice.id,
+            invoice_number: invoice.invoice_number,
+          });
+          invalidate();
+        }}
       />
     </div>
-  );
-}
-
-/** "Record payment" — the invoice is paid in full on the chosen date. */
-function RecordPaymentDialog({
-  open,
-  onOpenChange,
-  amount,
-  saving,
-  onRecord,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  amount: number;
-  saving: boolean;
-  onRecord: (date: string) => void;
-}) {
-  const [date, setDate] = useState(() => localYmd(new Date()));
-  useEffect(() => {
-    if (open) setDate(localYmd(new Date()));
-  }, [open]);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-4">
-        <DialogHeader>
-          <DialogTitle>Record payment</DialogTitle>
-          <DialogDescription>Marks this invoice paid in full — {formatCurrency(amount)}.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-1.5">
-          <Label htmlFor="paid-on">Paid on</Label>
-          <Input id="paid-on" type="date" value={date} max={localYmd(new Date())} onChange={(e) => setDate(e.target.value || localYmd(new Date()))} />
-        </div>
-        <Button className="w-full font-bold" disabled={saving} onClick={() => onRecord(date)}>
-          {saving ? "Saving…" : `Record ${formatCurrency(amount)} paid`}
-        </Button>
-      </DialogContent>
-    </Dialog>
   );
 }

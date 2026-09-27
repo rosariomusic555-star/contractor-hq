@@ -60,6 +60,9 @@ export default function SharedInvoicePage() {
 
   const { invoice, project, client } = data;
   const isPaid = invoice.status === "paid";
+  const paidSoFar = Number(invoice.amount_paid ?? 0);
+  const isPartial = !isPaid && paidSoFar > 0.004;
+  const balanceDue = Math.max(0, Number(invoice.amount) - paidSoFar);
   const number = invoice.invoice_number ?? "—";
   const dueDate = formatDate(invoice.due_date);
 
@@ -83,10 +86,15 @@ export default function SharedInvoicePage() {
         </header>
 
         <div className="rounded-xl border border-border bg-muted/40 p-6 space-y-1.5 text-center">
-          <p className="text-sm text-muted-foreground">Amount due</p>
+          <p className="text-sm text-muted-foreground">{isPartial ? "Balance due" : isPaid ? "Invoice total" : "Amount due"}</p>
           <p className="text-4xl font-bold text-foreground">
-            {formatCurrency(Number(invoice.amount))}
+            {formatCurrency(isPartial ? balanceDue : Number(invoice.amount))}
           </p>
+          {isPartial && (
+            <p className="text-sm text-muted-foreground">
+              {formatCurrency(Number(invoice.amount))} invoice · {formatCurrency(paidSoFar)} paid
+            </p>
+          )}
           {dueDate && <p className="text-sm text-muted-foreground pt-1">Due {dueDate}</p>}
         </div>
 

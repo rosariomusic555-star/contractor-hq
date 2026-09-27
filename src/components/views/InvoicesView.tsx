@@ -18,9 +18,10 @@ import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { listInvoices, createInvoice, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
+import { listInvoices, listPayments, createInvoice, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/financials";
+import { invoiceBalance, invoicePaymentState } from "@/lib/projectMoney";
+import { collectedInRange, agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/financials";
 
 /** "unpaid" is a combined filter — sent + overdue, i.e. billed but not yet
  * paid. Same definition the Dashboard's own "Unpaid" KPI uses, so arriving
@@ -47,6 +48,7 @@ export function InvoicesView() {
     queryKey: ["invoices"],
     queryFn: () => listInvoices(),
   });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
 
   const deleteMutation = useMutation({
     mutationFn: deleteInvoice,
@@ -65,12 +67,16 @@ export function InvoicesView() {
   const buckets = agingBuckets(invoices, now);
   const outstandingTotal = buckets.reduce((s, b) => s + b.amount, 0);
   const over30 = overdueCount(invoices, 30, now);
-  const paidLast30 = invoices
-    .filter((i) => i.status === "paid" && i.paid_at && now.getTime() - new Date(i.paid_at).getTime() <= 30 * DAY)
-    .reduce((s, i) => s + Number(i.amount), 0);
-  const paidLast30Count = invoices.filter(
-    (i) => i.status === "paid" && i.paid_at && now.getTime() - new Date(i.paid_at).getTime() <= 30 * DAY,
-  ).length;
+  // Money received (0111) — every active payment in the last 30 days,
+  // applied to an invoice or not.
+  const last30 = collectedInRange(payments, {
+    key: "custom",
+    label: "Last 30 days",
+    start: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30),
+    end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
+  });
+  const paidLast30 = last30.reduce((s, p) => s + Number(p.amount), 0);
+  const paidLast30Count = last30.length;
 
   const countByStatus = (s: InvoiceStatus) => invoices.filter((i) => i.status === s).length;
 
@@ -148,7 +154,7 @@ export function InvoicesView() {
         <KpiCard label="Current" value={formatCurrency(buckets[0].amount)} sub={`${buckets[0].count} due soon`} />
         <KpiCard label="1–30 days" value={formatCurrency(buckets[1].amount)} sub={`${buckets[1].count} invoice${buckets[1].count === 1 ? "" : "s"}`} />
         <KpiCard label="31–60 days" value={formatCurrency(buckets[2].amount + buckets[3].amount)} sub={`${buckets[2].count + buckets[3].count} invoice${buckets[2].count + buckets[3].count === 1 ? "" : "s"}`} subTone={buckets[2].amount + buckets[3].amount > 0 ? "negative" : "muted"} />
-        <KpiCard label="Paid, last 30 days" value={formatCurrency(paidLast30)} sub={`${paidLast30Count} invoice${paidLast30Count === 1 ? "" : "s"}`} subTone="positive" />
+        <KpiCard label="Received, last 30 days" value={formatCurrency(paidLast30)} sub={`${paidLast30Count} payment${paidLast30Count === 1 ? "" : "s"}`} subTone="positive" />
       </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
@@ -185,12 +191,17 @@ export function InvoicesView() {
                           <div className="font-semibold text-foreground">{inv.project?.name ?? "Standalone"}</div>
                           <div className="text-xs text-muted-foreground">{inv.project?.client?.name ?? "—"}</div>
                         </td>
-                        <td className="font-bold tabular-nums">{formatCurrency(Number(inv.amount))}</td>
+                        <td className="font-bold tabular-nums">
+                          {formatCurrency(Number(inv.amount))}
+                          {invoicePaymentState(inv) === "partial" && (
+                            <div className="text-xs font-semibold text-muted-foreground">{formatCurrency(invoiceBalance(inv))} due</div>
+                          )}
+                        </td>
                         <td>
                           {late ? (
                             <span className="badge-status badge-overdue">{late}</span>
                           ) : (
-                            <StatusPill meta={invoiceStatusMeta(inv.status)} />
+                            <StatusPill meta={invoiceStatusMeta(inv.status, inv.amount_paid)} />
                           )}
                         </td>
                         <td className="text-muted-foreground">{inv.due_date?.slice(0, 10) ?? "—"}</td>
@@ -230,7 +241,7 @@ export function InvoicesView() {
           <div className="space-y-2.5 md:hidden">
             {filtered.map((inv) => {
               const late = lateLabel(inv);
-              const meta = invoiceStatusMeta(inv.status);
+              const meta = invoiceStatusMeta(inv.status, inv.amount_paid);
               const border = late ? "hsl(var(--destructive))" : meta.border;
               return (
                 <ListCard
@@ -239,7 +250,11 @@ export function InvoicesView() {
                   borderColor={border}
                   eyebrow={`${inv.invoice_number ?? "Invoice"} · ${late ?? meta.label}`}
                   eyebrowColor={border}
-                  eyebrowRight={formatCurrency(Number(inv.amount))}
+                  eyebrowRight={
+                    invoicePaymentState(inv) === "partial"
+                      ? `${formatCurrency(invoiceBalance(inv))} of ${formatCurrency(Number(inv.amount))}`
+                      : formatCurrency(Number(inv.amount))
+                  }
                   title={inv.project?.name ?? "Standalone"}
                   subtitle={`${inv.project?.client?.name ?? "—"}${inv.due_date ? ` · due ${inv.due_date.slice(0, 10)}` : ""}`}
                 />

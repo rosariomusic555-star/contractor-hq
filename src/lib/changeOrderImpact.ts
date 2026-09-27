@@ -10,7 +10,7 @@
  * "plus this in-progress change order" layer on top.
  * ========================================================================== */
 
-import type { ChangeOrder, Invoice, MaterialsSection, Project, Quote } from "./api";
+import type { ChangeOrder, Invoice, MaterialsSection, Payment, Project, Quote } from "./api";
 import { costPlanHasEntries, costPlanTotal } from "./costPlanMath";
 import { approvedAddonQuoteTotal, approvedChangeOrderTotal, pickHeadlineQuote, quoteTotal } from "./api";
 import { ALL_TIME_RANGE, invoicedTotal, collectedTotal } from "./financials";
@@ -56,6 +56,8 @@ export function computeProjectImpact(input: {
    * built/viewed — its own live total comes from `draftSections` instead). */
   otherChangeOrders: ChangeOrder[];
   invoices: Invoice[];
+  /** Payments (0111) — "paid to date" is every active payment received. */
+  payments: Payment[];
   materialsSections: MaterialsSection[];
   /** This change order's current draft total (live, unsaved-included) —
    * computed by the caller from its own draft state, same "local reduce
@@ -100,7 +102,7 @@ export function computeProjectImpact(input: {
   const revisedContractTotal = originalContract + previouslyApproved + thisChangeOrder;
 
   const invoicedToDate = invoicedTotal(invoices, ALL_TIME_RANGE);
-  const paidToDate = collectedTotal(invoices, ALL_TIME_RANGE);
+  const paidToDate = collectedTotal(input.payments ?? [], ALL_TIME_RANGE);
   const remainingToBill = Math.max(0, revisedContractTotal - invoicedToDate);
 
   // Any planned cost at all (lines or labor) — else "unknown", not $0.

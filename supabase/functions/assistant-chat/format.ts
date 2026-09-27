@@ -229,18 +229,25 @@ export interface CategoryRevenue {
   amount: number;
 }
 
+export interface PaymentLike {
+  amount: number;
+  status: "active" | "void";
+  project_id: string | null;
+  payment_allocations?: { invoice_id: string; amount: number }[];
+}
+
 /**
- * Mirrors collectedByCategory() in src/lib/financials.ts — same collected
- * (cash-received) basis as the real Revenue page: each PAID invoice's
- * dollar amount is split across categories in proportion to its linked
- * quote's committed line items' category mix, not gated on the whole quote
- * being fully paid off. A paid invoice with no quote, or whose quote has no
- * categorized items, counts its full amount toward Uncategorized.
+ * Mirrors collectedByCategory() in src/lib/financials.ts — collected basis
+ * (0111): every ACTIVE payment. The part applied to an invoice is split by
+ * that invoice's linked quote's committed line-item category mix; the
+ * unallocated part by the project's contract mix (headline original quote
+ * + approved add-ons). No quote / no categorized items → Uncategorized.
  */
 export function collectedByCategory(
-  quotes: QuoteLike[],
-  invoices: InvoiceLike[],
+  quotes: (QuoteLike & { project_id?: string | null })[],
+  invoices: (InvoiceLike & { id: string; project_id?: string | null })[],
   categories: { id: string; name: string }[],
+  payments: PaymentLike[],
 ): CategoryRevenue[] {
   const totals = new Map<string, number>();
   const add = (categoryId: string | null | undefined, amount: number) => {
@@ -249,33 +256,42 @@ export function collectedByCategory(
   };
 
   const quotesById = new Map(quotes.map((q) => [q.id, q]));
-
-  for (const inv of invoices) {
-    if (inv.status !== "paid") continue;
-    const amount = Number(inv.amount);
-    const quote = inv.quote_id ? quotesById.get(inv.quote_id) : undefined;
-    if (!quote) {
-      add(null, amount);
-      continue;
-    }
+  const invoicesById = new Map(invoices.map((i) => [i.id, i]));
+  const spread = (mix: QuoteLike[], amount: number) => {
     const itemTotals = new Map<string, number>();
     let committedTotal = 0;
-    for (const section of quote.quote_sections) {
-      for (const item of section.quote_items ?? []) {
-        if (!quoteItemIncluded(section, item)) continue;
-        const key = item.category_id ?? "uncategorized";
-        const lineTotal = quoteLineTotal(item);
-        itemTotals.set(key, (itemTotals.get(key) ?? 0) + lineTotal);
-        committedTotal += lineTotal;
+    for (const quote of mix) {
+      for (const section of quote.quote_sections ?? []) {
+        for (const item of section.quote_items ?? []) {
+          if (!quoteItemIncluded(section, item)) continue;
+          const key = item.category_id ?? "uncategorized";
+          const lineTotal = quoteLineTotal(item);
+          itemTotals.set(key, (itemTotals.get(key) ?? 0) + lineTotal);
+          committedTotal += lineTotal;
+        }
       }
     }
-    if (committedTotal <= 0) {
-      add(null, amount);
-      continue;
+    if (committedTotal <= 0) return add(null, amount);
+    for (const [key, lineTotal] of itemTotals) add(key === "uncategorized" ? null : key, (lineTotal / committedTotal) * amount);
+  };
+  const projectMix = (projectId: string | null | undefined): QuoteLike[] => {
+    if (!projectId) return [];
+    const list = quotes.filter((q) => q.project_id === projectId);
+    const headline = pickHeadlineQuote(list);
+    return [...(headline ? [headline] : []), ...list.filter((q) => q.kind === "addon" && q.status === "approved")];
+  };
+
+  for (const p of payments) {
+    if (p.status === "void") continue;
+    let applied = 0;
+    for (const a of p.payment_allocations ?? []) {
+      applied += Number(a.amount);
+      const inv = invoicesById.get(a.invoice_id);
+      const quote = inv?.quote_id ? quotesById.get(inv.quote_id) : undefined;
+      spread(quote ? [quote] : projectMix(inv?.project_id ?? p.project_id), Number(a.amount));
     }
-    for (const [key, lineTotal] of itemTotals) {
-      add(key === "uncategorized" ? null : key, (lineTotal / committedTotal) * amount);
-    }
+    const credit = Number(p.amount) - applied;
+    if (credit > 0.004) spread(projectMix(p.project_id), credit);
   }
 
   const nameById = new Map(categories.map((c) => [c.id, c.name]));

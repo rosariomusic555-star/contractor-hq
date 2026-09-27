@@ -99,7 +99,12 @@ const INVOICE_META: Record<InvoiceStatus, StatusMeta> = {
   overdue: meta("Overdue", "red"),
 };
 
-export function invoiceStatusMeta(status: string): StatusMeta {
+/** Pass amount_paid (0111) and an issued invoice with some payment applied
+ * reads "Partially paid" (red while overdue). */
+export function invoiceStatusMeta(status: string, amountPaid?: number | null): StatusMeta {
+  if ((status === "sent" || status === "overdue") && Number(amountPaid ?? 0) > 0.004) {
+    return meta("Partially paid", status === "overdue" ? "red" : "amber");
+  }
   return INVOICE_META[status as InvoiceStatus] ?? meta(titleCase(status), "grey");
 }
 

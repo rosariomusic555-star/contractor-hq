@@ -6,7 +6,7 @@ import { RevenueDetailHeader } from "@/components/revenue/RevenueDetailHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { Switch } from "@/components/ui/switch";
 import { formatCurrency, pluralize } from "@/lib/utils";
-import { listInvoices } from "@/lib/api";
+import { listInvoices, listPayments } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
 import { monthlyBreakdown, hasYearOfHistory, invoicedTotal, collectedTotal, rangeDateLabel } from "@/lib/financials";
 
@@ -20,10 +20,11 @@ export function RevenueMonthlyView() {
   const [compareYoy, setCompareYoy] = useState(false);
 
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
 
   const canCompareYoy = hasYearOfHistory(invoices);
   const total = invoicedTotal(invoices, range);
-  const collected = collectedTotal(invoices, range);
+  const collected = collectedTotal(payments, range);
 
   const data = useMemo(() => monthlyBreakdown(invoices, range), [invoices, range]);
 

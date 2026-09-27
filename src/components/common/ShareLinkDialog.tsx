@@ -24,7 +24,7 @@ export function ShareLinkDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   url: string;
-  kind: "quote" | "invoice" | "change order";
+  kind: "quote" | "invoice" | "change order" | "receipt";
 }) {
   const { toast } = useToast();
 
@@ -47,8 +47,9 @@ export function ShareLinkDialog({
         <DialogHeader>
           <DialogTitle>Share this {kind}</DialogTitle>
           <DialogDescription>
-            Send your client the link so they can review
-            {kind === "quote" ? " and approve" : ""} it — nothing goes out until you send it.
+            {kind === "receipt"
+              ? "Send your client their receipt — they can view it and download a PDF. Nothing goes out until you send it."
+              : `Send your client the link so they can review${kind === "quote" ? " and approve" : ""} it — nothing goes out until you send it.`}
           </DialogDescription>
         </DialogHeader>
 

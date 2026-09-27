@@ -101,7 +101,7 @@ export function PortalProjectOverview() {
       kind: "invoice" as const,
       id: inv.id,
       label: inv.invoice_number ?? "Invoice",
-      status: inv.status,
+      status: inv.status !== "paid" && Number(inv.amount_paid ?? 0) > 0 ? "partial" : inv.status,
       date: inv.created_at,
     })),
   ];
@@ -253,6 +253,59 @@ export function PortalProjectOverview() {
         </div>
       )}
 
+      {/* Payments (0111) — paid to date, remaining, receipts */}
+      {detail.money && (detail.money.contract_value > 0 || detail.money.received > 0) && (
+        <div className="card-surface p-5">
+          <h3 className="text-base font-bold text-foreground">Payments</h3>
+          <div className="mt-2 divide-y divide-hairline text-sm">
+            {detail.money.contract_value > 0 && (
+              <div className="flex items-center justify-between py-2">
+                <span className="text-muted-foreground">Project total</span>
+                <span className="font-semibold tabular-nums text-foreground">{money(detail.money.contract_value)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between py-2">
+              <span className="text-muted-foreground">Paid to date</span>
+              <span className="font-semibold tabular-nums text-foreground">{money(detail.money.received)}</span>
+            </div>
+            {detail.money.contract_value > 0 && (
+              <div className="flex items-center justify-between py-2">
+                <span className="font-semibold text-foreground">
+                  {detail.money.received > detail.money.contract_value ? "Credit balance" : "Remaining balance"}
+                </span>
+                <span className="font-bold tabular-nums text-foreground">
+                  {money(Math.abs(detail.money.contract_value - detail.money.received))}
+                </span>
+              </div>
+            )}
+          </div>
+          {detail.money.receipts.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">Receipts</p>
+              <div className="mt-1 divide-y divide-hairline">
+                {detail.money.receipts.map((r) => (
+                  <a
+                    key={r.token}
+                    href={`/receipt/${r.token}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between gap-3 py-2.5"
+                  >
+                    <span className="text-sm font-semibold text-foreground">
+                      {r.number ?? "Receipt"} <span className="font-normal text-muted-foreground">· {dateStr(r.paid_on)}</span>
+                    </span>
+                    <span className="flex items-center gap-2 text-sm font-semibold tabular-nums text-foreground">
+                      {money(Number(r.amount))}
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-subtle" />
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Documents */}
       {documents.length > 0 && (
         <div className="card-surface p-5">
@@ -315,6 +368,8 @@ function statusLabel(status: string): string {
       return "Declined";
     case "paid":
       return "Paid";
+    case "partial":
+      return "Partially paid";
     case "overdue":
       return "Overdue";
     case "sent":

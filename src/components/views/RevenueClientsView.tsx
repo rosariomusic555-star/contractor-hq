@@ -6,7 +6,7 @@ import { SortableTh } from "@/components/common/SortableTh";
 import { SearchInput } from "@/components/common/SearchInput";
 import { KpiCard } from "@/components/common/KpiCard";
 import { formatCurrency } from "@/lib/utils";
-import { listInvoices, listProjects, listClients } from "@/lib/api";
+import { listInvoices, listPayments, listProjects, listClients } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
 import { useSort } from "@/hooks/use-sort";
 import { collectedByClient, collectedTotal, rangeDateLabel, type ClientRevenueRow } from "@/lib/financials";
@@ -17,11 +17,12 @@ export function RevenueClientsView() {
   const [search, setSearch] = useState("");
 
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
 
-  const rows = useMemo(() => collectedByClient(invoices, projects, clients, range), [invoices, projects, clients, range]);
-  const total = collectedTotal(invoices, range);
+  const rows = useMemo(() => collectedByClient(payments, invoices, projects, clients, range), [payments, invoices, projects, clients, range]);
+  const total = collectedTotal(payments, range);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();

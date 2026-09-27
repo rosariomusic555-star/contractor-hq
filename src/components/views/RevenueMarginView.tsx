@@ -9,13 +9,13 @@ import {
   listProjects,
   listQuotes,
   listChangeOrders,
-  listInvoices,
+  listInvoices, listPayments,
   listMaterialsSheets,
   listAllMaterialsSections,
   listExpenses,
   listCategories,
   type ChangeOrder,
-  type Invoice,
+  type Invoice, type Payment,
   type Quote,
 } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
@@ -42,18 +42,19 @@ export function RevenueMarginView() {
   });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
   const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: () => listExpenses() });
 
-  const invoicesByProject = useMemo(() => {
-    const map = new Map<string, Invoice[]>();
-    for (const inv of invoices) {
-      if (!inv.project_id) continue;
-      const list = map.get(inv.project_id);
-      if (list) list.push(inv);
-      else map.set(inv.project_id, [inv]);
+  const paymentsByProject = useMemo(() => {
+    const map = new Map<string, Payment[]>();
+    for (const p of payments) {
+      if (!p.project_id) continue;
+      const list = map.get(p.project_id);
+      if (list) list.push(p);
+      else map.set(p.project_id, [p]);
     }
     return map;
-  }, [invoices]);
+  }, [payments]);
 
   const expensesByProject = useMemo(() => {
     const map = new Map<string, { amount: number }[]>();
@@ -92,13 +93,13 @@ export function RevenueMarginView() {
         projects,
         quotesByProject,
         changeOrdersByProject,
-        invoicesByProject,
+        paymentsByProject,
         materialsSheets,
         materialsSections,
         expensesByProject,
         categories,
       ),
-    [projects, quotesByProject, changeOrdersByProject, invoicesByProject, materialsSheets, materialsSections, expensesByProject, categories],
+    [projects, quotesByProject, changeOrdersByProject, paymentsByProject, materialsSheets, materialsSections, expensesByProject, categories],
   );
 
   const rows = useMemo(() => marginRowsInRange(financials, range), [financials, range]);

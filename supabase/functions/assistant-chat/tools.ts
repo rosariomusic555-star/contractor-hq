@@ -133,7 +133,7 @@ export const TOOLS = [
   {
     name: "revenue_summary",
     description:
-      "Monthly invoiced-revenue totals (and month-over-month change) over an optional date range, with an optional breakdown by work category.",
+      "Monthly invoiced-revenue totals (and month-over-month change) over an optional date range, plus total_collected — every payment received in the range (applied to invoices or held as project credit) — with an optional breakdown of collected revenue by work category.",
     input_schema: {
       type: "object",
       properties: {
@@ -619,9 +619,13 @@ async function getClientDetail(input: { search?: string; client_id?: string }, s
   for (const r of invoiceResults) for (const inv of r.data ?? []) invoiceMap.set(inv.id, inv);
   const invoices = [...invoiceMap.values()];
 
-  const lifetimeValuePaid = invoices
-    .filter((i) => i.status === "paid")
-    .reduce((s, i) => s + Number(i.amount), 0);
+  // Collected (0111) — every active payment received on their projects.
+  let lifetimeValuePaid = 0;
+  if (projectIds.length) {
+    const { data: pays, error: pErr } = await sb.from("payments").select("amount,status").in("project_id", projectIds);
+    if (pErr) throw pErr;
+    lifetimeValuePaid = (pays ?? []).filter((p) => p.status !== "void").reduce((s, p) => s + Number(p.amount), 0);
+  }
 
   return {
     id: client.id,
@@ -660,19 +664,32 @@ async function revenueSummaryTool(
     total_invoiced: (invoices ?? []).reduce((s: number, i: { amount: number }) => s + Number(i.amount), 0),
   };
 
+  // Collected (0111) — every active payment received in the range, by the
+  // date it was received, applied to an invoice or not.
+  let pq = sb.from("payments").select("amount,paid_on").eq("status", "active");
+  if (input.date_from) pq = pq.gte("paid_on", input.date_from.slice(0, 10));
+  if (input.date_to) pq = pq.lte("paid_on", input.date_to.slice(0, 10));
+  const { data: received, error: pErr } = await pq;
+  if (pErr) throw pErr;
+  result.total_collected = (received ?? []).reduce((s: number, p: { amount: number }) => s + Number(p.amount), 0);
+
   if (input.by_category) {
     const { data: quotes, error: qErr } = await sb
       .from("quotes")
-      .select("id,status,created_at,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected,category_id))");
+      .select("id,status,created_at,project_id,kind,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected,category_id))");
     if (qErr) throw qErr;
     const { data: categories, error: cErr } = await sb.from("categories").select("id,name");
     if (cErr) throw cErr;
-    // Category revenue is collected (paid invoices), attributed by each
-    // invoice's linked quote — same basis as the Revenue page's own
-    // "Revenue by category", independent of the date range above (all-time).
-    const { data: allInvoices, error: aErr } = await sb.from("invoices").select("amount,status,quote_id");
+    // Category revenue is collected (every active payment, 0111), split by
+    // the applied invoice's quote or the project's contract mix — same
+    // basis as the Revenue page's "Revenue by category" (all-time).
+    const { data: allInvoices, error: aErr } = await sb.from("invoices").select("id,amount,status,quote_id,project_id,due_date,created_at");
     if (aErr) throw aErr;
-    result.by_category = collectedByCategory(quotes ?? [], allInvoices ?? [], categories ?? []);
+    const { data: allPayments, error: apErr } = await sb
+      .from("payments")
+      .select("amount,status,project_id,payment_allocations(invoice_id,amount)");
+    if (apErr) throw apErr;
+    result.by_category = collectedByCategory(quotes ?? [], allInvoices ?? [], categories ?? [], allPayments ?? []);
   }
 
   return result;
@@ -687,7 +704,7 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
   if (qErr) throw qErr;
   const { data: invoices, error: iErr } = await sb
     .from("invoices")
-    .select("id,status,amount,due_date,quote_id,project_id,project:projects(name)");
+    .select("id,status,amount,amount_paid,due_date,quote_id,project_id,project:projects(name)");
   if (iErr) throw iErr;
 
   const now = new Date();
@@ -705,7 +722,8 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
     .sort((a, b) => b.late - a.late)
     .map(({ invoice, late }) => ({
       project_name: invoice.project?.name ?? "Standalone",
-      amount: Number(invoice.amount),
+      // Balance still owed after applied payments (0111).
+      amount: Math.max(0, Number(invoice.amount) - Number(invoice.amount_paid ?? 0)),
       days_late: late,
     }));
 

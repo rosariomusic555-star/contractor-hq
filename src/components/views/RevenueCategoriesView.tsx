@@ -8,7 +8,7 @@ import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { StatusPill } from "@/components/common/StatusPill";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import {
-  listInvoices,
+  listInvoices, listPayments,
   listQuotes,
   listCategories,
   listProjects,
@@ -17,7 +17,7 @@ import {
   listAllMaterialsSections,
   listExpenses,
   type ChangeOrder,
-  type Invoice,
+  type Invoice, type Payment,
   type Quote,
 } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
@@ -37,6 +37,7 @@ export function RevenueCategoriesView() {
   const [selected, setSelected] = useState<string | null>(null);
 
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
@@ -48,16 +49,16 @@ export function RevenueCategoriesView() {
   });
   const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: () => listExpenses() });
 
-  const invoicesByProject = useMemo(() => {
-    const map = new Map<string, Invoice[]>();
-    for (const inv of invoices) {
-      if (!inv.project_id) continue;
-      const list = map.get(inv.project_id);
-      if (list) list.push(inv);
-      else map.set(inv.project_id, [inv]);
+  const paymentsByProject = useMemo(() => {
+    const map = new Map<string, Payment[]>();
+    for (const p of payments) {
+      if (!p.project_id) continue;
+      const list = map.get(p.project_id);
+      if (list) list.push(p);
+      else map.set(p.project_id, [p]);
     }
     return map;
-  }, [invoices]);
+  }, [payments]);
 
   const expensesByProject = useMemo(() => {
     const map = new Map<string, { amount: number }[]>();
@@ -96,20 +97,20 @@ export function RevenueCategoriesView() {
         projects,
         quotesByProject,
         changeOrdersByProject,
-        invoicesByProject,
+        paymentsByProject,
         materialsSheets,
         materialsSections,
         expensesByProject,
         categories,
       ),
-    [projects, quotesByProject, changeOrdersByProject, invoicesByProject, materialsSheets, materialsSections, expensesByProject, categories],
+    [projects, quotesByProject, changeOrdersByProject, paymentsByProject, materialsSheets, materialsSections, expensesByProject, categories],
   );
 
   const rows = useMemo(
-    () => collectedByCategory(invoices, quotes, categories, financials, range),
-    [invoices, quotes, categories, financials, range],
+    () => collectedByCategory(payments, invoices, quotes, categories, financials, range),
+    [payments, invoices, quotes, categories, financials, range],
   );
-  const total = collectedTotal(invoices, range);
+  const total = collectedTotal(payments, range);
 
   const { sorted, sortKey, dir, toggle } = useSort<CategoryRow>(
     rows,
@@ -144,8 +145,8 @@ export function RevenueCategoriesView() {
         <KpiCard label="Categories" value={rows.length} sub="incl. Uncategorized" />
       </div>
       <p className="text-xs text-muted-foreground">
-        Revenue here means cash actually collected (paid invoices), split across categories by each invoice's
-        linked quote — not invoiced or quoted amounts that haven't been paid yet.
+        Revenue here means cash actually collected (every payment received), split across categories by the
+        linked quote of the invoice it was applied to, or by the project's contract mix when it's unapplied credit.
       </p>
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}

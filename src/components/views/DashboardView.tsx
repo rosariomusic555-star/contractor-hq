@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { useGreeting } from "@/hooks/use-greeting";
 import { cn, formatCurrency } from "@/lib/utils";
-import { listQuotes, listInvoices, createQuote, createInvoice } from "@/lib/api";
+import { listQuotes, listInvoices, listPayments, createQuote, createInvoice } from "@/lib/api";
 import {
   resolveRange,
   invoicedTotal,
@@ -46,6 +46,7 @@ export function DashboardView() {
 
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
 
   const newQuoteMut = useMutation({
     mutationFn: () => createQuote(),
@@ -72,8 +73,8 @@ export function DashboardView() {
   const lastMonthAnchor = new Date(now.getFullYear(), now.getMonth() - 1, 15);
   const lastMonthRange = resolveRange("this_month", undefined, lastMonthAnchor);
 
-  const thisMonthCollected = collectedTotal(invoices, thisMonthRange);
-  const lastMonthCollected = collectedTotal(invoices, lastMonthRange);
+  const thisMonthCollected = collectedTotal(payments, thisMonthRange);
+  const lastMonthCollected = collectedTotal(payments, lastMonthRange);
   const momChange =
     lastMonthCollected > 0 ? ((thisMonthCollected - lastMonthCollected) / lastMonthCollected) * 100 : null;
 
@@ -86,7 +87,7 @@ export function DashboardView() {
   const over30 = overdueCount(invoices, 30, now);
 
   const goalPct = Math.min(100, Math.round((thisMonthCollected / DEMO_REVENUE_GOAL) * 100));
-  const spark = monthlyCollected(invoices).slice(-7);
+  const spark = monthlyCollected(payments).slice(-7);
   const sparkMax = Math.max(1, ...spark.map((p) => p.revenue));
 
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });

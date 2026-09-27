@@ -200,18 +200,32 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
 }
 
 function InvoiceDocument({ invoice }: { invoice: PortalInvoice }) {
+  const paidSoFar = Number(invoice.amount_paid ?? 0);
+  const partial = invoice.status !== "paid" && paidSoFar > 0.004;
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between border-b border-hairline pb-3">
         <h2 className="text-lg font-bold text-foreground">Invoice {invoice.invoice_number ?? ""}</h2>
         <span className="text-sm font-bold text-foreground">
-          {invoice.status === "paid" ? "Paid" : invoice.status === "overdue" ? "Overdue" : "Due"}
+          {invoice.status === "paid" ? "Paid" : partial ? "Partially paid" : invoice.status === "overdue" ? "Overdue" : "Due"}
         </span>
       </div>
       <div className="flex items-center justify-between text-base font-extrabold text-foreground">
         <span>Amount</span>
         <span className="tabular-nums">{money(invoice.amount)}</span>
       </div>
+      {partial && (
+        <>
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>Paid</span>
+            <span className="tabular-nums">{money(paidSoFar)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm font-bold text-foreground">
+            <span>Balance due</span>
+            <span className="tabular-nums">{money(Math.max(0, Number(invoice.amount) - paidSoFar))}</span>
+          </div>
+        </>
+      )}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>Due date</span>
         <span>{dateStr(invoice.due_date)}</span>

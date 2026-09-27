@@ -1,4 +1,4 @@
-import type { ChangeOrder, Invoice, MaterialsItem, MaterialsUsageLog, Project, ProjectStatus, Quote } from "./api";
+import type { ChangeOrder, Invoice, MaterialsItem, Payment, MaterialsUsageLog, Project, ProjectStatus, Quote } from "./api";
 import { pickHeadlineQuote, projectContractValue, isDepositOverdue } from "./api";
 import { quoteScopeSummary } from "./jobSize";
 import { projectDurationStatus } from "./projectDuration";
@@ -136,6 +136,8 @@ export function buildOngoingJobCards(input: {
   quotesByProject: Map<string, Quote[]>;
   changeOrdersByProject: Map<string, ChangeOrder[]>;
   invoicesByProject: Map<string, Invoice[]>;
+  /** Payments (0111) — "paid" is every active payment received. */
+  paymentsByProject: Map<string, Payment[]>;
   deliveries: UpcomingDelivery[];
   appointmentRows: UpcomingAppointmentRow[];
   /** Dates (YYYY-MM-DD) the Weather Strip flags for work-hours rain —
@@ -169,7 +171,7 @@ export function buildOngoingJobCards(input: {
       const invoices = input.invoicesByProject.get(project.id) ?? [];
 
       const contractTotal = projectContractValue(quotes, changeOrders);
-      const paidTotal = collectedTotal(invoices, ALL_TIME_RANGE);
+      const paidTotal = collectedTotal(input.paymentsByProject.get(project.id) ?? [], ALL_TIME_RANGE);
       const remaining = Math.max(0, contractTotal - paidTotal);
       const paidPct = contractTotal > 0 ? Math.min(100, (paidTotal / contractTotal) * 100) : 0;
       const closed = isProjectClosed(contractTotal, paidTotal);
