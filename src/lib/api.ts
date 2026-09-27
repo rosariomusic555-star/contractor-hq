@@ -89,6 +89,8 @@ export interface LeadSource {
   name: string;
   sort_order: number;
   created_at: string;
+  /** 0128 — false for free sources (Referral, Walk-in, …): no spend math. */
+  paid?: boolean;
 }
 
 interface ClientRef {
@@ -1401,7 +1403,7 @@ export async function createLeadSource(input: { name: string; sort_order?: numbe
 
 export async function updateLeadSource(
   id: string,
-  patch: Partial<Pick<LeadSource, "name" | "sort_order">>,
+  patch: Partial<Pick<LeadSource, "name" | "sort_order" | "paid">>,
 ): Promise<void> {
   const { error } = await supabase.from("lead_sources").update(patch).eq("id", id);
   if (error) throw error;
@@ -7932,4 +7934,57 @@ export async function listFeatureWarranties(projectId: string): Promise<{ id: st
     .not("warranty_ends_on", "is", null);
   if (error) return [];
   return (data ?? []) as { id: string; warranty_ends_on: string }[];
+}
+
+// ---------------------------------------------------------------------------
+// Marketing ROI (0128) — ad spend by lead source and month. Math:
+// src/lib/marketingRoi.ts. Reporting only; never touches job costs.
+// ---------------------------------------------------------------------------
+
+export interface LeadSourceSpend {
+  id: string;
+  lead_source: string;
+  month: string; // YYYY-MM-01
+  amount: number;
+  note: string | null;
+}
+
+export async function listLeadSourceSpend(): Promise<LeadSourceSpend[]> {
+  const { data, error } = await supabase.from("lead_source_spend").select("id, lead_source, month, amount, note").order("month");
+  if (error) return [];
+  return ((data ?? []) as LeadSourceSpend[]).map((r) => ({ ...r, amount: Number(r.amount) }));
+}
+
+/** Upserts by (source, month); an empty amount (null) deletes that month. */
+export async function saveLeadSourceSpend(rows: { lead_source: string; month: string; amount: number | null; note?: string | null }[]): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  const upserts = rows.filter((r) => r.amount != null).map((r) => ({ user_id: uid, lead_source: r.lead_source, month: r.month, amount: r.amount, note: r.note?.trim() || null }));
+  if (upserts.length) {
+    const { error } = await supabase.from("lead_source_spend").upsert(upserts, { onConflict: "user_id,lead_source,month" });
+    if (error) throw error;
+  }
+  for (const r of rows.filter((x) => x.amount == null)) {
+    const { error } = await supabase.from("lead_source_spend").delete().eq("lead_source", r.lead_source).eq("month", r.month);
+    if (error) throw error;
+  }
+}
+
+export interface MarketingSettings {
+  roas_good: number;
+  roas_min: number;
+  profit_good: number;
+  profit_min: number;
+}
+
+export async function getMarketingSettings(): Promise<MarketingSettings> {
+  const { data, error } = await supabase.from("marketing_settings").select("roas_good, roas_min, profit_good, profit_min").maybeSingle();
+  if (error || !data) return { roas_good: 5, roas_min: 2, profit_good: 2, profit_min: 1 };
+  return { roas_good: Number(data.roas_good), roas_min: Number(data.roas_min), profit_good: Number(data.profit_good), profit_min: Number(data.profit_min) };
+}
+
+export async function saveMarketingSettings(s: MarketingSettings): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("marketing_settings").upsert({ user_id: auth.user?.id, ...s }, { onConflict: "user_id" });
+  if (error) throw error;
 }
