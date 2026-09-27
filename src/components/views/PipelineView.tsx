@@ -6,6 +6,7 @@ import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-p
 import { AlertTriangle, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LeadSourceReport } from "@/components/marketing/LeadSourceReport";
 import { CreateOpportunityDialog } from "@/components/common/CreateOpportunityDialog";
 import { FilterSegment, type FilterOption } from "@/components/common/FilterControls";
 import { CategoryChips } from "@/components/common/CategoryChips";
@@ -50,8 +51,8 @@ type PipelineTab = "board" | "sources";
  * always take precedence over the pipeline's own auto-advance triggers
  * (site visit scheduled/done, quote sent — see api.ts's
  * autoAdvanceStage/advanceStageOnQuoteSent). A "By source" tab (CRM Phase
- * 6) rolls the same opportunities up by lead_source for a quick read on
- * where the pipeline is coming from.
+ * 6) rolls the same opportunities up by lead_source — with ad spend and
+ * ROI since 0128 (src/components/marketing/LeadSourceReport.tsx).
  */
 export function PipelineView() {
   const { data: opportunities = [], isLoading } = useQuery({
@@ -233,7 +234,7 @@ export function PipelineView() {
           </div>
         </>
       ) : (
-        <LeadSourceReport opportunities={filteredOpportunities} quoteValueByProjectId={quoteValueByProjectId} />
+        <LeadSourceReport opportunities={filteredOpportunities} quoteValueByProjectId={quoteValueByProjectId} typeFiltered={!!typeFilter} />
       )}
 
       <CreateOpportunityDialog open={createOpen} onOpenChange={setCreateOpen} />
@@ -378,86 +379,5 @@ function OpportunityCard({
       )}
       <div className="mt-1 text-[10px] text-muted-subtle">Updated {timeAgo(opportunity.updated_at)}</div>
     </Link>
-  );
-}
-
-interface SourceRow {
-  source: string;
-  leads: number;
-  won: number;
-  lost: number;
-  openValue: number;
-  wonValue: number;
-}
-
-/**
- * CRM Phase 6 — rolls opportunities up by lead_source. Value columns are
- * the real total of each opportunity's linked project's headline quote
- * (quoteValueByProjectId, keyed by project_id) — a lead with no project/
- * quote yet contributes nothing, never a guessed estimate (the old manual
- * "estimated value" field is gone).
- */
-function LeadSourceReport({
-  opportunities,
-  quoteValueByProjectId,
-}: {
-  opportunities: Opportunity[];
-  quoteValueByProjectId: Map<string, number>;
-}) {
-  const bySource = new Map<string, SourceRow>();
-  for (const o of opportunities) {
-    const key = o.lead_source?.trim() || "Unknown";
-    const row = bySource.get(key) ?? { source: key, leads: 0, won: 0, lost: 0, openValue: 0, wonValue: 0 };
-    const value = o.project_id ? (quoteValueByProjectId.get(o.project_id) ?? 0) : 0;
-    row.leads += 1;
-    if (o.stage === "won") {
-      row.won += 1;
-      row.wonValue += value;
-    } else if (o.stage === "lost") {
-      row.lost += 1;
-    } else {
-      row.openValue += value;
-    }
-    bySource.set(key, row);
-  }
-  const rows = Array.from(bySource.values()).sort((a, b) => b.leads - a.leads);
-
-  if (rows.length === 0) {
-    return <div className="card-surface p-10 text-center text-muted-foreground">No opportunities yet.</div>;
-  }
-
-  return (
-    <div className="card-surface overflow-x-auto p-0">
-      <table className="w-full min-w-[640px] text-sm">
-        <thead>
-          <tr className="border-b border-hairline text-left text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
-            <th className="px-4 py-3">Lead source</th>
-            <th className="px-4 py-3 text-right">Leads</th>
-            <th className="px-4 py-3 text-right">Won</th>
-            <th className="px-4 py-3 text-right">Lost</th>
-            <th className="px-4 py-3 text-right">Win rate</th>
-            <th className="px-4 py-3 text-right">Quote value (open)</th>
-            <th className="px-4 py-3 text-right">Quote value (won)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const decided = r.won + r.lost;
-            const winRate = decided > 0 ? Math.round((r.won / decided) * 100) : null;
-            return (
-              <tr key={r.source} className="border-b border-hairline last:border-0">
-                <td className="px-4 py-3 font-semibold text-foreground">{r.source}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{r.leads}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{r.won}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{r.lost}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{winRate == null ? "—" : `${winRate}%`}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(r.openValue)}</td>
-                <td className="px-4 py-3 text-right tabular-nums font-semibold text-success">{formatCurrency(r.wonValue)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
   );
 }

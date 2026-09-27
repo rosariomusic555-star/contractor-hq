@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, Megaphone, ArrowUp, ArrowDown, Trash2, Plus } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { SpendFormDialog } from "@/components/marketing/SpendDialogs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,7 +24,11 @@ import {
   createLeadSource,
   updateLeadSource,
   deleteLeadSource,
+  getMarketingSettings,
+  listLeadSourceSpend,
+  saveMarketingSettings,
   type LeadSource,
+  type MarketingSettings,
 } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -44,7 +50,14 @@ export function SettingsLeadSourcesView() {
     queryFn: listLeadSources,
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["lead-sources"] });
+  const { data: spend = [] } = useQuery({ queryKey: ["lead-source-spend"], queryFn: listLeadSourceSpend });
+  const [spendFor, setSpendFor] = useState<string | null>(null);
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["lead-sources"] });
+    // A rename carries its spend along (0128 trigger).
+    qc.invalidateQueries({ queryKey: ["lead-source-spend"] });
+  };
   const onError = (err: Error) => toast({ title: err.message, variant: "destructive" });
 
   const createMut = useMutation({
@@ -55,6 +68,12 @@ export function SettingsLeadSourcesView() {
 
   const renameMut = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => updateLeadSource(id, { name }),
+    onSuccess: invalidate,
+    onError,
+  });
+
+  const paidMut = useMutation({
+    mutationFn: ({ id, paid }: { id: string; paid: boolean }) => updateLeadSource(id, { paid }),
     onSuccess: invalidate,
     onError,
   });
@@ -118,7 +137,8 @@ export function SettingsLeadSourcesView() {
           <p className="text-sm text-muted-foreground">
             Powers the "Lead source" dropdown on a pipeline lead and the "By source" pipeline
             report. Deleting one here never changes an existing lead — it keeps whatever it was
-            saved with.
+            saved with. Mark a source Paid to track its monthly ad spend and ROI; free ones
+            (referrals, walk-ins, past clients) show "—" for spend.
           </p>
 
           {isLoading ? (
@@ -136,6 +156,8 @@ export function SettingsLeadSourcesView() {
                   onMoveUp={() => move(i, -1)}
                   onMoveDown={() => move(i, 1)}
                   onRename={(name) => renameMut.mutate({ id: s.id, name })}
+                  onPaid={(paid) => paidMut.mutate({ id: s.id, paid })}
+                  onSpend={() => setSpendFor(s.name)}
                   onDelete={() => deleteMut.mutate(s.id)}
                 />
               ))}
@@ -161,7 +183,75 @@ export function SettingsLeadSourcesView() {
           </div>
         </div>
       </div>
+
+      <RoiThresholds />
+
+      <SpendFormDialog
+        open={!!spendFor}
+        onOpenChange={(o) => !o && setSpendFor(null)}
+        sources={spendFor ? [spendFor] : []}
+        fixedSource={spendFor}
+        spend={spend}
+      />
     </div>
+  );
+}
+
+/** ROAS / profit-per-dollar colours on Pipeline › By source (0128). */
+function RoiThresholds() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data } = useQuery({ queryKey: ["marketing-settings"], queryFn: getMarketingSettings });
+  const [draft, setDraft] = useState<Record<keyof MarketingSettings, string> | null>(null);
+  useEffect(() => {
+    if (data) setDraft({ roas_good: String(data.roas_good), roas_min: String(data.roas_min), profit_good: String(data.profit_good), profit_min: String(data.profit_min) });
+  }, [data]);
+  const save = useMutation({
+    mutationFn: saveMarketingSettings,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["marketing-settings"] });
+      toast({ title: "Saved" });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" }),
+  });
+  if (!draft || !data) return null;
+  const parsed: MarketingSettings = {
+    roas_good: Number(draft.roas_good),
+    roas_min: Number(draft.roas_min),
+    profit_good: Number(draft.profit_good),
+    profit_min: Number(draft.profit_min),
+  };
+  const valid =
+    Object.values(parsed).every((v) => isFinite(v) && v >= 0) && parsed.roas_good > parsed.roas_min && parsed.profit_good > parsed.profit_min;
+  const dirty = JSON.stringify(parsed) !== JSON.stringify(data);
+  const field = (k: keyof MarketingSettings, label: string, suffix: string) => (
+    <label className="flex items-center justify-between gap-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-1">
+        <Input inputMode="decimal" value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} className="h-9 w-20 text-right" />
+        <span className="w-4 text-xs text-muted-foreground">{suffix}</span>
+      </span>
+    </label>
+  );
+  return (
+    <section className="card-surface space-y-3 p-5">
+      <h2 className="text-[17px] font-bold tracking-tight text-foreground">ROI colours</h2>
+      <p className="text-xs text-muted-foreground">
+        On Pipeline › By source: green at or above “strong”, amber down to “weak”, red below it. Profit per $1 under $1 means the ads cost more than the profit they brought in.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {field("roas_good", "ROAS strong at", "×")}
+        {field("roas_min", "ROAS weak at", "×")}
+        {field("profit_good", "Profit per $1 strong at", "$")}
+        {field("profit_min", "Profit per $1 weak at", "$")}
+      </div>
+      {!valid && <p className="text-xs text-destructive">“Strong” has to be higher than “weak”.</p>}
+      <div className="flex justify-end">
+        <Button disabled={!valid || !dirty || save.isPending} onClick={() => save.mutate(parsed)}>
+          Save
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -172,6 +262,8 @@ function LeadSourceRow({
   onMoveUp,
   onMoveDown,
   onRename,
+  onPaid,
+  onSpend,
   onDelete,
 }: {
   leadSource: LeadSource;
@@ -180,12 +272,14 @@ function LeadSourceRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRename: (name: string) => void;
+  onPaid: (paid: boolean) => void;
+  onSpend: () => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(leadSource.name);
 
   return (
-    <div className="flex items-center gap-2 py-2.5">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2.5">
       <div className="flex shrink-0 flex-col">
         <button
           type="button"
@@ -215,8 +309,20 @@ function LeadSourceRow({
           if (trimmed && trimmed !== leadSource.name) onRename(trimmed);
           else setName(leadSource.name);
         }}
-        className="h-10 flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
+        className="h-10 min-w-[9rem] flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
       />
+
+      {/* Wraps under the name on phones so the name is never cut off. */}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {(leadSource.paid ?? true) && (
+          <button type="button" onClick={onSpend} className="shrink-0 text-xs font-semibold text-primary hover:text-primary/80">
+            Monthly spend
+          </button>
+        )}
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <Switch checked={leadSource.paid ?? true} onCheckedChange={onPaid} aria-label={`${leadSource.name} is paid`} />
+          Paid
+        </label>
 
       <AlertDialog>
         <AlertDialogTrigger asChild>
@@ -247,6 +353,7 @@ function LeadSourceRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   );
 }

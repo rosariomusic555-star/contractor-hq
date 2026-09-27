@@ -24,7 +24,7 @@ import {
 } from "@/lib/api";
 import { BUILD_TYPES } from "@/lib/buildTypes";
 import { activeFeatures, featureBuildType, featureName } from "@/lib/features";
-import { MONTHS, intervalLabel, proposeItems, rollForward, warrantyEnd } from "@/lib/maintenance";
+import { MONTHS, intervalLabel, isMaintenanceJob, proposeItems, rollForward, warrantyEnd } from "@/lib/maintenance";
 import { isoDate } from "@/lib/weatherRisk";
 import { useMaintenanceSettings } from "@/components/maintenance/useMaintenance";
 
@@ -252,7 +252,7 @@ function BulkSetup({ templates, settings }: { templates: MaintenanceTemplate[]; 
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: items = [] } = useQuery({ queryKey: ["maintenance-items", "all"], queryFn: () => listMaintenanceItems() });
   const withItems = new Set(items.map((i) => i.project_id));
-  const candidates = projects.filter((p) => p.status === "complete" && p.client_id && !p.maintenance_dismissed && !withItems.has(p.id));
+  const candidates = projects.filter((p) => p.status === "complete" && p.client_id && !p.maintenance_dismissed && !withItems.has(p.id) && !isMaintenanceJob(p));
 
   const run = useMutation({
     mutationFn: async () => {

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { isPortalPath } from "./supabase";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -23,7 +24,9 @@ export const portalSupabase = createClient(supabaseUrl, supabaseKey, {
     storageKey: "chq-portal-auth",
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
+    // Only on /portal (where magic links land) — never a contractor's own
+    // auth redirect elsewhere in the app. See isPortalPath() in supabase.ts.
+    detectSessionInUrl: isPortalPath(),
     // The magic-link email is requested by the portal-request-link Edge
     // Function, not by this browser client — so there's no client-side PKCE
     // code_verifier to redeem later (supabase-js's default flow). Implicit

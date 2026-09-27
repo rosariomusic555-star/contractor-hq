@@ -184,16 +184,24 @@ export function maintenanceMessage(opts: { clientName: string | null; companyNam
 
 export const MAINTENANCE_LEAD_SOURCE = "Maintenance / Past client";
 
+type MaintenanceJobLike = { opportunities?: { source_project_id?: string | null }[] | null };
+
+/** A service visit that came from a maintenance reminder (its lead points
+ * back at the original job). Its reminders live on the original job, so it
+ * never asks for its own. */
+export const isMaintenanceJob = (p: MaintenanceJobLike) => !!p.opportunities?.some((o) => o.source_project_id);
+
 /** The completion step: a finished job (≥ 1 day ago, so it doesn't land on
  * top of the review request) with no reminders yet, not dismissed, and
  * recent — older jobs go through Settings' one-time bulk setup instead. */
 export function needsMaintenanceSetup(
-  p: { status: string; completed_at?: string | null; maintenance_dismissed?: boolean; client_id: string | null },
+  p: MaintenanceJobLike & { status: string; completed_at?: string | null; maintenance_dismissed?: boolean; client_id: string | null },
   itemCount: number,
   today: string,
   withinDays = 60,
 ): boolean {
   if (p.status !== "complete" || !p.completed_at || p.maintenance_dismissed || !p.client_id || itemCount > 0) return false;
+  if (isMaintenanceJob(p)) return false;
   const days = Math.round((Date.parse(`${today}T00:00:00`) - Date.parse(`${p.completed_at.slice(0, 10)}T00:00:00`)) / DAY);
   return days >= 1 && days <= withinDays;
 }

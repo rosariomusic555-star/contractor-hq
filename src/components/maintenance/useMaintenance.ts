@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getMaintenanceSettings, listMaintenanceItems, listProjects, runMaintenanceChecksRpc, updateMaintenanceItem } from "@/lib/api";
+import { getMaintenanceSettings, listMaintenanceItems, listProjects, runMaintenanceChecksRpc, updateMaintenanceItem, type MaintenanceItem } from "@/lib/api";
 import { maintenanceNeedsYou, needsMaintenanceSetup, rescheduleAfterDone } from "@/lib/maintenance";
 import { isoDate } from "@/lib/weatherRisk";
 import type { NeedsYouItem } from "@/lib/needsYou";
@@ -51,12 +51,23 @@ export function useMaintenanceNeedsYou(): NeedsYouItem[] {
  * the due-soon tasks / notifications / automations (once per due date).
  */
 export async function runMaintenanceChecks(): Promise<number> {
-  const items = await listMaintenanceItems();
+  await rescheduleFinished(await listMaintenanceItems());
+  return runMaintenanceChecksRpc();
+}
+
+/** Items whose maintenance job just completed (the DB trigger clears
+ * next_due) get their next date. Also run by the project card, so a job
+ * completed after today's daily check doesn't sit at "Scheduling next…". */
+export async function rescheduleFinished(items: MaintenanceItem[]): Promise<number> {
+  let n = 0;
   for (const i of items) {
     if (i.status === "active" && !i.next_due && i.last_done_on && !i.as_needed && !i.opportunity_id) {
       const next = rescheduleAfterDone(i, i.last_done_on);
-      if (next) await updateMaintenanceItem(i.id, { next_due: next });
+      if (next) {
+        await updateMaintenanceItem(i.id, { next_due: next });
+        n++;
+      }
     }
   }
-  return runMaintenanceChecksRpc();
+  return n;
 }

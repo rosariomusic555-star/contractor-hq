@@ -263,7 +263,7 @@ const isPreSale = (p: any) => (p.opportunities ?? []).some((o: { stage: string }
 async function listProjects(input: { status?: string; search?: string; include_pre_sale?: boolean }, sb: SupabaseClient) {
   let q = sb
     .from("projects")
-    .select("id,name,status,created_at,updated_at,client:clients(name),opportunities(stage)")
+    .select("id,name,status,created_at,updated_at,client:clients(name),opportunities!opportunities_project_id_fkey(stage)")
     .order("updated_at", { ascending: false })
     .limit(50);
   if (input.status) q = q.eq("status", input.status);
@@ -288,7 +288,7 @@ async function listProjects(input: { status?: string; search?: string; include_p
 async function getProjectFinancials(input: { project_id: string }, sb: SupabaseClient) {
   const { data: project, error: pErr } = await sb
     .from("projects")
-    .select("id,name,status,client:clients(name),opportunities(stage)")
+    .select("id,name,status,client:clients(name),opportunities!opportunities_project_id_fkey(stage)")
     .eq("id", input.project_id)
     .single();
   if (pErr) throw pErr;
@@ -599,7 +599,7 @@ async function getClientDetail(input: { search?: string; client_id?: string }, s
   const client = clients[0];
   const { data: allProjects, error: projErr } = await sb
     .from("projects")
-    .select("id,name,status,opportunities(stage)")
+    .select("id,name,status,opportunities!opportunities_project_id_fkey(stage)")
     .eq("client_id", client.id);
   if (projErr) throw projErr;
   // Quote/invoice history still spans every project (pre-sale estimates

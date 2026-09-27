@@ -3,18 +3,24 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import { getSignedImageUrls, listProgressUpdates, setProgressUpdateShared } from "@/lib/api";
 
 /** Dashboard (0126): crew progress posts waiting to be shared — two big
  * buttons each, quick on a phone. Hidden when there's nothing to review. */
 export function UpdatesToReviewCard({ className }: { className?: string }) {
   const qc = useQueryClient();
+  const { toast } = useToast();
   const { data: pending = [] } = useQuery({ queryKey: ["progress-updates", "pending"], queryFn: () => listProgressUpdates(undefined, "pending") });
   const paths = pending.flatMap((u) => (u.photos ?? []).slice(0, 1).map((p) => p.storage_path));
   const { data: urls = {} } = useQuery({ queryKey: ["review-thumbs", paths.join(",")], queryFn: () => getSignedImageUrls(paths), enabled: paths.length > 0 });
   const act = useMutation({
     mutationFn: ({ id, share }: { id: string; share: boolean }) => setProgressUpdateShared(id, share),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["progress-updates"] }),
+    onSuccess: (_d, v) => {
+      toast({ title: v.share ? "Shared with the client" : "Kept internal" });
+      return qc.invalidateQueries({ queryKey: ["progress-updates"] });
+    },
+    onError: (e: Error) => toast({ title: "Couldn't update", description: e.message, variant: "destructive" }),
   });
   if (pending.length === 0) return null;
   return (

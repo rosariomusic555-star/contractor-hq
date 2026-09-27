@@ -82,7 +82,9 @@ create index if not exists maintenance_events_item_idx on public.maintenance_eve
 
 alter table public.project_features add column if not exists warranty_ends_on date;
 alter table public.clients add column if not exists maintenance_opt_out boolean not null default false;
-alter table public.opportunities add column if not exists source_project_id uuid references public.projects (id) on delete set null;
+-- Plain uuid, NOT a foreign key: a second FK between opportunities and
+-- projects makes every unhinted PostgREST embed ambiguous (see 0129).
+alter table public.opportunities add column if not exists source_project_id uuid;
 alter table public.projects add column if not exists maintenance_dismissed boolean not null default false;
 
 drop trigger if exists project_maintenance_items_set_updated_at on public.project_maintenance_items;
@@ -247,8 +249,8 @@ begin
   select string_agg(i.label, ', ' order by i.label) into v_items
     from public.project_maintenance_items i where i.project_id = p_project_id and (p_item_ids is null or i.id = any(p_item_ids)) and i.status = 'active';
   insert into public.lead_sources (user_id, name, sort_order) values (p.user_id, v_src, 900) on conflict (user_id, name) do nothing;
-  insert into public.opportunities (client_id, user_id, title, address, description, lead_source, source_project_id)
-  values (p.client_id, p.user_id,
+  insert into public.opportunities (client_id, title, address, description, lead_source, source_project_id)
+  values (p.client_id,
           'Maintenance: ' || coalesce(v_items, 'service') || ' — ' || p.name,
           p.address,
           case when p_from_client then 'Requested by the client from the Client Hub. ' else '' end
