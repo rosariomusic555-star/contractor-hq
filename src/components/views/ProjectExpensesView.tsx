@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
+import { parseDecimal } from "@/lib/parseDecimal";
+import { isoDate } from "@/lib/weatherRisk";
 import {
   getProject,
   listExpenses,
@@ -67,7 +69,8 @@ export function ProjectExpensesView() {
 
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState("");
+  // Defaults to today — an undated expense drops out of date-based totals.
+  const [date, setDate] = useState(() => isoDate(new Date()));
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [featureId, setFeatureId] = useState<string | null>(null);
   const [costType, setCostType] = useState<CostBucket | null>(null);
@@ -100,7 +103,7 @@ export function ProjectExpensesView() {
       createExpense({
         project_id: id,
         name: name.trim(),
-        amount: parseFloat(amount) || 0,
+        amount: parseDecimal(amount) ?? 0,
         date: date || null,
         expense_category_id: categoryId,
         feature_id: featureId,
@@ -116,7 +119,7 @@ export function ProjectExpensesView() {
       qc.invalidateQueries({ queryKey: ["project-events", id] });
       setName("");
       setAmount("");
-      setDate("");
+      setDate(isoDate(new Date()));
       setCategoryId(null);
       setFeatureId(null);
       setCostType(null);
@@ -151,7 +154,8 @@ export function ProjectExpensesView() {
     onError,
   });
 
-  const canSave = name.trim().length > 0 && amount.trim().length > 0 && !Number.isNaN(parseFloat(amount));
+  // "1,234.50" and "$85" are fine — a number field silently emptied them.
+  const canSave = name.trim().length > 0 && parseDecimal(amount) != null;
   const total = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
 
   return (
@@ -186,8 +190,8 @@ export function ProjectExpensesView() {
               </span>
               <Input
                 id="expense-amount"
-                type="number"
-                step="0.01"
+                inputMode="decimal"
+                autoComplete="off"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"

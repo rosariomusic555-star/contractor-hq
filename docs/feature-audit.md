@@ -39,6 +39,7 @@ Every record created for testing is named with the prefix **`TEST —`**. They a
 | 2026-09-28 | Payments | R-0001 $3,000 (void), R-0002 $7,520.37 | on the TEST project |
 | 2026-09-28 | Change orders | CO-001 TEST — Extend seating wall 6 ft (+$513, client-signed) · CO-002 TEST — Skip firepit 2 cap upgrade (−$250, marked approved on paper) | on the TEST project |
 | 2026-09-28 | Invoices | INV-003 $513 draft (CO-001) · INV-004 $646.88 draft (add-on deposit) | on the TEST project |
+| 2026-09-28 | Expenses | TEST — Gravel delivery $1,234.50 (split 1,000 / 234.50) · TEST — Paver pallets $1,200 | on the TEST project |
 | 2026-09-28 | Add-on quote #1 (approved) + Walkway feature | 45 sq ft × $28.75 = $1,293.75 | /projects/ef03095a-1e58-45c1-8288-226502188306/quotes/d4a46fd4-09c1-4007-b930-550590911234 |
 
 
@@ -61,7 +62,9 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 **Phone width (390px)** — overflow sweep (same-origin 390px frame, every element checked against the screen edge, clipped ones included) over dashboard, projects, project page + quotes / change orders / invoices / cost plan / expenses, quote / CO / invoice builders, quotes, invoices, clients, pipeline + opportunity, revenue, business health, schedule, bookings, appointments, tasks, communications, timesheets, cost plans, deliveries, marketing, settings (+ overhead, payroll), new project / client / invoice, and the public quote / invoice / change-order pages · ❌→fixed quote / invoice / change-order builders: the Client + Project card ran off the right edge (names cut, no truncation) · ❌→fixed invoice builder: long "Change order #1 — … · $513.00" add-line buttons ran off the screen · ⚠️ the floating + and assistant buttons cover the right edge of cards (e.g. the project row's move control) until you scroll.
 **Deposit rule (found on the phone pass)** — ❌→fixed the pre-construction "Deposit received", the pipeline's deposit-not-received flag and the project billing badge took the deposit % of the whole contract, so the +$513 CO and the add-on turned a fully paid $7,520.37 deposit back to "open" ($8,034 due); now all use the signed quote's deposit, like the deposit invoice.
 
-**Not yet tested live:** expenses; deliveries / order sheet email (needs Resend); schedule / bookings / rain delay; dashboard; reports (revenue, business health, marketing ROI); timesheets / payroll; settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
+**Expenses** — ✅ project Expenses: add, feature pick (all 7 features + General), total $2,434.50 · ❌→fixed amount "1,234.50" silently emptied by the number field (Save just stayed grey); now "1,234.50" / "$85" accepted · ❌→fixed Split dialog read "1,000" as $1 (parseFloat) — now $1,000 · ❌→fixed date started blank, so an expense saved without one was left out of "Last 30 days"; now defaults to today · ✅ split 1,000 + "Put the remaining $34.50" → 234.50, adds up, saved as 2 lines · ✅ project Actual cost $2,434.50, actual profit $21,911.25 (90%) by hand · ✅ /expenses list, category counts, inline re-date → Last 30 days $2,434.50 · ⚠️ the project page shows two different "actual" costs: the Profit card's $2,434.50 (spent so far) and Planned vs actual's $4,758 (materials carried at plan until Complete + reconciled, so an uncategorized $1,200 patio expense adds on top of the $2,323.50 plan). Both follow their documented rules, but the labels don't say so · ⚠️ Planned vs actual mid-job shows the kitchen's unspent $500 (non-material) as "+$500 profit".
+
+**Not yet tested live:** deliveries / order sheet email (needs Resend); schedule / bookings / rain delay; dashboard; reports (revenue, business health, marketing ROI); timesheets / payroll; settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
 
 ## Fixed so far (branch `fix/audit-batch-1`, each with an automated test)
 
@@ -85,6 +88,7 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 | High · money | Deposit rounded differently per screen; 150% / negative allowed | One depositAmount (cents, 0–100) + DB check (0143) | `projectMoney.test.ts` |
 | High · money | Change order "Remaining to bill" and project "Not invoiced yet" ignored draft invoices (invites billing a CO twice); over-billing after a credit CO never flagged | Shared remainingToInvoice everywhere + overInvoiced warning | `changeOrderImpact.test.ts`, `projectMoney.test.ts` |
 | High · money | After a change order / add-on, a fully paid deposit read as not received (precon, pipeline flag, billing badge used % of the whole contract) | One headlineDepositDue — the signed quote's deposit | `precon.test.ts` |
+| High · money | Expense amounts: "1,234.50" emptied, split "1,000" saved as $1; blank date dropped expenses from date totals | parseDecimal + text/decimal inputs; date defaults to today | `parseDecimal.test.tsx` (existing) |
 | Medium · layout | Builders' Client/Project card and invoice add-line buttons overflowed a phone screen | grid-cols-1 / wrapping buttons | — (layout) |
 | Medium · money | Unpriced add-on quote showed $0 cost / 100% margin / full profit | Cost unknown until its features have Cost plan entries | — (display) |
 
