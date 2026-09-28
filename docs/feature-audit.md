@@ -42,6 +42,7 @@ Every record created for testing is named with the prefix **`TEST —`**. They a
 | 2026-09-28 | Expenses | TEST — Gravel delivery $1,234.50 (split 1,000 / 234.50) · TEST — Paver pallets $1,200 | on the TEST project |
 | 2026-09-28 | Labor entry | TEST — Crew A, 24 h × $35 = $840 (Paver Patio) | on the TEST project |
 | 2026-09-28 | Schedule | TEST project booked Oct 12–16 (+ one undone rain delay) | on the TEST project |
+| 2026-09-28 | Quote (draft, standalone) | TEST — Defaults check | /quotes/289e876a-bf99-40a0-8955-8d618e097a2a |
 | 2026-09-28 | Price Book item | TEST — Paver X ($4.25 / sq ft, Pavers) | /settings/pricebook |
 | 2026-09-28 | Add-on quote #1 (approved) + Walkway feature | 45 sq ft × $28.75 = $1,293.75 | /projects/ef03095a-1e58-45c1-8288-226502188306/quotes/d4a46fd4-09c1-4007-b930-550590911234 |
 
@@ -79,7 +80,7 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 
 **Labor log / timesheets** — ✅ project Labor log: crew 2 × 1.5 days × 8 h/day fills 24 h; $35/hr → $840 (shown, saved), feature Paver Patio · ✅ actual hrs / 100 sf 24 / 310 = 7.7, $/sf 840 / 310 = $2.71 · ✅ project page: actual cost 2,434.50 + 840 = $3,274.50, actual profit $21,071.25 (87%), fully loaded $20,757.81 (= − 24 h × $13.06 overhead) · ⚠️→fixed typed hours × rate saved unrounded (7.33 × 35.50 = 260.215) — now to the cent · ⏭ Timesheets / payroll: the account has no employees and creating a crew login creates an account — tested with the employee role later.
 
-**Settings › Quote defaults** — ❌→fixed no limits: 150% or −5% deposit and 0-day validity saved (a 150% default would make every new quote fail the 0143 deposit check) — now 0–100% and 1–365 whole days, Save off with the reason shown, also enforced in saveQuoteDefaults · ✅ Revert restores 50% / 14 days (nothing saved — the account still has no quote_defaults row, so the built-in defaults apply).
+**Settings › Quote defaults** — ❌→fixed no limits: 150% or −5% deposit and 0-day validity saved (a 150% default would make every new quote fail the 0143 deposit check) — now 0–100% and 1–365 whole days, Save off with the reason shown, also enforced in saveQuoteDefaults · ✅ Revert restores the saved values · ✅ saved 35% / 30 days (+ terms "Prices hold for 30 days") → a new quote pre-fills 35%, the terms, and Valid until Oct 28 (= Sep 28 + 30).
 
 **Settings › number limits (by page)** — ✅ Weather (1–100% / >0 in / 70–130°F), Precon, Business health, Reviews, Payroll and Overhead already validate before saving · ❌→fixed Business profile: a negative default labor rate (→ negative labor costs), an over-order margin over 100% and fractional alert days could be saved — now refused (page + saveBusinessProfile), the leave prompt offers Save / Discard / Stay · (checked with the values put back or discarded — nothing in your settings was changed).
 
