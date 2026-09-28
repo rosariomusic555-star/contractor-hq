@@ -1,6 +1,7 @@
 import type { ProductCatalogItem } from "@/lib/api";
 import { ceilClean, roundUpToOrderable } from "@/lib/catalogOrdering";
 import type { AreaAndPerimeter, RawCalculatedLine, SmartSectionTemplate } from "./types";
+import { numOr } from "./numOr";
 
 const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
 
@@ -35,8 +36,8 @@ export const paverPatioTemplate: SmartSectionTemplate = {
     { key: "base_depth_in", label: "Default depth", unit: "in", defaultValue: 5, relatedSlotKey: "base_material" },
     {
       key: "base_coverage_sqft_per_ton",
-      label: "Coverage",
-      unit: "sq ft/ton",
+      label: "Coverage at 1 in deep",
+      unit: "sq ft per ton, 1 in deep",
       defaultValue: 165, // ASSUMPTION: 1 ton covers 33 sq ft at 5" depth (33 x 5 = 165)
       relatedSlotKey: "base_material",
     },
@@ -49,8 +50,8 @@ export const paverPatioTemplate: SmartSectionTemplate = {
     },
     {
       key: "bedding_coverage_sqft_per_ton",
-      label: "Coverage",
-      unit: "sq ft/ton",
+      label: "Coverage at 1 in deep",
+      unit: "sq ft per ton, 1 in deep",
       defaultValue: 200, // ASSUMPTION — varies by supplier
       relatedSlotKey: "bedding_sand",
     },
@@ -84,9 +85,9 @@ export const paverPatioTemplate: SmartSectionTemplate = {
     const paver = (answers.paver as ProductCatalogItem | null) ?? null;
     const includeBorder = answers.include_border === true;
     const borderPaver = includeBorder ? ((answers.border_paver as ProductCatalogItem | null) ?? null) : null;
-    const baseDepthIn = Number(answers.base_depth_in) || 5;
+    const baseDepthIn = numOr(answers.base_depth_in, 5);
     const baseCoverageSqftPerTon = Number(answers.base_coverage_sqft_per_ton) || 165;
-    const beddingDepthIn = Number(answers.bedding_depth_in) || 1;
+    const beddingDepthIn = numOr(answers.bedding_depth_in, 1);
     const beddingCoverageSqftPerTon = Number(answers.bedding_coverage_sqft_per_ton) || 200;
     const polymericCoverageSqftPerBag = Number(answers.polymeric_coverage_sqft_per_bag) || 80;
     const geotextileCoverageSqftPerRoll = Number(answers.geotextile_coverage_sqft_per_roll) || 900;

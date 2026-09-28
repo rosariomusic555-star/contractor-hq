@@ -104,9 +104,14 @@ export interface TunableDefault {
  */
 export interface RawCalculatedLine {
   slotKey: string;
+  /** The measured need, WITHOUT waste — waste goes on the line's own Waste %
+   * (`wastePercent`), which the line cost and the Order Sheet apply. Baking
+   * it in here too counted it twice. */
   quantity: number;
   unit: string;
   catalogProduct?: ProductCatalogItem | null;
+  /** Sets the line's Waste % (e.g. the template's waste tunable). */
+  wastePercent?: number;
 }
 
 /** Resolved for matching into a section's actual line items — `name`
@@ -119,6 +124,8 @@ export interface CalculatedLine {
   catalogProduct?: ProductCatalogItem | null;
   /** Add the line to the section when no line of this name exists yet (add-on slots). */
   addIfMissing?: boolean;
+  /** Sets the line's Waste % when given. */
+  wastePercent?: number;
 }
 
 export interface SmartSectionTemplate {

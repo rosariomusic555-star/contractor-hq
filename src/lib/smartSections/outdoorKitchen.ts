@@ -157,8 +157,9 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
 
     const backsplashSqft = Number(answers.backsplash_sqft) || 0;
     if (backsplashSqft > 0) {
-      const waste = Number(answers.backsplash_waste_pct) || 0;
-      lines.push({ slotKey: "backsplash", quantity: Math.ceil(Math.round(backsplashSqft * (1 + waste / 100) * 100) / 100), unit: "sq ft" });
+      const waste = answers.backsplash_waste_pct == null ? 10 : Number(answers.backsplash_waste_pct) || 0;
+      // Waste on the line's Waste %, not baked into the quantity (it was counted twice).
+      lines.push({ slotKey: "backsplash", quantity: Math.ceil(Math.round(backsplashSqft * 100) / 100), unit: "sq ft", wastePercent: waste });
     }
     // else: no backsplash measured — line left untouched.
 

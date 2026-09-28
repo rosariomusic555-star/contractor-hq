@@ -1,4 +1,5 @@
 import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
+import { numOr } from "./numOr";
 
 /**
  * Simplification: the spec mentions an optional "transformer size (or
@@ -43,7 +44,7 @@ export const outdoorLightingTemplate: SmartSectionTemplate = {
     const fixtureCount = Number(answers.fixture_count) || 0;
     const wireRunFt = Number(answers.wire_run_ft) || 0;
     const wireFtPerRoll = Number(answers.wire_ft_per_roll) || 250;
-    const connectorsPerFixture = Number(answers.connectors_per_fixture) || 1.5;
+    const connectorsPerFixture = numOr(answers.connectors_per_fixture, 1.5);
 
     const lines: RawCalculatedLine[] = [
       { slotKey: "light_fixtures", quantity: fixtureCount, unit: "ea" },

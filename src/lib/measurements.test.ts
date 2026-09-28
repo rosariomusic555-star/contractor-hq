@@ -306,7 +306,8 @@ describe("fire pit vs fireplace", () => {
     const qty = (k: string) => template.calculate(answers).find((l) => l.slotKey === k)?.quantity;
     expect(qty("cmu_core")).toBe(Math.ceil(180 / 0.89));
     expect(qty("flue")).toBe(7); // 10 ft − 3 ft firebox
-    expect(qty("veneer")).toBe(198); // +10%
+    expect(qty("veneer")).toBe(180); // the measured area; +10% waste rides on the line's Waste %
+    expect(template.calculate(answers).find((l) => l.slotKey === "veneer")?.wastePercent).toBe(10);
     expect(qty("firebox")).toBe(1);
     expect(quickQuotePrefill("fireplace", t)).toEqual({ fireplace_count: 1 });
   });
@@ -353,7 +354,8 @@ describe("backsplash, backrest, strip lighting", () => {
     const kitchen = smartSectionTemplates.find((x) => x.id === "outdoor_kitchen")!;
     const lighting = smartSectionTemplates.find((x) => x.id === "outdoor_lighting")!;
     expect(kitchen.calculate({ run_ft: 12 }).some((l) => l.slotKey === "backsplash")).toBe(false);
-    expect(kitchen.calculate({ run_ft: 12, backsplash_sqft: 18, backsplash_waste_pct: 10 }).find((l) => l.slotKey === "backsplash")?.quantity).toBe(20);
+    const splash = kitchen.calculate({ run_ft: 12, backsplash_sqft: 18, backsplash_waste_pct: 10 }).find((l) => l.slotKey === "backsplash");
+    expect(splash).toMatchObject({ quantity: 18, wastePercent: 10 }); // waste on the line, not in the quantity
     expect(lighting.calculate({ fixture_count: 4 }).some((l) => l.slotKey === "strip_lighting")).toBe(false);
     expect(lighting.calculate({ fixture_count: 4, strip_lf: 22.5 }).find((l) => l.slotKey === "strip_lighting")?.quantity).toBe(23);
   });

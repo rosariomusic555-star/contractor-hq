@@ -154,6 +154,7 @@ export function SmartSectionCalculatorDialog({
         name: lineItem.name,
         quantity: qty,
         unit: raw.unit,
+        ...(raw.wastePercent != null ? { wastePercent: raw.wastePercent } : {}),
         catalogProduct: raw.catalogProduct,
         ...(addOnSlot && qty > 0 ? { addIfMissing: true } : {}),
       });

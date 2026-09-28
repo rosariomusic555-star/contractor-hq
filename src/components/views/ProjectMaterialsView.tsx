@@ -1036,7 +1036,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           items: [...s.items, ...missing].map((item) => {
             const line = lines.find((l) => l.name === item.name);
             if (!line) return item;
-            const patch: Partial<DraftItem> = { quantity: line.quantity, unit: normalizeMaterialUnit(line.unit) };
+            const patch: Partial<DraftItem> = {
+              quantity: line.quantity,
+              unit: normalizeMaterialUnit(line.unit),
+              ...(line.wastePercent != null ? { waste_percent: line.wastePercent } : {}),
+            };
             if (line.catalogProduct !== undefined) {
               const product = line.catalogProduct;
               patch.catalog_product_id = product?.id ?? null;

@@ -1,5 +1,6 @@
 import type { ProductCatalogItem } from "@/lib/api";
 import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
+import { numOr } from "./numOr";
 
 const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
 
@@ -46,8 +47,8 @@ export const firePitTemplate: SmartSectionTemplate = {
     },
     {
       key: "base_coverage_sqft_per_ton",
-      label: "Coverage",
-      unit: "sq ft/ton",
+      label: "Coverage at 1 in deep",
+      unit: "sq ft per ton, 1 in deep",
       defaultValue: 165, // ASSUMPTION
       relatedSlotKey: "base_material",
     },
@@ -60,8 +61,8 @@ export const firePitTemplate: SmartSectionTemplate = {
     },
     {
       key: "fill_coverage_sqft_per_ton",
-      label: "Coverage",
-      unit: "sq ft/ton",
+      label: "Coverage at 1 in deep",
+      unit: "sq ft per ton, 1 in deep",
       // ASSUMPTION — decorative crushed stone is typically lighter/looser
       // than compacted base, kept independently editable from Base
       // Material's coverage for exactly that reason.
@@ -87,9 +88,9 @@ export const firePitTemplate: SmartSectionTemplate = {
 
     const blockFaceLengthFt = (Number(answers.block_face_length_in) || 8) / 12;
     const capLengthFt = (Number(answers.cap_length_in) || 12) / 12;
-    const baseDepthIn = Number(answers.base_depth_in) || 6;
+    const baseDepthIn = numOr(answers.base_depth_in, 6);
     const baseCoverageSqftPerTon = Number(answers.base_coverage_sqft_per_ton) || 165;
-    const fillDepthIn = Number(answers.fill_depth_in) || 6;
+    const fillDepthIn = numOr(answers.fill_depth_in, 6);
     const fillCoverageSqftPerTon = Number(answers.fill_coverage_sqft_per_ton) || 165;
     const adhesivePiecesPerTube = Number(answers.adhesive_pieces_per_tube) || 30;
 

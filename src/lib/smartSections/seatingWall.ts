@@ -1,5 +1,6 @@
 import type { ProductCatalogItem } from "@/lib/api";
 import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
+import { numOr } from "./numOr";
 
 const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
 
@@ -100,12 +101,12 @@ export const seatingWallTemplate: SmartSectionTemplate = {
     const blockFaceLengthFt = (Number(answers.block_face_length_in) || 8) / 12;
     const courseHeightFt = (Number(answers.course_height_in) || 9) / 12;
     const capLengthFt = (Number(answers.cap_length_in) || 12) / 12;
-    const trenchWidthFt = Number(answers.trench_width_ft) || 1.5;
-    const trenchDepthFt = Number(answers.trench_depth_ft) || 0.5;
+    const trenchWidthFt = numOr(answers.trench_width_ft, 1.5);
+    const trenchDepthFt = numOr(answers.trench_depth_ft, 0.5);
     const tonsPerCuyd = Number(answers.tons_per_cuyd) || 1.35;
-    const drainageHeightThresholdFt = Number(answers.drainage_height_threshold_ft) || 1.5;
-    const drainageTrenchWidthFt = Number(answers.drainage_trench_width_ft) || 1;
-    const drainageTrenchDepthFt = Number(answers.drainage_trench_depth_ft) || 1;
+    const drainageHeightThresholdFt = numOr(answers.drainage_height_threshold_ft, 1.5);
+    const drainageTrenchWidthFt = numOr(answers.drainage_trench_width_ft, 1);
+    const drainageTrenchDepthFt = numOr(answers.drainage_trench_depth_ft, 1);
     const capAdhesiveCoverageFtPerTube = Number(answers.cap_adhesive_coverage_ft_per_tube) || 20;
 
     const lines: RawCalculatedLine[] = [];

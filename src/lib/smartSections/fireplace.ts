@@ -1,4 +1,5 @@
 import type { RawCalculatedLine, SmartSectionTemplate } from "./types";
+import { numOr } from "./numOr";
 
 /**
  * Outdoor masonry fireplace: a CMU box on a concrete footing, a firebox kit,
@@ -44,12 +45,11 @@ export const fireplaceTemplate: SmartSectionTemplate = {
     // Footing: footprint grown by the overhang on every side (a square-ish box).
     const side = Math.sqrt(footprint);
     const footingSqft = footprint > 0 ? (side + 2 * over) ** 2 : 0;
-    const footingCuYd = (footingSqft * (Number(a.footing_depth_in) || 12)) / 12 / 27;
+    const footingCuYd = (footingSqft * (numOr(a.footing_depth_in, 12))) / 12 / 27;
     const blockFaceSqft = perimeter * height;
     const blocks = blockFaceSqft > 0 ? Math.ceil(blockFaceSqft / (Number(a.cmu_face_sqft) || 0.89)) : 0;
-    const flueFt = Math.max(0, height - (Number(a.firebox_height_ft) || 3));
+    const flueFt = Math.max(0, height - (numOr(a.firebox_height_ft, 3)));
     const waste = a.veneer_waste_pct == null ? 10 : Number(a.veneer_waste_pct) || 0;
-    const veneerOrder = Math.ceil(Math.round(veneer * (1 + waste / 100) * 100) / 100);
     const mortarBags = Math.ceil(((blockFaceSqft + veneer) / 100) * (Number(a.mortar_bags_per_100sqft) || 8));
 
     const lines: RawCalculatedLine[] = [
@@ -57,7 +57,8 @@ export const fireplaceTemplate: SmartSectionTemplate = {
       { slotKey: "cmu_core", quantity: blocks, unit: "pieces" },
       { slotKey: "firebox", quantity: footprint > 0 ? 1 : 0, unit: "kit" },
       { slotKey: "flue", quantity: Math.ceil(flueFt), unit: "ft" },
-      { slotKey: "veneer", quantity: veneerOrder, unit: "sq ft" },
+      // Waste on the line's Waste % (applied by its cost and the Order Sheet), not baked in.
+      { slotKey: "veneer", quantity: Math.ceil(Math.round(veneer * 100) / 100), unit: "sq ft", wastePercent: waste },
       { slotKey: "mortar", quantity: mortarBags, unit: "bag" },
       { slotKey: "chimney_cap", quantity: footprint > 0 ? 1 : 0, unit: "ea" },
     ];
