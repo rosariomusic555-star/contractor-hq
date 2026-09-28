@@ -15,6 +15,7 @@ export const DEFAULT_MILESTONES: Record<string, string[]> = {
   retaining_wall: ["Excavation done", "Base & drainage installed", "Walls built", "Caps installed", "Cleanup complete"],
   outdoor_kitchen: ["Base installed", "Structure built", "Counters installed", "Appliances in", "Cleanup complete"],
   fire_pit: ["Base installed", "Fire pit built", "Cleanup complete"],
+  fireplace: ["Footing poured", "Block core & firebox built", "Chimney built", "Veneer & cap installed", "Cleanup complete"],
   outdoor_lighting: ["Wiring run", "Fixtures installed", "Tested & timer set"],
   steps: ["Excavation done", "Base installed", "Steps built", "Cleanup complete"],
 };
@@ -28,6 +29,7 @@ export const MILESTONE_BUILD_TYPES: { key: string; label: string }[] = [
   { key: "retaining_wall", label: "Retaining Wall" },
   { key: "outdoor_kitchen", label: "Outdoor Kitchen" },
   { key: "fire_pit", label: "Fire Pit" },
+  { key: "fireplace", label: "Fireplace" },
   { key: "outdoor_lighting", label: "Outdoor Lighting" },
   { key: "steps", label: "Steps" },
 ];

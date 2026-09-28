@@ -281,6 +281,37 @@ describe("downstream", () => {
   });
 });
 
+describe("fire pit vs fireplace", () => {
+  it("are separate build types; the old combined name stays Fire Pit", () => {
+    expect(buildTypeForCategoryName("Fire Pit")?.id).toBe("fire_pit");
+    expect(buildTypeForCategoryName("Fire Pit / Fireplace")?.id).toBe("fire_pit");
+    expect(buildTypeForCategoryName("Fireplace")?.id).toBe("fireplace");
+    expect(buildTypeForCategoryName("Outdoor Fireplace")?.id).toBe("fireplace");
+    expect(FEATURE_KIND.fireplace).toBe("fireplace");
+  });
+
+  it("fireplace: footprint, perimeter, height and veneer (4 or 3 sides)", () => {
+    const d = { ...blankData("fireplace"), width_ft: 6, depth_ft: 3, height_ft: 10 };
+    expect(computeTotals("fireplace", d)).toEqual({ footprint_sqft: 18, perimeter_ft: 18, height_in: 120, wall_sqft: 180 });
+    expect(computeTotals("fireplace", { ...d, veneer_sides: "three" }).wall_sqft).toBe(120); // (6 + 2×3) × 10
+    expect(instanceHasData("fireplace", blankData("fireplace"))).toBe(false);
+    expect(totalsHeadline("fireplace", computeTotals("fireplace", d))).toBe("18 sq ft footprint · 10 ft tall");
+  });
+
+  it("fireplace prefill drives its own calculator", () => {
+    const t = computeTotals("fireplace", { ...blankData("fireplace"), width_ft: 6, depth_ft: 3, height_ft: 10 });
+    const answers = smartSectionPrefill("fireplace", t);
+    expect(answers).toEqual({ footprint_sqft: 18, perimeter_ft: 18, height_ft: 10, veneer_sqft: 180 });
+    const template = smartSectionTemplates.find((x) => x.id === "fireplace")!;
+    const qty = (k: string) => template.calculate(answers).find((l) => l.slotKey === k)?.quantity;
+    expect(qty("cmu_core")).toBe(Math.ceil(180 / 0.89));
+    expect(qty("flue")).toBe(7); // 10 ft − 3 ft firebox
+    expect(qty("veneer")).toBe(198); // +10%
+    expect(qty("firebox")).toBe(1);
+    expect(quickQuotePrefill("fireplace", t)).toEqual({ fireplace_count: 1 });
+  });
+});
+
 describe("backsplash, backrest, strip lighting", () => {
   const runs = [{ id: "a", length_ft: 12 }, { id: "b", length_ft: 6 }, { id: "c", length_ft: 6 }];
 

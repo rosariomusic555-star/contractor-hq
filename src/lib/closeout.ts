@@ -83,6 +83,7 @@ export function featureSize(buildType: string | null, t: FeatureTotals | null | 
     case "outdoor_lighting":
       return { size: t.fixture_count || null, unit: "fixtures" };
     case "fire_pit":
+    case "fireplace":
       return { size: 1, unit: "units" };
     default:
       return { size: t.area_sqft || t.linear_ft || null, unit: t.area_sqft ? "sq ft" : t.linear_ft ? "LF" : null };
