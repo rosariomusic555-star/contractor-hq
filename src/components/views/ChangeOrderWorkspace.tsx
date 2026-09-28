@@ -674,7 +674,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
 
       {/* Client / Project — inherited from the project, not editable here */}
       <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
-        <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2.5 bg-foreground p-4 sm:grid-cols-2">
           <div className="flex h-auto items-center gap-2.5 rounded-xl bg-white/[0.08] px-3.5 py-3">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
               {clientName.trim().charAt(0).toUpperCase() || "?"}

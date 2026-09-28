@@ -1,3 +1,4 @@
+import { depositAmount as depositAmountOf } from "./projectMoney";
 import { supabase } from "./supabase";
 import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
@@ -1240,7 +1241,7 @@ export function approvedAddonQuoteTotal(quotes: Quote[]): number {
 /** Won means signed (see the Pipeline's stage meanings) — deposit is
  * tracked separately, here, not as part of the pipeline. A project's
  * deposit counts as received once payments received (0111) cover the headline
- * quote's deposit_percentage of the contract total; there's no dedicated
+ * quote's deposit (headlineDepositDue); there's no dedicated
  * "deposit invoice" concept in the schema, so this is derived, live, from
  * the same figures every other money screen already shows (no second
  * calculation path) — never a stored flag, so it clears the moment enough
@@ -1249,18 +1250,21 @@ export function approvedAddonQuoteTotal(quotes: Quote[]): number {
  * yesterday doesn't immediately read as overdue. */
 export const DEPOSIT_GRACE_DAYS = 3;
 
-export function isDepositOverdue(
-  headlineQuote: Quote | undefined,
-  contractTotal: number,
-  paidTotal: number,
-  now: Date = new Date(),
-): boolean {
+/** The deposit a job asks for — the signed quote's deposit % of that quote's
+ * total (cents, 0–100%), the same rule as the deposit invoice
+ * (createProjectInvoice). Never a % of the whole contract: approved change
+ * orders and add-ons (which draft their own deposit) don't raise it. */
+export function headlineDepositDue(headlineQuote: Pick<Quote, "quote_sections" | "deposit_percentage"> | null | undefined): number {
+  return headlineQuote ? depositAmountOf(quoteTotal(headlineQuote.quote_sections), headlineQuote.deposit_percentage) : 0;
+}
+
+export function isDepositOverdue(headlineQuote: Quote | undefined, paidTotal: number, now: Date = new Date()): boolean {
   if (!headlineQuote?.signed_at) return false;
   const daysSinceSigned = (now.getTime() - new Date(headlineQuote.signed_at).getTime()) / 86_400_000;
   if (daysSinceSigned < DEPOSIT_GRACE_DAYS) return false;
-  const depositAmount = contractTotal * (headlineQuote.deposit_percentage / 100);
-  if (depositAmount <= 0) return false;
-  return paidTotal < depositAmount;
+  const due = headlineDepositDue(headlineQuote);
+  if (due <= 0) return false;
+  return paidTotal + 0.005 < due;
 }
 
 

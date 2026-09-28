@@ -73,6 +73,7 @@ import {
   pickHeadlineQuote,
   projectContractValue,
   approvedChangeOrderTotal,
+  headlineDepositDue,
   isDepositOverdue,
   listProjectNotes,
   deleteProjectNote,
@@ -396,8 +397,8 @@ export function ProjectDetailView() {
   // Project money (0111) — one shared summary (src/lib/projectMoney.ts).
   const money = projectMoneySummary({ contractValue: contract, invoices, payments });
   const paidTotal = money.received;
-  const depositOverdue = isDepositOverdue(headlineQuote, contract, paidTotal);
-  const depositRequired = headlineQuote ? contract * (headlineQuote.deposit_percentage / 100) : 0;
+  const depositOverdue = isDepositOverdue(headlineQuote, paidTotal);
+  const depositRequired = headlineDepositDue(headlineQuote);
   const billing = projectBillingBadge(contract, projectInvoicedTotal, paidTotal, depositRequired);
   // "Won — project ready" CTAs, each shown only while it's still to do:
   // - Schedule: until the job has a start date (editable any time in the

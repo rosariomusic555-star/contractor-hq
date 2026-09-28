@@ -9,7 +9,6 @@
 import {
   getPreconSettings,
   getProject,
-  listChangeOrders,
   listCrews,
   listMaterialOrders,
   listMaterials,
@@ -18,7 +17,7 @@ import {
   listProjectSelections,
   listQuotes,
   listScheduleUpdates,
-  projectContractValue,
+  headlineDepositDue,
   type MaterialOrder,
   type MaterialsItem,
   type Project,
@@ -81,10 +80,9 @@ export function headlineApprovedQuote(quotes: Quote[]): Quote | undefined {
 export async function fetchPreconBundle(projectId: string): Promise<PreconBundle> {
   const project = await getProject(projectId);
   const phase = preconPhase(project);
-  const [items, quotes, changeOrders, payments, selections, materials, orders, updates, crews, settings] = await Promise.all([
+  const [items, quotes, payments, selections, materials, orders, updates, crews, settings] = await Promise.all([
     listProjectPrecon(projectId, phase !== "hidden"),
     listQuotes(projectId),
-    listChangeOrders(projectId),
     listPayments(projectId),
     listProjectSelections(projectId),
     listMaterials(projectId),
@@ -97,7 +95,6 @@ export async function fetchPreconBundle(projectId: string): Promise<PreconBundle
   const headline = headlineApprovedQuote(quotes);
   const groups = (headline?.quote_sections ?? []).flatMap((s) => s.quote_selection_groups ?? []);
   const openRequests = (selections.requests ?? []).filter((r) => r.status === "open").length;
-  const contract = projectContractValue(quotes, changeOrders);
   const paid = payments.filter((p) => p.status !== "void").reduce((s, p) => s + Number(p.amount), 0);
 
   const trackedLines = materials
@@ -115,7 +112,7 @@ export async function fetchPreconBundle(projectId: string): Promise<PreconBundle
     quoteApproved: !!headline,
     hasSelections: groups.length > 0,
     selectionsOpen: groups.filter((g) => !g.approved_at).length + openRequests,
-    deposit: { due: headline ? Math.round(contract * (Number(headline.deposit_percentage) || 0)) / 100 : 0, paid },
+    deposit: { due: headlineDepositDue(headline), paid },
     ...materialSignals(trackedLines, deliveries, orders, start),
     crewName: crews.find((c) => c.id === project.crew_id)?.name ?? null,
     startConfirmed,

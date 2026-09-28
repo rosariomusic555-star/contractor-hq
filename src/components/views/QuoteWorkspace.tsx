@@ -2069,7 +2069,7 @@ function ClientShareCard({
             create-project flow instead. Its chevron is a separate control
             that moves the quote to another project / unlinks it — it sits
             above the overlay and never triggers navigation. */}
-      <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2.5 bg-foreground p-4 sm:grid-cols-2">
         <button
           type="button"
           onClick={() => setClientPickerOpen(true)}

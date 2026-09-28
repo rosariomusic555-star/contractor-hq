@@ -138,3 +138,31 @@ describe("readiness", () => {
     expect(preconPhase({ status: "estimating", actual_start_date: null })).toBe("hidden");
   });
 });
+
+describe("headlineDepositDue (precon Deposit received)", () => {
+  it("is the signed quote's deposit, not a % of the contract after change orders", async () => {
+    const { headlineDepositDue: preconDepositDue } = await import("./api");
+    const headline = {
+      deposit_percentage: 33,
+      quote_sections: [{ quote_items: [{ quantity: 1, price: 22789, is_optional: false, client_selected: true }] }],
+    } as never;
+    // The deposit invoice was 33% × $22,789 = $7,520.37; a +$513 change order
+    // and a $1,293.75 add-on must not turn a paid deposit back to "open".
+    expect(preconDepositDue(headline)).toBe(7520.37);
+    expect(preconDepositDue(null)).toBe(0);
+  });
+});
+
+describe("isDepositOverdue", () => {
+  it("a paid deposit stays paid after change orders raise the contract", async () => {
+    const { isDepositOverdue } = await import("./api");
+    const headline = {
+      signed_at: "2026-09-01T12:00:00Z",
+      deposit_percentage: 33,
+      quote_sections: [{ quote_items: [{ quantity: 1, price: 22789, is_optional: false, client_selected: true }] }],
+    } as never;
+    const now = new Date("2026-09-28T12:00:00Z");
+    expect(isDepositOverdue(headline, 7520.37, now)).toBe(false);
+    expect(isDepositOverdue(headline, 7000, now)).toBe(true);
+  });
+});
