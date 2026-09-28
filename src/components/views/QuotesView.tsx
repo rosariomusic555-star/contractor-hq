@@ -19,7 +19,7 @@ import { getNotificationSettings } from "@/lib/api";
 import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, pluralize } from "@/lib/utils";
+import { formatCurrency, pluralize, formatDate } from "@/lib/utils";
 import { listQuotes, createQuote, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 
@@ -180,7 +180,7 @@ export function QuotesView() {
                       <td className="font-bold tabular-nums">{total > 0 ? formatCurrency(total) : "—"}</td>
                       <td><StatusPill meta={quoteStatusMeta(q.status)} /></td>
                       <td><QuoteActivityBadge quote={q} settings={activitySettings} /></td>
-                      <td className="text-muted-foreground">{q.updated_at.slice(0, 10)}</td>
+                      <td className="text-muted-foreground">{formatDate(q.updated_at)}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -226,7 +226,7 @@ export function QuotesView() {
                   eyebrowColor={meta.border}
                   eyebrowRight={total > 0 ? formatCurrency(total) : ""}
                   title={q.project?.name ?? "Standalone quote"}
-                  subtitle={`${clientOf(q)} · updated ${q.updated_at.slice(0, 10)}`}
+                  subtitle={`${clientOf(q)} · updated ${formatDate(q.updated_at)}`}
                 >
                   <QuoteActivityBadge quote={q} settings={activitySettings} className="mt-1.5" />
                 </ListCard>

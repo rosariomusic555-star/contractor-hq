@@ -5,7 +5,7 @@ import { RevenueDetailHeader } from "@/components/revenue/RevenueDetailHeader";
 import { SortableTh } from "@/components/common/SortableTh";
 import { SearchInput } from "@/components/common/SearchInput";
 import { KpiCard } from "@/components/common/KpiCard";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { listInvoices, listPayments, listProjects, listClients } from "@/lib/api";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
 import { useSort } from "@/hooks/use-sort";
@@ -87,7 +87,7 @@ export function RevenueClientsView() {
                     <td className={r.outstanding > 0 ? "tabular-nums text-destructive" : "tabular-nums text-muted-foreground"}>
                       {formatCurrency(r.outstanding)}
                     </td>
-                    <td className="text-muted-foreground">{r.lastJobDate?.slice(0, 10) ?? "—"}</td>
+                    <td className="text-muted-foreground">{formatDate(r.lastJobDate)}</td>
                   </tr>
                 ))}
                 {sorted.length === 0 && (

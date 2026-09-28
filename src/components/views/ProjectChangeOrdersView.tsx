@@ -10,7 +10,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { BackLink } from "@/components/common/BackLink";
 import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
+import { useRecorderName } from "@/hooks/use-recorder-name";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import {
   CHANGE_ORDER_REASONS,
@@ -47,7 +47,7 @@ export function ProjectChangeOrdersView() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { session } = useAuth();
+  const recordedBy = useRecorderName();
   const [approving, setApproving] = useState<ChangeOrder | null>(null);
 
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
@@ -87,7 +87,7 @@ export function ProjectChangeOrdersView() {
         note: a.note,
         signedBy: a.signedBy,
         approvedOn: a.approvedOn,
-        recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
+        recordedBy,
       }),
     onSuccess: () => {
       setApproving(null);

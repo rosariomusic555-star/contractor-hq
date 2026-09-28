@@ -33,7 +33,7 @@ import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
-import { useAuth } from "@/lib/auth";
+import { useRecorderName } from "@/hooks/use-recorder-name";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
@@ -346,7 +346,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const locked = changeOrder.status === "approved" || changeOrder.status === "declined";
   const meta = changeOrderStatusMeta(changeOrder.status);
   const clientName = changeOrder.project?.client?.name ?? "No client";
-  const { session } = useAuth();
+  const recordedBy = useRecorderName();
   const projectName = changeOrder.project?.name ?? "Project";
 
   // --- server sync ----------------------------------------------------------
@@ -562,7 +562,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         note: a.note,
         signedBy: a.signedBy,
         approvedOn: a.approvedOn,
-        recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
+        recordedBy,
       }),
     onSuccess: () => {
       setApproveOpen(false);
@@ -604,6 +604,50 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
 
   const canSave = draft.title.trim().length > 0 || itemCount > 0;
 
+  // Send / approve / decline / invoice — the same buttons in the desktop
+  // header and, on phones, under the title (the desktop header is hidden there).
+  const headerActions = (
+    <>
+      {isDirty && <span className="text-xs text-muted-foreground">Save your changes first</span>}
+      {!locked && changeOrder.status === "draft" && (
+        <>
+          {/* Agreed on site / on paper — no need to send it first (same as quotes). */}
+          <Button variant="outline" onClick={() => setApproveOpen(true)} disabled={approveMut.isPending || isDirty || !canSave}>
+            <Check className="mr-1.5 h-4 w-4" />
+            Mark approved
+          </Button>
+          <Button onClick={() => sendMut.mutate()} disabled={sendMut.isPending || isDirty || !canSave} className="font-bold">
+            {sendMut.isPending ? "Preparing…" : "Send for signature"}
+          </Button>
+        </>
+      )}
+      {!locked && changeOrder.status === "sent" && (
+        <>
+          <Button variant="outline" onClick={() => setDeclineOpen(true)} disabled={approveMut.isPending}>
+            <X className="mr-1.5 h-4 w-4" />
+            Decline
+          </Button>
+          <Button onClick={() => setApproveOpen(true)} disabled={approveMut.isPending} className="font-bold">
+            <Check className="mr-1.5 h-4 w-4" />
+            Mark approved
+          </Button>
+        </>
+      )}
+      {/* One invoice per change order; a credit comes off the balance — nothing to invoice. */}
+      {coInvoice ? (
+        <Button variant="outline" onClick={() => navigate(`/invoices/${coInvoice.id}`)} className="font-bold">
+          Open invoice {coInvoice.invoice_number ?? ""}
+        </Button>
+      ) : (
+        changeOrderInvoiceable(changeOrder, []).ok && (
+          <Button onClick={() => createInvoiceMut.mutate()} disabled={createInvoiceMut.isPending} className="font-bold">
+            {createInvoiceMut.isPending ? "Creating…" : "Create invoice"}
+          </Button>
+        )
+      )}
+    </>
+  );
+
   return (
     <div className="animate-fade-in max-w-6xl space-y-5">
       <MobilePageHeader
@@ -618,6 +662,19 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           </>
         }
       />
+
+      {/* Phone: title + actions (the desktop header below is hidden) */}
+      <div className="space-y-3 md:hidden">
+        <Input
+          value={draft.title}
+          onChange={(e) => edit((d) => ({ ...d, title: e.target.value }))}
+          placeholder="e.g. Add retaining wall extension"
+          aria-label="Change order title"
+          disabled={locked}
+          className="h-11 text-base font-semibold"
+        />
+        <div className="flex flex-wrap items-center gap-2 [&>button]:flex-1">{headerActions}</div>
+      </div>
 
       {/* Desktop header */}
       <div className="hidden md:block">
@@ -637,38 +694,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             </div>
             <p className="mt-1 text-sm text-muted-foreground">{clientName}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {isDirty && <span className="text-xs text-muted-foreground">Save your changes first</span>}
-            {!locked && changeOrder.status === "draft" && (
-              <Button onClick={() => sendMut.mutate()} disabled={sendMut.isPending || isDirty || !canSave} className="font-bold">
-                {sendMut.isPending ? "Preparing…" : "Send for signature"}
-              </Button>
-            )}
-            {!locked && changeOrder.status === "sent" && (
-              <>
-                <Button variant="outline" onClick={() => setDeclineOpen(true)} disabled={approveMut.isPending}>
-                  <X className="mr-1.5 h-4 w-4" />
-                  Decline
-                </Button>
-                <Button onClick={() => setApproveOpen(true)} disabled={approveMut.isPending} className="font-bold">
-                  <Check className="mr-1.5 h-4 w-4" />
-                  Mark approved
-                </Button>
-              </>
-            )}
-            {/* One invoice per change order; a credit comes off the balance — nothing to invoice. */}
-            {coInvoice ? (
-              <Button variant="outline" onClick={() => navigate(`/invoices/${coInvoice.id}`)} className="font-bold">
-                Open invoice {coInvoice.invoice_number ?? ""}
-              </Button>
-            ) : (
-              changeOrderInvoiceable(changeOrder, []).ok && (
-                <Button onClick={() => createInvoiceMut.mutate()} disabled={createInvoiceMut.isPending} className="font-bold">
-                  {createInvoiceMut.isPending ? "Creating…" : "Create invoice"}
-                </Button>
-              )
-            )}
-          </div>
+          <div className="flex items-center gap-2">{headerActions}</div>
         </div>
       </div>
 

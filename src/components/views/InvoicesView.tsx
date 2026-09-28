@@ -17,7 +17,7 @@ import { FilterSegment, FilterPills, type FilterOption } from "@/components/comm
 import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { listInvoices, listPayments, createInvoice, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
 import {
   AlertDialog,
@@ -220,7 +220,7 @@ export function InvoicesView() {
                             <StatusPill meta={invoiceStatusMeta(statusOf(inv), inv.amount_paid)} />
                           )}
                         </td>
-                        <td className="text-muted-foreground">{inv.due_date?.slice(0, 10) ?? "—"}</td>
+                        <td className="text-muted-foreground">{formatDate(inv.due_date)}</td>
                         <td onClick={(e) => e.stopPropagation()}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -272,7 +272,7 @@ export function InvoicesView() {
                       : formatCurrency(Number(inv.amount))
                   }
                   title={inv.project?.name ?? "Standalone"}
-                  subtitle={`${inv.project?.client?.name ?? "—"}${inv.due_date ? ` · due ${inv.due_date.slice(0, 10)}` : ""}`}
+                  subtitle={`${inv.project?.client?.name ?? "—"}${inv.due_date ? ` · due ${formatDate(inv.due_date)}` : ""}`}
                 />
               );
             })}

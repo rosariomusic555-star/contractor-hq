@@ -1,4 +1,5 @@
 import { BUILD_TYPES, type BuildType } from "./buildTypes";
+import { fmtFeet } from "./feetInches";
 
 /**
  * Project measurements — the one source for what each feature measures, how
@@ -720,7 +721,7 @@ export function totalsHeadline(kind: FeatureKind, t: FeatureTotals): string | nu
       break;
     case "fireplace":
       if (t.footprint_sqft) parts.push(`${fmt(t.footprint_sqft)} sq ft footprint`);
-      if (t.height_in) parts.push(`${fmt(t.height_in / 12)} ft tall`);
+      if (t.height_in) parts.push(`${fmtFeet(t.height_in / 12)} tall`);
       break;
     case "lighting":
       if (t.fixture_count) parts.push(`${fmt(t.fixture_count)} ${t.fixture_count === 1 ? "fixture" : "fixtures"}`);
@@ -1061,18 +1062,18 @@ function instanceSummary(kind: FeatureKind, buildType: string | null, data: Feat
     case "retaining_wall": {
       const d = data as RetainingWallData;
       if (d.method === "lf_height" && t.linear_ft && t.wall_sqft && d.height_ft)
-        return `${fmt(t.linear_ft)} LF × ${fmt(d.height_ft)} ft = ${fmt(t.wall_sqft)} wall sq ft`;
+        return `${fmt(t.linear_ft)} LF × ${fmtFeet(d.height_ft)} = ${fmt(t.wall_sqft)} wall sq ft`;
       return headline;
     }
     case "fire_pit": {
       const d = data as FirePitData;
-      if (d.shape === "round" && t.perimeter_ft) return `Round · ${fmt(d.diameter_ft)} ft across · ${fmt(t.perimeter_ft)} LF around`;
-      if (d.shape === "rect" && t.perimeter_ft) return `${fmt(d.length_ft)} × ${fmt(d.width_ft)} ft · ${fmt(t.perimeter_ft)} LF around`;
+      if (d.shape === "round" && t.perimeter_ft) return `Round · ${fmtFeet(d.diameter_ft)} across · ${fmt(t.perimeter_ft)} LF around`;
+      if (d.shape === "rect" && t.perimeter_ft) return `${fmtFeet(d.length_ft)} × ${fmtFeet(d.width_ft)} · ${fmt(t.perimeter_ft)} LF around`;
       return `Custom · ≈ ${fmt(t.footprint_sqft)} sq ft`;
     }
     case "fireplace": {
       const d = data as FireplaceData;
-      if (d.width_ft && d.depth_ft && d.height_ft) return `${fmt(d.width_ft)} × ${fmt(d.depth_ft)} ft · ${fmt(d.height_ft)} ft tall`;
+      if (d.width_ft && d.depth_ft && d.height_ft) return `${fmtFeet(d.width_ft)} × ${fmtFeet(d.depth_ft)} · ${fmtFeet(d.height_ft)} tall`;
       return headline;
     }
     case "steps": {

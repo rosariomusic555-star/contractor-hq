@@ -47,7 +47,7 @@ export function materialLineLabel(item: { name: string; color?: string | null })
 // ---------------------------------------------------------------------------
 
 /** The Unit dropdown's fixed options. Anything else is kept as a custom unit. */
-export const MATERIAL_UNITS = ["sq ft", "piece", "layer", "pallet", "ton", "bag", "roll", "tube"] as const;
+export const MATERIAL_UNITS = ["sq ft", "ft", "cu yd", "piece", "layer", "pallet", "ton", "bag", "roll", "tube"] as const;
 
 /** Spellings that mean one of MATERIAL_UNITS (lower-cased, trimmed). Same
  * mapping migration 0093 applied to existing lines. */
@@ -61,6 +61,21 @@ const UNIT_SYNONYMS: Record<string, (typeof MATERIAL_UNITS)[number]> = {
   "square foot": "sq ft",
   "square feet": "sq ft",
   ft2: "sq ft",
+  // Linear feet — calculator lines (edge restraint, rebar, countertop) are "ft".
+  ft: "ft",
+  feet: "ft",
+  foot: "ft",
+  lf: "ft",
+  "lin ft": "ft",
+  "lin. ft.": "ft",
+  "linear ft": "ft",
+  "linear feet": "ft",
+  "cu yd": "cu yd",
+  "cu. yd.": "cu yd",
+  cy: "cu yd",
+  yd3: "cu yd",
+  "cubic yard": "cu yd",
+  "cubic yards": "cu yd",
   piece: "piece",
   pieces: "piece",
   pc: "piece",

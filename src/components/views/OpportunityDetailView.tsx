@@ -390,8 +390,11 @@ export function OpportunityDetailView() {
       <BackLink to="/pipeline" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Pipeline</BackLink>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+        {/* Grows with the row — a shrink-to-fit wrapper sized the title input to
+            its default ~20 characters and cut long names off. */}
+        <div className="min-w-[16rem] flex-1">
           <Input
+            aria-label="Opportunity title"
             value={field("title", opportunity.title)}
             onChange={(e) => setField("title", e.target.value)}
             onBlur={() => commitField("title", opportunity.title)}
@@ -987,7 +990,8 @@ function EstimateCard({
               onCheckedChange={(v) => setPreAddSections(v === true)}
               className="mt-0.5"
             />
-            Start the quote with a section per project type ({categoryNames.join(", ")})
+            {/* One per feature (0105) — two seating walls get two sections. */}
+            Start the quote with a section for each feature on this job ({categoryNames.join(", ")})
           </label>
         )}
       </div>

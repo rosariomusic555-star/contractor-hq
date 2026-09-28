@@ -205,6 +205,9 @@ export default function SharedQuotePage() {
   // Only a quote that's out with the client can be signed (sign_quote 0141):
   // a draft opened from Preview, or a declined one, is view-only.
   const canSign = quote.status === "sent";
+  // An add-on isn't a new proposal — it adds to the signed job.
+  const isAddon = quote.kind === "addon";
+  const docTitle = isAddon ? `Add-on quote${quote.addon_number ? ` #${quote.addon_number}` : ""}` : "Proposal";
 
   return (
     <PageShell>
@@ -213,7 +216,7 @@ export default function SharedQuotePage() {
           <p className="text-sm font-bold tracking-wide text-primary">ContractorPro</p>
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <h1 className="min-w-0 text-2xl font-bold text-foreground [overflow-wrap:anywhere]">
-              {project ? `${project.name} — Proposal` : "Proposal"}
+              {project ? `${project.name} — ${docTitle}` : docTitle}
             </h1>
             <div className="flex shrink-0 items-center gap-2">
               {isApproved && <span className="badge-status badge-paid shrink-0">Approved ✓</span>}
@@ -232,6 +235,11 @@ export default function SharedQuotePage() {
           </div>
           {client?.name && (
             <p className="text-muted-foreground [overflow-wrap:anywhere]">Prepared for {client.name}</p>
+          )}
+          {isAddon && (
+            <p className="text-sm text-muted-foreground">
+              Additional work on your current job — approving it adds to your existing contract; it doesn't replace it.
+            </p>
           )}
         </header>
 
@@ -291,10 +299,20 @@ export default function SharedQuotePage() {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Optional items selected</span>
                 <span className="font-semibold text-foreground">
-                  {formatCurrency(subtotal - baseSubtotal)}
+                  {formatCurrency(subtotal - baseSubtotal - selectionsSubtotal)}
                 </span>
               </div>
             </>
+          )}
+          {/* Upgrades picked in Your selections are their own line — not "optional items". */}
+          {Math.abs(selectionsSubtotal) >= 0.005 && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Selections</span>
+              <span className="font-semibold text-foreground">
+                {selectionsSubtotal > 0 ? "+" : ""}
+                {formatCurrency(selectionsSubtotal)}
+              </span>
+            </div>
           )}
           <div className="flex items-center justify-between text-sm pt-1">
             <span className="text-muted-foreground">

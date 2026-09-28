@@ -4937,6 +4937,9 @@ export interface SharedQuote {
   quote: {
     id: string;
     status: QuoteStatus;
+    /** 'addon' = new work on a job the client already signed (client_quote_json). */
+    kind?: "original" | "addon";
+    addon_number?: number | null;
     deposit_percentage: number;
     notes: string | null;
     terms: string | null;

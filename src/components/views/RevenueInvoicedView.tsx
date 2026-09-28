@@ -13,7 +13,7 @@ import { SearchInput } from "@/components/common/SearchInput";
 import { SortableTh } from "@/components/common/SortableTh";
 import { KpiCard } from "@/components/common/KpiCard";
 import { StatusPill } from "@/components/common/StatusPill";
-import { formatCurrency, pluralize } from "@/lib/utils";
+import { formatCurrency, pluralize, formatDate } from "@/lib/utils";
 import { listInvoices, type Invoice, type InvoiceStatus } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
@@ -28,7 +28,7 @@ export function RevenueInvoicedView() {
   const month = searchParams.get("month"); // "2026-09" — drill-down from the monthly page
 
   const initialCustom = month
-    ? { start: `${month}-01`, end: new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).toISOString().slice(0, 10) }
+    ? { start: `${month}-01`, end: `${month}-${String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, "0")}` }
     : undefined;
 
   const { rangeKey, setRangeKey, customStart, customEnd, setCustom, range } = useRevenueRange(
@@ -49,6 +49,7 @@ export function RevenueInvoicedView() {
   const inRange = useMemo(() => invoices.filter((i) => withinRange(i.created_at, range)), [invoices, range]);
   const total = invoicedTotal(invoices, range);
   const realCount = inRange.filter((i) => i.status !== "draft").length;
+  const draftCount = inRange.length - realCount;
 
   const clientOptions = useMemo(
     () => [...new Set(inRange.map(clientOf))].sort((a, b) => a.localeCompare(b)),
@@ -95,7 +96,12 @@ export function RevenueInvoicedView() {
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:max-w-md">
         <KpiCard label="Invoiced" value={formatCurrency(total)} sub={rangeDateLabel(range)} />
-        <KpiCard label="Invoices" value={realCount} sub={pluralize(realCount, "invoice")} />
+        <KpiCard
+          label="Invoices"
+          value={realCount}
+          // The list below also shows drafts — say so, so 2 here vs 4 rows adds up.
+          sub={draftCount > 0 ? `sent · + ${pluralize(draftCount, "draft")} not counted` : pluralize(realCount, "invoice")}
+        />
       </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -147,7 +153,7 @@ export function RevenueInvoicedView() {
                       <td className="font-bold text-foreground">{inv.invoice_number ?? "—"}</td>
                       <td>{clientOf(inv)}</td>
                       <td className="text-muted-foreground">{inv.project?.name ?? "Standalone"}</td>
-                      <td className="text-muted-foreground">{inv.created_at.slice(0, 10)}</td>
+                      <td className="text-muted-foreground">{formatDate(inv.created_at)}</td>
                       <td className="font-bold tabular-nums">{formatCurrency(Number(inv.amount))}</td>
                       <td>
                         {late > 0 ? (

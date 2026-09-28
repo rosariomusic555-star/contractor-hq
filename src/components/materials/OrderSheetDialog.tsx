@@ -27,6 +27,7 @@ import {
   orderCategoryGroup,
   lineCategoryName,
   resolveOrderLine,
+  guessOrderCategory,
   UNCATEGORIZED_LABEL,
   type ResolvedOrderLine,
 } from "@/lib/orderSheet";
@@ -116,7 +117,7 @@ export function OrderSheetDialog({
             const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
             const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
             const category = orderCategoryGroup(
-              lineCategoryName(item, materialCategoryNameById) ?? catalogProduct?.category ?? priceBookItem?.category ?? null,
+              lineCategoryName(item, materialCategoryNameById) ?? catalogProduct?.category ?? priceBookItem?.category ?? guessOrderCategory(item.name),
             );
             const order = resolveOrderLine(item, catalogById, priceBookById, materialCategoryNameById);
             return { item, sectionName: s.name, category, orderQuantity: order.quantity, orderUnit: order.unit };

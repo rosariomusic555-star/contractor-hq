@@ -83,7 +83,8 @@ function Metric({ label, value, className }: { label: string; value: string; cla
  * the project totals above. A table on desktop, stacked cards on phones;
  * each row opens its by-type breakdown.
  */
-export function FeatureProfitTable({ reports }: { reports: FeatureReport[] }) {
+export function FeatureProfitTable({ reports, projected = false }: { reports: FeatureReport[]; /** Job still open — "actual" is spend so far or plan, whichever is more. */ projected?: boolean }) {
+  const actualLabel = projected ? "Projected" : "Actual";
   const [openId, setOpenId] = useState<string | null>(null);
   const keyOf = (r: FeatureReport) => r.featureId ?? "general";
   return (
@@ -93,7 +94,7 @@ export function FeatureProfitTable({ reports }: { reports: FeatureReport[] }) {
         <span>Feature</span>
         <span className="text-right">Price</span>
         <span className="text-right">Planned</span>
-        <span className="text-right">Actual</span>
+        <span className="text-right">{actualLabel}</span>
         <span className="text-right">Variance</span>
         <span className="text-right">Margin</span>
       </div>
@@ -113,7 +114,7 @@ export function FeatureProfitTable({ reports }: { reports: FeatureReport[] }) {
               </span>
               <Cell label="Price" value={r.featureId || r.price ? formatCurrency(r.price) : "—"} />
               <Cell label="Planned" value={formatCurrency(r.planned.total)} />
-              <Cell label="Actual" value={r.actual.total ? formatCurrency(r.actual.total) : "—"} />
+              <Cell label={actualLabel} value={r.actual.total ? formatCurrency(r.actual.total) : "—"} />
               <Cell label="Variance" value={r.actual.total ? signed(r.varianceCost) : "—"} className={r.actual.total ? overClass(r.varianceCost) : undefined} />
               <Cell label="Margin" value={r.price ? `${pct(r.plannedMarginPct)} → ${r.actual.total ? pct(r.actualMarginPct) : "—"}` : "—"} />
             </button>

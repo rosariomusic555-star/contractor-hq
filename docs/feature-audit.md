@@ -29,16 +29,16 @@ Started 2026-09-28. **Steps 1–3 done for the owner role**; employee + Client H
 
 **Result:** 28 fixes (table below; some rows cover several related bugs) — **Critical 9** (1 security on `fix/client-hub-auth`, 6 money, 2 quantity) · **High 11** · **Medium 6** · **Low 2**. 441 tests passing, type-check and lint at baseline. Nothing Critical or High found today is still open.
 
-**Still open — works, but bad UX (not fixed, your call):**
-1. Two "actual cost" figures on the project page (Profit card = spent so far; Planned vs actual = materials carried at plan until Complete) — labels don't explain the difference; mid-job, unspent non-material plan (e.g. kitchen $500) reads as "+$500 profit".
-2. Raw ISO dates ("2026-09-25") on invoices and Revenue tables.
-3. Calculator lines have no material category, so the order sheet is one "Other / Uncategorized" group; bulk tons round up to whole tons (9.5 → 10).
-4. Client's add-on quote page is titled "Proposal" with nothing saying it adds to the existing job; Quotes page Deposit tile ignores the add-on's deposit.
-5. Change orders: "recorded by" shows the owner's email; "−$250" vs "-$250" signs mixed; Mark approved only after sending.
-6. Floating + / assistant buttons cover the right edge of cards on phones until you scroll.
-7. Revenue: Invoiced KPI counts 2 while the table lists 4 (drafts); Categories says "incl. Uncategorized" with no such row, "0 jobs" beside revenue.
-8. Opportunity title truncated with room to spare; lead source not picked up from the client; decimal feet ("15.5 ft") after ft+in entry; "ft" units get a text box, not the dropdown; Estimate hint says "per project type"; a selection upgrade listed under "Optional items selected".
-9. Price Book allows duplicate names without a warning.
+**UX list — all 9 fixed (2026-09-28, after the report):**
+1. Job still open: Profit summary says "Spent so far" / "Left" / "Profit on spend so far" and holds the variance until Complete; Planned vs actual and By feature say "Projected" and count each cost type as spend so far or its plan, whichever is more — unspent plan (the kitchen's $500) no longer reads as profit, overruns still show (`featureFinancials.test.ts`).
+2. Raw ISO dates → "Sep 28, 2026" on Quotes, Invoices and the Revenue Invoiced / Collected / Clients tables (one `formatDate`, date-only read as the local day); re-swept 31 pages — none left. Also fixed a UTC month-end shift in the Invoiced month filter.
+3. Order sheet: lines with no category are grouped by name (Pavers, Wall Block, Caps, Base Gravel, Bedding / Polymeric Sand, Edging, Adhesive, Fabric); tons / cu yd round up to the half (9.5 t stays 9.5) (`orderSheet.test.ts`).
+4. Client's add-on page is titled "Add-on quote #1" with "adds to your existing contract"; project Quotes Deposit tile adds the add-on deposit.
+5. Change orders: "recorded by" is your name / company name (never the login email, one shared hook); every negative amount app-wide uses a true minus (`formatCurrency`); Mark approved on a draft too; **found while fixing: on phones the builder had no Send / Mark approved / Decline / invoice buttons and no title field** — now shown under the header.
+6. Phone page bottom padding clears the tab bar and both floating buttons.
+7. Revenue: Invoiced KPI "sent · + 2 drafts not counted"; Categories only says "incl. Uncategorized" when that row exists; "Completed jobs" column.
+8. Opportunity title uses the full row; a picked client's lead source pre-fills New opportunity; measurement summaries show "12 ft 6 in" (`feetInches.test.ts`); "ft" and "cu yd" are Cost plan unit options (`materialsMath.test.ts`); the "section per feature" wording; client page lists Selections (+$800) separately from optional items.
+9. Price Book warns about a name that's already saved.
 
 **Couldn't test here:**
 - Employee (crew) login, timesheets, payroll export, work order — needs a crew login you create and sign in with.

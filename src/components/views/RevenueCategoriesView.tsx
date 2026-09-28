@@ -142,7 +142,7 @@ export function RevenueCategoriesView() {
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:max-w-md">
         <KpiCard label="Collected" value={formatCurrency(total)} sub={rangeDateLabel(range)} />
-        <KpiCard label="Categories" value={rows.length} sub="incl. Uncategorized" />
+        <KpiCard label="Categories" value={rows.length} sub={rows.some((r) => r.id === "uncategorized") ? "incl. Uncategorized" : "with revenue in this range"} />
       </div>
       <p className="text-xs text-muted-foreground">
         Revenue here means cash actually collected (every payment received), split across categories by the
@@ -159,7 +159,7 @@ export function RevenueCategoriesView() {
                 <tr>
                   <SortableTh label="Category" active={sortKey === "category"} dir={dir} onClick={() => toggle("category", true)} />
                   <SortableTh label="Revenue" active={sortKey === "revenue"} dir={dir} onClick={() => toggle("revenue")} />
-                  <SortableTh label="Jobs" active={sortKey === "jobs"} dir={dir} onClick={() => toggle("jobs")} />
+                  <SortableTh label="Completed jobs" active={sortKey === "jobs"} dir={dir} onClick={() => toggle("jobs")} />
                   <SortableTh label="Avg. job value" active={sortKey === "avg"} dir={dir} onClick={() => toggle("avg")} />
                   <SortableTh label="Margin %" active={sortKey === "margin"} dir={dir} onClick={() => toggle("margin")} />
                 </tr>

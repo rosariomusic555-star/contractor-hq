@@ -4,7 +4,7 @@ import { BadgeCheck, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
+import { useRecorderName } from "@/hooks/use-recorder-name";
 import { cn } from "@/lib/utils";
 import { contractorApproveQuote, type Quote } from "@/lib/api";
 
@@ -20,7 +20,7 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-
 export function QuoteApprovalRow({ quote, clientName, disabledReason }: { quote: Quote; clientName: string | null; disabledReason: string | null }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { session } = useAuth();
+  const recordedBy = useRecorderName();
   const [open, setOpen] = useState(false);
 
   const approve = useMutation({
@@ -31,7 +31,7 @@ export function QuoteApprovalRow({ quote, clientName, disabledReason }: { quote:
         note: a.note,
         signedBy: a.signedBy,
         approvedOn: a.approvedOn,
-        recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
+        recordedBy,
       }),
     onSuccess: () => {
       for (const k of ["quotes", "quote", "opportunities", "projects", "project", "invoices", "project-features", "quote-selections"]) qc.invalidateQueries({ queryKey: [k] });

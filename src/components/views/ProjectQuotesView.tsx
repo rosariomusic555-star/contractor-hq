@@ -12,7 +12,7 @@ import { ManualApprovalDialog, type ManualApproval } from "@/components/common/M
 import { QuoteActivityBadge } from "@/components/quote-activity/QuoteActivityBadge";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
+import { useRecorderName } from "@/hooks/use-recorder-name";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   DEPOSIT_INVOICE_NOTE,
@@ -52,7 +52,7 @@ export function ProjectQuotesView() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { session } = useAuth();
+  const recordedBy = useRecorderName();
   const [addWorkOpen, setAddWorkOpen] = useState(false);
   const [approving, setApproving] = useState<Quote | null>(null);
 
@@ -72,6 +72,9 @@ export function ProjectQuotesView() {
   const depositPct = headline?.status === "approved" ? Number(headline.deposit_percentage) || 0 : 0;
   const depositInvoice = invoices.find((i) => i.notes === DEPOSIT_INVOICE_NOTE) ?? null;
   const depositAmount = headline ? depositAmountOf(totalOf(headline), depositPct) : 0;
+  // Approved add-ons draft their own deposit invoice ("Deposit — Add-on quote #N", 0108).
+  const addonDeposits = invoices.filter((i) => (i.notes ?? "").startsWith("Deposit — Add-on"));
+  const addonDepositTotal = addonDeposits.reduce((s, i) => s + Number(i.amount || 0), 0);
   const waiting = quotes.filter((q) => q.status === "sent");
   // Newest first, but the signed original always leads.
   const sorted = [...quotes].sort((a, b) =>
@@ -105,7 +108,7 @@ export function ProjectQuotesView() {
         note: a.note,
         signedBy: a.signedBy,
         approvedOn: a.approvedOn,
-        recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
+        recordedBy,
       }),
     onSuccess: () => {
       setApproving(null);
@@ -193,7 +196,14 @@ export function ProjectQuotesView() {
         <KpiCard
           label="Deposit"
           value={depositPct > 0 ? formatCurrency(depositAmount) : "—"}
-          sub={depositPct > 0 ? (depositInvoice ? `${depositPct}% · invoiced ${depositInvoice.invoice_number ?? ""}`.trim() : `${depositPct}% · not invoiced yet`) : "after a quote is signed"}
+          sub={
+            (depositPct > 0
+              ? depositInvoice
+                ? `${depositPct}% · invoiced ${depositInvoice.invoice_number ?? ""}`.trim()
+                : `${depositPct}% · not invoiced yet`
+              : "after a quote is signed") +
+            (addonDeposits.length > 0 ? ` · + ${formatCurrency(addonDepositTotal)} add-on ${addonDeposits.length === 1 ? "deposit" : "deposits"}` : "")
+          }
           subTone={depositAmount > 0 && !depositInvoice ? "negative" : "muted"}
         />
       </div>

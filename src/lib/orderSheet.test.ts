@@ -210,3 +210,47 @@ describe("lineCategoryName", () => {
     expect(lineCategoryName({ material_category_id: "gone", category: null }, names)).toBeNull();
   });
 });
+
+describe("guessOrderCategory (calculator lines have no category)", () => {
+  it("groups the Smart Section line names under the default material categories", async () => {
+    const { guessOrderCategory } = await import("./orderSheet");
+    const cases: [string, string | null][] = [
+      ["Pavers", "Pavers"],
+      ["Border/Edge Pavers", "Pavers"],
+      ["Base Material", "Base Gravel"],
+      ["Drainage Gravel", "Base Gravel"],
+      ["Crushed Stone / Interior Fill", "Base Gravel"],
+      ["Bedding Sand", "Bedding Sand"],
+      ["Polymeric Sand", "Polymeric Sand"],
+      ["Wall Block", "Wall Block"],
+      ["Wall Block / Veneer", "Wall Block"],
+      ["Concrete Block (Core)", "Wall Block"],
+      ["Caps", "Caps"],
+      ["Backrest Caps", "Caps"],
+      ["Edge Restraint", "Edging"],
+      ["Construction Adhesive", "Adhesive"],
+      ["Geotextile Fabric", "Fabric"],
+      ["Rebar", null],
+      ["Countertop Material", null],
+    ];
+    for (const [name, want] of cases) expect([name, guessOrderCategory(name)]).toEqual([name, want]);
+  });
+});
+
+describe("bulk units round up to the half", () => {
+  it("tons / yards go to the next 0.5, not the next whole", async () => {
+    const { resolveOrderLine } = await import("./orderSheet");
+    const line = (quantity: number, unit: string, waste_percent = 0) =>
+      resolveOrderLine(
+        { id: "x", name: "Base Material", quantity, unit, waste_percent, category: null, catalog_product_id: null, price_book_item_id: null, color: null, material_category_id: null } as never,
+        new Map(),
+        new Map(),
+      ).quantity;
+    expect(line(9.5, "ton")).toBe(9.5);
+    expect(line(9.2, "ton")).toBe(9.5);
+    expect(line(9.51, "ton")).toBe(10);
+    expect(line(2.1, "cu yd")).toBe(2.5);
+    expect(line(1, "ton", 10)).toBe(1.5); // 1.1 with waste
+    expect(line(310, "sq ft", 5)).toBe(326); // everything else still rounds to a whole
+  });
+});

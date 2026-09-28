@@ -15,3 +15,14 @@ describe("feet + inches", () => {
     expect(joinFeet(splitFeet(7.3333).ft, splitFeet(7.3333).inch)).toBeCloseTo(7.3333, 3);
   });
 });
+
+describe("fmtFeet", () => {
+  it("shows typed dimensions as feet + inches", async () => {
+    const { fmtFeet } = await import("./feetInches");
+    expect(fmtFeet(12.5)).toBe("12 ft 6 in");
+    expect(fmtFeet(5)).toBe("5 ft");
+    expect(fmtFeet(0.5)).toBe("6 in");
+    expect(fmtFeet(3.5833)).toBe("3 ft 7 in");
+    expect(fmtFeet(null)).toBe("");
+  });
+});

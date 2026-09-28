@@ -40,6 +40,7 @@ export function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean;
   const [addressEdited, setAddressEdited] = useState(false);
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [leadSource, setLeadSource] = useState<string | null>(null);
+  const [leadSourceEdited, setLeadSourceEdited] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -49,8 +50,15 @@ export function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean;
       setAddressEdited(false);
       setCategoryIds([]);
       setLeadSource(null);
+      setLeadSourceEdited(false);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // An existing client picked → their lead source carries over (how they
+  // found you), unless one was chosen here already.
+  useEffect(() => {
+    if (!leadSourceEdited && client.selectedClient) setLeadSource(client.selectedClient.lead_source ?? null);
+  }, [client.selectedClient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Client picked, or new client's address typed → carry it over, unless
   // the user has already typed their own job-site address. (null = no
@@ -150,7 +158,14 @@ export function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean;
 
             <div className="space-y-1.5">
               <Label>Lead source</Label>
-              <LeadSourceSelect value={leadSource} onChange={setLeadSource} placeholder="Optional" />
+              <LeadSourceSelect
+                value={leadSource}
+                onChange={(v) => {
+                  setLeadSource(v);
+                  setLeadSourceEdited(true);
+                }}
+                placeholder="Optional"
+              />
             </div>
           </div>
         </div>

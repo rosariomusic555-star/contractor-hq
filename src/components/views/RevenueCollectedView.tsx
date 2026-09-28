@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { RevenueDetailHeader } from "@/components/revenue/RevenueDetailHeader";
 import { KpiCard } from "@/components/common/KpiCard";
-import { cn, formatCurrency, pluralize } from "@/lib/utils";
+import { cn, formatCurrency, pluralize, formatDate } from "@/lib/utils";
 import { listInvoices, listPayments, type Invoice } from "@/lib/api";
 import { invoiceBalance, paymentAppliedToLabel, paymentMethodLabel } from "@/lib/projectMoney";
 import { useRevenueRange } from "@/hooks/use-revenue-range";
@@ -82,7 +82,7 @@ export function RevenueCollectedView() {
                     className={cn(p.project_id && "cursor-pointer")}
                     onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}
                   >
-                    <td className="text-muted-foreground">{p.paid_on}</td>
+                    <td className="text-muted-foreground">{formatDate(p.paid_on)}</td>
                     <td>{p.project?.client?.name ?? p.project?.name ?? "No client"}</td>
                     <td className="text-muted-foreground">{paymentMethodLabel(p.method)}</td>
                     <td className="font-bold text-foreground">{paymentAppliedToLabel(p)}</td>
@@ -144,7 +144,7 @@ export function RevenueCollectedView() {
                     >
                       <td>{clientOf(inv)}</td>
                       <td className="font-bold text-foreground">{inv.invoice_number ?? "—"}</td>
-                      <td className="text-muted-foreground">{inv.due_date?.slice(0, 10) ?? "—"}</td>
+                      <td className="text-muted-foreground">{formatDate(inv.due_date)}</td>
                       <td className="font-bold tabular-nums">{formatCurrency(invoiceBalance(inv))}</td>
                       <td>
                         {late > 0 ? (

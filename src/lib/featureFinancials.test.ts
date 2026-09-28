@@ -159,3 +159,26 @@ describe("planned vs actual per feature", () => {
     expect(rows.reduce((s, r) => s + r.price, 0)).toBe(17000);
   });
 });
+
+describe("planned vs actual while the job is still open", () => {
+  it("unspent plan of any type never reads as profit; overruns still show", () => {
+    const features = [feature("f1", "patio"), feature("f2", "fire")];
+    const sections = [
+      // Patio: $2,000 materials + $1,500 labor planned.
+      { feature_id: "f1", feature: { status: "active" as const }, materials_items: [{ quantity: 1, unit_cost: 2000 }], labor_mode: "lump_sum" as const, labor_lump_sum: 1500 },
+      // Fire pit: a $500 "other" cost planned, nothing spent yet (the kitchen's Quartz case).
+      { feature_id: "f2", feature: { status: "active" as const }, materials_items: [{ quantity: 1, unit_cost: 500, cost_type: "other" as const }] },
+    ];
+    const quotes = [quote([{ feature_id: "f1", price: 8000 }, { feature_id: "f2", price: 3000 }])];
+    const expenseCategories = [{ id: "pavers", cost_type: "material" as const }];
+    // Half the patio materials bought; labor already over plan.
+    const expenses = [{ amount: 1000, expense_category_id: "pavers", feature_id: "f1", cost_type: null, expense_lines: [] }];
+    const laborEntries = [{ cost: 1800, feature_id: "f1" }];
+    const rows = featureReports({ features, categories: cats, sections, quotes, changeOrders: [], expenses, expenseCategories, laborEntries, materialPending: true });
+    const [patio, fire] = rows;
+    expect(patio.actual).toMatchObject({ material: 2000, labor: 1800, total: 3800 }); // materials carried at plan, labor overrun shows
+    expect(patio.varianceCost).toBe(300);
+    expect(fire.actual.total).toBe(500); // not "$500 under plan"
+    expect(fire.varianceCost).toBe(0);
+  });
+});
