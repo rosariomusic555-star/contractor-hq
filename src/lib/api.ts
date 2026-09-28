@@ -5008,7 +5008,12 @@ export async function createEmployeeAccount(input: {
     error?: string;
     message?: string;
   }>("create-employee", { body: input });
-  if (error) throw error;
+  if (error) {
+    // Non-2xx (e.g. 409 "That email belongs to a client"): the function's JSON is on the response.
+    const ctx = (error as { context?: Response }).context;
+    const body = ctx && typeof ctx.json === "function" ? await ctx.json().catch(() => null) : null;
+    throw new Error(body?.message ?? error.message);
+  }
   if (!data?.ok || !data.employee) throw new Error(data?.message ?? "Couldn't create employee.");
   return data.employee;
 }
