@@ -1348,7 +1348,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const draftFeatureSections = draft.filter((sec) => !sec.is_general);
 
   return (
-    <div className={cn("mx-auto max-w-4xl animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
+    <div className="mx-auto max-w-4xl animate-fade-in space-y-5">
       <BackLink
         to={backHref}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"

@@ -328,7 +328,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
   const pillValue = "min-w-0 flex-1 truncate text-right text-[15px] font-bold text-background";
 
   return (
-    <div className={cn("animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
+    <div className="animate-fade-in space-y-5">
       <MobilePageHeader
         title={number}
         subtitle={`${invoice.project?.name ?? "Standalone"}${clientName ? ` · ${clientName}` : ""}`}

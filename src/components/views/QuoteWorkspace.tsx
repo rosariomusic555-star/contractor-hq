@@ -1186,7 +1186,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const previewLabel = previewMut.isPending ? "Opening…" : "Preview";
 
   return (
-    <div className={cn("animate-fade-in max-w-6xl space-y-5", isDirty && "pb-40 md:pb-28")}>
+    <div className="animate-fade-in max-w-6xl space-y-5">
       <MobilePageHeader
         className="mobile-header-ink"
         title={quote.project?.name ?? "Standalone quote"}

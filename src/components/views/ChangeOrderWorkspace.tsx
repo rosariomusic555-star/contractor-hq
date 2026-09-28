@@ -599,7 +599,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const canSave = draft.title.trim().length > 0 || itemCount > 0;
 
   return (
-    <div className={cn("animate-fade-in max-w-6xl space-y-5", isDirty && "pb-40 md:pb-28")}>
+    <div className="animate-fade-in max-w-6xl space-y-5">
       <MobilePageHeader
         className="mobile-header-ink"
         title={draft.title || "Change order"}
