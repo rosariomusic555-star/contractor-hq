@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
 import { MaterialAlertsBar } from "@/components/materials/MaterialAlertsBar";
 import { markLinesOrdered } from "@/lib/materialAlertActions";
-import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, useLocation, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -183,6 +183,14 @@ export function ProjectDetailView() {
   // (?add-new-work=1).
   const [searchParams, setSearchParams] = useSearchParams();
   const [addWorkOpen, setAddWorkOpen] = useState(false);
+  // …#measure or #measure-<categoryId> (the add-on quote's "1 · Measure it"):
+  // open the Measurements card at that type's card and pulse it.
+  const location = useLocation();
+  const [measureFocus, setMeasureFocus] = useState<{ n: number; categoryId: string | null }>({ n: 0, categoryId: null });
+  useEffect(() => {
+    const m = location.hash.match(/^#measure(?:-(.+))?$/);
+    if (m) setMeasureFocus((f) => ({ n: f.n + 1, categoryId: m[1] ?? null }));
+  }, [location.hash, location.key]);
   useEffect(() => {
     if (searchParams.get("add-new-work")) {
       setAddWorkOpen(true);
@@ -1180,7 +1188,14 @@ export function ProjectDetailView() {
             </div>
           </section>
 
-          <ProjectMeasurementsCard projectId={id} categoryIds={projectCategoryIds(project)} />
+          <div id="measurements" className="scroll-mt-4">
+            <ProjectMeasurementsCard
+              projectId={id}
+              categoryIds={projectCategoryIds(project)}
+              focusRequest={measureFocus.n}
+              focusCategoryId={measureFocus.categoryId}
+            />
+          </div>
 
           {project.client && (
             <section

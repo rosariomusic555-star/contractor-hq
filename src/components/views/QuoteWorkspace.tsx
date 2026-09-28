@@ -1008,6 +1008,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // An add-on's cost is just its own features' sections (proposed until
   // approved, so not in the project total).
   const addonFeatureIds = new Set(pickableFeatures.map((f) => f.id));
+  // The add-on's (first) new feature and its Cost plan section — the step links' targets.
+  const addonFeature = isAddon ? pickableFeatures[0] ?? null : null;
+  const addonSection = addonFeature ? materials.find((m) => m.feature_id === addonFeature.id) ?? null : null;
   const materialsCost = !hasMaterialsSheet
     ? null
     : isAddon
@@ -1266,10 +1269,13 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </p>
           {projectId && (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold">
-              <Link to={`/projects/${projectId}`} className="text-primary hover:underline">
+              {/* Deep links: the project page opens the new feature's
+                  Measurements card and pulses it; the Cost plan scrolls to
+                  and flashes its section. */}
+              <Link to={`/projects/${projectId}#measure${addonFeature?.category_id ? `-${addonFeature.category_id}` : ""}`} className="text-primary hover:underline">
                 1 · Measure it (project page)
               </Link>
-              <Link to={`/projects/${projectId}/materials`} className="text-primary hover:underline">
+              <Link to={`/projects/${projectId}/materials${addonSection ? `#section-${addonSection.id}` : ""}`} className="text-primary hover:underline">
                 2 · Price it in the Cost plan
               </Link>
               <span className="text-muted-foreground">3 · Price each section here and send</span>

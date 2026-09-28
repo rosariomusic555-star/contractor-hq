@@ -77,6 +77,7 @@ export function ProjectMeasurementsCard({
   onSaved,
   hint,
   focusRequest = 0,
+  focusCategoryId = null,
 }: {
   projectId: string | null;
   /** The selected Project types (Job Category ids). */
@@ -89,6 +90,9 @@ export function ProjectMeasurementsCard({
   /** Bump to open the card, scroll to it and focus its first field (the
    * opportunity banner's "Add measurements"). */
   focusRequest?: number;
+  /** With focusRequest: open and pulse this project type's card instead of
+   * the first one (the add-on quote's "1 · Measure it"). */
+  focusCategoryId?: string | null;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -343,20 +347,41 @@ export function ProjectMeasurementsCard({
   });
 
   const sectionRef = useRef<HTMLElement>(null);
+  const handledFocus = useRef(0);
   useEffect(() => {
-    if (!focusRequest) return;
-    collapse.expandAll(["card", ...(groups[0] ? [featureId(groups[0])] : [])]);
-    // After the expand renders.
+    // Wait for the groups to load (a link can land before they do).
+    if (!focusRequest || handledFocus.current === focusRequest || !loaded) return;
+    handledFocus.current = focusRequest;
+    const catName = focusCategoryId ? categories.find((c) => c.id === focusCategoryId)?.name ?? "" : "";
+    const bt = catName ? buildTypeForCategoryName(catName)?.id ?? null : null;
+    const target =
+      (focusCategoryId && groups.find((g) => g.category_id === focusCategoryId || (bt && g.build_type === bt))) || groups[0] || null;
+    collapse.expandAll(["card", ...(target ? [featureId(target)] : [])]);
+    // After the expand renders: scroll to the card (or that type's own card),
+    // pulse an outline, and put the cursor in its first field.
+    const find = () => (target && document.getElementById(`measure-group-${target.key}`)) || sectionRef.current;
     const t = window.setTimeout(() => {
-      const el = sectionRef.current;
+      const el = find();
       if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      const field = el.querySelector<HTMLElement>("#measurements-card-body input, #measurements-card-body button[role=combobox]");
+      el.scrollIntoView({ block: "start" });
+      const pulse = ["ring-2", "ring-primary", "ring-offset-2", "animate-pulse"];
+      el.classList.add(...pulse);
+      window.setTimeout(() => el.classList.remove(...pulse), 2400);
+      const field = el.querySelector<HTMLElement>("input, button[role=combobox]");
       (field ?? el.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
-    }, 60);
-    return () => window.clearTimeout(t);
+    }, 150);
+    // Cards above it load late and push it down — bring its top back into view if so.
+    const again = window.setTimeout(() => {
+      const el = find();
+      const r = el?.getBoundingClientRect();
+      if (el && r && (r.top < 0 || r.top > window.innerHeight / 2)) el.scrollIntoView({ block: "start" });
+    }, 900);
+    return () => {
+      window.clearTimeout(t);
+      window.clearTimeout(again);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusRequest]);
+  }, [focusRequest, loaded]);
 
   // A type just added from the Project types selector opens expanded (and
   // opens the card too) — even a re-added one that still has data.
@@ -420,21 +445,22 @@ export function ProjectMeasurementsCard({
 
         <div className="mt-3 space-y-3">
           {groups.map((g) => (
-            <FeatureCard
-              collapsed={collapse.isCollapsed(featureId(g))}
-              onToggleCollapse={() => collapse.toggle(featureId(g))}
-              key={g.key}
-              group={g}
-              instances={instancesOf(g)}
-              customRows={custom.filter((r) => groupKeyOf(r) === g.key)}
-              defaults={defaults}
-              onInstanceChange={(id, patch) => updateInstance(g, id, patch)}
-              onAddInstance={() => addInstance(g)}
-              onRemoveInstance={(id) => removeInstance(g, id)}
-              onCustomChange={updateCustom}
-              onAddCustom={(patch) => addCustom(g, patch)}
-              onRemoveCustom={removeCustom}
-            />
+            <div key={g.key} id={`measure-group-${g.key}`} className="scroll-mt-4 rounded-card transition-shadow">
+              <FeatureCard
+                collapsed={collapse.isCollapsed(featureId(g))}
+                onToggleCollapse={() => collapse.toggle(featureId(g))}
+                group={g}
+                instances={instancesOf(g)}
+                customRows={custom.filter((r) => groupKeyOf(r) === g.key)}
+                defaults={defaults}
+                onInstanceChange={(id, patch) => updateInstance(g, id, patch)}
+                onAddInstance={() => addInstance(g)}
+                onRemoveInstance={(id) => removeInstance(g, id)}
+                onCustomChange={updateCustom}
+                onAddCustom={(patch) => addCustom(g, patch)}
+                onRemoveCustom={removeCustom}
+              />
+            </div>
           ))}
         </div>
 
