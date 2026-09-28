@@ -15,6 +15,7 @@ import {
   crewFinishUpdate,
   crewPostUpdate,
   getProgressSettings,
+  getCrewMilestones,
   setProgressUpdateShared,
 } from "@/lib/api";
 import { milestonesFor } from "@/lib/progress";
@@ -26,6 +27,8 @@ export interface PostFeature {
   id: string;
   label: string;
   category: string | null;
+  /** This job's own milestones (0138); null = the presets. */
+  milestones?: string[] | null;
 }
 
 /**
@@ -65,6 +68,8 @@ export function PostUpdateSheet({
   const [share, setShare] = useState(mode === "owner");
   const [saving, setSaving] = useState(false);
   const { data: settings } = useQuery({ queryKey: ["progress-settings"], queryFn: getProgressSettings, enabled: open && mode === "owner" });
+  // The crew can't read progress_settings — they get the presets + job lists from one RPC.
+  const { data: crewMilestones } = useQuery({ queryKey: ["crew-milestones", projectId], queryFn: () => getCrewMilestones(projectId), enabled: open && mode === "crew" });
 
   useEffect(() => {
     if (!open) return;
@@ -78,7 +83,11 @@ export function PostUpdateSheet({
   const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
   useEffect(() => () => previews.forEach((u) => URL.revokeObjectURL(u)), [previews]);
   const feature = features.find((f) => f.id === featureId) ?? null;
-  const milestones = feature ? milestonesFor(feature.category, settings?.milestones) : [];
+  const milestones = feature
+    ? mode === "crew"
+      ? milestonesFor(feature.category, crewMilestones?.presets, crewMilestones?.features[feature.id])
+      : milestonesFor(feature.category, settings?.milestones, feature.milestones)
+    : [];
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["progress-updates"] });

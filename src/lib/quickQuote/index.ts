@@ -3,6 +3,7 @@ import { paverPatioQuickQuote } from "./paverPatio";
 import { outdoorKitchenQuickQuote } from "./outdoorKitchen";
 import { seatingWallQuickQuote } from "./seatingWall";
 import { firePitQuickQuote } from "./firePit";
+import { fireplaceQuickQuote } from "./fireplace";
 import { outdoorLightingQuickQuote } from "./outdoorLighting";
 import { irrigationQuickQuote, pergolaQuickQuote, plantsQuickQuote, sodQuickQuote, waterFeatureQuickQuote } from "./landscape";
 import type { QuickQuoteTemplate } from "./types";
@@ -14,6 +15,7 @@ export const QUICK_QUOTE_TEMPLATES: QuickQuoteTemplate[] = [
   outdoorKitchenQuickQuote,
   seatingWallQuickQuote,
   firePitQuickQuote,
+  fireplaceQuickQuote,
   outdoorLightingQuickQuote,
   pergolaQuickQuote,
   waterFeatureQuickQuote,

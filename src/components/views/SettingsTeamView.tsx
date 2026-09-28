@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { ChevronRight, KeyRound, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { BackLink } from "@/components/common/BackLink";
 import { useToast } from "@/hooks/use-toast";
 import { pluralize } from "@/lib/utils";
-import { deleteCrew, listCrews, listProjects, saveCrew, type Crew } from "@/lib/api";
+import { deleteCrew, listCrews, listEmployees, listProjects, saveCrew, type Crew } from "@/lib/api";
 
 /**
  * Settings › Team & crews (0120) — real crews now (this page used to show
@@ -21,6 +21,8 @@ export function SettingsTeamView() {
   const { toast } = useToast();
   const { data: crews = [], isLoading } = useQuery({ queryKey: ["crews"], queryFn: listCrews });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
+  const { data: employees = [] } = useQuery({ queryKey: ["employees"], queryFn: listEmployees });
+  const activeEmployees = employees.filter((e) => e.status === "active").length;
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [name, setName] = useState("");
   const [lead, setLead] = useState("");
@@ -129,13 +131,7 @@ export function SettingsTeamView() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          Deleting a crew leaves its jobs with no crew. Crew logins are in{" "}
-          <Link to="/settings/employees" className="font-semibold text-primary hover:text-primary/80">
-            Manage employees
-          </Link>
-          .
-        </p>
+        <p className="text-xs text-muted-foreground">Deleting a crew leaves its jobs with no crew.</p>
         {editing === null && (
           <Button className="h-11 rounded-xl font-bold" onClick={() => startEdit(null)}>
             <Plus className="mr-1.5 h-4 w-4" />
@@ -143,6 +139,24 @@ export function SettingsTeamView() {
           </Button>
         )}
       </div>
+
+      {/* Employees (their logins, assigned projects, pay) are managed on
+          their own page — crews here are just the groups a job is given. */}
+      <Link
+        to="/settings/employees"
+        className="flex items-center gap-3 rounded-card border border-border bg-card px-5 py-4 shadow-card transition-shadow hover:shadow-card-hover"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-foreground">
+          <KeyRound className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold text-foreground">Employees & crew logins</span>
+          <span className="block text-xs text-muted-foreground">
+            {pluralize(activeEmployees, "active employee")} · add people, set their login, assign projects, pay rates, deactivate
+          </span>
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+      </Link>
     </div>
   );
 }

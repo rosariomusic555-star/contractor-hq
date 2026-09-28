@@ -56,7 +56,7 @@ export const CLIENT_FIELDS = {
   progress: ["updates", "features", "milestone_presets", "before_after", "marketing_ok"],
   progressUpdate: ["id", "date", "text", "milestone", "feature", "photos", "liked", "comments"],
   progressComment: ["author", "name", "body", "created_at"],
-  progressFeature: ["id", "label", "category"],
+  progressFeature: ["id", "label", "category", "milestones"],
   beforeAfter: ["feature", "before", "after"],
   care: ["items", "warranties", "opted_out"],
   careItem: ["label", "description", "as_needed", "next_month", "feature"],
@@ -170,7 +170,11 @@ export function clientSafeProjectDetail(d: PortalProjectDetail): PortalProjectDe
               comments: list((c) => pick(c, CLIENT_FIELDS.progressComment)),
             }),
           ),
-          features: list((f) => pick(f, CLIENT_FIELDS.progressFeature)),
+          features: list((f) =>
+            pick(f, CLIENT_FIELDS.progressFeature, {
+              milestones: (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : null),
+            }),
+          ),
           milestone_presets: (v) =>
             v && typeof v === "object" && !Array.isArray(v)
               ? Object.fromEntries(Object.entries(v as Row).map(([k, x]) => [k, Array.isArray(x) ? x.filter((y) => typeof y === "string") : []]))

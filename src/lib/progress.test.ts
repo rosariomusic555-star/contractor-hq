@@ -41,3 +41,22 @@ describe("feed + prompts", () => {
     expect(shouldPromptClient("daily", null, now)).toBe(true);
   });
 });
+
+describe("per-job milestones (0138)", () => {
+  it("a job's own list wins over the contractor preset and the default", () => {
+    expect(milestonesFor("Fire Pit", { fire_pit: ["Dig", "Build"] }, ["Walls up", "Done"])).toEqual(["Walls up", "Done"]);
+    expect(milestonesFor("Fire Pit", { fire_pit: ["Dig", "Build"] }, null)).toEqual(["Dig", "Build"]);
+    expect(milestonesFor("Fire Pit", {}, [])).toEqual(["Base installed", "Fire pit built", "Cleanup complete"]);
+    expect(milestonesFor("Fireplace")).toEqual(["Footing poured", "Block core & firebox built", "Chimney built", "Veneer & cap installed", "Cleanup complete"]);
+  });
+
+  it("the client tracker follows the job's list", () => {
+    const [t] = milestoneTrackers(
+      [{ id: "f", label: "Fire Pit", category: "Fire Pit", milestones: ["Walls up", "Cap on"] }],
+      [{ feature_id: "f", milestone: "Walls up", date: "2026-10-01" }],
+    );
+    expect(t.steps).toEqual([{ label: "Walls up", done: true }, { label: "Cap on", done: false }]);
+    expect(t.next).toBe("Cap on");
+  });
+});
+

@@ -189,6 +189,7 @@ const LABEL_EXAMPLE: Record<string, string> = {
   seating_wall: "Around the fire pit",
   retaining_wall: "Side wall",
   fire_pit: "Back corner",
+  fireplace: "Patio end",
   outdoor_lighting: "Front beds",
   steps: "Deck steps",
 };

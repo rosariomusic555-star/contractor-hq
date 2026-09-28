@@ -40,3 +40,9 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/weather-forecast/deno.json"
 entrypoint = "./functions/weather-forecast/index.ts"
+
+[functions.send-supplier-email]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-supplier-email/deno.json"
+entrypoint = "./functions/send-supplier-email/index.ts"

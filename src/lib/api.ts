@@ -2354,17 +2354,17 @@ export async function ensureFeatureSections(projectId: string): Promise<number> 
 // ---------------------------------------------------------------------------
 
 export async function listProjectFeatures(projectId: string): Promise<ProjectFeature[]> {
-  const { data, error } = await supabase
-    .from("project_features")
-    .select("id, project_id, category_id, label, status, source_quote_id, sort_order, created_at")
-    .eq("project_id", projectId)
-    .order("sort_order")
-    .order("created_at");
+  const run = (cols: string) =>
+    supabase.from("project_features").select(cols).eq("project_id", projectId).order("sort_order").order("created_at");
+  const base = "id, project_id, category_id, label, status, source_quote_id, sort_order, created_at";
+  let { data, error } = await run(`${base}, milestones`);
+  // before 0138
+  if (error?.code === "42703") ({ data, error } = await run(base));
   if (error) {
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return (data ?? []) as ProjectFeature[];
+  return (data ?? []) as unknown as ProjectFeature[];
 }
 
 export async function createProjectFeature(
@@ -2398,10 +2398,18 @@ export async function createProjectFeature(
 
 export async function updateProjectFeature(
   id: string,
-  patch: Partial<Pick<ProjectFeature, "label" | "status" | "sort_order">>,
+  patch: Partial<Pick<ProjectFeature, "label" | "status" | "sort_order" | "milestones">>,
 ): Promise<void> {
   const { error } = await supabase.from("project_features").update(patch).eq("id", id);
   if (error) throw error;
+}
+
+/** Crew "Post update" milestones (0138): the contractor's presets + this
+ * job's own lists, keyed by feature id. Empty before 0138. */
+export async function getCrewMilestones(projectId: string): Promise<{ presets: Record<string, string[]>; features: Record<string, string[]> }> {
+  const { data, error } = await supabase.rpc("crew_milestones", { p_project_id: projectId });
+  if (error || !data) return { presets: {}, features: {} };
+  return data as { presets: Record<string, string[]>; features: Record<string, string[]> };
 }
 
 /** A new quote's starting sections: one per feature (named after it, tagged
@@ -4721,7 +4729,8 @@ export type ProjectEventKind =
   | "schedule_delay_undone"
   | "client_heads_up"
   | "review_requested"
-  | "review_link_clicked";
+  | "review_link_clicked"
+  | "order_sheet_emailed";
 
 export interface ProjectEvent {
   id: string;
@@ -4962,6 +4971,33 @@ export async function createEmployeeAccount(input: {
   if (error) throw error;
   if (!data?.ok || !data.employee) throw new Error(data?.message ?? "Couldn't create employee.");
   return data.employee;
+}
+
+/**
+ * "Email to supplier" (send-supplier-email Edge Function, Resend): sends
+ * the order sheet PDF as an attachment and logs it on the project. Throws
+ * the function's own message — incl. `code: "not_configured"` before the
+ * Resend secrets are set.
+ */
+export async function emailOrderSheet(input: {
+  projectId: string;
+  to: string;
+  supplierName: string | null;
+  subject: string;
+  message: string;
+  filename: string;
+  pdfBase64: string;
+}): Promise<void> {
+  const { data, error } = await supabase.functions.invoke<{ ok: boolean; error?: string; message?: string }>("send-supplier-email", { body: input });
+  if (error) {
+    // Non-2xx: the function's JSON body is on the response.
+    const ctx = (error as { context?: Response }).context;
+    const body = ctx && typeof ctx.json === "function" ? await ctx.json().catch(() => null) : null;
+    const err = new Error(body?.message ?? (error.message.includes("Failed to send") ? "Couldn't reach the email service — is the send-supplier-email function deployed?" : error.message));
+    (err as Error & { code?: string }).code = body?.error;
+    throw err;
+  }
+  if (!data?.ok) throw new Error(data?.message ?? "The email didn't send.");
 }
 
 /** Deactivating (not deleting) is the primary "remove" action — every
@@ -7565,7 +7601,7 @@ export async function listProjectPrecon(projectId: string, ensure = true): Promi
 
 export async function updatePreconItem(
   id: string,
-  patch: Partial<Pick<PreconItem, "status" | "override" | "note" | "details" | "removed" | "label" | "required">>,
+  patch: Partial<Pick<PreconItem, "status" | "override" | "note" | "details" | "removed" | "label" | "required" | "sort_order">>,
 ): Promise<void> {
   const full = { ...patch, ...(patch.status ? { done_at: patch.status === "done" ? new Date().toISOString() : null } : {}) };
   const { error } = await supabase.from("project_precon_items").update(full).eq("id", id);

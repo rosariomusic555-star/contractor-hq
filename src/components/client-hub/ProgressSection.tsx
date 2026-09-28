@@ -2,11 +2,10 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Check, CloudRain, MessageSquare, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { portalCommentProgress, portalReactProgress, portalSetMarketingOk, type PortalProjectDetail } from "@/lib/portalApi";
+import { portalCommentProgress, portalReactProgress, type PortalProjectDetail } from "@/lib/portalApi";
 import { mergeFeed, milestoneTrackers } from "@/lib/progress";
 import { delayDayLabel } from "@/lib/scheduleShift";
 
@@ -44,7 +43,6 @@ export function ProgressSection({
     qc.invalidateQueries({ queryKey: ["client-view", projectId] });
   };
   const like = useMutation({ mutationFn: ({ id, on }: { id: string; on: boolean }) => portalReactProgress(id, on), onSuccess: refresh });
-  const consent = useMutation({ mutationFn: (ok: boolean) => portalSetMarketingOk(projectId, ok), onSuccess: refresh });
 
   if (!progress || (updates.length === 0 && progress.before_after.length === 0)) return null;
   const trackers = milestoneTrackers(progress.features, updates.map((u) => ({ feature_id: u.feature, milestone: u.milestone, date: u.date })), progress.milestone_presets);
@@ -130,12 +128,6 @@ export function ProgressSection({
         )}
       </ol>
 
-      {interactive && progress.before_after.length > 0 && (
-        <label className="flex items-start gap-2 border-t border-hairline pt-3 text-sm text-foreground">
-          <Checkbox className="mt-0.5" checked={!!progress.marketing_ok} onCheckedChange={(v) => consent.mutate(v === true)} />
-          It's OK to use photos of my project for marketing (no names or address).
-        </label>
-      )}
 
       <Dialog open={!!zoom} onOpenChange={(o) => !o && setZoom(null)}>
         <DialogContent className="max-w-3xl p-2">{zoom && <img src={zoom} alt="" className="max-h-[85vh] w-full object-contain" />}</DialogContent>

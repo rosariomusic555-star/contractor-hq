@@ -27,6 +27,7 @@ export const BUILD_TYPES: BuildType[] = [
   { id: "outdoor_kitchen", label: "Outdoor Kitchen" },
   { id: "seating_wall", label: "Seating Wall" },
   { id: "fire_pit", label: "Fire Pit" },
+  { id: "fireplace", label: "Fireplace" },
   { id: "outdoor_lighting", label: "Outdoor Lighting" },
   { id: "walkway", label: "Walkway" },
   { id: "driveway", label: "Driveway" },
@@ -41,14 +42,15 @@ export const BUILD_TYPES: BuildType[] = [
 ];
 
 /** The project types (Job Categories) a new account starts with — must match
- * seed_default_categories() (migration 0134). "Reset to default" re-adds any
+ * seed_default_categories() (migration 0136). "Reset to default" re-adds any
  * of these that are missing; it never deletes the contractor's own. */
 export const DEFAULT_PROJECT_TYPES = [
   "Paver Patio",
   "Outdoor Kitchen",
   "Seating Wall",
   "Retaining Wall",
-  "Fire Pit / Fireplace",
+  "Fire Pit",
+  "Fireplace",
   "Walkway",
   "Driveway",
   "Outdoor Lighting",

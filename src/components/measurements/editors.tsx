@@ -18,6 +18,7 @@ import {
   type FeatureData,
   type FeatureKind,
   type FirePitData,
+  type FireplaceData,
   type FixtureType,
   type KitchenData,
   type LightingData,
@@ -78,6 +79,8 @@ export function FeatureEditor({
       return <RetainingWallEditor data={data as RetainingWallData} {...props} />;
     case "fire_pit":
       return <FirePitEditor data={data as FirePitData} {...props} defaultHeightIn={defaults.firePitHeightIn} />;
+    case "fireplace":
+      return <FireplaceEditor data={data as FireplaceData} {...props} />;
     case "lighting":
       return <LightingEditor data={data as LightingData} {...props} />;
     case "steps":
@@ -540,6 +543,39 @@ function FirePitEditor({ data, onChange, idPrefix, defaultHeightIn }: EditorProp
             : data.shape === "rect" && t.perimeter_ft
               ? `${fmt(data.length_ft)} × ${fmt(data.width_ft)} → ${fmt(t.perimeter_ft)} LF around · ${fmt(t.footprint_sqft)} sq ft footprint`
               : `≈ ${fmt(t.footprint_sqft)} sq ft footprint`}
+        </Computed>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fireplace
+// ---------------------------------------------------------------------------
+
+function FireplaceEditor({ data, onChange, idPrefix }: EditorProps<FireplaceData>) {
+  const set = (patch: Partial<FireplaceData>) => onChange({ ...data, ...patch });
+  const t = computeTotals("fireplace", data);
+  return (
+    <div className="space-y-3">
+      <RectDiagram length={data.width_ft} width={data.depth_ft} idPrefix={idPrefix} />
+      <div className="flex flex-wrap items-end gap-3">
+        <NumField id={`${idPrefix}-w`} label="Width" suffix="ft" value={data.width_ft} onChange={(width_ft) => set({ width_ft })} />
+        <NumField id={`${idPrefix}-d`} label="Depth" suffix="ft" value={data.depth_ft} onChange={(depth_ft) => set({ depth_ft })} />
+        <NumField id={`${idPrefix}-h`} label="Overall height" suffix="ft" value={data.height_ft} onChange={(height_ft) => set({ height_ft })} />
+      </div>
+      <Segmented
+        ariaLabel="Veneered sides"
+        value={data.veneer_sides}
+        options={[
+          { value: "four", label: "Freestanding (4 sides)" },
+          { value: "three", label: "Against a wall (3 sides)" },
+        ]}
+        onChange={(veneer_sides) => set({ veneer_sides })}
+      />
+      {(t.footprint_sqft ?? 0) > 0 && (
+        <Computed>
+          {fmt(t.footprint_sqft)} sq ft footprint{t.wall_sqft ? ` · ${fmt(t.wall_sqft)} sq ft of veneer` : ""}
         </Computed>
       )}
     </div>

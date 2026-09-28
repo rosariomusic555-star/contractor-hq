@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, Check, EyeOff, MessageSquare, Share2, ThumbsUp, Trash2 } from "lucide-react";
+import { Camera, Check, ListOrdered, EyeOff, MessageSquare, Share2, ThumbsUp, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -20,8 +19,6 @@ import {
   logActivity,
   markProgressPrompted,
   replyToProgressComment,
-  setClientMarketingOk,
-  getClientMarketingOk,
   setPhotoBeforeAfter,
   setProgressUpdateShared,
   updateProgressNote,
@@ -32,6 +29,7 @@ import { PROGRESS_MESSAGE, shouldPromptClient } from "@/lib/progress";
 import { clientHubLink, fillTemplate, firstName } from "@/lib/messageTemplates";
 import { ClientMessageComposer } from "@/components/messaging/ClientMessageComposer";
 import { PostUpdateSheet, type PostFeature } from "./PostUpdateSheet";
+import { MilestonesDialog } from "./MilestonesDialog";
 
 const STATUS: Record<ProgressUpdate["status"], { label: string; tone: string }> = {
   shared: { label: "Shared", tone: "bg-success/10 text-success" },
@@ -49,6 +47,7 @@ export function ProgressUpdatesCard({ project }: { project: Project }) {
   const { toast } = useToast();
   const [posting, setPosting] = useState(false);
   const [letKnow, setLetKnow] = useState(false);
+  const [editingMilestones, setEditingMilestones] = useState(false);
   const { data: updates = [] } = useQuery({ queryKey: ["progress-updates", project.id], queryFn: () => listProgressUpdates(project.id) });
   const { data: projectFeatures = [] } = useQuery({ queryKey: ["project-features", project.id], queryFn: () => listProjectFeatures(project.id) });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
@@ -57,7 +56,7 @@ export function ProgressUpdatesCard({ project }: { project: Project }) {
     .filter((f) => f.status === "active")
     .map((f) => {
       const cat = categories.find((c) => c.id === f.category_id)?.name ?? null;
-      return { id: f.id, label: f.label || cat || "Feature", category: cat };
+      return { id: f.id, label: f.label || cat || "Feature", category: cat, milestones: f.milestones ?? null };
     });
 
   const paths = useMemo(() => updates.flatMap((u) => (u.photos ?? []).map((p) => p.storage_path)), [updates]);
@@ -85,9 +84,14 @@ export function ProgressUpdatesCard({ project }: { project: Project }) {
     <section className="card-surface space-y-4 p-5">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-base font-bold text-foreground">Progress updates</h3>
-        <Button size="sm" className="h-9 font-bold" onClick={() => setPosting(true)}>
-          <Camera className="mr-1.5 h-4 w-4" /> Post update
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" className="h-9" onClick={() => setEditingMilestones(true)} disabled={features.length === 0}>
+            <ListOrdered className="mr-1.5 h-4 w-4" /> Milestones
+          </Button>
+          <Button size="sm" className="h-9 font-bold" onClick={() => setPosting(true)}>
+            <Camera className="mr-1.5 h-4 w-4" /> Post update
+          </Button>
+        </div>
       </div>
 
       {pending.length > 0 && (
@@ -122,6 +126,7 @@ export function ProgressUpdatesCard({ project }: { project: Project }) {
 
       <PostUpdateSheet open={posting} onOpenChange={setPosting} projectId={project.id} features={features} mode="owner" onShared={afterShare} />
       <LetClientKnowDialog open={letKnow} onOpenChange={setLetKnow} project={project} />
+      <MilestonesDialog open={editingMilestones} onOpenChange={setEditingMilestones} projectId={project.id} features={features} presets={settings?.milestones} />
     </section>
   );
 }
@@ -286,16 +291,6 @@ function BeforeAfter({ project, features }: { project: Project; features: PostFe
     onSuccess: () => toast({ title: "Saved to portfolio" }),
     onError: (err: Error) => toast({ title: "Couldn't save", description: err.message, variant: "destructive" }),
   });
-  const client = (project as Project & { client?: { name: string } | null }).client;
-  const { data: marketingOk } = useQuery({
-    queryKey: ["client-marketing-ok", project.client_id],
-    queryFn: () => getClientMarketingOk(project.client_id as string),
-    enabled: open && !!project.client_id,
-  });
-  const marketing = useMutation({
-    mutationFn: (ok: boolean) => setClientMarketingOk(project.client_id as string, ok),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["client-marketing-ok", project.client_id] }),
-  });
 
   return (
     <div className="border-t border-hairline pt-3">
@@ -338,12 +333,6 @@ function BeforeAfter({ project, features }: { project: Project; features: PostFe
               </div>
             ))}
           </div>
-          {project.client_id && (
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <Checkbox checked={!!marketingOk} onCheckedChange={(v) => marketing.mutate(v === true)} />
-              {client?.name ?? "Client"} said it's OK to use these photos for marketing
-            </label>
-          )}
           <Button size="sm" variant="outline" disabled={!before || !after || save.isPending} onClick={() => save.mutate()}>
             Save pair to portfolio
           </Button>

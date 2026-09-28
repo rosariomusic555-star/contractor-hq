@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FileDown } from "lucide-react";
+import { Check, FileDown, Mail } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +30,9 @@ import {
   UNCATEGORIZED_LABEL,
   type ResolvedOrderLine,
 } from "@/lib/orderSheet";
-import { downloadOrderSheetPdf } from "@/lib/orderSheetPdf";
+import { downloadOrderSheetPdf, orderSheetPdfForEmail } from "@/lib/orderSheetPdf";
+import { defaultOrderEmail } from "@/lib/orderSheetEmail";
+import { EmailOrderSheetStep, type OrderSheetPdf } from "./EmailOrderSheetStep";
 import { materialLineLabel } from "@/lib/materialsMath";
 
 interface OrderSheetDialogProps {
@@ -72,7 +74,11 @@ export function OrderSheetDialog({
   const qc = useQueryClient();
   const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
 
-  const [step, setStep] = useState<"select" | "confirmOrdered">("select");
+  const [step, setStep] = useState<"select" | "email" | "confirmOrdered">("select");
+  // "Email to supplier": the built PDF (preview blob URL + base64), and who it went to.
+  const [emailPdf, setEmailPdf] = useState<OrderSheetPdf | null>(null);
+  const [emailDefaults, setEmailDefaults] = useState<{ subject: string; message: string } | null>(null);
+  const [emailedTo, setEmailedTo] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [jobName, setJobName] = useState(projectName);
   const [address, setAddress] = useState(deliveryAddress ?? "");
@@ -132,6 +138,10 @@ export function OrderSheetDialog({
     setDateNeeded("");
     setNotes("");
     setPendingLines([]);
+    if (emailPdf) URL.revokeObjectURL(emailPdf.url);
+    setEmailPdf(null);
+    setEmailDefaults(null);
+    setEmailedTo(null);
   };
 
   const close = () => {
@@ -161,23 +171,21 @@ export function OrderSheetDialog({
     });
   };
 
+  const selectedLines = () =>
+    flatItems.filter((f) => selectedIds.has(f.item.id)).map((f) => resolveOrderLine(f.item, catalogById, priceBookById, materialCategoryNameById));
+  const sheetHeader = () => ({
+    companyName: businessProfile?.company_name ?? null,
+    projectName: jobName.trim() || projectName,
+    deliveryAddress: address.trim() || null,
+    supplier: supplier.trim() || null,
+    dateNeeded: dateNeeded || null,
+    notes: notes.trim() || null,
+  });
+
   const generateMut = useMutation({
     mutationFn: async () => {
-      const lines = flatItems
-        .filter((f) => selectedIds.has(f.item.id))
-        .map((f) => resolveOrderLine(f.item, catalogById, priceBookById, materialCategoryNameById));
-      const groups = groupByCategory(combineOrderLines(lines));
-      downloadOrderSheetPdf(
-        {
-          companyName: businessProfile?.company_name ?? null,
-          projectName: jobName.trim() || projectName,
-          deliveryAddress: address.trim() || null,
-          supplier: supplier.trim() || null,
-          dateNeeded: dateNeeded || null,
-          notes: notes.trim() || null,
-        },
-        groups,
-      );
+      const lines = selectedLines();
+      downloadOrderSheetPdf(sheetHeader(), groupByCategory(combineOrderLines(lines)));
       return lines;
     },
     onSuccess: (lines) => {
@@ -186,6 +194,23 @@ export function OrderSheetDialog({
     },
     onError: (err: Error) => toast({ title: "Couldn't generate the order sheet", description: err.message, variant: "destructive" }),
   });
+
+  // Same PDF, previewed and emailed instead of downloaded.
+  const startEmail = () => {
+    try {
+      const lines = selectedLines();
+      const built = orderSheetPdfForEmail(sheetHeader(), groupByCategory(combineOrderLines(lines)));
+      if (emailPdf) URL.revokeObjectURL(emailPdf.url);
+      setEmailPdf({ filename: built.filename, base64: built.base64, url: URL.createObjectURL(built.blob) });
+      setEmailDefaults(
+        defaultOrderEmail({ supplier, jobName: jobName.trim() || projectName, company: businessProfile?.company_name ?? null, dateNeeded, address }),
+      );
+      setPendingLines(lines);
+      setStep("email");
+    } catch (err) {
+      toast({ title: "Couldn't build the order sheet", description: (err as Error).message, variant: "destructive" });
+    }
+  };
 
   const markOrderedMut = useMutation({
     mutationFn: () =>
@@ -213,7 +238,7 @@ export function OrderSheetDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
-      <DialogContent className="flex max-h-[85vh] max-w-lg flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className={cn("flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0", step === "email" ? "max-w-2xl" : "max-w-lg")}>
         {step === "select" ? (
           <>
             <DialogHeader className="border-b border-hairline px-5 py-4">
@@ -301,20 +326,39 @@ export function OrderSheetDialog({
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-hairline px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline px-5 py-4">
               <span className="text-xs text-muted-foreground">
                 {selectedIds.size > 0 ? pluralize(selectedIds.size, "item") + " selected" : "Nothing selected yet"}
               </span>
-              <Button
-                onClick={() => generateMut.mutate()}
-                disabled={selectedIds.size === 0 || generateMut.isPending}
-                className="font-bold"
-              >
-                <FileDown className="mr-1.5 h-4 w-4" />
-                {generateMut.isPending ? "Generating…" : "Generate"}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={startEmail} disabled={selectedIds.size === 0 || generateMut.isPending}>
+                  <Mail className="mr-1.5 h-4 w-4" />
+                  Email to supplier
+                </Button>
+                <Button
+                  onClick={() => generateMut.mutate()}
+                  disabled={selectedIds.size === 0 || generateMut.isPending}
+                  className="font-bold"
+                >
+                  <FileDown className="mr-1.5 h-4 w-4" />
+                  {generateMut.isPending ? "Generating…" : "Generate"}
+                </Button>
+              </div>
             </div>
           </>
+        ) : step === "email" && emailPdf && emailDefaults ? (
+          <EmailOrderSheetStep
+            projectId={projectId}
+            pdf={emailPdf}
+            supplier={supplier}
+            onSupplierChange={setSupplier}
+            defaults={emailDefaults}
+            onBack={() => setStep("select")}
+            onSent={(to) => {
+              setEmailedTo(to);
+              setStep("confirmOrdered");
+            }}
+          />
         ) : (
           <>
             <DialogHeader className="px-5 pt-5">
@@ -322,7 +366,7 @@ export function OrderSheetDialog({
             </DialogHeader>
             <div className="space-y-3 px-5 py-4">
               <p className="text-sm text-muted-foreground">
-                The order sheet downloaded. Marking these {pluralize(pendingLines.length, "item")} as ordered
+                {emailedTo ? `The order sheet was emailed to ${emailedTo}.` : "The order sheet downloaded."} Marking these {pluralize(pendingLines.length, "item")} as ordered
                 {supplier.trim() ? ` creates a pending delivery from ${supplier.trim()}` : " logs them as ordered"} and
                 updates the Material Tracker.
               </p>

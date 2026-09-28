@@ -31,8 +31,9 @@ import { BUILD_TYPES, type BuildType } from "./buildTypes";
 // ---------------------------------------------------------------------------
 
 /** Extra category names (beyond the build type's own label) that map to it.
- * Matching is case/punctuation-insensitive — "Fire Pit / Fireplace" and
- * "fire-pit" both hit fire_pit. */
+ * Matching is case/punctuation-insensitive — "Fire Pit" and "fire-pit" both
+ * hit fire_pit. The old combined "Fire Pit / Fireplace" name (renamed to
+ * Fire Pit by 0136) still maps to fire_pit. */
 export const BUILD_TYPE_ALIASES: Record<string, string[]> = {
   paver_patio: ["Patio", "Pavers", "Paver"],
   walkway: ["Walkways", "Path", "Pathway", "Sidewalk"],
@@ -40,7 +41,8 @@ export const BUILD_TYPE_ALIASES: Record<string, string[]> = {
   retaining_wall: ["Retaining Walls"],
   seating_wall: ["Seat Wall", "Seat Walls", "Seating Walls"],
   outdoor_kitchen: ["Kitchen", "BBQ Island", "Grill Island"],
-  fire_pit: ["Fire Pit / Fireplace", "Firepit", "Fireplace", "Fire Feature"],
+  fire_pit: ["Fire Pit / Fireplace", "Firepit", "Fire Feature", "Fire Pits"],
+  fireplace: ["Outdoor Fireplace", "Fireplaces", "Outdoor Fireplaces"],
   steps: ["Stairs", "Step"],
   pillars: ["Pillars", "Columns", "Pillar", "Column", "Pillars/Columns"],
   outdoor_lighting: ["Lighting", "Landscape Lighting"],
@@ -220,6 +222,18 @@ export interface FirePitData {
   height_in: Num;
 }
 
+/** Outdoor fireplace: a freestanding box — footprint, overall height. */
+export interface FireplaceData {
+  width_ft: Num;
+  depth_ft: Num;
+  /** Overall height to the top of the chimney/cap. */
+  height_ft: Num;
+  /** Faces clad in veneer — freestanding shows all 4, one against a wall
+   * or seat wall shows 3 (the back isn't clad). A string so a blank row
+   * doesn't count as measured (instanceHasData). */
+  veneer_sides: "four" | "three";
+}
+
 export type FixtureType = "path" | "uplight" | "hardscape" | "step" | "strip" | "other";
 /** `qty` is a count — except a Strip lighting row, where it's linear feet. */
 export interface FixtureRow { id: string; type: FixtureType; name: string; qty: Num }
@@ -238,6 +252,7 @@ export type FeatureKind =
   | "seating_wall"
   | "retaining_wall"
   | "fire_pit"
+  | "fireplace"
   | "lighting"
   | "steps";
 
@@ -248,6 +263,7 @@ export interface FeatureDataByKind {
   seating_wall: SeatingWallData;
   retaining_wall: RetainingWallData;
   fire_pit: FirePitData;
+  fireplace: FireplaceData;
   lighting: LightingData;
   steps: StepsData;
 }
@@ -263,6 +279,7 @@ export const FEATURE_KIND: Record<string, FeatureKind> = {
   seating_wall: "seating_wall",
   retaining_wall: "retaining_wall",
   fire_pit: "fire_pit",
+  fireplace: "fireplace",
   outdoor_lighting: "lighting",
   steps: "steps",
   // Area card (L×W / L-shape / irregular → sq ft): footprint / coverage.
@@ -284,6 +301,7 @@ export const INSTANCE_NOUN: Record<string, string> = {
   seating_wall: "seating wall",
   retaining_wall: "retaining wall",
   fire_pit: "fire pit",
+  fireplace: "fireplace",
   outdoor_lighting: "lighting area",
   steps: "set of steps",
   pergola: "pergola",
@@ -346,6 +364,7 @@ export function blankData<K extends FeatureKind>(kind: K): FeatureDataByKind[K] 
       approx_sqft: null,
       height_in: null,
     }),
+    fireplace: () => ({ width_ft: null, depth_ft: null, height_ft: null, veneer_sides: "four" }),
     lighting: () => ({ fixtures: [{ id: newId(), type: "path", name: "", qty: null }] }),
     steps: () => ({ sections: [{ id: newId(), label: "", step_count: null, width_ft: null }] }),
   };
@@ -607,6 +626,20 @@ export function computeTotals(kind: FeatureKind, data: FeatureData, defaults: Me
       }
       return clean({ footprint_sqft: n(d.approx_sqft), height_in: height });
     }
+    case "fireplace": {
+      const d = data as FireplaceData;
+      const w = n(d.width_ft);
+      const dp = n(d.depth_ft);
+      const h = n(d.height_ft);
+      // Veneer: front + back + two sides, or without the back.
+      const veneerRun = d.veneer_sides === "three" ? w + 2 * dp : 2 * (w + dp);
+      return clean({
+        footprint_sqft: w * dp,
+        perimeter_ft: has(d.width_ft) && has(d.depth_ft) ? 2 * (w + dp) : 0,
+        height_in: h * 12,
+        wall_sqft: w && dp && h ? veneerRun * h : 0,
+      });
+    }
     case "lighting": {
       const rows = (data as LightingData).fixtures;
       return clean({
@@ -684,6 +717,10 @@ export function totalsHeadline(kind: FeatureKind, t: FeatureTotals): string | nu
       break;
     case "fire_pit":
       if (t.footprint_sqft) parts.push(`${fmt(t.footprint_sqft)} sq ft footprint`);
+      break;
+    case "fireplace":
+      if (t.footprint_sqft) parts.push(`${fmt(t.footprint_sqft)} sq ft footprint`);
+      if (t.height_in) parts.push(`${fmt(t.height_in / 12)} ft tall`);
       break;
     case "lighting":
       if (t.fixture_count) parts.push(`${fmt(t.fixture_count)} ${t.fixture_count === 1 ? "fixture" : "fixtures"}`);
@@ -923,6 +960,13 @@ export function smartSectionPrefill(
         ...(t.perimeter_ft ? { wall_length_ft: t.perimeter_ft } : {}),
         ...(t.footprint_sqft ? { footprint_sqft: t.footprint_sqft } : {}),
       };
+    case "fireplace":
+      return {
+        ...(t.footprint_sqft ? { footprint_sqft: t.footprint_sqft } : {}),
+        ...(t.perimeter_ft ? { perimeter_ft: t.perimeter_ft } : {}),
+        ...(t.height_in ? { height_ft: Math.round((t.height_in / 12) * 100) / 100 } : {}),
+        ...(t.wall_sqft ? { veneer_sqft: t.wall_sqft } : {}),
+      };
     case "outdoor_lighting":
       return {
         ...(t.fixture_count ? { fixture_count: t.fixture_count } : {}),
@@ -948,6 +992,8 @@ export function quickQuotePrefill(buildType: string, t: FeatureTotals): Record<s
       return t.linear_ft ? { length_ft: t.linear_ft } : {};
     case "fire_pit":
       return t.perimeter_ft ? { wall_length_ft: t.perimeter_ft } : {};
+    case "fireplace":
+      return t.footprint_sqft ? { fireplace_count: 1 } : {};
     case "outdoor_lighting":
       return t.fixture_count ? { fixture_count: t.fixture_count } : {};
     case "pergola":
@@ -999,6 +1045,11 @@ function instanceSummary(kind: FeatureKind, buildType: string | null, data: Feat
       if (d.shape === "round" && t.perimeter_ft) return `Round · ${fmt(d.diameter_ft)} ft across · ${fmt(t.perimeter_ft)} LF around`;
       if (d.shape === "rect" && t.perimeter_ft) return `${fmt(d.length_ft)} × ${fmt(d.width_ft)} ft · ${fmt(t.perimeter_ft)} LF around`;
       return `Custom · ≈ ${fmt(t.footprint_sqft)} sq ft`;
+    }
+    case "fireplace": {
+      const d = data as FireplaceData;
+      if (d.width_ft && d.depth_ft && d.height_ft) return `${fmt(d.width_ft)} × ${fmt(d.depth_ft)} ft · ${fmt(d.height_ft)} ft tall`;
+      return headline;
     }
     case "steps": {
       const sections = (data as StepsData).sections.filter((x) => (x.step_count ?? 0) > 0).length;

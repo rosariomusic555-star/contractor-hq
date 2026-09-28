@@ -47,7 +47,6 @@ export function PortfolioView() {
         {items.map((i) => {
           const b = i.before?.original_path ?? i.before?.storage_path;
           const a = i.after?.original_path ?? i.after?.storage_path;
-          const ok = i.project?.client?.marketing_ok;
           return (
             <div key={i.id} className="card-surface space-y-2 p-3">
               <div className="grid grid-cols-2 gap-1">
@@ -59,9 +58,6 @@ export function PortfolioView() {
                 ))}
               </div>
               <p className="text-sm font-semibold text-foreground">{i.title ?? i.project?.name}</p>
-              <p className={ok ? "text-xs font-semibold text-success" : "text-xs font-semibold text-warning"}>
-                {ok ? "Client OK'd marketing use" : "No marketing OK from the client yet"}
-              </p>
               <div className="flex gap-2">
                 <Button
                   size="sm"

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCheck, MinusCircle, Plus } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCheck, MinusCircle, MoreHorizontal, Plus, X } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { addProjectPreconItem, createStartConfirmation, getProject } from "@/lib/api";
+import { addProjectPreconItem, createStartConfirmation, getProject, updatePreconItem } from "@/lib/api";
 import { preconPhase, type ItemView, type PreconAction } from "@/lib/precon";
 import { useHeadsUp } from "@/components/schedule/rainDelayContext";
 import { usePreconBundle } from "./usePrecon";
@@ -40,6 +41,8 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
   const [expanded, setExpanded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
+  // "Edit this job's checklist": a local draft (rename / reorder / remove), saved together.
+  const [listDraft, setListDraft] = useState<{ id: string; label: string; removed: boolean }[] | null>(null);
 
   const add = useMutation({
     mutationFn: () => addProjectPreconItem(projectId, newLabel, true),
@@ -49,6 +52,39 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
       qc.invalidateQueries({ queryKey: ["precon", projectId] });
     },
     onError: (err: Error) => toast({ title: "Couldn't add", description: err.message, variant: "destructive" }),
+  });
+
+  // Confirmed with the client outside the app (a call, on site) — no message sent.
+  const markConfirmed = useMutation({
+    mutationFn: (itemId: string) => updatePreconItem(itemId, { override: true, status: "done", note: null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["precon", projectId] });
+      toast({ title: "Start date marked as confirmed" });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't save", description: err.message, variant: "destructive" }),
+  });
+
+  const saveList = useMutation({
+    mutationFn: async (draft: { id: string; label: string; removed: boolean }[]) => {
+      const byId = new Map(b!.readiness.views.map((v) => [v.item.id, v.item]));
+      let i = 0;
+      for (const d of draft) {
+        const it = byId.get(d.id);
+        if (!it) continue;
+        if (d.removed) {
+          await updatePreconItem(d.id, { removed: true });
+          continue;
+        }
+        const order = ++i * 10;
+        const label = d.label.trim() || it.label;
+        if (label !== it.label || order !== it.sort_order) await updatePreconItem(d.id, { label, sort_order: order });
+      }
+    },
+    onSuccess: () => {
+      setListDraft(null);
+      qc.invalidateQueries({ queryKey: ["precon", projectId] });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't save the checklist", description: err.message, variant: "destructive" }),
   });
 
   if (!b) return null;
@@ -95,11 +131,26 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
         <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
           <ClipboardCheck className="h-4 w-4 text-muted-foreground" /> Pre-construction
         </h3>
-        {phase === "before" && (
-          <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-bold", READINESS_TONE[r.status])}>
-            {r.status === "open" ? `${r.openRequired.length} item${r.openRequired.length === 1 ? "" : "s"} open` : READINESS_LABEL[r.status]}
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {phase === "before" && (
+            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-bold", READINESS_TONE[r.status])}>
+              {r.status === "open" ? `${r.openRequired.length} item${r.openRequired.length === 1 ? "" : "s"} open` : READINESS_LABEL[r.status]}
+            </span>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Checklist options">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => setListDraft(r.views.map((v) => ({ id: v.item.id, label: v.item.label, removed: false })))}>
+                Edit this job's checklist
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => navigate("/settings/precon")}>Edit default checklist</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {phase === "started" ? (
@@ -128,7 +179,65 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
         </div>
       )}
 
-      {!collapsed && (
+      {listDraft && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Only this job — the default list for new jobs is in Settings › Pre-construction.
+          </p>
+          <ul className="space-y-1.5">
+            {listDraft
+              .filter((d) => !d.removed)
+              .map((d, i, visible) => {
+                const move = (dir: -1 | 1) =>
+                  setListDraft((cur) => {
+                    if (!cur) return cur;
+                    const other = visible[i + dir];
+                    if (!other) return cur;
+                    const next = [...cur];
+                    const a = next.findIndex((x) => x.id === d.id);
+                    const bIdx = next.findIndex((x) => x.id === other.id);
+                    [next[a], next[bIdx]] = [next[bIdx], next[a]];
+                    return next;
+                  });
+                return (
+                  <li key={d.id} className="flex items-center gap-1">
+                    <Input
+                      value={d.label}
+                      aria-label={`Rename ${d.label}`}
+                      onChange={(e) => setListDraft((cur) => cur && cur.map((x) => (x.id === d.id ? { ...x, label: e.target.value } : x)))}
+                      className="h-10 min-w-0 flex-1"
+                    />
+                    <Button size="icon" variant="ghost" className="h-10 w-9" aria-label="Move up" disabled={i === 0} onClick={() => move(-1)}>
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-10 w-9" aria-label="Move down" disabled={i === visible.length - 1} onClick={() => move(1)}>
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-10 w-9 text-destructive"
+                      aria-label={`Remove ${d.label} from this job`}
+                      onClick={() => setListDraft((cur) => cur && cur.map((x) => (x.id === d.id ? { ...x, removed: true } : x)))}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </li>
+                );
+              })}
+          </ul>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setListDraft(null)} disabled={saveList.isPending}>
+              Cancel
+            </Button>
+            <Button size="sm" className="font-bold" onClick={() => saveList.mutate(listDraft)} disabled={saveList.isPending}>
+              {saveList.isPending ? "Saving…" : "Save checklist"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!collapsed && !listDraft && (
         <ul className="mt-3 divide-y divide-hairline">
           {r.views.map((v) => {
             const Icon = v.state === "done" ? CheckCircle2 : v.state === "na" ? MinusCircle : v.warnings.length ? AlertTriangle : Circle;
@@ -156,6 +265,18 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
                     {ACTION_LABEL[v.action]}
                   </Button>
                 )}
+                {v.state === "open" && v.item.kind === "start_confirmed" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-9 shrink-0 px-2.5 text-xs"
+                    disabled={markConfirmed.isPending}
+                    title="You confirmed it with the client yourself — nothing is sent"
+                    onClick={() => markConfirmed.mutate(v.item.id)}
+                  >
+                    Mark confirmed
+                  </Button>
+                )}
                 {v.state === "open" && v.item.kind === "locate" && !ticket && (
                   <Button size="sm" variant="outline" className="mt-2 h-9 shrink-0 px-2.5 text-xs" onClick={() => setEditing(v)}>
                     Add 811 ticket
@@ -168,6 +289,7 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
       )}
 
       {!collapsed &&
+        !listDraft &&
         (adding ? (
           <div className="mt-2 flex gap-2">
             <Input autoFocus value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="e.g. Dumpster ordered" className="h-10" />

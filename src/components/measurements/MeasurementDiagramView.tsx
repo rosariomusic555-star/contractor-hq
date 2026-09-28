@@ -40,6 +40,9 @@ export function MeasurementDiagramView({ buildType, data, idPrefix }: { buildTyp
     const f = d as FeatureDataByKind["fire_pit"];
     if (f.shape === "round") diagram = <CircleDiagram diameter={f.diameter_ft} idPrefix={idPrefix} />;
     else if (f.shape === "rect") diagram = <RectDiagram length={f.length_ft} width={f.width_ft} idPrefix={idPrefix} />;
+  } else if (kind === "fireplace") {
+    const f = d as FeatureDataByKind["fireplace"];
+    diagram = <RectDiagram length={f.width_ft} width={f.depth_ft} idPrefix={idPrefix} />;
   }
 
   if (!diagram && !headline) return null;

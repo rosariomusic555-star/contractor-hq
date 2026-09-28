@@ -15,6 +15,7 @@ export const DEFAULT_MILESTONES: Record<string, string[]> = {
   retaining_wall: ["Excavation done", "Base & drainage installed", "Walls built", "Caps installed", "Cleanup complete"],
   outdoor_kitchen: ["Base installed", "Structure built", "Counters installed", "Appliances in", "Cleanup complete"],
   fire_pit: ["Base installed", "Fire pit built", "Cleanup complete"],
+  fireplace: ["Footing poured", "Block core & firebox built", "Chimney built", "Veneer & cap installed", "Cleanup complete"],
   outdoor_lighting: ["Wiring run", "Fixtures installed", "Tested & timer set"],
   steps: ["Excavation done", "Base installed", "Steps built", "Cleanup complete"],
 };
@@ -28,12 +29,19 @@ export const MILESTONE_BUILD_TYPES: { key: string; label: string }[] = [
   { key: "retaining_wall", label: "Retaining Wall" },
   { key: "outdoor_kitchen", label: "Outdoor Kitchen" },
   { key: "fire_pit", label: "Fire Pit" },
+  { key: "fireplace", label: "Fireplace" },
   { key: "outdoor_lighting", label: "Outdoor Lighting" },
   { key: "steps", label: "Steps" },
 ];
 
-/** The milestone list for a feature — the contractor's override, else the default. */
-export function milestonesFor(categoryName: string | null | undefined, overrides: Record<string, string[]> = {}): string[] {
+/** The milestone list for a feature — this job's own list (0138), else the
+ * contractor's preset for its type, else the app default. */
+export function milestonesFor(
+  categoryName: string | null | undefined,
+  overrides: Record<string, string[]> = {},
+  own?: string[] | null,
+): string[] {
+  if (own?.length) return own;
   const bt = categoryName ? (buildTypeForCategoryName(categoryName)?.id ?? null) : null;
   if (bt && overrides[bt]?.length) return overrides[bt];
   return (bt && DEFAULT_MILESTONES[bt]) || GENERIC_MILESTONES;
@@ -43,6 +51,8 @@ export interface TrackerFeature {
   id: string;
   label: string;
   category: string | null;
+  /** This job's own milestones (0138); null = the presets. */
+  milestones?: string[] | null;
 }
 
 export interface MilestoneTracker {
@@ -64,7 +74,7 @@ export function milestoneTrackers(
   for (const f of features) {
     const posted = updates.filter((u) => u.feature_id === f.id && u.milestone).sort((a, b) => a.date.localeCompare(b.date));
     if (posted.length === 0) continue;
-    const presets = milestonesFor(f.category, overrides);
+    const presets = milestonesFor(f.category, overrides, f.milestones);
     const done = new Set(posted.map((u) => u.milestone as string));
     const extra = [...done].filter((m) => !presets.includes(m));
     const steps = [...presets, ...extra].map((label) => ({ label, done: done.has(label) }));

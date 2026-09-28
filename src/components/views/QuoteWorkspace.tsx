@@ -16,6 +16,7 @@ import {
   ArrowRight,
   ListChecks,
   BookmarkPlus,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1007,6 +1008,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // An add-on's cost is just its own features' sections (proposed until
   // approved, so not in the project total).
   const addonFeatureIds = new Set(pickableFeatures.map((f) => f.id));
+  // The add-on's (first) new feature and its Cost plan section — the step links' targets.
+  const addonFeature = isAddon ? pickableFeatures[0] ?? null : null;
+  const addonSection = addonFeature ? materials.find((m) => m.feature_id === addonFeature.id) ?? null : null;
   const materialsCost = !hasMaterialsSheet
     ? null
     : isAddon
@@ -1219,7 +1223,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               </h1>
               <StatusPill meta={meta} />
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">{clientName}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <p className="text-sm text-muted-foreground">{clientName}</p>
+              {projectId && (
+                <Button asChild variant="outline" size="sm" className="h-8 font-semibold">
+                  <Link to={`/projects/${projectId}`}>
+                    <FolderOpen className="mr-1.5 h-3.5 w-3.5" /> Go to project
+                  </Link>
+                </Button>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {isDirty && quote.status === "draft" && (
@@ -1229,6 +1242,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </div>
         </div>
       </div>
+
+      {/* Phones: the project is one tap away too (the header's back goes to the list). */}
+      {projectId && (
+        <Button asChild variant="outline" className="h-11 w-full font-semibold md:hidden">
+          <Link to={`/projects/${projectId}`}>
+            <FolderOpen className="mr-1.5 h-4 w-4" /> Go to project · {quote.project?.name ?? "Project"}
+          </Link>
+        </Button>
+      )}
 
       {/* Approval (0133) — who approved (client vs contractor-recorded), or "Mark approved". */}
       <QuoteApprovalRow quote={quote} clientName={quote.client?.name ?? quote.project?.client?.name ?? null} disabledReason={isDirty ? "Save your changes first" : null} />
@@ -1247,10 +1269,13 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </p>
           {projectId && (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold">
-              <Link to={`/projects/${projectId}`} className="text-primary hover:underline">
+              {/* Deep links: the project page opens the new feature's
+                  Measurements card and pulses it; the Cost plan scrolls to
+                  and flashes its section. */}
+              <Link to={`/projects/${projectId}#measure${addonFeature?.category_id ? `-${addonFeature.category_id}` : ""}`} className="text-primary hover:underline">
                 1 · Measure it (project page)
               </Link>
-              <Link to={`/projects/${projectId}/materials`} className="text-primary hover:underline">
+              <Link to={`/projects/${projectId}/materials${addonSection ? `#section-${addonSection.id}` : ""}`} className="text-primary hover:underline">
                 2 · Price it in the Cost plan
               </Link>
               <span className="text-muted-foreground">3 · Price each section here and send</span>
