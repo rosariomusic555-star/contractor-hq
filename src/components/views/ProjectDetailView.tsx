@@ -707,8 +707,6 @@ export function ProjectDetailView() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Progress updates (0126) — post, review crew posts, share to the Hub. */}
-      {project.status !== "estimating" && project.status !== "lost" && <ProgressUpdatesCard project={project} />}
 
       {/* Material alerts — one slim line; Review opens them grouped by feature. */}
       <MaterialAlertsBar
@@ -1269,6 +1267,11 @@ export function ProjectDetailView() {
           </section>
         </div>
       </div>
+
+      {/* Progress updates (0126) — post, review crew posts, share to the Hub.
+          Below the working sections (measurements, cost plan, quotes, schedule),
+          above the photo gallery it draws from. */}
+      {project.status !== "estimating" && project.status !== "lost" && <ProgressUpdatesCard project={project} />}
 
       <PhotoGallery
         owner={{ type: "project", id }}
