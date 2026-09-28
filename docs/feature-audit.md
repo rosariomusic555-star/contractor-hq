@@ -43,6 +43,7 @@ Every record created for testing is named with the prefix **`TEST —`**. They a
 | 2026-09-28 | Labor entry | TEST — Crew A, 24 h × $35 = $840 (Paver Patio) | on the TEST project |
 | 2026-09-28 | Schedule | TEST project booked Oct 12–16 (+ one undone rain delay) | on the TEST project |
 | 2026-09-28 | Quote (draft, standalone) | TEST — Defaults check | /quotes/289e876a-bf99-40a0-8955-8d618e097a2a |
+| 2026-09-28 | Expense (via assistant) | TEST — Fuel $48.60 | on the TEST project |
 | 2026-09-28 | Price Book item | TEST — Paver X ($4.25 / sq ft, Pavers) | /settings/pricebook |
 | 2026-09-28 | Add-on quote #1 (approved) + Walkway feature | 45 sq ft × $28.75 = $1,293.75 | /projects/ef03095a-1e58-45c1-8288-226502188306/quotes/d4a46fd4-09c1-4007-b930-550590911234 |
 
@@ -86,7 +87,9 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 
 **Settings › Price Book** — ✅ add (name, unit, price, required category), edit, delete with a clear confirm ("lines keep their values, become editable") · ❌→fixed a negative unit price saved (−$4.25) and 0 / negative product specs were accepted (they break order-sheet package rounding) — now refused with the reason · ⚠️ duplicate names allowed ("TEST — Paver X" and "test — paver x") with no warning.
 
-**Not yet tested live:** order sheet email (needs Resend); timesheets / payroll (needs an employee login); settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
+**AI assistant** — ✅ "what has Morgan paid" → $7,520.37 · ❌→fixed (code) outstanding came back $16,428.51 because the drafts were added in (the app says $15,268.63 — drafts aren't owed), and search_invoices never returned payments applied, so a partly paid invoice would read at full amount — the tool now returns paid / balance_owed and outstanding_total / draft_total · ❌ (deploy) "contract / cost / profit on TEST — Delgado Backyard" → contract $1,293.75 (the add-on quote), cost $2,434.50 (no labor), profit −$1,140.75; the app says $24,345.75 / $3,274.50 / $21,071.25. The code in the repo already gets this right (add-ons never the headline, labor included), so the live assistant is running an older deploy of assistant-chat · ✅ write action: "log a $48.60 fuel expense" → proposal card, nothing saved until Confirm, then saved with the right project / amount / date.
+
+**Not yet tested live:** order sheet email (needs Resend); timesheets / payroll (needs an employee login); employee + Client Hub roles (later, with your sign-in).
 
 ## Fixed so far (branch `fix/audit-batch-1`, each with an automated test)
 
