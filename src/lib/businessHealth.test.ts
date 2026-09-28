@@ -75,9 +75,9 @@ describe("cash forecast", () => {
     ],
     jobs: [
       // $40k, 30% deposit, $5k invoiced already → deposit 7k at start, 28k at end
-      { id: "j1", name: "Patio", status: "scheduled", start: "2026-10-12", end: "2026-11-06", contract: 40000, invoiced: 5000, depositPct: 30 },
-      { id: "j2", name: "Unscheduled", status: "scheduled", start: null, end: null, contract: 9000, invoiced: 0, depositPct: 30 },
-      { id: "j3", name: "Done", status: "complete", start: "2026-08-01", end: "2026-08-20", contract: 9000, invoiced: 0, depositPct: 30 },
+      { id: "j1", name: "Patio", status: "scheduled", start: "2026-10-12", end: "2026-11-06", contract: 40000, invoiced: 5000, deposit: 12000 },
+      { id: "j2", name: "Unscheduled", status: "scheduled", start: null, end: null, contract: 9000, invoiced: 0, deposit: 2700 },
+      { id: "j3", name: "Done", status: "complete", start: "2026-08-01", end: "2026-08-20", contract: 9000, invoiced: 0, deposit: 2700 },
     ],
   });
   it("keeps overdue separate", () => {
