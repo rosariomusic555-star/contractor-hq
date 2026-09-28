@@ -25,6 +25,8 @@ export interface ProjectFeature {
   source_quote_id: string | null;
   sort_order: number;
   created_at: string;
+  /** This job's own progress milestones (0138); null/undefined = the presets. */
+  milestones?: string[] | null;
 }
 
 export const typeNameOf = (f: Pick<ProjectFeature, "category_id">, categories: Pick<Category, "id" | "name">[]) =>

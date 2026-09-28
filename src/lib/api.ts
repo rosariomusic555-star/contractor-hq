@@ -2354,17 +2354,17 @@ export async function ensureFeatureSections(projectId: string): Promise<number> 
 // ---------------------------------------------------------------------------
 
 export async function listProjectFeatures(projectId: string): Promise<ProjectFeature[]> {
-  const { data, error } = await supabase
-    .from("project_features")
-    .select("id, project_id, category_id, label, status, source_quote_id, sort_order, created_at")
-    .eq("project_id", projectId)
-    .order("sort_order")
-    .order("created_at");
+  const run = (cols: string) =>
+    supabase.from("project_features").select(cols).eq("project_id", projectId).order("sort_order").order("created_at");
+  const base = "id, project_id, category_id, label, status, source_quote_id, sort_order, created_at";
+  let { data, error } = await run(`${base}, milestones`);
+  // before 0138
+  if (error?.code === "42703") ({ data, error } = await run(base));
   if (error) {
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return (data ?? []) as ProjectFeature[];
+  return (data ?? []) as unknown as ProjectFeature[];
 }
 
 export async function createProjectFeature(
@@ -2398,10 +2398,18 @@ export async function createProjectFeature(
 
 export async function updateProjectFeature(
   id: string,
-  patch: Partial<Pick<ProjectFeature, "label" | "status" | "sort_order">>,
+  patch: Partial<Pick<ProjectFeature, "label" | "status" | "sort_order" | "milestones">>,
 ): Promise<void> {
   const { error } = await supabase.from("project_features").update(patch).eq("id", id);
   if (error) throw error;
+}
+
+/** Crew "Post update" milestones (0138): the contractor's presets + this
+ * job's own lists, keyed by feature id. Empty before 0138. */
+export async function getCrewMilestones(projectId: string): Promise<{ presets: Record<string, string[]>; features: Record<string, string[]> }> {
+  const { data, error } = await supabase.rpc("crew_milestones", { p_project_id: projectId });
+  if (error || !data) return { presets: {}, features: {} };
+  return data as { presets: Record<string, string[]>; features: Record<string, string[]> };
 }
 
 /** A new quote's starting sections: one per feature (named after it, tagged

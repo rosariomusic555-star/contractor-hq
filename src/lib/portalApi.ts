@@ -352,7 +352,7 @@ export interface PortalProgressUpdate {
 
 export interface PortalProgress {
   updates: PortalProgressUpdate[];
-  features: { id: string; label: string; category: string | null }[];
+  features: { id: string; label: string; category: string | null; milestones?: string[] | null }[];
   milestone_presets: Record<string, string[]>;
   before_after: { feature: string | null; before: string; after: string }[];
   marketing_ok: boolean | null;
