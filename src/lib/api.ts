@@ -4721,7 +4721,8 @@ export type ProjectEventKind =
   | "schedule_delay_undone"
   | "client_heads_up"
   | "review_requested"
-  | "review_link_clicked";
+  | "review_link_clicked"
+  | "order_sheet_emailed";
 
 export interface ProjectEvent {
   id: string;
@@ -4962,6 +4963,33 @@ export async function createEmployeeAccount(input: {
   if (error) throw error;
   if (!data?.ok || !data.employee) throw new Error(data?.message ?? "Couldn't create employee.");
   return data.employee;
+}
+
+/**
+ * "Email to supplier" (send-supplier-email Edge Function, Resend): sends
+ * the order sheet PDF as an attachment and logs it on the project. Throws
+ * the function's own message — incl. `code: "not_configured"` before the
+ * Resend secrets are set.
+ */
+export async function emailOrderSheet(input: {
+  projectId: string;
+  to: string;
+  supplierName: string | null;
+  subject: string;
+  message: string;
+  filename: string;
+  pdfBase64: string;
+}): Promise<void> {
+  const { data, error } = await supabase.functions.invoke<{ ok: boolean; error?: string; message?: string }>("send-supplier-email", { body: input });
+  if (error) {
+    // Non-2xx: the function's JSON body is on the response.
+    const ctx = (error as { context?: Response }).context;
+    const body = ctx && typeof ctx.json === "function" ? await ctx.json().catch(() => null) : null;
+    const err = new Error(body?.message ?? (error.message.includes("Failed to send") ? "Couldn't reach the email service — is the send-supplier-email function deployed?" : error.message));
+    (err as Error & { code?: string }).code = body?.error;
+    throw err;
+  }
+  if (!data?.ok) throw new Error(data?.message ?? "The email didn't send.");
 }
 
 /** Deactivating (not deleting) is the primary "remove" action — every

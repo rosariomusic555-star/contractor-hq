@@ -30,6 +30,20 @@ const formatDateNeeded = (iso: string) =>
  * anywhere on the page — this is a purchasing document, not a financial
  * one. */
 export function downloadOrderSheetPdf(header: OrderSheetHeader, groups: OrderSheetGroup[]): string {
+  const { doc, filename } = buildOrderSheetPdf(header, groups);
+  doc.save(filename);
+  return filename;
+}
+
+/** The same PDF, not downloaded — for "Email to supplier": a blob URL for
+ * the preview and base64 for the attachment. */
+export function orderSheetPdfForEmail(header: OrderSheetHeader, groups: OrderSheetGroup[]): { filename: string; blob: Blob; base64: string } {
+  const { doc, filename } = buildOrderSheetPdf(header, groups);
+  const dataUri = doc.output("datauristring");
+  return { filename, blob: doc.output("blob"), base64: dataUri.slice(dataUri.indexOf(",") + 1) };
+}
+
+function buildOrderSheetPdf(header: OrderSheetHeader, groups: OrderSheetGroup[]): { doc: jsPDF; filename: string } {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const marginX = 40;
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -94,7 +108,5 @@ export function downloadOrderSheetPdf(header: OrderSheetHeader, groups: OrderShe
     y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 22;
   }
 
-  const filename = orderSheetFilename(header.projectName, header.supplier);
-  doc.save(filename);
-  return filename;
+  return { doc, filename: orderSheetFilename(header.projectName, header.supplier) };
 }
