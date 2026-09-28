@@ -29,7 +29,30 @@ Every record created for testing is named with the prefix **`TEST —`**. They a
 
 | Created | Type | Name | Where |
 |---|---|---|---|
+| 2026-09-28 | Client | TEST — Morgan Delgado | /clients |
+| 2026-09-28 | Client | TEST — Priya Shah | /clients |
+| 2026-09-28 | Opportunity (Won) + project | TEST — Delgado Backyard | /pipeline/5d3e0a57-6729-4314-9bab-7ee7e1e3a5fb · /projects/ef03095a-1e58-45c1-8288-226502188306 |
+| 2026-09-28 | Appointment | Site Visit (completed) on TEST — Delgado Backyard | Appointments |
+| 2026-09-28 | Measurements, Cost plan, features | patio, kitchen, 2 seating walls, 2 fire pits | on the TEST project |
+| 2026-09-28 | Quote (approved) + Client Selection "Countertop" | on the TEST project | /quotes/a0a94dbc-46b0-47d0-9417-e53d74df3ff8 |
+| 2026-09-28 | Invoices | INV-001 (paid), INV-002 ($15,268.63 sent) | on the TEST project |
+| 2026-09-28 | Payments | R-0001 $3,000 (void), R-0002 $7,520.37 | on the TEST project |
 
+
+## Live test log (Step 2)
+
+Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → commit) · ⚠️ works but bad UX.
+
+**Clients** — ✅ create; ❌→fixed preferred contact method dropped on create; ❌→fixed no duplicate check on /clients/new (now: same phone/email → "Open existing / Create anyway", matched a differently formatted phone).
+**Pipeline / opportunity** — ✅ New opportunity (client pick, address prefill from client, project types) · ✅ Mark as contacted → Schedule site visit (stage auto-advances) → complete visit (→ Site Visit Done) · ✅ "Add measurements" CTA scrolls + focuses · ✅ "Create cost plan" once measured · ⚠️ title truncated in header ("TEST — Delgado Backyar") with room to spare · ⚠️ opportunity lead source doesn't pick up the client's.
+**Measurements** — ✅ 20 ft × 15 ft 6 in = 310 sq ft, perimeter 71 · ✅ kitchen 12′6″ = 12.5 LF, backsplash 12.5×1.5 = 18.75 · ✅ seating walls 26 LF, length-weighted height 18.8 in · ✅ fire pits 4 ft → 12.6 / 12.6, 3′6″ → 11 LF / 9.6 sq ft · ✅ saved + reload · ✅ features grouped · ⚠️ summaries show decimal feet ("15.5 ft") after ft+in entry.
+**Cost plan / calculators** — ✅ sections per feature, grouped, General last · ✅ Paver Patio calc by hand (9.5 t base, 2 t bedding, 4 bags, 1 roll, 71 ft, 310 sq ft) · ✅ section total $2,323.50 by hand · ✅ kitchen calc (95/50/20 ft/16 bags/13/3/13, Backsplash line auto-added 19 sq ft +10%) · ✅ seating wall 1 (96 incl. backrest, caps 16, backrest caps 16, base 1 t) / 2 (30, 10, 0.5 t) · ✅ fire pits (57/13/0.5 t, 51) · ❌→fixed **each feature section's calculator prefilled ALL walls combined (26 LF) → double-counted** · ❌→fixed empty "Backrest Caps" line on a wall with no backrest · ⚠️ "ft" units show a free-text box instead of the unit dropdown.
+**Quote** — ✅ created per feature from the opportunity · ✅ Quick Quote per section uses the section's own measurement (310 sf×$25, 16 LF×$150, 12.57×$200, 12.5×$450, 10×$150, 11×$200) · ✅ AI description · ✅ totals $21,989 → +$1,200 optional = $23,189 · ✅ deposit 33% = $7,652.37 (cents) · ✅ deposit 150% clamps to 100 · ✅ margin / profit / break-even / price-for-50% by hand · ✅ Client Selection with range "$23,189 – $23,989" · ⚠️ Estimate card hint says "a section per project type" (it's per feature).
+**Share link (client)** — ✅ no internal numbers (cost/margin/overhead/internal cost) · ✅ untick optional → saved, survives reload, $22,789 / $7,520.37 · ✅ pick Quartz +$800 · ✅ sign · ⚠️ the $800 selection is listed under "Optional items selected".
+**Won chain** — ✅ quote approved, opportunity Won, project Scheduled, deposit INV-001 = $7,520.37 (optional excluded), contract $22,789 · ✅ profit summary cost $2,823.50 incl. Quartz's $500 internal cost.
+**Invoices / payments** — ✅ send, "8 days late" · ❌→fixed Record payment: typing a partial amount left the full balance applied and blocked Save · ✅ partial $3,000 → balance $4,520.37, receipt R-0001 · ✅ void → paid in full → restore **refused** (overpay guard) · ✅ delete paid invoice refused · ✅ numbering never re-uses a number in use · ✅ Remaining balance label = created $15,268.63 · ✅ project Invoices page KPIs · ✅ /invoices Overdue filter = 1 · ⚠️ due dates shown as raw "2026-09-25".
+
+**Not yet tested live:** phone width (~390px) pass; change orders & add-on quotes; expenses; deliveries / order sheet email (needs Resend); schedule / bookings / rain delay; dashboard; reports (revenue, business health, marketing ROI); timesheets / payroll; settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
 
 ## Fixed so far (branch `fix/audit-batch-1`, each with an automated test)
 
