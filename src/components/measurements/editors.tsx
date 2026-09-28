@@ -2,6 +2,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   FIXTURE_TYPES,
+  isLengthFixture,
   RUN_COUNT,
   RUN_LAYOUTS,
   activeRuns,
@@ -552,7 +553,9 @@ function FirePitEditor({ data, onChange, idPrefix, defaultHeightIn }: EditorProp
 function LightingEditor({ data, onChange }: EditorProps<LightingData>) {
   const setRow = (id: string, patch: Partial<LightingData["fixtures"][number]>) =>
     onChange({ ...data, fixtures: data.fixtures.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
-  const count = computeTotals("lighting", data).fixture_count ?? 0;
+  const totals = computeTotals("lighting", data);
+  const count = totals.fixture_count ?? 0;
+  const stripLf = totals.strip_lf ?? 0;
 
   return (
     <div className="space-y-3">
@@ -561,7 +564,13 @@ function LightingEditor({ data, onChange }: EditorProps<LightingData>) {
           <div className="flex items-end gap-2">
             <label className="block flex-1 space-y-1">
               <span className="block text-xs font-semibold text-muted-foreground">Fixture type</span>
-              <Select value={f.type} onValueChange={(type) => setRow(f.id, { type: type as FixtureType })}>
+              <Select
+                value={f.type}
+                onValueChange={(type) =>
+                  // A count and a length don't convert — clear it when switching between them.
+                  setRow(f.id, isLengthFixture(type as FixtureType) === isLengthFixture(f.type) ? { type: type as FixtureType } : { type: type as FixtureType, qty: null })
+                }
+              >
                 <SelectTrigger className="h-12 text-base" aria-label={`Fixture ${i + 1} type`}>
                   <SelectValue />
                 </SelectTrigger>
@@ -574,11 +583,14 @@ function LightingEditor({ data, onChange }: EditorProps<LightingData>) {
                 </SelectContent>
               </Select>
             </label>
-            <NumField label="Qty" value={f.qty} onChange={(qty) => setRow(f.id, { qty })} className="w-24 shrink-0" />
+            {!isLengthFixture(f.type) && <NumField key={`${f.id}-qty`} label="Qty" value={f.qty} onChange={(qty) => setRow(f.id, { qty })} className="w-24 shrink-0" />}
             {data.fixtures.length > 1 && (
               <RemoveButton label={`Remove fixture row ${i + 1}`} onClick={() => onChange({ ...data, fixtures: data.fixtures.filter((x) => x.id !== f.id) })} />
             )}
           </div>
+          {isLengthFixture(f.type) && (
+            <NumField key={`${f.id}-len`} label="Length" suffix="ft" value={f.qty} onChange={(qty) => setRow(f.id, { qty })} />
+          )}
           {f.type === "other" && (
             <TextField value={f.name} onChange={(name) => setRow(f.id, { name })} placeholder="Fixture name — e.g. Well light" ariaLabel={`Fixture ${i + 1} name`} />
           )}
@@ -587,8 +599,11 @@ function LightingEditor({ data, onChange }: EditorProps<LightingData>) {
       <AddLink onClick={() => onChange({ ...data, fixtures: [...data.fixtures, { id: newId(), type: "path", name: "", qty: null }] })}>
         Add fixture type
       </AddLink>
-      {count > 0 && <Computed>{fmt(count)} {count === 1 ? "fixture" : "fixtures"} total</Computed>}
-      <NumField label="Strip lighting" suffix="ft" placeholder="0" value={data.strip_lf} onChange={(strip_lf) => onChange({ ...data, strip_lf })} />
+      {(count > 0 || stripLf > 0) && (
+        <Computed>
+          {[count > 0 ? `${fmt(count)} ${count === 1 ? "fixture" : "fixtures"} total` : null, stripLf > 0 ? `${fmt(stripLf)} LF strip lighting` : null].filter(Boolean).join(" · ")}
+        </Computed>
+      )}
     </div>
   );
 }

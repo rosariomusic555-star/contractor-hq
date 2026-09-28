@@ -220,13 +220,13 @@ export interface FirePitData {
   height_in: Num;
 }
 
-export type FixtureType = "path" | "uplight" | "hardscape" | "step" | "other";
+export type FixtureType = "path" | "uplight" | "hardscape" | "step" | "strip" | "other";
+/** `qty` is a count — except a Strip lighting row, where it's linear feet. */
 export interface FixtureRow { id: string; type: FixtureType; name: string; qty: Num }
-export interface LightingData {
-  fixtures: FixtureRow[];
-  /** LED strip / tape lighting, linear feet. */
-  strip_lf: Num;
-}
+export interface LightingData { fixtures: FixtureRow[] }
+
+/** Strip lighting is measured in linear feet, every other fixture is counted. */
+export const isLengthFixture = (type: FixtureType) => type === "strip";
 
 export interface StepSection { id: string; label: string; step_count: Num; width_ft: Num }
 export interface StepsData { sections: StepSection[] }
@@ -297,6 +297,7 @@ export const FIXTURE_TYPES: { id: FixtureType; label: string }[] = [
   { id: "uplight", label: "Uplight" },
   { id: "hardscape", label: "Hardscape/ledge light" },
   { id: "step", label: "Step light" },
+  { id: "strip", label: "Strip lighting" },
   { id: "other", label: "Other" },
 ];
 
@@ -345,7 +346,7 @@ export function blankData<K extends FeatureKind>(kind: K): FeatureDataByKind[K] 
       approx_sqft: null,
       height_in: null,
     }),
-    lighting: () => ({ fixtures: [{ id: newId(), type: "path", name: "", qty: null }], strip_lf: null }),
+    lighting: () => ({ fixtures: [{ id: newId(), type: "path", name: "", qty: null }] }),
     steps: () => ({ sections: [{ id: newId(), label: "", step_count: null, width_ft: null }] }),
   };
   return data[kind]() as FeatureDataByKind[K];
@@ -370,6 +371,8 @@ function mostCommon(values: Num[]): Num {
  *    anything else becomes Custom runs, one per section, labels kept.
  *  - Walkway/Driveway plain length × width → the area builder's Straight.
  *  - Retaining wall single linear-feet value → one Straight run.
+ *  - Lighting's old separate strip_lf field (2026-09-28) → a Strip lighting
+ *    fixture row (replacing the blank starter row if that's all there was).
  */
 function upgradeLegacy(kind: FeatureKind, src: Record<string, unknown>): Record<string, unknown> {
   if (kind === "seating_wall" && Array.isArray(src.sections) && !Array.isArray(src.runs)) {
@@ -391,6 +394,15 @@ function upgradeLegacy(kind: FeatureKind, src: Record<string, unknown>): Record<
   if (kind === "retaining_wall" && "length_lf" in src && !Array.isArray(src.runs)) {
     const { length_lf, ...rest } = src;
     return { ...rest, layout: "straight", runs: [{ id: newId(), length_ft: (length_lf as Num) ?? null, label: "" }] };
+  }
+  if (kind === "lighting" && "strip_lf" in src) {
+    const { strip_lf, ...rest } = src;
+    const lf = typeof strip_lf === "number" && strip_lf > 0 ? strip_lf : null;
+    if (lf == null) return rest;
+    type OldRow = { qty?: Num; name?: string };
+    const rows = Array.isArray(rest.fixtures) ? (rest.fixtures as OldRow[]) : [];
+    const kept = rows.filter((f) => (f.qty ?? 0) > 0 || !!f.name?.trim());
+    return { ...rest, fixtures: [...kept, { id: newId(), type: "strip", name: "", qty: lf }] };
   }
   if (kind === "flatwork" && !src.rect && ("length_ft" in src || "width_ft" in src)) {
     const { length_ft, width_ft, ...rest } = src;
@@ -595,11 +607,13 @@ export function computeTotals(kind: FeatureKind, data: FeatureData, defaults: Me
       }
       return clean({ footprint_sqft: n(d.approx_sqft), height_in: height });
     }
-    case "lighting":
+    case "lighting": {
+      const rows = (data as LightingData).fixtures;
       return clean({
-        fixture_count: (data as LightingData).fixtures.reduce((s, f) => s + n(f.qty), 0),
-        strip_lf: n((data as LightingData).strip_lf),
+        fixture_count: rows.filter((f) => !isLengthFixture(f.type)).reduce((s, f) => s + n(f.qty), 0),
+        strip_lf: rows.filter((f) => isLengthFixture(f.type)).reduce((s, f) => s + n(f.qty), 0),
       });
+    }
     case "steps": {
       const d = data as StepsData;
       return clean({

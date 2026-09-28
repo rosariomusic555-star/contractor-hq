@@ -192,7 +192,7 @@ describe("other features", () => {
   });
 
   it("lighting counts fixtures; steps count steps and tread", () => {
-    expect(computeTotals("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: 8 }, { id: "2", type: "uplight", name: "", qty: 4 }], strip_lf: null })).toEqual({ fixture_count: 12 });
+    expect(computeTotals("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: 8 }, { id: "2", type: "uplight", name: "", qty: 4 }] })).toEqual({ fixture_count: 12 });
     expect(
       computeTotals("steps", { sections: [{ id: "1", label: "", step_count: 3, width_ft: 6 }, { id: "2", label: "", step_count: 2, width_ft: 4 }] }),
     ).toEqual({ step_count: 5, tread_lf: 26 });
@@ -327,13 +327,34 @@ describe("backsplash, backrest, strip lighting", () => {
     expect(lighting.calculate({ fixture_count: 4, strip_lf: 22.5 }).find((l) => l.slotKey === "strip_lighting")?.quantity).toBe(23);
   });
 
-  it("lighting totals, headline and prefill carry strip LF; editing fixtures keeps it", () => {
-    const d = normalizeData("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: 6 }], strip_lf: 30 });
+  it("a Strip lighting fixture row is linear feet, not a fixture count", () => {
+    const d = normalizeData("lighting", {
+      fixtures: [
+        { id: "1", type: "path", name: "", qty: 6 },
+        { id: "2", type: "strip", name: "", qty: 18.5 },
+        { id: "3", type: "strip", name: "", qty: 11.5 },
+      ],
+    });
     const t = computeTotals("lighting", d);
     expect(t).toEqual({ fixture_count: 6, strip_lf: 30 });
     expect(totalsHeadline("lighting", t)).toBe("6 fixtures · 30 LF strip");
     expect(smartSectionPrefill("outdoor_lighting", t)).toEqual({ fixture_count: 6, strip_lf: 30 });
     expect(sumTotals([t, { fixture_count: 2, strip_lf: 5 }])).toMatchObject({ fixture_count: 8, strip_lf: 35 });
+  });
+
+  it("moves the old separate strip lighting field into a Strip lighting row", () => {
+    // Real fixtures kept, strip appended.
+    const a = normalizeData("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: 6 }], strip_lf: 30 });
+    expect("strip_lf" in a).toBe(false);
+    expect(a.fixtures.map((f) => [f.type, f.qty])).toEqual([["path", 6], ["strip", 30]]);
+    expect(computeTotals("lighting", a)).toEqual({ fixture_count: 6, strip_lf: 30 });
+    // Only a blank starter row → it's replaced, not left empty above the strip.
+    const b = normalizeData("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: null }], strip_lf: 12 });
+    expect(b.fixtures.map((f) => [f.type, f.qty])).toEqual([["strip", 12]]);
+    // Empty old field → just dropped, rows untouched.
+    const c = normalizeData("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: null }], strip_lf: null });
+    expect("strip_lf" in c).toBe(false);
+    expect(c.fixtures).toHaveLength(1);
   });
 });
 
