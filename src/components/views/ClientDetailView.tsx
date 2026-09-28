@@ -65,6 +65,7 @@ import { clientStatusMeta, projectStatusMeta, quoteStatusMeta, invoiceStatusMeta
 import { TaskRow, CreateTaskDialog } from "@/components/views/TasksView";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
 import { BackLink } from "@/components/common/BackLink";
+import { effectiveInvoiceStatus } from "@/lib/financials";
 
 /** Kinds you can log by hand. */
 const ACTIVITY_KIND_LABEL: Partial<Record<ActivityKind, string>> = {
@@ -253,7 +254,7 @@ export function ClientDetailView() {
               id: i.id,
               to: `/invoices/${i.id}`,
               label: i.invoice_number ?? formatCurrency(Number(i.amount)),
-              pill: invoiceStatusMeta(i.status, i.amount_paid),
+              pill: invoiceStatusMeta(effectiveInvoiceStatus(i), i.amount_paid),
             }))}
           />
 

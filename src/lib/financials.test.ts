@@ -620,3 +620,47 @@ describe("projectBillingBadge", () => {
     expect(projectBillingBadge(10_000, 0, 0, 0)).toBeNull();
   });
 });
+
+// Money-status bug (2026-09-28): nothing stored "overdue", so every Overdue
+// filter/count read 0 while "N days late" badges showed.
+import { effectiveInvoiceStatus } from "./financials";
+describe("effectiveInvoiceStatus", () => {
+  const now = new Date("2026-10-10T12:00:00");
+  const inv = (p: Partial<Invoice>) => ({ status: "sent", due_date: "2026-10-01", amount: 1000, amount_paid: 0, ...p }) as Invoice;
+  it("a shared invoice past due with a balance is overdue", () => {
+    expect(effectiveInvoiceStatus(inv({}), now)).toBe("overdue");
+    expect(effectiveInvoiceStatus(inv({ amount_paid: 400 }), now)).toBe("overdue");
+  });
+  it("not yet due, fully paid, draft or no due date stay as they are", () => {
+    expect(effectiveInvoiceStatus(inv({ due_date: "2026-10-20" }), now)).toBe("sent");
+    expect(effectiveInvoiceStatus(inv({ due_date: "2026-10-10" }), now)).toBe("sent"); // due today isn't late
+    expect(effectiveInvoiceStatus(inv({ amount_paid: 1000 }), now)).toBe("sent");
+    expect(effectiveInvoiceStatus(inv({ status: "draft" }), now)).toBe("draft");
+    expect(effectiveInvoiceStatus(inv({ status: "paid", amount_paid: 1000 }), now)).toBe("paid");
+    expect(effectiveInvoiceStatus(inv({ due_date: null }), now)).toBe("sent");
+  });
+});
+
+// Report bugs (2026-09-28): months were cut in UTC, date-only fields were
+// read as UTC midnight, and the monthly "Paid" bars counted invoices by the
+// month they were CREATED, disagreeing with the Collected card.
+import { localMonthKey, monthlyBreakdown, withinRange } from "./financials";
+describe("revenue months are local and collected is by payment date", () => {
+  it("an 8:30 pm Sep 30 invoice is September; a Sep 1 date-only field is September", () => {
+    expect(localMonthKey(new Date(2026, 8, 30, 20, 30).toISOString())).toBe("2026-09");
+    expect(localMonthKey("2026-09-01")).toBe("2026-09");
+    const sept = { key: "custom" as const, start: new Date(2026, 8, 1), end: new Date(2026, 9, 1), label: "Sep" };
+    expect(withinRange("2026-09-01", sept)).toBe(true);
+    expect(withinRange("2026-10-01", sept)).toBe(false);
+  });
+  it("Paid per month follows when the money came in", () => {
+    const range = { key: "custom" as const, start: new Date(2026, 7, 1), end: new Date(2026, 9, 1), label: "Aug–Sep" };
+    const inv = { id: "i", status: "paid", amount: 5000, amount_paid: 5000, created_at: new Date(2026, 7, 20, 10).toISOString(), due_date: null } as Invoice;
+    const pay = [{ status: "active", paid_on: "2026-09-05", amount: 5000 }] as Payment[];
+    const months = monthlyBreakdown([inv], range, pay);
+    expect(months.map((m) => [m.key, m.invoiced, m.collected])).toEqual([
+      ["2026-08", 5000, 0],
+      ["2026-09", 0, 5000],
+    ]);
+  });
+});

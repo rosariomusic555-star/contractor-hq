@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceBalance, invoicePaymentState } from "@/lib/projectMoney";
-import { collectedInRange, agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/financials";
+import { collectedInRange, agingBuckets, effectiveInvoiceStatus, invoiceDaysLate, overdueCount } from "@/lib/financials";
 
 /** "unpaid" is a combined filter — sent + overdue, i.e. billed but not yet
  * paid. Same definition the Dashboard's own "Unpaid" KPI uses, so arriving
@@ -92,7 +92,9 @@ export function InvoicesView() {
   const paidLast30 = last30.reduce((s, p) => s + Number(p.amount), 0);
   const paidLast30Count = last30.length;
 
-  const countByStatus = (s: InvoiceStatus) => invoices.filter((i) => i.status === s).length;
+  // Overdue is derived (due date passed, still owed) — see effectiveInvoiceStatus.
+  const statusOf = (i: Invoice) => effectiveInvoiceStatus(i, now);
+  const countByStatus = (s: InvoiceStatus) => invoices.filter((i) => statusOf(i) === s).length;
 
   const unpaidCount = countByStatus("sent") + countByStatus("overdue");
 
@@ -113,8 +115,8 @@ export function InvoicesView() {
   const filtered = invoices.filter((inv) => {
     if (
       filter === "unpaid"
-        ? inv.status !== "sent" && inv.status !== "overdue"
-        : filter !== "all" && inv.status !== filter
+        ? statusOf(inv) !== "sent" && statusOf(inv) !== "overdue"
+        : filter !== "all" && statusOf(inv) !== filter
     )
       return false;
     const term = search.toLowerCase();
@@ -215,7 +217,7 @@ export function InvoicesView() {
                           {late ? (
                             <span className="badge-status badge-overdue">{late}</span>
                           ) : (
-                            <StatusPill meta={invoiceStatusMeta(inv.status, inv.amount_paid)} />
+                            <StatusPill meta={invoiceStatusMeta(statusOf(inv), inv.amount_paid)} />
                           )}
                         </td>
                         <td className="text-muted-foreground">{inv.due_date?.slice(0, 10) ?? "—"}</td>
@@ -255,7 +257,7 @@ export function InvoicesView() {
           <div className="space-y-2.5 md:hidden">
             {filtered.map((inv) => {
               const late = lateLabel(inv);
-              const meta = invoiceStatusMeta(inv.status, inv.amount_paid);
+              const meta = invoiceStatusMeta(statusOf(inv), inv.amount_paid);
               const border = late ? "hsl(var(--destructive))" : meta.border;
               return (
                 <ListCard

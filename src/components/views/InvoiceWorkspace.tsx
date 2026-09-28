@@ -46,7 +46,7 @@ import {
   snapshotDocument,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { invoiceDaysLate } from "@/lib/financials";
+import { effectiveInvoiceStatus, invoiceDaysLate } from "@/lib/financials";
 import { invoiceBalance, invoicePaid, projectMoneySummary } from "@/lib/projectMoney";
 import { RecordPaymentSheet } from "@/components/payments/RecordPaymentSheet";
 import { PaymentsList } from "@/components/payments/PaymentsList";
@@ -257,7 +257,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
     onError,
   });
 
-  const meta = invoiceStatusMeta(invoice.status, invoice.amount_paid);
+  const meta = invoiceStatusMeta(effectiveInvoiceStatus(invoice), invoice.amount_paid);
   const number = invoice.invoice_number ?? "Invoice";
   const amount = Number(invoice.amount);
   const isPaid = invoice.status === "paid";

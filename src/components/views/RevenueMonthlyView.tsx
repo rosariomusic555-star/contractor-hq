@@ -26,7 +26,7 @@ export function RevenueMonthlyView() {
   const total = invoicedTotal(invoices, range);
   const collected = collectedTotal(payments, range);
 
-  const data = useMemo(() => monthlyBreakdown(invoices, range), [invoices, range]);
+  const data = useMemo(() => monthlyBreakdown(invoices, range, payments), [invoices, range, payments]);
 
   const priorYearByKey = useMemo(() => {
     if (!compareYoy) return new Map<string, number>();

@@ -24,6 +24,7 @@ import {
   type Invoice,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
+import { effectiveInvoiceStatus } from "@/lib/financials";
 import { invoiceBalance, invoicePaid, projectMoneySummary, remainingToInvoice } from "@/lib/projectMoney";
 import {
   changeOrderNumbers,
@@ -246,7 +247,7 @@ export function ProjectInvoicesView() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-foreground">{inv.invoice_number ?? "Invoice"}</span>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{invoiceKindLabel(inv, coNumbers)}</span>
-                    <StatusPill meta={invoiceStatusMeta(inv.status, inv.amount_paid)} />
+                    <StatusPill meta={invoiceStatusMeta(effectiveInvoiceStatus(inv), inv.amount_paid)} />
                   </div>
                   <p className="mt-1 text-xs">
                     <span className={cn("font-semibold", TONE_TEXT[timing.tone])}>{timing.text}</span>
