@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { getQuoteDefaults, saveQuoteDefaults, QUOTE_DEFAULTS_FALLBACK, type QuoteDefaults } from "@/lib/api";
-import { quoteDefaultsProblem } from "@/lib/quoteDefaultsRules";
+import { quoteDefaultsProblem } from "@/lib/settingsRules";
 import { DecimalInput } from "@/components/common/DecimalInput";
 import { BackLink } from "@/components/common/BackLink";
 

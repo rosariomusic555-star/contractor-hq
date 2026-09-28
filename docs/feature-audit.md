@@ -80,6 +80,8 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 
 **Settings › Quote defaults** — ❌→fixed no limits: 150% or −5% deposit and 0-day validity saved (a 150% default would make every new quote fail the 0143 deposit check) — now 0–100% and 1–365 whole days, Save off with the reason shown, also enforced in saveQuoteDefaults · ✅ Revert restores 50% / 14 days (nothing saved — the account still has no quote_defaults row, so the built-in defaults apply).
 
+**Settings › number limits (by page)** — ✅ Weather (1–100% / >0 in / 70–130°F), Precon, Business health, Reviews, Payroll and Overhead already validate before saving · ❌→fixed Business profile: a negative default labor rate (→ negative labor costs), an over-order margin over 100% and fractional alert days could be saved — now refused (page + saveBusinessProfile), the leave prompt offers Save / Discard / Stay · (checked with the values put back or discarded — nothing in your settings was changed).
+
 **Not yet tested live:** order sheet email (needs Resend); timesheets / payroll (needs an employee login); settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
 
 ## Fixed so far (branch `fix/audit-batch-1`, each with an automated test)
@@ -106,7 +108,7 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 | High · money | After a change order / add-on, a fully paid deposit read as not received (precon, pipeline flag, billing badge, cash forecast used % of the whole contract); $0 deposits asked for | One headlineDepositDue — the signed quote's deposit | `precon.test.ts`, `businessHealth.test.ts`, `needsYou.test.ts` |
 | Medium · money | Expense amounts: pasted "1,234.50" emptied the field; blank date dropped expenses from date totals | parseDecimal + text/decimal inputs; date defaults to today | `parseDecimal.test.tsx` (existing) |
 | High · data | Bookings side panel: picking an end date right after a start date erased the start | Patch only the changed field, merged onto the latest dates | — (UI state) |
-| High · money | Quote defaults accepted a 150% / negative deposit and 0-day validity (would break every new quote) | quoteDefaultsProblem in the page + save | `quoteDefaultsRules.test.ts` |
+| High · money | Quote defaults accepted a 150% / negative deposit and 0-day validity (would break every new quote); Business profile accepted a negative labor rate | quoteDefaultsProblem / businessProfileProblem in the page + save | `settingsRules.test.ts` |
 | Medium · layout | Builders' Client/Project card and invoice add-line buttons overflowed a phone screen | grid-cols-1 / wrapping buttons | — (layout) |
 | Medium · money | Unpriced add-on quote showed $0 cost / 100% margin / full profit | Cost unknown until its features have Cost plan entries | — (display) |
 

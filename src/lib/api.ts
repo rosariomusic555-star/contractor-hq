@@ -1710,6 +1710,9 @@ export async function saveWeatherRiskSettings(patch: Partial<WeatherRiskSettings
 
 export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Promise<BusinessProfile> {
   const merged = { ...(await getBusinessProfile()), ...patch };
+  const { businessProfileProblem } = await import("./settingsRules");
+  const problem = businessProfileProblem(merged);
+  if (problem) throw new Error(problem);
   const { data, error } = await supabase
     .from("business_profile")
     .upsert({
@@ -2926,7 +2929,7 @@ export async function getQuoteDefaults(): Promise<QuoteDefaults> {
 
 export async function saveQuoteDefaults(patch: Partial<QuoteDefaults>): Promise<QuoteDefaults> {
   const merged = { ...(await getQuoteDefaults()), ...patch };
-  const { quoteDefaultsProblem } = await import("./quoteDefaultsRules");
+  const { quoteDefaultsProblem } = await import("./settingsRules");
   const problem = quoteDefaultsProblem(merged);
   if (problem) throw new Error(problem);
   const { data, error } = await supabase
