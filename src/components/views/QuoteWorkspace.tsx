@@ -53,6 +53,7 @@ import { MoneyRow } from "@/components/common/MoneyRow";
 import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
+import { QuoteApprovalRow } from "@/components/quotes/QuoteApprovalRow";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { QuoteSectionSelections } from "@/components/selections/QuoteSectionSelections";
@@ -77,7 +78,7 @@ import {
 import { SetUpOverheadLink, TrueCostSummary } from "@/components/overhead/TrueCostCard";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  categoryForSectionName,
+  categoryForSectionName, categoryIdForBuildType,
   sectionFeatureOptions,
   featurePickerOptions,
   withCommittedSectionName,
@@ -444,7 +445,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     // Same as the database default: optional work counts toward the
     // all-in total unless the client deselects it (Client Hub).
     client_selected: true,
-    category_id: null,
+    // The build type's category (same alias mapping as sections), so the
+    // line counts under that category in Revenue by category.
+    category_id: categoryIdForBuildType(buildType, projectTypeOptions, categories),
     quick_quote_build_type: buildType,
     images: [],
   });
@@ -503,7 +506,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                 ...x,
                 items: x.items.map((i) =>
                   i.id === existing.id
-                    ? { ...i, name: line.name, description: line.description, price: line.price, quantity: line.quantity, unit: line.unit, quick_quote_build_type: buildType }
+                    ? { ...i, name: line.name, description: line.description, price: line.price, quantity: line.quantity, unit: line.unit, quick_quote_build_type: buildType, category_id: i.category_id ?? line.category_id }
                     : i,
                 ),
               }
@@ -685,7 +688,13 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       // confirm dialog just makes sure that's not a surprise.
       const wasApproved = quote.status === "approved";
       if (wasApproved) {
-        await updateQuote(quote.id, { status: "draft", signed_at: null, signed_by: null });
+        await updateQuote(quote.id, {
+          status: "draft",
+          signed_at: null,
+          signed_by: null,
+          // Contractor-recorded approval (0133) goes too — only once that column exists.
+          ...("approved_manually_by" in quote ? { approved_manually_by: null, approval_method: null, approval_note: null } : {}),
+        });
       }
 
       const serverSections = new Map(quote.quote_sections.map((s) => [s.id, s]));
@@ -1220,6 +1229,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </div>
         </div>
       </div>
+
+      {/* Approval (0133) — who approved (client vs contractor-recorded), or "Mark approved". */}
+      <QuoteApprovalRow quote={quote} clientName={quote.client?.name ?? quote.project?.client?.name ?? null} disabledReason={isDirty ? "Save your changes first" : null} />
 
       {/* Quote activity (0117) — how the client is engaging; internal only. */}
       {quote.status !== "draft" && <QuoteActivityLine quote={quote} />}

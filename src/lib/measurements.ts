@@ -44,6 +44,11 @@ export const BUILD_TYPE_ALIASES: Record<string, string[]> = {
   steps: ["Stairs", "Step"],
   pillars: ["Pillars", "Columns", "Pillar", "Column", "Pillars/Columns"],
   outdoor_lighting: ["Lighting", "Landscape Lighting"],
+  pergola: ["Pergolas", "Arbor", "Shade Structure"],
+  water_feature: ["Water Features", "Fountain", "Pond", "Waterfall"],
+  sod: ["Sod Installation", "Turf", "Lawn", "New Lawn"],
+  irrigation: ["Sprinklers", "Sprinkler System", "Irrigation System"],
+  plants: ["Plantings", "Planting", "Plant Installation", "Landscaping Plants"],
 };
 
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -247,6 +252,11 @@ export const FEATURE_KIND: Record<string, FeatureKind> = {
   fire_pit: "fire_pit",
   outdoor_lighting: "lighting",
   steps: "steps",
+  // Area card (L×W / L-shape / irregular → sq ft): footprint / coverage.
+  pergola: "patio",
+  water_feature: "patio",
+  sod: "patio",
+  irrigation: "patio",
 };
 
 export const featureKindOf = (buildType: string | null): FeatureKind | null =>
@@ -263,6 +273,10 @@ export const INSTANCE_NOUN: Record<string, string> = {
   fire_pit: "fire pit",
   outdoor_lighting: "lighting area",
   steps: "set of steps",
+  pergola: "pergola",
+  water_feature: "water feature",
+  sod: "lawn area",
+  irrigation: "irrigated area",
 };
 
 export const FIXTURE_TYPES: { id: FixtureType; label: string }[] = [
@@ -847,6 +861,10 @@ export function smartSectionPrefill(
       };
     case "outdoor_lighting":
       return t.fixture_count ? { fixture_count: t.fixture_count } : {};
+    case "water_feature":
+    case "sod":
+    case "irrigation":
+      return t.area_sqft ? { area: { areaSqft: t.area_sqft, perimeterFt: t.perimeter_ft ?? null } } : {};
     default:
       return {};
   }
@@ -865,6 +883,11 @@ export function quickQuotePrefill(buildType: string, t: FeatureTotals): Record<s
       return t.perimeter_ft ? { wall_length_ft: t.perimeter_ft } : {};
     case "outdoor_lighting":
       return t.fixture_count ? { fixture_count: t.fixture_count } : {};
+    case "pergola":
+    case "water_feature":
+    case "sod":
+    case "irrigation":
+      return t.area_sqft ? { area_sqft: t.area_sqft } : {};
     default:
       return {};
   }

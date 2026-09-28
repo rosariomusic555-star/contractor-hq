@@ -62,7 +62,8 @@ describe("category → card mapping", () => {
       expect(FEATURE_KIND[id]).toBeTruthy();
     }
     expect(FEATURE_KIND.pillars).toBeUndefined();
-    expect(BUILD_TYPES.every((b) => b.id in FEATURE_KIND || b.id === "pillars")).toBe(true);
+    // Plants is counted per plant (custom measurements), not measured.
+    expect(BUILD_TYPES.every((b) => b.id in FEATURE_KIND || b.id === "pillars" || b.id === "plants")).toBe(true);
   });
 
   it("builds one group per selected type, merging duplicates and keeping unmapped ones", () => {
@@ -254,12 +255,14 @@ describe("downstream", () => {
     for (const t of smartSectionTemplates) {
       const keys = new Set([...t.questions.map((q) => q.key)]);
       for (const k of Object.keys(smartSectionPrefill(t.id, totals, { courseHeightIn: 8 }))) expect(keys, `${t.id}.${k}`).toContain(k);
-      expect(Object.keys(smartSectionPrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
+      // Pergola needs length and width separately (an area can't give them);
+      // Plants is counted, not measured — no prefill for either calculator.
+      if (t.id !== "pergola" && t.id !== "plants") expect(Object.keys(smartSectionPrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
     }
     for (const t of quickQuoteTemplates) {
       const keys = new Set(t.questions.map((q) => q.key));
       for (const k of Object.keys(quickQuotePrefill(t.id, totals))) expect(keys, `${t.id}.${k}`).toContain(k);
-      expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
+      if (t.id !== "plants") expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
     }
   });
 

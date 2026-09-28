@@ -4,6 +4,7 @@ import { outdoorKitchenTemplate } from "./outdoorKitchen";
 import { seatingWallTemplate } from "./seatingWall";
 import { firePitTemplate } from "./firePit";
 import { outdoorLightingTemplate } from "./outdoorLighting";
+import { irrigationTemplate, pergolaTemplate, plantsTemplate, sodTemplate, waterFeatureTemplate } from "./landscape";
 import type { SmartSectionTemplate } from "./types";
 
 /**
@@ -17,6 +18,11 @@ export const SMART_SECTION_TEMPLATES: SmartSectionTemplate[] = [
   seatingWallTemplate,
   firePitTemplate,
   outdoorLightingTemplate,
+  pergolaTemplate,
+  waterFeatureTemplate,
+  sodTemplate,
+  irrigationTemplate,
+  plantsTemplate,
 ];
 
 export const findSmartSectionTemplate = (id: string | null): SmartSectionTemplate | null =>

@@ -4,6 +4,7 @@ import { outdoorKitchenQuickQuote } from "./outdoorKitchen";
 import { seatingWallQuickQuote } from "./seatingWall";
 import { firePitQuickQuote } from "./firePit";
 import { outdoorLightingQuickQuote } from "./outdoorLighting";
+import { irrigationQuickQuote, pergolaQuickQuote, plantsQuickQuote, sodQuickQuote, waterFeatureQuickQuote } from "./landscape";
 import type { QuickQuoteTemplate } from "./types";
 
 /** Registry of Quick Quote build types. Adding a 6th means writing one new
@@ -14,6 +15,11 @@ export const QUICK_QUOTE_TEMPLATES: QuickQuoteTemplate[] = [
   seatingWallQuickQuote,
   firePitQuickQuote,
   outdoorLightingQuickQuote,
+  pergolaQuickQuote,
+  waterFeatureQuickQuote,
+  sodQuickQuote,
+  irrigationQuickQuote,
+  plantsQuickQuote,
 ];
 
 export const findQuickQuoteTemplate = (id: string): QuickQuoteTemplate | null =>

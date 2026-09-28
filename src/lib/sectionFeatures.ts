@@ -100,6 +100,14 @@ export function categoryForSectionName(name: string, projectTypes: Category[], a
   return (viaBuildType(projectTypes) ?? viaBuildType(allCategories))?.id ?? null;
 }
 
+/** The category a build type maps to (project types first, then every
+ * category) — the same alias mapping sections use. Quick Quote tags its line
+ * item with it so Revenue by category counts it. */
+export function categoryIdForBuildType(buildType: string, projectTypes: Category[], allCategories: Category[]): string | null {
+  const via = (list: Category[]) => list.find((c) => buildTypeForCategoryName(c.name)?.id === buildType);
+  return (via(projectTypes) ?? via(allCategories))?.id ?? null;
+}
+
 /** A name counts as autofilled (safe to follow the type) when it's empty or
  * is exactly the current type's name — anything else was typed by hand. */
 export function isAutofilledSectionName(name: string, typeName: string | null | undefined): boolean {
