@@ -538,6 +538,22 @@ export function OpportunityDetailView() {
               <div className="space-y-1.5">
                 <div className={FIELD_LABEL}>Job context</div>
                 <JobContextChips project={project} />
+                {/* Anything the chips don't cover goes in the notes box above
+                    — no per-field "Other". */}
+                <p className="text-xs text-muted-foreground">
+                  Something else?{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-primary hover:underline"
+                    onClick={() => {
+                      const el = document.getElementById("opp-site-conditions");
+                      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      el?.focus({ preventScroll: true });
+                    }}
+                  >
+                    Add it to Site condition notes
+                  </button>
+                </p>
               </div>
             )}
             {opportunity.stage === "lost" && (
