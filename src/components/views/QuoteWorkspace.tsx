@@ -16,6 +16,7 @@ import {
   ArrowRight,
   ListChecks,
   BookmarkPlus,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1219,7 +1220,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               </h1>
               <StatusPill meta={meta} />
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">{clientName}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <p className="text-sm text-muted-foreground">{clientName}</p>
+              {projectId && (
+                <Button asChild variant="outline" size="sm" className="h-8 font-semibold">
+                  <Link to={`/projects/${projectId}`}>
+                    <FolderOpen className="mr-1.5 h-3.5 w-3.5" /> Go to project
+                  </Link>
+                </Button>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {isDirty && quote.status === "draft" && (
@@ -1229,6 +1239,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </div>
         </div>
       </div>
+
+      {/* Phones: the project is one tap away too (the header's back goes to the list). */}
+      {projectId && (
+        <Button asChild variant="outline" className="h-11 w-full font-semibold md:hidden">
+          <Link to={`/projects/${projectId}`}>
+            <FolderOpen className="mr-1.5 h-4 w-4" /> Go to project · {quote.project?.name ?? "Project"}
+          </Link>
+        </Button>
+      )}
 
       {/* Approval (0133) — who approved (client vs contractor-recorded), or "Mark approved". */}
       <QuoteApprovalRow quote={quote} clientName={quote.client?.name ?? quote.project?.client?.name ?? null} disabledReason={isDirty ? "Save your changes first" : null} />
