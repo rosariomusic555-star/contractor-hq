@@ -10,6 +10,9 @@ import {
   invoicesPaidLine,
   invoiceTiming,
   invoicesByChangeOrder,
+  quoteDecisionLine,
+  quoteKindLabel,
+  quoteSummary,
 } from "./projectBilling";
 
 const now = new Date("2026-10-10T12:00:00");
@@ -79,3 +82,37 @@ describe("project change orders page", () => {
     expect(m.size).toBe(1);
   });
 });
+
+describe("project quotes page", () => {
+  const q = (p: Record<string, unknown>) => ({ id: Math.random().toString(), kind: "original", status: "draft", signed_at: null, signed_by: null, approved_manually_by: null, approval_method: null, declined_at: null, decline_comment: null, updated_at: "2026-09-20T12:00:00Z", sent_at: null, view_count: 0, first_viewed_at: null, last_viewed_at: null, last_view_device: null, selections_changed_at: null, ...p }) as never;
+
+  it("labels originals, options and add-ons", () => {
+    const signed = q({ id: "a", status: "approved" });
+    const addon = q({ id: "b", kind: "addon", status: "sent" });
+    const alt = q({ id: "c" });
+    const all = [signed, addon, alt];
+    const nums = new Map([["b", 1]]);
+    expect(quoteKindLabel(signed, all, nums)).toBe("Original quote");
+    expect(quoteKindLabel(addon, all, nums)).toBe("Add-on #1");
+    expect(quoteKindLabel(alt, all, nums)).toBe("Option / revision");
+    expect(quoteKindLabel(alt, [alt], nums)).toBe("Quote");
+  });
+
+  it("decision lines: hub signature, manual approval, decline, out with the client, draft", () => {
+    const now = new Date("2026-10-10T12:00:00Z");
+    expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg" }), now)).toBe("Signed Sep 24, 2026 by Greg in the Client Hub");
+    expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg", approved_manually_by: "Rosa", approval_method: "in_person" }), now)).toBe(
+      "Approved in person Sep 24, 2026 by Greg — recorded by Rosa",
+    );
+    expect(quoteDecisionLine(q({ status: "declined", declined_at: "2026-10-01T12:00:00Z", decline_comment: "Over budget" }), now)).toBe('Declined Oct 1, 2026 — "Over budget"');
+    expect(quoteDecisionLine(q({ status: "sent", sent_at: "2026-10-08T12:00:00Z" }), now)).toBe("Not opened yet · sent 2 days ago");
+    expect(quoteDecisionLine(q({}), now)).toBe("Draft · last edited Sep 20, 2026");
+  });
+
+  it("sums by state", () => {
+    const list = [q({ status: "sent", t: 100 }), q({ status: "sent", t: 50 }), q({ status: "draft", t: 20 }), q({ status: "declined", t: 999 })];
+    const withTotals = list as unknown as ({ status: "sent" | "draft" | "declined" } & { t: number })[];
+    expect(quoteSummary(withTotals as never[], (x) => (x as unknown as { t: number }).t)).toEqual({ sent: { count: 2, total: 150 }, drafts: { count: 1, total: 20 }, declined: 1 });
+  });
+});
+

@@ -5,10 +5,11 @@
  * groups what they compute.
  * ========================================================================== */
 
-import type { ChangeOrder, Invoice } from "./api";
+import type { ChangeOrder, Invoice, Quote } from "./api";
 import { DEPOSIT_INVOICE_NOTE } from "./api";
 import { invoiceDaysLate } from "./financials";
 import { invoiceBalance, invoicePaid } from "./projectMoney";
+import { activityLine } from "./quoteActivity";
 
 export type Tone = "muted" | "good" | "warn" | "bad";
 
@@ -141,3 +142,56 @@ export function invoicesByChangeOrder<T extends Pick<Invoice, "change_order_id">
 }
 
 export const signedMoney = (n: number, fmt: (v: number) => string) => (n > 0 ? `+${fmt(n)}` : n < 0 ? `−${fmt(Math.abs(n))}` : fmt(0));
+
+// ---------------------------------------------------------------------------
+// Quotes
+// ---------------------------------------------------------------------------
+
+type QuoteLike = Pick<Quote, "id" | "kind" | "status">;
+
+/** "Add-on #2", "Original quote" (the signed one), "Option / revision"
+ * (another original while there's more than one), else "Quote". */
+export function quoteKindLabel(q: QuoteLike, all: QuoteLike[], addonNumbers: Map<string, number>): string {
+  if (q.kind === "addon") return `Add-on${addonNumbers.get(q.id) ? ` #${addonNumbers.get(q.id)}` : ""}`;
+  if (q.status === "approved") return "Original quote";
+  const originals = all.filter((x) => x.kind !== "addon");
+  return originals.length > 1 ? "Option / revision" : "Quote";
+}
+
+/** Where it stands with the client — who signed and how, the decline
+ * comment, the view activity while it's out, or when the draft was touched. */
+export function quoteDecisionLine(
+  q: Pick<Quote, "status" | "signed_at" | "signed_by" | "approved_manually_by" | "approval_method" | "declined_at" | "decline_comment" | "updated_at" | "sent_at" | "view_count" | "first_viewed_at" | "last_viewed_at" | "last_view_device" | "selections_changed_at">,
+  now: Date = new Date(),
+): string {
+  if (q.status === "approved") {
+    const when = q.signed_at ? ` ${shortDate(q.signed_at)}` : "";
+    if (q.approved_manually_by) {
+      const how = q.approval_method === "in_person" ? " in person" : q.approval_method === "paper" ? " on paper" : "";
+      return `Approved${how}${when}${q.signed_by ? ` by ${q.signed_by}` : ""} — recorded by ${q.approved_manually_by}`;
+    }
+    return `Signed${when}${q.signed_by ? ` by ${q.signed_by}` : ""} in the Client Hub`;
+  }
+  if (q.status === "declined") return `Declined${q.declined_at ? ` ${shortDate(q.declined_at)}` : ""}${q.decline_comment ? ` — "${q.decline_comment}"` : ""}`;
+  if (q.status === "sent") return activityLine(q, now) ?? "Sent to the client";
+  return `Draft · last edited ${shortDate(q.updated_at)}`;
+}
+
+export interface QuoteSummary {
+  sent: { count: number; total: number };
+  drafts: { count: number; total: number };
+  declined: number;
+}
+
+/** Totals by state; `totalOf` is the quote's price (quoteTotal). */
+export function quoteSummary<T extends Pick<Quote, "status">>(quotes: T[], totalOf: (q: T) => number): QuoteSummary {
+  const sum = (xs: T[]) => r2(xs.reduce((s, q) => s + totalOf(q), 0));
+  const sent = quotes.filter((q) => q.status === "sent");
+  const drafts = quotes.filter((q) => q.status === "draft");
+  return {
+    sent: { count: sent.length, total: sum(sent) },
+    drafts: { count: drafts.length, total: sum(drafts) },
+    declined: quotes.filter((q) => q.status === "declined").length,
+  };
+}
+
