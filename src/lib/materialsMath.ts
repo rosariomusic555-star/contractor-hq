@@ -10,7 +10,8 @@
 /** Required quantity with waste = quantity × (1 + waste%). An empty/blank
  * waste counts as 0. */
 export function quantityWithWaste(quantity: number | string | null | undefined, wastePercent: number | string | null | undefined): number {
-  return (Number(quantity) || 0) * (1 + (Number(wastePercent) || 0) / 100);
+  // Rounded to 6 places: 180 at 10% is 198, not 198.00000000000003.
+  return Math.round((Number(quantity) || 0) * (1 + (Number(wastePercent) || 0) / 100) * 1e6) / 1e6;
 }
 
 /** A line's cost: waste-adjusted quantity × unit cost. */

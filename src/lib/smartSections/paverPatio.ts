@@ -1,5 +1,5 @@
 import type { ProductCatalogItem } from "@/lib/api";
-import { roundUpToOrderable } from "@/lib/catalogOrdering";
+import { ceilClean, roundUpToOrderable } from "@/lib/catalogOrdering";
 import type { AreaAndPerimeter, RawCalculatedLine, SmartSectionTemplate } from "./types";
 
 const roundUpToHalfTon = (n: number) => Math.ceil(n * 2) / 2;
@@ -99,7 +99,7 @@ export const paverPatioTemplate: SmartSectionTemplate = {
 
     lines.push({
       slotKey: "pavers",
-      quantity: paver ? roundUpToOrderable(fieldAreaSqft, paver.specs) : Math.ceil(fieldAreaSqft),
+      quantity: paver ? roundUpToOrderable(fieldAreaSqft, paver.specs) : ceilClean(fieldAreaSqft),
       unit: paver?.unit || "sq ft",
       catalogProduct: paver,
     });
@@ -109,7 +109,7 @@ export const paverPatioTemplate: SmartSectionTemplate = {
         slotKey: "border_pavers",
         quantity: borderPaver
           ? roundUpToOrderable(borderAreaSqft, borderPaver.specs)
-          : Math.ceil(borderAreaSqft),
+          : ceilClean(borderAreaSqft),
         unit: borderPaver?.unit || "sq ft",
         catalogProduct: borderPaver,
       });

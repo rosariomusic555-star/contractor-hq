@@ -17,6 +17,20 @@ function packageCoverage(specs: ProductCatalogItem["specs"] | undefined): number
   return coverage * perPackage;
 }
 
+/** Math.ceil that ignores float noise: 198.00000000000003 (180 × 1.1) is
+ * 198, not 199. Anything past a millionth is still a real remainder. */
+export function ceilClean(n: number): number {
+  return Math.ceil(Math.round(n * 1e6) / 1e6);
+}
+
+/** Whole packages needed — a count within 0.001 of a whole number IS that
+ * number (263.73 / 87.91 = 3.0000000000000004 is 3 pallets, not 4). */
+function packagesNeeded(quantity: number, coverage: number): number {
+  const packages = quantity / coverage;
+  const nearest = Math.round(packages);
+  return Math.abs(packages - nearest) < 1e-3 ? nearest : Math.ceil(packages);
+}
+
 /** Rounds a required quantity up to the nearest whole multiple of the
  * product's package coverage. Falls back to a plain ceil when the product
  * carries no package specs (nothing to round by) — used by the Smart
@@ -26,8 +40,9 @@ export function roundUpToOrderable(
   specs: ProductCatalogItem["specs"] | undefined,
 ): number {
   const coverage = packageCoverage(specs);
-  if (!coverage || quantity <= 0) return Math.ceil(quantity);
-  return Math.ceil(quantity / coverage) * coverage;
+  if (!coverage || quantity <= 0) return ceilClean(quantity);
+  // Rounded to the cent so float noise (584.0999999999999) never reaches a Qty field.
+  return Math.round(packagesNeeded(quantity, coverage) * coverage * 100) / 100;
 }
 
 /** For the picker's inline nudge: returns the next orderable quantity only

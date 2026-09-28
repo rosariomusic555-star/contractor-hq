@@ -184,15 +184,37 @@ const ORDER_UNIT_ALIASES: Record<string, MaterialOrderUnit> = {
   linear_foot: "linear_foot",
   "linear foot": "linear_foot",
   "linear feet": "linear_foot",
+  "cu yd": "cubic_yard",
+  "cubic yard": "cubic_yard",
+  "cubic yards": "cubic_yard",
+  ft: "linear_foot",
+  foot: "linear_foot",
+  feet: "linear_foot",
+  "lin ft": "linear_foot",
+  sf: "square_foot",
+  "sq ft": "square_foot",
+  sqft: "square_foot",
+  "square foot": "square_foot",
+  "square feet": "square_foot",
+  square_foot: "square_foot",
+  roll: "roll",
+  rolls: "roll",
+  tube: "tube",
+  tubes: "tube",
+  layer: "layer",
+  layers: "layer",
   ea: "each",
   each: "each",
   pc: "each",
+  pcs: "each",
+  piece: "each",
+  pieces: "each",
 };
 
-/** No exact match (e.g. "sf" — square feet has no equivalent in the fixed
- * 6-value delivery-unit vocabulary) falls back to "each"; the real unit
- * is never lost since it's still spelled out in the order line's own
- * description/quantity text. */
+/** Every unit the calculators and Cost plan write (sq ft, cu yd, ft, roll,
+ * tube, layer… — delivery units widened in 0142) maps to its delivery unit,
+ * so the Material Tracker can match the order to the line. Anything else
+ * still falls back to "each". */
 export function guessMaterialOrderUnit(freeTextUnit: string | null | undefined): MaterialOrderUnit {
   const key = (freeTextUnit ?? "").trim().toLowerCase();
   return ORDER_UNIT_ALIASES[key] ?? "each";

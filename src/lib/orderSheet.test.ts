@@ -195,8 +195,9 @@ describe("guessMaterialOrderUnit", () => {
     expect(guessMaterialOrderUnit("lf")).toBe("linear_foot");
   });
 
-  it("falls back to 'each' for a unit with no equivalent (e.g. square feet)", () => {
-    expect(guessMaterialOrderUnit("sf")).toBe("each");
+  it("square feet has its own delivery unit now (0142); anything unknown still falls back to 'each'", () => {
+    expect(guessMaterialOrderUnit("sf")).toBe("square_foot");
+    expect(guessMaterialOrderUnit("gallon")).toBe("each");
     expect(guessMaterialOrderUnit(null)).toBe("each");
   });
 });

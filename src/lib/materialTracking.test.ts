@@ -624,3 +624,24 @@ describe("material alerts — compact summary rules", () => {
     expect(materialAlerts(started, [off], [], [], settings, now)).toEqual([]);
   });
 });
+
+// Quantity bug (2026-09-28): Order Sheet "Mark as ordered" wrote sq ft /
+// cu yd / ft / roll / tube lines as "each", so the tracker couldn't match
+// them — Ordered and Delivered read 0 (and delivered cost $0).
+import { guessMaterialOrderUnit } from "./orderSheet";
+describe("Mark as ordered keeps the line's unit, so the tracker counts it", () => {
+  it("maps every unit the calculators write", () => {
+    expect(["sq ft", "sf", "Sq Ft"].map(guessMaterialOrderUnit)).toEqual(["square_foot", "square_foot", "square_foot"]);
+    expect(guessMaterialOrderUnit("cu yd")).toBe("cubic_yard");
+    expect(guessMaterialOrderUnit("ft")).toBe("linear_foot");
+    expect(["roll", "tube", "layer", "pieces"].map(guessMaterialOrderUnit)).toEqual(["roll", "tube", "layer", "each"]);
+  });
+  it("an order written that way counts against the line", () => {
+    for (const [lineUnit, orderUnit] of [["sq ft", "square_foot"], ["cu yd", "cubic_yard"], ["ft", "linear_foot"], ["roll", "roll"], ["tube", "tube"]] as const) {
+      const line = makeItem({ id: "mi-u", unit: lineUnit });
+      const d = [delivery(makeOrderItem({ materials_item_id: "mi-u", quantity: 350.46, unit: orderUnit as never }), "delivered")];
+      expect(orderedQuantity(line, d), lineUnit).toBe(350.46);
+      expect(deliveredQuantity(line, d), lineUnit).toBe(350.46);
+    }
+  });
+});

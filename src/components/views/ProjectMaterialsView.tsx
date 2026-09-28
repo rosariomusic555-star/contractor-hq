@@ -179,6 +179,7 @@ import {
   isProjectActive,
   revisedBaseline,
   lineStatus,
+  hasAnyOrder,
   sheetCostSummary,
   materialAlerts,
   startContext,
@@ -620,6 +621,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         delivered: deliveredQuantity(line, deliveries),
         used: usedQuantity(line, usageLogs),
         unit: line.unit,
+        hasOrder: hasAnyOrder(line, deliveries),
       });
     }
     return map;
@@ -1711,6 +1713,8 @@ interface TrackingContext {
       delivered: number;
       used: number;
       unit: string | null;
+      /** Any order line is matched to it — "Ordered" even while its unit still needs converting. */
+      hasOrder: boolean;
     }
   >;
   onLogUsage: (itemId: string) => void;
@@ -2111,7 +2115,7 @@ function ItemRow({
         return {
           ...trackData,
           estimated,
-          status: lineStatus(estimated, trackData.ordered, trackData.delivered, trackData.used),
+          status: lineStatus(estimated, trackData.ordered, trackData.delivered, trackData.used, trackData.hasOrder),
         };
       })()
     : undefined;

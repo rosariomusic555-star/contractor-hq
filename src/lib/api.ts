@@ -4427,7 +4427,7 @@ export async function touchSupplierUsage(name: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export type MaterialOrderStatus = "ordered" | "delivered" | "delayed";
-export type MaterialOrderUnit = "pallet" | "ton" | "cubic_yard" | "bag" | "linear_foot" | "each";
+export type MaterialOrderUnit = "pallet" | "ton" | "cubic_yard" | "bag" | "linear_foot" | "each" | "square_foot" | "roll" | "tube" | "layer";
 
 export const MATERIAL_ORDER_UNITS: { value: MaterialOrderUnit; label: string; plural: string }[] = [
   { value: "pallet", label: "Pallet", plural: "pallets" },
@@ -4435,6 +4435,10 @@ export const MATERIAL_ORDER_UNITS: { value: MaterialOrderUnit; label: string; pl
   { value: "cubic_yard", label: "Cubic yard", plural: "cubic yards" },
   { value: "bag", label: "Bag", plural: "bags" },
   { value: "linear_foot", label: "Linear foot", plural: "linear feet" },
+  { value: "square_foot", label: "Square foot", plural: "square feet" },
+  { value: "roll", label: "Roll", plural: "rolls" },
+  { value: "tube", label: "Tube", plural: "tubes" },
+  { value: "layer", label: "Layer", plural: "layers" },
   { value: "each", label: "Each", plural: "each" },
 ];
 
