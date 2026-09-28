@@ -77,7 +77,8 @@ export const waterFeatureTemplate: SmartSectionTemplate = {
     const area = areaOf(a.area);
     const side = Math.sqrt(area);
     const depth = Number(a.depth_ft) || 2;
-    const overlap = Number(a.liner_overlap_ft) ?? 1;
+    const rawOverlap = Number(a.liner_overlap_ft);
+    const overlap = Number.isFinite(rawOverlap) && a.liner_overlap_ft != null ? rawOverlap : 1;
     // Liner: (side + 2×depth + 2×overlap)² — the usual pond-liner sizing on a square.
     const linerSide = side > 0 ? side + 2 * depth + 2 * overlap : 0;
     const liner = Math.ceil(linerSide * linerSide);
