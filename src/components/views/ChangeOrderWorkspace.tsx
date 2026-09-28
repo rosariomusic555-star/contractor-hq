@@ -32,6 +32,8 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
+import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
+import { useAuth } from "@/lib/auth";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
@@ -64,7 +66,8 @@ import {
   deleteChangeOrderItem,
   uploadChangeOrderItemImage,
   deleteChangeOrderItemImage,
-  createInvoice,
+  createChangeOrderInvoice,
+  contractorApproveChangeOrder,
   generateShareLink,
   getBusinessProfile,
   listProjectFeatures,
@@ -346,6 +349,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const locked = changeOrder.status === "approved" || changeOrder.status === "declined";
   const meta = changeOrderStatusMeta(changeOrder.status);
   const clientName = changeOrder.project?.client?.name ?? "No client";
+  const { session } = useAuth();
   const projectName = changeOrder.project?.name ?? "Project";
 
   // --- server sync ----------------------------------------------------------
@@ -548,14 +552,24 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     onError,
   });
 
-  // Contractor's own one-click approve/decline — for a verbal/in-person OK,
-  // same capability the old flat-form change orders page had, now living on
-  // a "sent" change order in the builder instead of a list-row button.
+  // Contractor-recorded approval (0139) — the client OK'd it in person / on
+  // paper: how, who and when are recorded (contractor_approve_change_order
+  // also logs the project event); the rest is trigger-driven like a client
+  // approval.
+  const [approveOpen, setApproveOpen] = useState(false);
   const approveMut = useMutation({
-    mutationFn: () => updateChangeOrder(changeOrder.id, { status: "approved", approved_at: new Date().toISOString() }),
+    mutationFn: (a: ManualApproval) =>
+      contractorApproveChangeOrder({
+        changeOrderId: changeOrder.id,
+        method: a.method,
+        note: a.note,
+        signedBy: a.signedBy,
+        approvedOn: a.approvedOn,
+        recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
+      }),
     onSuccess: () => {
+      setApproveOpen(false);
       invalidate();
-      void logProjectEvent(projectId, "change_order_approved", `Change order approved: ${changeOrder.title} · ${formatCurrency(Number(changeOrder.amount))}`);
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
       qc.invalidateQueries({ queryKey: ["materials"] });
       qc.invalidateQueries({ queryKey: ["feature-history", projectId] });
@@ -585,13 +599,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   });
 
   const createInvoiceMut = useMutation({
-    mutationFn: () =>
-      createInvoice({
-        project_id: projectId,
-        change_order_id: changeOrder.id,
-        amount: Number(changeOrder.amount),
-        notes: `Change order: ${changeOrder.title}`,
-      }),
+    mutationFn: () => createChangeOrderInvoice(changeOrder),
     onSuccess: (invoice) => navigate(`/invoices/${invoice.id}`),
     onError,
   });
@@ -644,13 +652,14 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                   <X className="mr-1.5 h-4 w-4" />
                   Decline
                 </Button>
-                <Button onClick={() => approveMut.mutate()} disabled={approveMut.isPending} className="font-bold">
+                <Button onClick={() => setApproveOpen(true)} disabled={approveMut.isPending} className="font-bold">
                   <Check className="mr-1.5 h-4 w-4" />
-                  {approveMut.isPending ? "Approving…" : "Approve"}
+                  Mark approved
                 </Button>
               </>
             )}
-            {changeOrder.status === "approved" && (
+            {/* A credit (negative) comes off the balance — nothing to invoice. */}
+            {changeOrder.status === "approved" && Number(changeOrder.amount) > 0 && (
               <Button onClick={() => createInvoiceMut.mutate()} disabled={createInvoiceMut.isPending} className="font-bold">
                 {createInvoiceMut.isPending ? "Creating…" : "Create invoice"}
               </Button>
@@ -984,6 +993,15 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
       <DraftSaveBar visible={isDirty} onDiscard={discard} onSave={() => saveMut.mutate()} saving={saveMut.isPending} />
 
       <ShareLinkDialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)} url={shareUrl ?? ""} kind="change order" />
+      <ManualApprovalDialog
+        open={approveOpen}
+        onOpenChange={setApproveOpen}
+        title="Mark this change order approved"
+        description="The client agreed in person or on paper. Same as their approval: the contract, features, schedule and Cost plan update."
+        defaultSignedBy={clientName === "No client" ? null : clientName}
+        pending={approveMut.isPending}
+        onSubmit={(a) => approveMut.mutate(a)}
+      />
 
       <AlertDialog open={!!suggestAddon} onOpenChange={(open) => !open && setSuggestAddon(null)}>
         <AlertDialogContent>
