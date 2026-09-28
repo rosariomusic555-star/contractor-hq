@@ -1,6 +1,6 @@
 # ContractorHQ — feature audit checklist
 
-Started 2026-09-28. **Step 1 (inventory) is done; Step 2 (live testing) is in progress** — see the live test log and the Fixed table below.
+Started 2026-09-28. **Steps 1–3 done for the owner role**; employee + Client Hub roles still to test with your sign-in. Report: "Step 3 — report" below.
 
 ## How to read this
 
@@ -22,6 +22,37 @@ Started 2026-09-28. **Step 1 (inventory) is done; Step 2 (live testing) is in pr
 | 06 Invoices, payments, expenses, reports, timesheets | 345 | 112 |
 | 07 Settings, Employee role, Client Hub | 403 | 0 |
 | **Total (92 routes incl. redirects & public/portal/employee pages)** | **2378** | **333** |
+
+## Step 3 — report (2026-09-28)
+
+**Scope covered live** (desktop + 390px phone sweep of every route): clients → pipeline → site visit → measurements → Cost plan / calculators → quote (Quick Quote, selections, optional items) → share link → sign → Won chain → invoices / payments / voids → change orders (added, credit, client-signed, marked approved) → add-on quote → expenses (split) → order sheet → Bookings / delay job / undo → labor log → dashboard (new + old) → Revenue + 7 detail pages → Business health → Marketing ROI → Settings (Quote defaults, Business profile, Price Book, number limits on every page) → AI assistant (read + write). Every number above was checked by hand; see the log below.
+
+**Result:** 28 fixes (table below; some rows cover several related bugs) — **Critical 9** (1 security on `fix/client-hub-auth`, 6 money, 2 quantity) · **High 11** · **Medium 6** · **Low 2**. 441 tests passing, type-check and lint at baseline. Nothing Critical or High found today is still open.
+
+**Still open — works, but bad UX (not fixed, your call):**
+1. Two "actual cost" figures on the project page (Profit card = spent so far; Planned vs actual = materials carried at plan until Complete) — labels don't explain the difference; mid-job, unspent non-material plan (e.g. kitchen $500) reads as "+$500 profit".
+2. Raw ISO dates ("2026-09-25") on invoices and Revenue tables.
+3. Calculator lines have no material category, so the order sheet is one "Other / Uncategorized" group; bulk tons round up to whole tons (9.5 → 10).
+4. Client's add-on quote page is titled "Proposal" with nothing saying it adds to the existing job; Quotes page Deposit tile ignores the add-on's deposit.
+5. Change orders: "recorded by" shows the owner's email; "−$250" vs "-$250" signs mixed; Mark approved only after sending.
+6. Floating + / assistant buttons cover the right edge of cards on phones until you scroll.
+7. Revenue: Invoiced KPI counts 2 while the table lists 4 (drafts); Categories says "incl. Uncategorized" with no such row, "0 jobs" beside revenue.
+8. Opportunity title truncated with room to spare; lead source not picked up from the client; decimal feet ("15.5 ft") after ft+in entry; "ft" units get a text box, not the dropdown; Estimate hint says "per project type"; a selection upgrade listed under "Optional items selected".
+9. Price Book allows duplicate names without a warning.
+
+**Couldn't test here:**
+- Employee (crew) login, timesheets, payroll export, work order — needs a crew login you create and sign in with.
+- Client Hub (magic link) — you open the link; also re-check a real client still gets in after 0140.
+- Emails: order sheet to supplier (Resend secrets + `send-supplier-email` deploy), any real sends; Text / SMS and mail-app handoffs.
+- Order sheet PDF download (browser download).
+- Weather forecast flags (job outside the 7-day window, made-up test address).
+- Stripe — not in the app (Client Hub phase 4 was skipped).
+
+**Needs you:**
+- Deploy `create-employee` (security fix) and `assistant-chat` (the live assistant is an older build: it reported the TEST job's contract as $1,293.75 and a loss; the repo code gets $24,345.75 / $21,071.25 profit) — `env -u SUPABASE_ACCESS_TOKEN supabase functions deploy <name>`.
+- Branches `fix/client-hub-auth` and `fix/audit-batch-1` are committed, not merged.
+
+**Settings I changed (left in place):** Quote defaults saved as 35% deposit / 30-day validity, terms now "Prices hold for 30 days…" (the account had no saved defaults before — built-in 50% / 14 days). Price Book: added "TEST — Paver X" ($4.25 / sq ft). Nothing else in Settings was saved (dashboard switch put back to the new dashboard).
 
 ## Test data created in the real account (cleanup list)
 
@@ -91,7 +122,7 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 
 **Not yet tested live:** order sheet email (needs Resend); timesheets / payroll (needs an employee login); employee + Client Hub roles (later, with your sign-in).
 
-## Fixed so far (branch `fix/audit-batch-1`, each with an automated test)
+## Fixed so far (branch `fix/audit-batch-1`; automated test for every math / money fix)
 
 | Severity | What was wrong | Fix | Test |
 |---|---|---|---|
@@ -118,6 +149,11 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 | High · money | Quote defaults accepted a 150% / negative deposit and 0-day validity (would break every new quote); Business profile accepted a negative labor rate | quoteDefaultsProblem / businessProfileProblem in the page + save | `settingsRules.test.ts` |
 | Medium · layout | Builders' Client/Project card and invoice add-line buttons overflowed a phone screen | grid-cols-1 / wrapping buttons | — (layout) |
 | Medium · money | Unpriced add-on quote showed $0 cost / 100% margin / full profit | Cost unknown until its features have Cost plan entries | — (display) |
+| Medium · quantity | Order sheet picker showed raw quantities (310) while the sheet ordered 326; same-name lines indistinguishable; 0-qty lines offered; job name / address blank on first open | Picker shows the ordered qty + section; 0-qty skipped; fields filled on open | — (UI; math already in `orderSheet.test.ts`) |
+| Medium · money | Price Book saved a negative unit price and 0 / negative product specs | Refused with the reason | — (form) |
+| Medium · money | AI assistant counted draft invoices as outstanding and ignored payments applied | search_invoices returns paid / balance_owed + totals | — (edge fn; needs deploy) |
+| Low · money | Labor log hours × rate saved unrounded | Rounded to the cent | — |
+| Low · wording | Share-link signatures labelled "in the Client Hub" | "online" | `projectBilling.test.ts` |
 
 **Needs you:** deploy `create-employee` (`env -u SUPABASE_ACCESS_TOKEN supabase functions deploy create-employee`).
 
