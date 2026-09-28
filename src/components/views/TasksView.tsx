@@ -29,24 +29,30 @@ import {
   type TaskType,
   type TaskPriority,
 } from "@/lib/api";
+import { localYmd } from "@/lib/appointmentTime";
+import { dayHeading, groupFromDate } from "@/lib/upcoming";
+import { FromDateControl } from "@/components/common/FromDateControl";
 
-type Filter = "today" | "upcoming" | "overdue" | "completed" | "all";
+type Filter = "upcoming" | "overdue" | "completed" | "all";
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Local "today" (a UTC slice flipped to tomorrow in the evening and made
+// today's tasks look overdue). due_at comes from a date picker, so its
+// stored date part is the day that was picked.
+const todayStr = () => localYmd(new Date());
 const dateStr = (task: Task) => (task.due_at ? task.due_at.slice(0, 10) : null);
 
 function bucketTask(task: Task): Exclude<Filter, "all"> {
   if (task.completed) return "completed";
   const d = dateStr(task);
-  const t = todayStr();
-  if (!d) return "upcoming";
-  if (d < t) return "overdue";
-  if (d === t) return "today";
+  if (d && d < todayStr()) return "overdue";
   return "upcoming";
 }
 
 export function TasksView() {
-  const [filter, setFilter] = useState<Filter>("today");
+  const [filter, setFilter] = useState<Filter>("upcoming");
+  // Upcoming = everything due on/after this date (default today), by day.
+  const today = todayStr();
+  const [from, setFrom] = useState(today);
   const [createOpen, setCreateOpen] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -59,16 +65,21 @@ export function TasksView() {
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
 
+  const upcomingGroups = groupFromDate(
+    tasks.filter((t) => !t.completed),
+    dateStr,
+    from,
+    today,
+    { includeUndated: from === today },
+  );
   const buckets = {
-    today: tasks.filter((t) => bucketTask(t) === "today"),
-    upcoming: tasks.filter((t) => bucketTask(t) === "upcoming"),
+    upcoming: upcomingGroups.flatMap((g) => g.items),
     overdue: tasks.filter((t) => bucketTask(t) === "overdue"),
     completed: tasks.filter((t) => bucketTask(t) === "completed"),
   };
   const filtered = filter === "all" ? tasks : buckets[filter];
 
   const options: FilterOption<Filter>[] = [
-    { value: "today", label: "Today", count: buckets.today.length },
     { value: "upcoming", label: "Upcoming", count: buckets.upcoming.length },
     { value: "overdue", label: "Overdue", count: buckets.overdue.length },
     { value: "completed", label: "Completed", count: buckets.completed.length },
@@ -90,17 +101,34 @@ export function TasksView() {
 
       <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={setFilter} />
       <FilterPills className="md:hidden" options={options} value={filter} onChange={setFilter} />
+      {filter === "upcoming" && <FromDateControl value={from} onChange={setFrom} today={today} />}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
 
-      <div className="space-y-2">
-        {filtered.length === 0 && !isLoading && (
-          <div className="card-surface p-10 text-center text-muted-foreground">Nothing here.</div>
-        )}
-        {filtered.map((task) => (
-          <TaskRow key={task.id} task={task} onToggle={(v) => completeMut.mutate({ id: task.id, completed: v })} />
-        ))}
-      </div>
+      {filter === "upcoming" ? (
+        <div className="space-y-4">
+          {upcomingGroups.length === 0 && !isLoading && (
+            <div className="card-surface p-10 text-center text-muted-foreground">Nothing due from {from === today ? "today" : dayHeading(from, today)} on.</div>
+          )}
+          {upcomingGroups.map((g) => (
+            <div key={g.key ?? "none"} className="space-y-2">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{g.heading}</p>
+              {g.items.map((task) => (
+                <TaskRow key={task.id} task={task} onToggle={(v) => completeMut.mutate({ id: task.id, completed: v })} />
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.length === 0 && !isLoading && (
+            <div className="card-surface p-10 text-center text-muted-foreground">Nothing here.</div>
+          )}
+          {filtered.map((task) => (
+            <TaskRow key={task.id} task={task} onToggle={(v) => completeMut.mutate({ id: task.id, completed: v })} />
+          ))}
+        </div>
+      )}
 
       <CreateTaskDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>

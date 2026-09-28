@@ -22,11 +22,14 @@ import { useToast } from "@/hooks/use-toast";
 import { cn, pluralize } from "@/lib/utils";
 import { appointmentStatusMeta } from "@/lib/statusMeta";
 import { invalidateAppointmentQueries } from "@/lib/appointmentQueries";
+import { dayHeading, groupFromDate } from "@/lib/upcoming";
+import { FromDateControl } from "@/components/common/FromDateControl";
 import {
   allDayDateTime,
   appointmentDateKey,
   appointmentHasPassed,
   appointmentTimeLabel,
+  compareAppointments,
   localHm,
   localYmd,
   nextHalfHour,
@@ -45,7 +48,7 @@ import {
 } from "@/lib/api";
 import { AppointmentForecastChip } from "@/components/weather/AppointmentForecastChip";
 
-type Filter = "upcoming" | "today" | "past" | "all";
+type Filter = "upcoming" | "past" | "all";
 
 // Local dates, not UTC slices — a UTC slice put evening appointments on the
 // next day (and all-day ones must land on the date that was picked).
@@ -53,11 +56,7 @@ const todayStr = () => localYmd(new Date());
 const dateOf = (a: Appointment) => appointmentDateKey(a);
 
 function bucketAppointment(a: Appointment): Exclude<Filter, "all"> {
-  const d = dateOf(a);
-  const t = todayStr();
-  if (d < t) return "past";
-  if (d === t) return "today";
-  return "upcoming";
+  return dateOf(a) < todayStr() ? "past" : "upcoming";
 }
 
 /**
@@ -71,17 +70,25 @@ export function AppointmentsView() {
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [createOpen, setCreateOpen] = useState(false);
   const { data: appointments = [], isLoading } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
+  // Upcoming = scheduled appointments on/after this date (default today —
+  // today's included), grouped by day, soonest first.
+  const today = todayStr();
+  const [from, setFrom] = useState(today);
+  const upcomingGroups = groupFromDate(
+    [...appointments].filter((a) => a.status === "scheduled").sort(compareAppointments),
+    dateOf,
+    from,
+    today,
+  );
 
   const buckets = {
-    upcoming: appointments.filter((a) => bucketAppointment(a) === "upcoming" && a.status === "scheduled"),
-    today: appointments.filter((a) => bucketAppointment(a) === "today" && a.status === "scheduled"),
+    upcoming: upcomingGroups.flatMap((g) => g.items),
     past: appointments.filter((a) => bucketAppointment(a) === "past" || a.status !== "scheduled"),
   };
   const filtered = filter === "all" ? appointments : buckets[filter];
 
   const options: FilterOption<Filter>[] = [
     { value: "upcoming", label: "Upcoming", count: buckets.upcoming.length },
-    { value: "today", label: "Today", count: buckets.today.length },
     { value: "past", label: "Past", count: buckets.past.length },
     { value: "all", label: "All", count: appointments.length },
   ];
@@ -101,17 +108,34 @@ export function AppointmentsView() {
 
       <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={setFilter} />
       <FilterPills className="md:hidden" options={options} value={filter} onChange={setFilter} />
+      {filter === "upcoming" && <FromDateControl value={from} onChange={setFrom} today={today} />}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
 
-      <div className="space-y-2">
-        {filtered.length === 0 && !isLoading && (
-          <div className="card-surface p-10 text-center text-muted-foreground">Nothing here.</div>
-        )}
-        {filtered.map((a) => (
-          <AppointmentRow key={a.id} appointment={a} showClient />
-        ))}
-      </div>
+      {filter === "upcoming" ? (
+        <div className="space-y-4">
+          {upcomingGroups.length === 0 && !isLoading && (
+            <div className="card-surface p-10 text-center text-muted-foreground">No appointments from {from === today ? "today" : dayHeading(from, today)} on.</div>
+          )}
+          {upcomingGroups.map((g) => (
+            <div key={g.key ?? "none"} className="space-y-2">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{g.heading}</p>
+              {g.items.map((a) => (
+                <AppointmentRow key={a.id} appointment={a} showClient />
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.length === 0 && !isLoading && (
+            <div className="card-surface p-10 text-center text-muted-foreground">Nothing here.</div>
+          )}
+          {filtered.map((a) => (
+            <AppointmentRow key={a.id} appointment={a} showClient />
+          ))}
+        </div>
+      )}
 
       <CreateAppointmentDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
