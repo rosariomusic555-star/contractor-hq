@@ -114,6 +114,17 @@ describe("readiness", () => {
     expect(r.views[0]).toMatchObject({ state: "done", autoState: "open", detail: "Marked by hand — Cash in hand" });
   });
 
+  it("start date confirmed by hand reads as a manual confirmation with its date", () => {
+    const r = readiness(
+      [item("start_confirmed", { override: true, status: "done", done_at: "2026-10-02T15:00:00Z" })],
+      { ...ready, startConfirmed: false },
+      project,
+      S,
+      "2026-10-07",
+    );
+    expect(r.views[0]).toMatchObject({ state: "done", autoState: "open", detail: "Manually confirmed with the client · Oct 2, 2026" });
+  });
+
   it("removed items drop out; summary wording", () => {
     const r = readiness([item("quote", { removed: true })], { ...ready, quoteApproved: false }, project, S, "2026-10-01");
     expect(r.views).toEqual([]);

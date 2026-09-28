@@ -87,6 +87,7 @@ export interface ItemView {
   action?: PreconAction;
 }
 
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const money = (v: number) => `$${Math.round(v).toLocaleString("en-US")}`;
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
@@ -204,12 +205,14 @@ export function itemView(
   if (AUTO_KINDS.has(item.kind)) {
     const a = autoCheck(item.kind, signals);
     if (item.override) {
+      const on = item.status === "done" && item.done_at ? ` · ${shortDate(item.done_at)}` : "";
+      const what = item.kind === "start_confirmed" && item.status === "done" ? "Manually confirmed with the client" : "Marked by hand";
       return {
         item,
         state: item.status,
         auto: true,
         autoState: a.state,
-        detail: item.note ? `Marked by hand — ${item.note}` : "Marked by hand",
+        detail: `${what}${on}${item.note ? ` — ${item.note}` : ""}`,
         warnings: [],
         action: a.action,
       };

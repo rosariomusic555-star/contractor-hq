@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { addProjectPreconItem, createStartConfirmation, getProject } from "@/lib/api";
+import { addProjectPreconItem, createStartConfirmation, getProject, updatePreconItem } from "@/lib/api";
 import { preconPhase, type ItemView, type PreconAction } from "@/lib/precon";
 import { useHeadsUp } from "@/components/schedule/rainDelayContext";
 import { usePreconBundle } from "./usePrecon";
@@ -49,6 +49,16 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
       qc.invalidateQueries({ queryKey: ["precon", projectId] });
     },
     onError: (err: Error) => toast({ title: "Couldn't add", description: err.message, variant: "destructive" }),
+  });
+
+  // Confirmed with the client outside the app (a call, on site) — no message sent.
+  const markConfirmed = useMutation({
+    mutationFn: (itemId: string) => updatePreconItem(itemId, { override: true, status: "done", note: null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["precon", projectId] });
+      toast({ title: "Start date marked as confirmed" });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't save", description: err.message, variant: "destructive" }),
   });
 
   if (!b) return null;
@@ -154,6 +164,18 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
                 {v.state === "open" && v.action && v.action !== "edit" && (
                   <Button size="sm" variant="outline" className="mt-2 h-9 shrink-0 px-2.5 text-xs" onClick={() => void act(v)}>
                     {ACTION_LABEL[v.action]}
+                  </Button>
+                )}
+                {v.state === "open" && v.item.kind === "start_confirmed" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-9 shrink-0 px-2.5 text-xs"
+                    disabled={markConfirmed.isPending}
+                    title="You confirmed it with the client yourself — nothing is sent"
+                    onClick={() => markConfirmed.mutate(v.item.id)}
+                  >
+                    Mark confirmed
                   </Button>
                 )}
                 {v.state === "open" && v.item.kind === "locate" && !ticket && (
