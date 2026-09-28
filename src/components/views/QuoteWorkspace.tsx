@@ -148,6 +148,7 @@ import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
 import { buildTypeForCategoryName } from "@/lib/measurements";
 import { BackLink } from "@/components/common/BackLink";
+import { remapDraftIds } from "@/lib/draftRemap";
 
 const NONE = "__none__";
 
@@ -679,8 +680,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     onError,
   });
   // Diff the draft against the server quote and write only what changed.
+  // Rows a save has created so far — a save that fails partway must not
+  // create them again on the next try (remapDraftIds).
+  const createdIds = useRef(new Map<string, string>());
   const saveMut = useMutation({
     mutationFn: async () => {
+      createdIds.current = new Map();
       // An approved quote's sections/items/photos are locked at the DB
       // level (0033) — editing must revert it to draft FIRST (a separate,
       // awaited call — these are independent REST requests, not one
@@ -742,6 +747,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             materials_link_mode: ds.materials_link_mode,
           });
           sectionId = created.id;
+          createdIds.current.set(ds.id, created.id);
         } else if (
           server.name !== name ||
           server.is_optional !== ds.is_optional ||
@@ -808,6 +814,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               quick_quote_build_type: di.quick_quote_build_type,
             });
             itemId = created.id;
+            createdIds.current.set(di.id, created.id);
           } else {
             itemId = srv.id;
             if (
@@ -899,7 +906,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         navigate(to);
       }
     },
-    onError,
+    onError: (err: Error) => {
+      // Keep what did save (real ids + refreshed server copy) so Save again finishes it without duplicates.
+      if (createdIds.current.size) {
+        const created = createdIds.current;
+        edit((d) => ({ ...d, sections: remapDraftIds(d.sections, created) }));
+      }
+      invalidate();
+      toast({ title: "Couldn't finish saving", description: `${err.message} — what saved is kept; Save again to finish.`, variant: "destructive" });
+    },
   });
 
   const shareQuoteMut = useMutation({

@@ -41,6 +41,7 @@ import { SectionCard } from "@/components/common/SectionCard";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { groupByType } from "@/lib/sectionGrouping";
+import { remapDraftIds } from "@/lib/draftRemap";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import {
@@ -1082,12 +1083,18 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     );
 
   // --- save (diff draft against the server data) --------------------------
+  // Rows (and the sheet) a save has created so far — so a save that fails
+  // partway doesn't create them again on the next try (remapDraftIds).
+  const createdIds = useRef(new Map<string, string>());
+  const createdSheetId = useRef<string | null>(null);
   const saveMut = useMutation({
     mutationFn: async () => {
+      createdIds.current = new Map();
       // No sheet exists yet (brand-new project) — create it lazily, exactly
       // like a brand-new section/item's tmp- id resolves to a real row here.
-      const currentSheetId =
-        sheetId ?? (await createMaterialsSheet(projectId, { name: "Cost plan", feature_category_ids: projectTypeIds })).id;
+      if (!sheetId && !createdSheetId.current)
+        createdSheetId.current = (await createMaterialsSheet(projectId, { name: "Cost plan", feature_category_ids: projectTypeIds })).id;
+      const currentSheetId = sheetId ?? createdSheetId.current!;
 
       const serverSections = new Map(sections.map((s) => [s.id, s]));
       const draftSectionIds = new Set(draft.map((s) => s.id));
@@ -1147,6 +1154,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             ...(ds.labor_mode ? labor : {}),
           });
           sectionId = created.id;
+          createdIds.current.set(ds.id, created.id);
         } else if (server.name !== name || server.sort_order !== si) {
           await updateMaterialsSection(server.id, { name, sort_order: si });
         }
@@ -1181,7 +1189,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             ? (materialCategories.find((c) => c.id === di.material_category_id)?.name ?? null)
             : di.category;
           if (!srv) {
-            await addMaterialsItem(sectionId, {
+            const createdItem = await addMaterialsItem(sectionId, {
               name: di.name,
               quantity: di.quantity,
               unit_cost: di.unit_cost,
@@ -1198,6 +1206,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               cost_type: di.cost_type,
               vendor: di.vendor.trim() || null,
             });
+            createdIds.current.set(di.id, createdItem.id);
           } else if (
             itemChanged(di, {
               name: srv.name,
@@ -1255,7 +1264,17 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       qc.invalidateQueries({ queryKey: ["catalog-price-overrides"] });
       toast({ title: "Cost plan saved" });
     },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+    onError: (err: Error) => {
+      // Keep what did save: its rows get their real ids, and the server copy
+      // is refreshed, so the next Save updates them instead of re-creating them.
+      if (createdIds.current.size) {
+        const created = createdIds.current;
+        edit((d) => remapDraftIds(d, created));
+      }
+      qc.invalidateQueries({ queryKey: ["materials"] });
+      qc.invalidateQueries({ queryKey: ["materials-sheets", { project: projectId }] });
+      toast({ title: "Couldn't finish saving", description: `${err.message} — what saved is kept; Save again to finish.`, variant: "destructive" });
+    },
   });
 
   // The Total cost card: every section, broken down by cost type.
