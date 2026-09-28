@@ -40,6 +40,7 @@ import { ReorderControls } from "@/components/common/ReorderControls";
 import { SectionCard } from "@/components/common/SectionCard";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
+import { groupByType } from "@/lib/sectionGrouping";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import {
@@ -977,7 +978,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       return;
     prefilled.current = true;
     const seeds = hasFeatures
-      ? featureSeeds(liveFeatures(features), jobCategories, smartSettings)
+      ? featureSeeds(groupByType(liveFeatures(features), (f) => f.category_id), jobCategories, smartSettings)
       : featureSectionSeeds(projectTypeIds, jobCategories, smartSettings);
     if (seeds.length > 0) {
       edit(() =>

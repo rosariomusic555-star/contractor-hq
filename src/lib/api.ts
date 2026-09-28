@@ -2304,7 +2304,10 @@ export async function getOrCreateCostPlan(projectId: string): Promise<MaterialsS
 /**
  * Every live feature (active + proposed) gets its Cost plan section — the
  * automatic "one section per feature" rule. Idempotent; a no-op before the
- * project has a plan or before 0105. New sections land just above General.
+ * project has a plan or before 0105. A new section goes right after the last
+ * section of its feature type (Seating Wall 2 under Seating Wall 1), else
+ * just above General. Existing sections never change their relative order,
+ * so a hand-arranged plan stays as arranged.
  */
 export async function ensureFeatureSections(projectId: string): Promise<number> {
   const [sheet] = await listMaterialsSheets(projectId);
@@ -2320,12 +2323,28 @@ export async function ensureFeatureSections(projectId: string): Promise<number> 
     listCategories(),
     listSmartSectionSettings(),
   ]);
-  const seeds = featureSeeds(missing, categories, smartSettings);
+  const { groupByType, insertIndexForType } = await import("./sectionGrouping");
+  const typeOfFeature = new Map(features.map((f) => [f.id, f.category_id]));
+  const seeds = featureSeeds(groupByType(missing, (f) => f.category_id), categories, smartSettings);
   const laborRate = await laborRateFor(seeds);
-  const general = sections.find((s) => s.is_general);
-  let order = Math.max(-1, ...sections.filter((s) => !s.is_general).map((s) => s.sort_order)) + 1;
-  for (const seed of seeds) await insertSeededSection(projectId, sheet.id, seed, order++, laborRate);
-  if (general && general.sort_order < order) await updateMaterialsSection(general.id, { sort_order: order });
+
+  // Work out the final order first, then insert the new sections at their
+  // spots and renumber whatever moved.
+  type Slot = { section: MaterialsSection | null; seed: FeatureSectionSeed | null; key: string | null; general: boolean };
+  const slots: Slot[] = sections.map((sec) => ({
+    section: sec,
+    seed: null,
+    key: sec.feature_id ? typeOfFeature.get(sec.feature_id) ?? null : null,
+    general: !!sec.is_general,
+  }));
+  for (const seed of seeds) {
+    const key = seed.feature_id ? typeOfFeature.get(seed.feature_id) ?? null : null;
+    slots.splice(insertIndexForType(slots, key, (x) => x.key, (x) => x.general), 0, { section: null, seed, key, general: false });
+  }
+  for (const [i, slot] of slots.entries()) {
+    if (slot.seed) await insertSeededSection(projectId, sheet.id, slot.seed, i, laborRate);
+    else if (slot.section && slot.section.sort_order !== i) await updateMaterialsSection(slot.section.id, { sort_order: i });
+  }
   return seeds.length;
 }
 
@@ -2352,7 +2371,15 @@ export async function createProjectFeature(
   projectId: string,
   input: { category_id: string | null; label?: string | null; status?: FeatureStatus; source_quote_id?: string | null },
 ): Promise<ProjectFeature> {
+  // A second feature of a type goes right after the others of that type
+  // (Seating Wall 2 after Seating Wall 1), later features shift down one.
   const existing = await listProjectFeatures(projectId);
+  const { insertIndexForType } = await import("./sectionGrouping");
+  const at = insertIndexForType(existing, input.category_id, (f) => f.category_id);
+  for (const [i, f] of existing.entries()) {
+    const next = i < at ? i : i + 1;
+    if (f.sort_order !== next) await updateProjectFeature(f.id, { sort_order: next });
+  }
   const { data, error } = await supabase
     .from("project_features")
     .insert({
@@ -2361,7 +2388,7 @@ export async function createProjectFeature(
       label: input.label?.trim() || null,
       status: input.status ?? "active",
       source_quote_id: input.source_quote_id ?? null,
-      sort_order: existing.length ? Math.max(...existing.map((f) => f.sort_order)) + 1 : 0,
+      sort_order: at,
     })
     .select("id, project_id, category_id, label, status, source_quote_id, sort_order, created_at")
     .single();
@@ -2388,7 +2415,8 @@ export async function addFeatureQuoteSections(
 ): Promise<number> {
   const { featureName: nameOf, activeFeatures, liveFeatures } = await import("./features");
   const all = await listProjectFeatures(projectId);
-  const features = onlyIds ? liveFeatures(all).filter((f) => onlyIds.includes(f.id)) : activeFeatures(all);
+  const { groupByType } = await import("./sectionGrouping");
+  const features = groupByType(onlyIds ? liveFeatures(all).filter((f) => onlyIds.includes(f.id)) : activeFeatures(all), (f) => f.category_id);
   for (const [i, f] of features.entries()) {
     await addQuoteSection(quoteId, {
       name: nameOf(f, categories),
