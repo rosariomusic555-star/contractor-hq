@@ -40,6 +40,8 @@ Every record created for testing is named with the prefix **`TEST —`**. They a
 | 2026-09-28 | Change orders | CO-001 TEST — Extend seating wall 6 ft (+$513, client-signed) · CO-002 TEST — Skip firepit 2 cap upgrade (−$250, marked approved on paper) | on the TEST project |
 | 2026-09-28 | Invoices | INV-003 $513 draft (CO-001) · INV-004 $646.88 draft (add-on deposit) | on the TEST project |
 | 2026-09-28 | Expenses | TEST — Gravel delivery $1,234.50 (split 1,000 / 234.50) · TEST — Paver pallets $1,200 | on the TEST project |
+| 2026-09-28 | Labor entry | TEST — Crew A, 24 h × $35 = $840 (Paver Patio) | on the TEST project |
+| 2026-09-28 | Schedule | TEST project booked Oct 12–16 (+ one undone rain delay) | on the TEST project |
 | 2026-09-28 | Add-on quote #1 (approved) + Walkway feature | 45 sq ft × $28.75 = $1,293.75 | /projects/ef03095a-1e58-45c1-8288-226502188306/quotes/d4a46fd4-09c1-4007-b930-550590911234 |
 
 
@@ -74,7 +76,9 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 
 **Reports** — ✅ Revenue: invoiced $22,789 (drafts excluded), collected $7,520.37, outstanding $15,268.63; by category splits the $7,520.37 by the quote's categorized lines (Paver Patio 7,750 / 21,989 = 35.2% → $2,650.55); by client · ✅ detail pages: Invoiced, Collected (rate 7,520.37 / 22,789 = 33%, aging 1–30 days $15,268.63), Avg. margin / Avg. job (no completed jobs → "—" / $0, consistent), Monthly, Categories, Clients · ⚠️ Invoiced detail: KPI "2 invoices" but the table lists 4 (drafts shown under All statuses) · ⚠️ Categories: "4 incl. Uncategorized" with no Uncategorized row; "0 jobs" beside collected revenue (jobs = completed only) · ⚠️ raw ISO dates in Revenue tables (2026-09-28) · ✅ Business health: backlog $24.3k / 5.4 crew-weeks ((22 + 5) working days ÷ 5), capacity 17/20 · 22/40 · 22/60, "3 open days in the next 3 weeks", cash forecast 30 d $1,159.88 − $4,700 overhead = −$3,540.12, 31–60 d $396.87 (24,345.75 − 23,948.88 invoiced incl. drafts), aging, trends, win rate 2/2 · ✅ Marketing ROI (Pipeline › By source): won revenue $24,345.75, won gross profit $21,911.25 (= 24,345.75 − 2,434.50 expenses), undecided-leads note.
 
-**Not yet tested live:** order sheet email (needs Resend); timesheets / payroll; settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
+**Labor log / timesheets** — ✅ project Labor log: crew 2 × 1.5 days × 8 h/day fills 24 h; $35/hr → $840 (shown, saved), feature Paver Patio · ✅ actual hrs / 100 sf 24 / 310 = 7.7, $/sf 840 / 310 = $2.71 · ✅ project page: actual cost 2,434.50 + 840 = $3,274.50, actual profit $21,071.25 (87%), fully loaded $20,757.81 (= − 24 h × $13.06 overhead) · ⚠️→fixed typed hours × rate saved unrounded (7.33 × 35.50 = 260.215) — now to the cent · ⏭ Timesheets / payroll: the account has no employees and creating a crew login creates an account — tested with the employee role later.
+
+**Not yet tested live:** order sheet email (needs Resend); timesheets / payroll (needs an employee login); settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
 
 ## Fixed so far (branch `fix/audit-batch-1`, each with an automated test)
 
