@@ -104,6 +104,12 @@ export function PortalProjectOverview() {
   const pendingChangeOrders = detail.change_orders.filter((c) => c.status === "sent");
   // The job's scope comes from the original quote; add-ons are extra work.
   const approvedQuote = detail.quotes.find((q) => q.status === "approved" && q.kind !== "addon") ?? null;
+  // Approved add-ons are part of the job now — their features belong in the scope too.
+  const approvedAddons = detail.quotes.filter((q) => q.status === "approved" && q.kind === "addon");
+  const scopeSections = [
+    ...(approvedQuote?.sections ?? []).map((s) => ({ s, tag: null as string | null })),
+    ...approvedAddons.flatMap((q) => q.sections.map((s) => ({ s, tag: `Add-on${q.addon_number ? ` #${q.addon_number}` : ""}` }))),
+  ];
 
   return (
     <div className="space-y-5">
@@ -196,16 +202,19 @@ export function PortalProjectOverview() {
       )}
 
       {/* Scope summary — from the approved quote only */}
-      {approvedQuote && (
+      {scopeSections.length > 0 && (
         <div className="card-surface p-5">
           <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
             <Package className="h-4 w-4 text-muted-subtle" />
             What we're building
           </h3>
           <div className="mt-2 space-y-3">
-            {approvedQuote.sections.map((s) => (
+            {scopeSections.map(({ s, tag }) => (
               <div key={s.id}>
-                <p className="text-sm font-bold text-foreground">{s.name}</p>
+                <p className="text-sm font-bold text-foreground">
+                  {s.name}
+                  {tag && <span className="ml-1.5 text-xs font-semibold text-muted-subtle">{tag}</span>}
+                </p>
                 <ul className="mt-1 space-y-1">
                   {s.items
                     .filter((i) => !(s.is_optional || i.is_optional) || i.client_selected)
