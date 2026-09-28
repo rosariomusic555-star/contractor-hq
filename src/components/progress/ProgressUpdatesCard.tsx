@@ -4,7 +4,6 @@ import { Camera, Check, EyeOff, MessageSquare, Share2, ThumbsUp, Trash2 } from "
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -20,8 +19,6 @@ import {
   logActivity,
   markProgressPrompted,
   replyToProgressComment,
-  setClientMarketingOk,
-  getClientMarketingOk,
   setPhotoBeforeAfter,
   setProgressUpdateShared,
   updateProgressNote,
@@ -286,16 +283,6 @@ function BeforeAfter({ project, features }: { project: Project; features: PostFe
     onSuccess: () => toast({ title: "Saved to portfolio" }),
     onError: (err: Error) => toast({ title: "Couldn't save", description: err.message, variant: "destructive" }),
   });
-  const client = (project as Project & { client?: { name: string } | null }).client;
-  const { data: marketingOk } = useQuery({
-    queryKey: ["client-marketing-ok", project.client_id],
-    queryFn: () => getClientMarketingOk(project.client_id as string),
-    enabled: open && !!project.client_id,
-  });
-  const marketing = useMutation({
-    mutationFn: (ok: boolean) => setClientMarketingOk(project.client_id as string, ok),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["client-marketing-ok", project.client_id] }),
-  });
 
   return (
     <div className="border-t border-hairline pt-3">
@@ -338,12 +325,6 @@ function BeforeAfter({ project, features }: { project: Project; features: PostFe
               </div>
             ))}
           </div>
-          {project.client_id && (
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <Checkbox checked={!!marketingOk} onCheckedChange={(v) => marketing.mutate(v === true)} />
-              {client?.name ?? "Client"} said it's OK to use these photos for marketing
-            </label>
-          )}
           <Button size="sm" variant="outline" disabled={!before || !after || save.isPending} onClick={() => save.mutate()}>
             Save pair to portfolio
           </Button>
