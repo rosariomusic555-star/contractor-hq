@@ -2,25 +2,14 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { contractorApproveQuote, type Quote } from "@/lib/api";
 
-const METHODS: { value: "in_person" | "paper" | "other"; label: string }[] = [
-  { value: "in_person", label: "In person" },
-  { value: "paper", label: "Signed on paper" },
-  { value: "other", label: "Other" },
-];
 const methodText = (m: Quote["approval_method"]) => (m === "in_person" ? "in person" : m === "paper" ? "on paper" : "another way");
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
-const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
 
 /**
  * Quote approval (0133): on an approved quote, who approved it — the client
@@ -33,19 +22,15 @@ export function QuoteApprovalRow({ quote, clientName, disabledReason }: { quote:
   const { toast } = useToast();
   const { session } = useAuth();
   const [open, setOpen] = useState(false);
-  const [method, setMethod] = useState<"in_person" | "paper" | "other">("paper");
-  const [signedBy, setSignedBy] = useState(clientName ?? "");
-  const [date, setDate] = useState(todayIso());
-  const [note, setNote] = useState("");
 
   const approve = useMutation({
-    mutationFn: () =>
+    mutationFn: (a: ManualApproval) =>
       contractorApproveQuote({
         quoteId: quote.id,
-        method,
-        note: note.trim() || null,
-        signedBy: signedBy.trim() || null,
-        approvedOn: date,
+        method: a.method,
+        note: a.note,
+        signedBy: a.signedBy,
+        approvedOn: a.approvedOn,
         recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
       }),
     onSuccess: () => {
@@ -85,46 +70,15 @@ export function QuoteApprovalRow({ quote, clientName, disabledReason }: { quote:
           <PenLine className="mr-1.5 h-4 w-4" /> Mark approved
         </Button>
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Mark this quote approved</DialogTitle>
-            <DialogDescription>Does everything a client approval does: locks the selections, marks the job Won and schedules it, and drafts the deposit invoice.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground">How did they approve?</p>
-              <div className="mt-1 grid grid-cols-3 gap-1.5">
-                {METHODS.map((m) => (
-                  <button
-                    key={m.value}
-                    type="button"
-                    onClick={() => setMethod(m.value)}
-                    className={cn("min-h-[44px] rounded-lg border px-2 text-sm font-semibold", method === m.value ? "border-primary bg-primary/10 text-foreground" : "border-hairline text-muted-foreground")}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <label className="block">
-              <span className="text-xs font-semibold text-muted-foreground">Approved by</span>
-              <Input value={signedBy} onChange={(e) => setSignedBy(e.target.value)} placeholder="Client's name" className="mt-1 h-11" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-muted-foreground">Date</span>
-              <Input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} className="mt-1 h-11 w-44" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-muted-foreground">Note (optional)</span>
-              <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="e.g. Signed at the site visit, copy in the job folder" />
-            </label>
-            <Button className="h-11 w-full font-bold" disabled={!date || approve.isPending} onClick={() => approve.mutate()}>
-              {approve.isPending ? "Approving…" : "Mark approved"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ManualApprovalDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Mark this quote approved"
+        description="Does everything a client approval does: locks the selections, marks the job Won and schedules it, and drafts the deposit invoice."
+        defaultSignedBy={clientName}
+        pending={approve.isPending}
+        onSubmit={(a) => approve.mutate(a)}
+      />
     </>
   );
 }

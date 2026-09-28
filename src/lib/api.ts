@@ -1080,6 +1080,10 @@ export interface ChangeOrder {
   share_token: string | null;
   signed_at: string | null;
   signed_by: string | null;
+  /** Contractor-recorded approval (0139) — who recorded it; null = the client approved. */
+  approved_manually_by?: string | null;
+  approval_method?: "in_person" | "paper" | "other" | null;
+  approval_note?: string | null;
   created_at: string;
   /** Material budget tracking (0080) — one-to-one, same shape as
    * quotes.material_sheet_id. Once this change order is approved, its
@@ -3918,6 +3922,42 @@ export async function updateChangeOrder(
 /** Deleting a change order cascades its sections/items/images at the DB
  * level, but never touches the actual files in Storage — best-effort clean
  * those up first, same pattern as deleteQuoteSection. */
+/** The client agreed outside the app (0139): approve it, recording how and
+ * by whom — same downstream effects as a client approval (all trigger-driven). */
+export async function contractorApproveChangeOrder(input: {
+  changeOrderId: string;
+  method: "in_person" | "paper" | "other";
+  note: string | null;
+  signedBy: string | null;
+  approvedOn: string;
+  recordedBy: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc("contractor_approve_change_order", {
+    p_change_order_id: input.changeOrderId,
+    p_method: input.method,
+    p_note: input.note,
+    p_signed_by: input.signedBy,
+    p_approved_on: input.approvedOn,
+    p_recorded_by: input.recordedBy,
+  });
+  if (error) throw error;
+}
+
+/** An invoice billing one approved change order (its amount, linked by change_order_id). */
+export async function createChangeOrderInvoice(co: Pick<ChangeOrder, "id" | "project_id" | "title" | "amount">): Promise<Invoice> {
+  const invoice = await createInvoice({
+    project_id: co.project_id,
+    change_order_id: co.id,
+    amount: Number(co.amount),
+    notes: `Change order: ${co.title}`,
+  });
+  void logProjectEvent(co.project_id, "invoice_created", `${invoice.invoice_number ?? "Invoice"} drafted · change order`, {
+    invoice_id: invoice.id,
+    change_order_id: co.id,
+  });
+  return invoice;
+}
+
 export async function deleteChangeOrder(id: string): Promise<void> {
   try {
     const { data: sections } = await supabase
