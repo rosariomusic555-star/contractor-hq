@@ -22,9 +22,32 @@ export interface QuoteItemLike {
   client_selected: boolean;
   category_id?: string | null;
 }
+export interface SelectionGroupRowLike {
+  approved_price?: number | null;
+  quote_selection_options?: { id: string; price_delta: number; is_default: boolean }[];
+  quote_selection_picks?: { option_id: string }[];
+}
 export interface QuoteSectionLike {
   is_optional: boolean;
   quote_items: QuoteItemLike[];
+  /** Client Selections (0115) — each group's chosen (or default) option prices. */
+  quote_selection_groups?: SelectionGroupRowLike[];
+}
+
+/** Mirrors groupPrice() / effectiveOptions() in src/lib/selections.ts:
+ * the approved price once locked, else the picks (or the defaults). */
+export function selectionGroupPrice(g: SelectionGroupRowLike): number {
+  if (g.approved_price != null) return Number(g.approved_price);
+  const options = g.quote_selection_options ?? [];
+  const picked = (g.quote_selection_picks ?? []).map((p) => p.option_id);
+  const ids = picked.length ? picked : options.filter((o) => o.is_default).map((o) => o.id);
+  return options.filter((o) => ids.includes(o.id)).reduce((sum, o) => sum + (Number(o.price_delta) || 0), 0);
+}
+
+/** Mirrors sectionIncluded() in src/lib/selections.ts. */
+function sectionIncluded(section: QuoteSectionLike): boolean {
+  if (!section.is_optional) return true;
+  return (section.quote_items ?? []).some((i) => i.client_selected);
 }
 
 /** Mirrors quoteItemIncluded() in src/lib/api.ts. */
@@ -44,6 +67,9 @@ export function quoteTotal(sections: QuoteSectionLike[] = []): number {
   for (const section of sections) {
     for (const item of section.quote_items ?? []) {
       if (quoteItemIncluded(section, item)) total += quoteLineTotal(item);
+    }
+    if (section.quote_selection_groups?.length && sectionIncluded(section)) {
+      for (const g of section.quote_selection_groups) total += selectionGroupPrice(g);
     }
   }
   return total;
