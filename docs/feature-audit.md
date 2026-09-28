@@ -57,6 +57,8 @@ Started 2026-09-28. **Steps 1–3 done for the owner role**; employee + Client H
 
 ## Test data created in the real account (cleanup list)
 
+**Cleaned up 2026-09-28** (one-off SQL script, run by you): every row below deleted, plus Jane's login and the Client Hub login; verified afterwards — nothing named "TEST —" left, only your real project remains. Left in place on purpose: Quote defaults 35% / 30 days (terms "Prices hold for 30 days"); payroll daily overtime was switched on for one check and back off.
+
 Every record created for testing is named with the prefix **`TEST —`**. They are listed here as they're created, for deletion at the end.
 
 | Created | Type | Name | Where |
