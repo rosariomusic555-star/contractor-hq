@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { cn, formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import { listInvoices, type Invoice } from "@/lib/api";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const STATUS_ICON: Record<Invoice["status"], typeof CheckCircle2> = {
   draft: Clock,
@@ -20,12 +21,13 @@ const STATUS_ICON_CLASS: Record<Invoice["status"], string> = {
 };
 
 export function RecentInvoices({ className }: { className?: string }) {
+  const cardLink = useCardLink("/invoices");
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
 
   const recent = [...invoices].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5);
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <header className="mb-3 flex items-center justify-between">
         <h3 className="text-base font-bold text-foreground">Recent invoices</h3>
         <Link to="/invoices" className="text-[13px] font-semibold text-primary hover:text-primary/80">

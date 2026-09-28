@@ -103,7 +103,7 @@ export function AppLayout() {
       <div className="min-h-screen bg-background">
         <Sidebar />
         <BottomTabBar />
-        <main className="p-4 pb-24 md:ml-[276px] md:p-8">
+        <main className="p-4 pb-[calc(6rem+var(--draft-bar-h,0px))] md:ml-[276px] md:p-8 md:pb-[calc(2rem+var(--draft-bar-h,0px))]">
           <div className="mx-auto w-full max-w-[1200px]">
             <Outlet />
           </div>

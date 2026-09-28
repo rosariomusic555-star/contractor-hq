@@ -1,6 +1,7 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useCardLink } from "@/hooks/use-card-link";
 
 /** One card failing never breaks the Dashboard. */
 export class CardErrorBoundary extends Component<{ title: string; children: ReactNode }, { failed: boolean }> {
@@ -49,6 +50,10 @@ export function CardSkeleton({ rows = 3 }: { rows?: number }) {
  * The shared card chrome: compact header "Title · count", optional right
  * slot / "View all", rows with dividers inside. Dense on purpose (matches the
  * Quote builder / Cost plan style).
+ *
+ * The whole card is a tap target (useCardLink) going to `to` (default: the
+ * "View all" page) — on phones always; on desktop only when `single` (the
+ * card has one destination, so a row can't mean something else).
  */
 export function Card({
   title,
@@ -58,6 +63,8 @@ export function Card({
   children,
   className,
   id,
+  to,
+  single,
 }: {
   title: ReactNode;
   count?: number | string | null;
@@ -66,9 +73,12 @@ export function Card({
   children: ReactNode;
   className?: string;
   id?: string;
+  to?: string;
+  single?: boolean;
 }) {
+  const link = useCardLink(to ?? viewAll?.to, { desktop: single });
   return (
-    <section id={id} className={cn("card-surface overflow-hidden p-0", className)}>
+    <section id={id} onClick={link.onClick} className={cn("card-surface overflow-hidden p-0", link.className, className)}>
       <header className="flex min-h-[44px] items-center gap-2 border-b border-hairline px-4 py-2">
         <h3 className="flex-1 truncate text-sm font-bold text-foreground">
           {title}

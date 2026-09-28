@@ -80,7 +80,7 @@ export function SettingsOverheadView() {
   const usingManual = !!(draft.manual_man_hours && draft.manual_man_hours > 0) || !!(draft.manual_crew_days && draft.manual_crew_days > 0);
 
   return (
-    <div className={cn("mx-auto max-w-2xl animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
+    <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
       <MobilePageHeader title="Overhead" back={{ to: "/settings", label: "Settings" }} />
       <div className="hidden md:block">
         <BackLink to="/settings" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">

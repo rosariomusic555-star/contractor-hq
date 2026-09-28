@@ -142,7 +142,9 @@ export function SmartSectionCalculatorDialog({
     const effectiveLineItems = resolveEffectiveLineItems(template, settings);
     const lines: CalculatedLine[] = [];
     for (const raw of template.calculate(answers)) {
-      const lineItem = effectiveLineItems.find((li) => li.slot_key === raw.slotKey);
+      const addOnSlot = template.lineItemSlots.find((s) => s.key === raw.slotKey && s.addOn);
+      // An add-on missing from a customized list predates it — use the app name.
+      const lineItem = effectiveLineItems.find((li) => li.slot_key === raw.slotKey) ?? (addOnSlot ? { name: addOnSlot.defaultName } : null);
       if (!lineItem) continue; // slot removed from this contractor's template — nothing to fill in
       const factor = useAdjustments
         ? slotAdjustments.filter((a) => a.slot === raw.slotKey).reduce((f, a) => f * Number(a.factor), 1)
@@ -153,6 +155,7 @@ export function SmartSectionCalculatorDialog({
         quantity: qty,
         unit: raw.unit,
         catalogProduct: raw.catalogProduct,
+        ...(addOnSlot && qty > 0 ? { addIfMissing: true } : {}),
       });
     }
     const inputs: Record<string, unknown> = { calculated_at: new Date().toISOString() };

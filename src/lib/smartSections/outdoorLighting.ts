@@ -16,10 +16,12 @@ export const outdoorLightingTemplate: SmartSectionTemplate = {
     { key: "transformer", defaultName: "Transformer" },
     { key: "wire_connectors", defaultName: "Wire Connectors" },
     { key: "mounting_stakes_hardware", defaultName: "Mounting Stakes/Hardware" },
+    { key: "strip_lighting", defaultName: "Strip Lighting", addOn: true },
   ],
   questions: [
     { key: "fixture_count", label: "Number of fixtures", type: "number", unit: "ea" },
     { key: "wire_run_ft", label: "Approximate total wire run", type: "number", unit: "ft" },
+    { key: "strip_lf", label: "Strip lighting", type: "number", unit: "ft" },
   ],
   tunables: [
     {
@@ -50,6 +52,10 @@ export const outdoorLightingTemplate: SmartSectionTemplate = {
       { slotKey: "wire_connectors", quantity: Math.ceil(fixtureCount * connectorsPerFixture), unit: "ea" },
       { slotKey: "mounting_stakes_hardware", quantity: fixtureCount, unit: "ea" },
     ];
+
+    const stripLf = Number(answers.strip_lf) || 0;
+    if (stripLf > 0) lines.push({ slotKey: "strip_lighting", quantity: Math.ceil(stripLf), unit: "ft" });
+    // else: no strip lighting measured — line left untouched.
 
     return lines;
   },

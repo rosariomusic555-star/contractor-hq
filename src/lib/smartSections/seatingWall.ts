@@ -12,12 +12,17 @@ export const seatingWallTemplate: SmartSectionTemplate = {
     { key: "base_material", defaultName: "Base Material" },
     { key: "drainage_gravel", defaultName: "Drainage Gravel" },
     { key: "construction_adhesive", defaultName: "Construction Adhesive" },
+    { key: "backrest_caps", defaultName: "Backrest Caps", addOn: true },
   ],
   questions: [
     { key: "length_ft", label: "Linear feet of wall", type: "number", unit: "ft" },
     { key: "wall_block", label: "Wall block product", type: "catalog_product", category: "Wall Block" },
     { key: "cap", label: "Cap product", type: "catalog_product", category: "Caps" },
     { key: "courses", label: "Wall height (courses)", type: "number", unit: "courses", defaultValue: 2 },
+    // Backrest (Measurements card toggle): extra courses above the seat along
+    // part or all of the wall. Blank = no backrest.
+    { key: "backrest_lf", label: "Backrest length", type: "number", unit: "ft" },
+    { key: "backrest_courses", label: "Backrest height above seat (courses)", type: "number", unit: "courses" },
   ],
   tunables: [
     { key: "courses", label: "Default courses", unit: "courses", defaultValue: 2, relatedSlotKey: "wall_block" },
@@ -105,9 +110,16 @@ export const seatingWallTemplate: SmartSectionTemplate = {
 
     const lines: RawCalculatedLine[] = [];
 
+    // Backrest: extra courses on top of the seat along backrestLf, capped
+    // separately (the seat in front of it keeps its own cap).
+    const backrestLf = Math.min(Number(answers.backrest_lf) || 0, lengthFt || Infinity);
+    const backrestCourses = Number(answers.backrest_courses) || 0;
+    const hasBackrest = backrestLf > 0 && backrestCourses > 0;
+    const backrestBlocks = hasBackrest ? Math.ceil(backrestLf / blockFaceLengthFt) * backrestCourses : 0;
+
     lines.push({
       slotKey: "wall_block",
-      quantity: Math.ceil(lengthFt / blockFaceLengthFt) * courses,
+      quantity: Math.ceil(lengthFt / blockFaceLengthFt) * courses + backrestBlocks,
       unit: "pieces",
       catalogProduct: wallBlock,
     });
@@ -131,9 +143,13 @@ export const seatingWallTemplate: SmartSectionTemplate = {
 
     lines.push({
       slotKey: "construction_adhesive",
-      quantity: Math.ceil(lengthFt / capAdhesiveCoverageFtPerTube),
+      quantity: Math.ceil((lengthFt + (hasBackrest ? backrestLf : 0)) / capAdhesiveCoverageFtPerTube),
       unit: "tube",
     });
+
+    if (hasBackrest) {
+      lines.push({ slotKey: "backrest_caps", quantity: Math.ceil(backrestLf / capLengthFt), unit: "pieces", catalogProduct: cap });
+    }
 
     return lines;
   },

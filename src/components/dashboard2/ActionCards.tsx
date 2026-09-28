@@ -48,7 +48,7 @@ export function NeedsYouCard() {
   const [filter, setFilter] = useState<NeedsYouCategory | "all">("all");
   const shown = (filter === "all" ? items : items.filter((i) => categoryOf(i) === filter)).slice(0, MAX);
   return (
-    <Card title="Needs you" count={items.length} viewAll={items.length > MAX ? { to: "/needs-you" } : undefined}>
+    <Card title="Needs you" count={items.length} viewAll={items.length > MAX ? { to: "/needs-you" } : undefined} to="/needs-you">
       {isLoading ? (
         <CardSkeleton />
       ) : items.length === 0 ? (
@@ -264,7 +264,7 @@ export function PipelineCard() {
   const bySource = [...new Set(newLeads.map((o) => o.lead_source?.trim() || "Unknown"))].map((s) => [s, newLeads.filter((o) => (o.lead_source?.trim() || "Unknown") === s).length] as const);
   const open = rows.reduce((s, r) => s + r.count, 0);
   return (
-    <Card title="Pipeline" count={open || null} viewAll={{ to: "/pipeline" }}>
+    <Card title="Pipeline" count={open || null} viewAll={{ to: "/pipeline" }} single>
       {isLoading ? (
         <CardSkeleton rows={2} />
       ) : open === 0 && newLeads.length === 0 ? (

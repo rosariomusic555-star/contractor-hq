@@ -236,6 +236,10 @@ export default function SharedQuotePage() {
                   const item = section.items.find((i) => i.id === itemId);
                   trackEvent("optional_changed", { summary: `${checked ? "Added" : "Dropped"} ${item?.name ?? "an optional item"}`, item: item?.name, selected: checked });
                 }}
+                selectionsTotal={(section.selections ?? []).reduce((sum, g) => {
+                  const like = clientGroupLike(g);
+                  return sum + groupPrice(like, picks[g.id] ?? like.picked);
+                }, 0)}
                 selections={
                   (section.selections ?? []).length > 0 && sectionKept(section) ? (
                     <ClientSelectionGroups
@@ -387,6 +391,7 @@ function SectionBlock({
   onToggleSection,
   onToggleItem,
   selections,
+  selectionsTotal,
 }: {
   section: SharedQuoteSection;
   sectionChecked: boolean;
@@ -398,9 +403,13 @@ function SectionBlock({
   onToggleItem: (itemId: string, checked: boolean) => void;
   /** Client Selections for this section (0115). */
   selections?: ReactNode;
+  /** What this section's current choices add — kept in the section subtotal
+   * so it moves live as the client picks (selections belong to the section,
+   * not to one line item). */
+  selectionsTotal?: number;
 }) {
   if (section.is_optional) {
-    const subtotal = section.items.reduce((sum, i) => sum + quoteLineTotal(i), 0);
+    const subtotal = section.items.reduce((sum, i) => sum + quoteLineTotal(i), 0) + (selectionsTotal ?? 0);
 
     return (
       <div className="space-y-3">
@@ -428,7 +437,7 @@ function SectionBlock({
           />
           {sectionChecked && (
             <p className="text-right text-sm font-medium text-foreground">
-              Subtotal: {formatCurrency(subtotal)}
+              Subtotal{selectionsTotal ? " (incl. your choices)" : ""}: {formatCurrency(subtotal)}
             </p>
           )}
           {selections}
@@ -437,10 +446,8 @@ function SectionBlock({
     );
   }
 
-  const subtotal = section.items.reduce(
-    (sum, item) => sum + (!item.is_optional || itemChecked(item.id) ? quoteLineTotal(item) : 0),
-    0,
-  );
+  const subtotal =
+    section.items.reduce((sum, item) => sum + (!item.is_optional || itemChecked(item.id) ? quoteLineTotal(item) : 0), 0) + (selectionsTotal ?? 0);
 
   return (
     <div className="space-y-3">
@@ -455,7 +462,7 @@ function SectionBlock({
         onToggleItem={onToggleItem}
       />
       <p className="text-right text-sm font-medium text-foreground">
-        Subtotal: {formatCurrency(subtotal)}
+        Subtotal{selectionsTotal ? " (incl. your choices)" : ""}: {formatCurrency(subtotal)}
       </p>
       {selections}
     </div>

@@ -62,7 +62,8 @@ describe("category → card mapping", () => {
       expect(FEATURE_KIND[id]).toBeTruthy();
     }
     expect(FEATURE_KIND.pillars).toBeUndefined();
-    expect(BUILD_TYPES.every((b) => b.id in FEATURE_KIND || b.id === "pillars")).toBe(true);
+    // Plants is counted per plant (custom measurements), not measured.
+    expect(BUILD_TYPES.every((b) => b.id in FEATURE_KIND || b.id === "pillars" || b.id === "plants")).toBe(true);
   });
 
   it("builds one group per selected type, merging duplicates and keeping unmapped ones", () => {
@@ -191,7 +192,7 @@ describe("other features", () => {
   });
 
   it("lighting counts fixtures; steps count steps and tread", () => {
-    expect(computeTotals("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: 8 }, { id: "2", type: "uplight", name: "", qty: 4 }] })).toEqual({ fixture_count: 12 });
+    expect(computeTotals("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: 8 }, { id: "2", type: "uplight", name: "", qty: 4 }], strip_lf: null })).toEqual({ fixture_count: 12 });
     expect(
       computeTotals("steps", { sections: [{ id: "1", label: "", step_count: 3, width_ft: 6 }, { id: "2", label: "", step_count: 2, width_ft: 4 }] }),
     ).toEqual({ step_count: 5, tread_lf: 26 });
@@ -250,16 +251,18 @@ describe("downstream", () => {
   });
 
   it("prefill keys match real Smart Section and Quick Quote question keys", () => {
-    const totals = { area_sqft: 1, perimeter_ft: 1, linear_ft: 1, footprint_sqft: 1, fixture_count: 1, height_in: 24 };
+    const totals = { area_sqft: 1, perimeter_ft: 1, linear_ft: 1, footprint_sqft: 1, fixture_count: 1, height_in: 24, backsplash_sqft: 1, backrest_lf: 1, backrest_height_in: 18, strip_lf: 1 };
     for (const t of smartSectionTemplates) {
       const keys = new Set([...t.questions.map((q) => q.key)]);
       for (const k of Object.keys(smartSectionPrefill(t.id, totals, { courseHeightIn: 8 }))) expect(keys, `${t.id}.${k}`).toContain(k);
-      expect(Object.keys(smartSectionPrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
+      // Pergola needs length and width separately (an area can't give them);
+      // Plants is counted, not measured — no prefill for either calculator.
+      if (t.id !== "pergola" && t.id !== "plants") expect(Object.keys(smartSectionPrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
     }
     for (const t of quickQuoteTemplates) {
       const keys = new Set(t.questions.map((q) => q.key));
       for (const k of Object.keys(quickQuotePrefill(t.id, totals))) expect(keys, `${t.id}.${k}`).toContain(k);
-      expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
+      if (t.id !== "plants") expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
     }
   });
 
@@ -275,6 +278,62 @@ describe("downstream", () => {
     expect(smartSectionPrefill("outdoor_kitchen", { linear_ft: 13, height_in: 36 }, { courseHeightIn: 8 })).toEqual({ run_ft: 13, courses: 5 });
     expect(smartSectionPrefill("seating_wall", { linear_ft: 20, height_in: 20 }, { courseHeightIn: 6 })).toEqual({ length_ft: 20, courses: 3 });
     expect(smartSectionPrefill("seating_wall", { linear_ft: 20 }, { courseHeightIn: 6 })).toEqual({ length_ft: 20 });
+  });
+});
+
+describe("backsplash, backrest, strip lighting", () => {
+  const runs = [{ id: "a", length_ft: 12 }, { id: "b", length_ft: 6 }, { id: "c", length_ft: 6 }];
+
+  it("kitchen backsplash = length (blank = counter run) × height in inches", () => {
+    const k = (patch: object) => computeTotals("kitchen", normalizeData("kitchen", { layout: "straight", runs, ...patch }));
+    expect(k({ backsplash: false, backsplash_height_in: 18 }).backsplash_sqft).toBeUndefined();
+    expect(k({ backsplash: true, backsplash_height_in: 18 }).backsplash_sqft).toBe(18); // 12 ft × 1.5 ft
+    expect(k({ backsplash: true, backsplash_length_ft: 8, backsplash_height_in: 6 }).backsplash_sqft).toBe(4);
+    expect(smartSectionPrefill("outdoor_kitchen", { linear_ft: 12, height_in: 36, backsplash_sqft: 18 }, { courseHeightIn: 8 })).toEqual({ run_ft: 12, courses: 5, backsplash_sqft: 18 });
+  });
+
+  it("seating wall backrest: length defaults to the wall, height → extra courses", () => {
+    const w = (patch: object) => computeTotals("seating_wall", normalizeData("seating_wall", { layout: "u_shape", runs, height_in: 18, ...patch }));
+    expect(w({ backrest: true }).backrest_lf).toBeUndefined(); // no height yet
+    expect(w({ backrest: true, backrest_height_in: 18 })).toMatchObject({ backrest_lf: 24, backrest_height_in: 18 });
+    expect(w({ backrest: true, backrest_length_ft: 10, backrest_height_in: 18 }).backrest_lf).toBe(10);
+    expect(smartSectionPrefill("seating_wall", { linear_ft: 24, height_in: 18, backrest_lf: 10, backrest_height_in: 18 }, { courseHeightIn: 9 })).toEqual({
+      length_ft: 24,
+      courses: 2,
+      backrest_lf: 10,
+      backrest_courses: 2,
+    });
+  });
+
+  it("seating wall calculator adds backrest blocks to the wall block line and a Backrest Caps line", () => {
+    const t = smartSectionTemplates.find((x) => x.id === "seating_wall")!;
+    const base = { length_ft: 24, courses: 2, block_face_length_in: 8, cap_length_in: 12 };
+    const without = t.calculate(base);
+    const withBack = t.calculate({ ...base, backrest_lf: 10, backrest_courses: 2 });
+    const qty = (lines: typeof without, k: string) => lines.find((l) => l.slotKey === k)?.quantity;
+    expect(qty(without, "wall_block")).toBe(72);
+    expect(qty(withBack, "wall_block")).toBe(72 + 30); // 10 ft / 8 in = 15 blocks × 2 courses
+    expect(qty(without, "backrest_caps")).toBeUndefined();
+    expect(qty(withBack, "backrest_caps")).toBe(10);
+    expect(qty(withBack, "caps")).toBe(24); // the seat keeps its own cap
+  });
+
+  it("kitchen and lighting calculators add Backsplash / Strip Lighting only when measured", () => {
+    const kitchen = smartSectionTemplates.find((x) => x.id === "outdoor_kitchen")!;
+    const lighting = smartSectionTemplates.find((x) => x.id === "outdoor_lighting")!;
+    expect(kitchen.calculate({ run_ft: 12 }).some((l) => l.slotKey === "backsplash")).toBe(false);
+    expect(kitchen.calculate({ run_ft: 12, backsplash_sqft: 18, backsplash_waste_pct: 10 }).find((l) => l.slotKey === "backsplash")?.quantity).toBe(20);
+    expect(lighting.calculate({ fixture_count: 4 }).some((l) => l.slotKey === "strip_lighting")).toBe(false);
+    expect(lighting.calculate({ fixture_count: 4, strip_lf: 22.5 }).find((l) => l.slotKey === "strip_lighting")?.quantity).toBe(23);
+  });
+
+  it("lighting totals, headline and prefill carry strip LF; editing fixtures keeps it", () => {
+    const d = normalizeData("lighting", { fixtures: [{ id: "1", type: "path", name: "", qty: 6 }], strip_lf: 30 });
+    const t = computeTotals("lighting", d);
+    expect(t).toEqual({ fixture_count: 6, strip_lf: 30 });
+    expect(totalsHeadline("lighting", t)).toBe("6 fixtures · 30 LF strip");
+    expect(smartSectionPrefill("outdoor_lighting", t)).toEqual({ fixture_count: 6, strip_lf: 30 });
+    expect(sumTotals([t, { fixture_count: 2, strip_lf: 5 }])).toMatchObject({ fixture_count: 8, strip_lf: 35 });
   });
 });
 

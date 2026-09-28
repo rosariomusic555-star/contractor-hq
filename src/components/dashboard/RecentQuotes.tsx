@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { cn, formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import { listQuotes, quoteTotal, type Quote } from "@/lib/api";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const STATUS_ICON: Record<Quote["status"], typeof CheckCircle2> = {
   draft: Clock,
@@ -24,12 +25,13 @@ const STATUS_ICON_CLASS: Record<Quote["status"], string> = {
 const clientOf = (q: Quote) => q.client?.name ?? q.project?.client?.name ?? "—";
 
 export function RecentQuotes({ className }: { className?: string }) {
+  const cardLink = useCardLink("/quotes");
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
 
   const recent = [...quotes].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5);
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <header className="mb-3 flex items-center justify-between">
         <h3 className="text-base font-bold text-foreground">Recent quotes</h3>
         <Link to="/quotes" className="text-[13px] font-semibold text-primary hover:text-primary/80">

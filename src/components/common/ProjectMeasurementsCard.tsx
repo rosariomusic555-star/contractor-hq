@@ -76,6 +76,7 @@ export function ProjectMeasurementsCard({
   ensureProjectId,
   onSaved,
   hint,
+  focusRequest = 0,
 }: {
   projectId: string | null;
   /** The selected Project types (Job Category ids). */
@@ -85,6 +86,9 @@ export function ProjectMeasurementsCard({
   /** Small muted guidance under the title (the opportunity page uses it to
    * say when to fill this in). */
   hint?: string;
+  /** Bump to open the card, scroll to it and focus its first field (the
+   * opportunity banner's "Add measurements"). */
+  focusRequest?: number;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -338,6 +342,22 @@ export function ProjectMeasurementsCard({
     defaultCollapsed: (id) => hadDataAtLoad.current.get(id) ?? false,
   });
 
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!focusRequest) return;
+    collapse.expandAll(["card", ...(groups[0] ? [featureId(groups[0])] : [])]);
+    // After the expand renders.
+    const t = window.setTimeout(() => {
+      const el = sectionRef.current;
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const field = el.querySelector<HTMLElement>("#measurements-card-body input, #measurements-card-body button[role=combobox]");
+      (field ?? el.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
+    }, 60);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest]);
+
   // A type just added from the Project types selector opens expanded (and
   // opens the card too) — even a re-added one that still has data.
   const seenGroupKeys = useRef<Set<string> | null>(null);
@@ -368,7 +388,7 @@ export function ProjectMeasurementsCard({
     .join(" · ");
 
   return (
-    <section className="card-surface p-4 sm:p-5">
+    <section ref={sectionRef} className="card-surface scroll-mt-4 p-4 sm:p-5">
       <button
         type="button"
         onClick={() => collapse.toggle("card")}

@@ -15,6 +15,7 @@ import {
 import { AppointmentForecastChip } from "@/components/weather/AppointmentForecastChip";
 import { upcomingAppointmentRows } from "@/lib/upcomingAppointments";
 import { AppointmentRow, CreateAppointmentDialog } from "@/components/views/AppointmentsView";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const MAX_ITEMS = 5;
 
@@ -32,6 +33,7 @@ const OUTDOOR_APPOINTMENT_TYPES = new Set<AppointmentType>(["site_visit", "estim
  * rather than building a second appointment UI.
  */
 export function UpcomingAppointmentsCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/appointments");
   const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
@@ -46,7 +48,7 @@ export function UpcomingAppointmentsCard({ className }: { className?: string }) 
   const [createOpen, setCreateOpen] = useState(false);
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <header className="flex items-center justify-between">
         <h3 className="text-base font-bold text-foreground">
           Appointments <span className="text-muted-foreground">· next 7 days</span>

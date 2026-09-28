@@ -1023,9 +1023,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     edit((d) =>
       d.map((s) => {
         if (s.id !== sid) return s;
+        // Measured add-ons (backsplash, backrest caps, strip lighting) the
+        // section doesn't have a line for yet get one.
+        const missing = lines
+          .filter((l) => l.addIfMissing && !s.items.some((item) => item.name === l.name))
+          .map((l) => blankDraftItem("material", l.name));
         return {
           ...s,
-          items: s.items.map((item) => {
+          items: [...s.items, ...missing].map((item) => {
             const line = lines.find((l) => l.name === item.name);
             if (!line) return item;
             const patch: Partial<DraftItem> = { quantity: line.quantity, unit: normalizeMaterialUnit(line.unit) };
@@ -1343,7 +1348,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const draftFeatureSections = draft.filter((sec) => !sec.is_general);
 
   return (
-    <div className={cn("mx-auto max-w-4xl animate-fade-in space-y-5", isDirty && "pb-40 md:pb-28")}>
+    <div className="mx-auto max-w-4xl animate-fade-in space-y-5">
       <BackLink
         to={backHref}
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"

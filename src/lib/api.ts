@@ -396,6 +396,10 @@ export interface Quote {
   share_token: string | null;
   signed_at: string | null;
   signed_by: string | null;
+  /** Contractor-side approval (0133): who recorded it, how the client agreed. Null = the client approved. */
+  approved_manually_by?: string | null;
+  approval_method?: "in_person" | "paper" | "other" | null;
+  approval_note?: string | null;
   /** Client Hub (0065) — captured alongside signed_by/signed_at on portal
    * approval; null for a quote signed the old way (share-link sign_quote,
    * which never captured IP), and always null for a declined quote. */
@@ -2947,6 +2951,9 @@ export async function updateQuote(
       | "project_id"
       | "signed_at"
       | "signed_by"
+      | "approved_manually_by"
+      | "approval_method"
+      | "approval_note"
       | "material_sheet_id"
       | "overhead_rate"
       | "target_margin_pct"
@@ -8370,4 +8377,17 @@ export async function listRunningTimers(): Promise<{ id: string; employee_id: st
     .is("end_at", null);
   if (error) return [];
   return (data ?? []) as never;
+}
+
+/** Contractor-side approval (0133) — same downstream effects as a client approving in the Client Hub. */
+export async function contractorApproveQuote(input: { quoteId: string; method: "in_person" | "paper" | "other"; note: string | null; signedBy: string | null; approvedOn: string; recordedBy: string }): Promise<void> {
+  const { error } = await supabase.rpc("contractor_approve_quote", {
+    p_quote_id: input.quoteId,
+    p_method: input.method,
+    p_note: input.note,
+    p_signed_by: input.signedBy,
+    p_approved_on: input.approvedOn,
+    p_recorded_by: input.recordedBy,
+  });
+  if (error) throw error;
 }

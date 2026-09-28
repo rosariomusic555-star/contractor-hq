@@ -79,7 +79,10 @@ import {
   type Appointment,
   type Client,
   type Project,
+  listFeatureMeasurements,
+  listProjectMeasurements,
 } from "@/lib/api";
+import { featureKindOf, instanceHasData, normalizeData } from "@/lib/measurements";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { ProjectMeasurementsCard } from "@/components/common/ProjectMeasurementsCard";
@@ -129,6 +132,25 @@ export function OpportunityDetailView() {
   // second sheet/quote when one already exists.
   const { sheets: estimateSheets, quotes: estimateQuotes } = useEstimateDocs(opportunity?.project_id ?? null);
   const hasCostPlan = estimateSheets.length > 0;
+
+  // Same queries the Measurements card runs (shared cache) — the banner
+  // says "Add measurements" until something's measured.
+  const { data: featureMeasurements = [] } = useQuery({
+    queryKey: ["project-feature-measurements", opportunity?.project_id ?? null],
+    queryFn: () => listFeatureMeasurements(opportunity!.project_id!),
+    enabled: !!opportunity?.project_id,
+  });
+  const { data: customMeasurements = [] } = useQuery({
+    queryKey: ["project-measurements", opportunity?.project_id ?? null],
+    queryFn: () => listProjectMeasurements(opportunity!.project_id!),
+    enabled: !!opportunity?.project_id,
+  });
+  const hasMeasurements =
+    featureMeasurements.some((i) => {
+      const kind = featureKindOf(i.build_type);
+      return !!kind && instanceHasData(kind, normalizeData(kind, i.data), i.label);
+    }) || customMeasurements.some((r) => r.value != null || !!r.value_text?.trim());
+  const [measurementsFocus, setMeasurementsFocus] = useState(0);
 
   const { data: appointments = [] } = useQuery({
     queryKey: ["opportunity-appointments", id],
@@ -428,6 +450,8 @@ export function OpportunityDetailView() {
           onMarkContacted={() => moveStageMut.mutate("contacted")}
           onClientWantsChanges={() => moveStageMut.mutate("revisions")}
           costPlanStarted={hasCostPlan}
+          hasMeasurements={hasMeasurements}
+          onAddMeasurements={() => setMeasurementsFocus((n) => n + 1)}
           upcomingAppointment={upcomingAppointment}
           overdueVisit={overdueVisit}
           confirmingVisit={confirmVisitMut.isPending}
@@ -514,6 +538,22 @@ export function OpportunityDetailView() {
               <div className="space-y-1.5">
                 <div className={FIELD_LABEL}>Job context</div>
                 <JobContextChips project={project} />
+                {/* Anything the chips don't cover goes in the notes box above
+                    — no per-field "Other". */}
+                <p className="text-xs text-muted-foreground">
+                  Something else?{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-primary hover:underline"
+                    onClick={() => {
+                      const el = document.getElementById("opp-site-conditions");
+                      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      el?.focus({ preventScroll: true });
+                    }}
+                  >
+                    Add it to Site condition notes
+                  </button>
+                </p>
               </div>
             )}
             {opportunity.stage === "lost" && (
@@ -535,6 +575,7 @@ export function OpportunityDetailView() {
             ensureProjectId={() => getOrCreateOpportunityProject(id)}
             onSaved={invalidateProjectLink}
             hint={MEASUREMENTS_HINT}
+            focusRequest={measurementsFocus}
           />
 
           <OpportunityPhotosSection projectId={opportunity.project_id} opportunityId={id} onProjectCreated={invalidateProjectLink} />
@@ -652,6 +693,8 @@ function StageBanner({
   onMarkContacted,
   onClientWantsChanges,
   costPlanStarted,
+  hasMeasurements,
+  onAddMeasurements,
   upcomingAppointment,
   overdueVisit,
   confirmingVisit,
@@ -672,6 +715,8 @@ function StageBanner({
   onMarkContacted: () => void;
   onClientWantsChanges: () => void;
   costPlanStarted: boolean;
+  hasMeasurements: boolean;
+  onAddMeasurements: () => void;
   upcomingAppointment: Appointment | undefined;
   overdueVisit: Appointment | undefined;
   confirmingVisit: boolean;
@@ -729,6 +774,10 @@ function StageBanner({
             }
           : { text: "Site visit scheduled.", action: null, onClick: undefined };
       case "site_visit_done":
+        // Measurements first — they prefill the cost plan's calculators.
+        // An already-started cost plan just opens.
+        if (!costPlanStarted && !hasMeasurements)
+          return { text: "Site visit done. Add the measurements.", action: "Add measurements", onClick: onAddMeasurements };
         return {
           text: "Site visit done. Build the estimate.",
           action: openingCostPlan ? "Opening…" : costPlanStarted ? "Open cost plan" : "Create cost plan",

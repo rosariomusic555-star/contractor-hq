@@ -74,6 +74,12 @@ export type SmartSectionAnswers = Record<string, unknown>;
 export interface LineItemSlot {
   key: string;
   defaultName: string;
+  /** An optional add-on that only exists when it's measured (kitchen
+   * backsplash, seating wall backrest caps, strip lighting). Added after
+   * most sections — and contractors' customized line-item lists — already
+   * existed, so the calculator adds the line when it's missing instead of
+   * dropping it. */
+  addOn?: boolean;
 }
 
 /** One tunable number a build type's formulas use — a coverage rate, a
@@ -111,6 +117,8 @@ export interface CalculatedLine {
   quantity: number;
   unit: string;
   catalogProduct?: ProductCatalogItem | null;
+  /** Add the line to the section when no line of this name exists yet (add-on slots). */
+  addIfMissing?: boolean;
 }
 
 export interface SmartSectionTemplate {

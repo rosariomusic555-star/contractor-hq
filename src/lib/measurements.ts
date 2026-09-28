@@ -44,6 +44,11 @@ export const BUILD_TYPE_ALIASES: Record<string, string[]> = {
   steps: ["Stairs", "Step"],
   pillars: ["Pillars", "Columns", "Pillar", "Column", "Pillars/Columns"],
   outdoor_lighting: ["Lighting", "Landscape Lighting"],
+  pergola: ["Pergolas", "Arbor", "Shade Structure"],
+  water_feature: ["Water Features", "Fountain", "Pond", "Waterfall"],
+  sod: ["Sod Installation", "Turf", "Lawn", "New Lawn"],
+  irrigation: ["Sprinklers", "Sprinkler System", "Irrigation System"],
+  plants: ["Plantings", "Planting", "Plant Installation", "Landscaping Plants"],
 };
 
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -152,12 +157,21 @@ export interface KitchenData {
   /** null = the contractor's default counter height (Settings › Smart
    * Section templates › Outdoor Kitchen › Default counter height). */
   height_in: Num;
+  /** Backsplash on the counter: length (null = the counter run) × height. */
+  backsplash: boolean;
+  backsplash_length_ft: Num;
+  backsplash_height_in: Num;
 }
 export interface SeatingWallData {
   layout: RunLayout;
   runs: Run[];
   /** One height for the whole wall. */
   height_in: Num;
+  /** Backrest rising above the seat: length (null = the whole wall) ×
+   * height above the seat. */
+  backrest: boolean;
+  backrest_length_ft: Num;
+  backrest_height_in: Num;
 }
 
 /** Walls (seating, retaining) get every layout incl. Curved; a kitchen
@@ -208,7 +222,11 @@ export interface FirePitData {
 
 export type FixtureType = "path" | "uplight" | "hardscape" | "step" | "other";
 export interface FixtureRow { id: string; type: FixtureType; name: string; qty: Num }
-export interface LightingData { fixtures: FixtureRow[] }
+export interface LightingData {
+  fixtures: FixtureRow[];
+  /** LED strip / tape lighting, linear feet. */
+  strip_lf: Num;
+}
 
 export interface StepSection { id: string; label: string; step_count: Num; width_ft: Num }
 export interface StepsData { sections: StepSection[] }
@@ -247,6 +265,11 @@ export const FEATURE_KIND: Record<string, FeatureKind> = {
   fire_pit: "fire_pit",
   outdoor_lighting: "lighting",
   steps: "steps",
+  // Area card (L×W / L-shape / irregular → sq ft): footprint / coverage.
+  pergola: "patio",
+  water_feature: "patio",
+  sod: "patio",
+  irrigation: "patio",
 };
 
 export const featureKindOf = (buildType: string | null): FeatureKind | null =>
@@ -263,6 +286,10 @@ export const INSTANCE_NOUN: Record<string, string> = {
   fire_pit: "fire pit",
   outdoor_lighting: "lighting area",
   steps: "set of steps",
+  pergola: "pergola",
+  water_feature: "water feature",
+  sod: "lawn area",
+  irrigation: "irrigated area",
 };
 
 export const FIXTURE_TYPES: { id: FixtureType; label: string }[] = [
@@ -306,8 +333,8 @@ export function blankData<K extends FeatureKind>(kind: K): FeatureDataByKind[K] 
   const data: { [P in FeatureKind]: () => FeatureDataByKind[P] } = {
     patio: blankArea,
     flatwork: blankArea,
-    kitchen: () => ({ layout: "straight", runs: blankRuns(), height_in: null }),
-    seating_wall: () => ({ layout: "straight", runs: blankRuns(), height_in: null }),
+    kitchen: () => ({ layout: "straight", runs: blankRuns(), height_in: null, backsplash: false, backsplash_length_ft: null, backsplash_height_in: null }),
+    seating_wall: () => ({ layout: "straight", runs: blankRuns(), height_in: null, backrest: false, backrest_length_ft: null, backrest_height_in: null }),
     retaining_wall: () => ({ method: "lf_height", layout: "straight", runs: blankRuns(), height_ft: null, wall_sqft: null }),
     fire_pit: () => ({
       shape: "round",
@@ -318,7 +345,7 @@ export function blankData<K extends FeatureKind>(kind: K): FeatureDataByKind[K] 
       approx_sqft: null,
       height_in: null,
     }),
-    lighting: () => ({ fixtures: [{ id: newId(), type: "path", name: "", qty: null }] }),
+    lighting: () => ({ fixtures: [{ id: newId(), type: "path", name: "", qty: null }], strip_lf: null }),
     steps: () => ({ sections: [{ id: newId(), label: "", step_count: null, width_ft: null }] }),
   };
   return data[kind]() as FeatureDataByKind[K];
@@ -424,6 +451,13 @@ export interface FeatureTotals {
   step_count?: number;
   /** Steps: Σ steps × width — linear feet of tread. */
   tread_lf?: number;
+  /** Kitchen backsplash face. */
+  backsplash_sqft?: number;
+  /** Seating wall backrest length + height above the seat. */
+  backrest_lf?: number;
+  backrest_height_in?: number;
+  /** Lighting: LED strip linear feet. */
+  strip_lf?: number;
 }
 
 const n = (v: Num | undefined): number => (typeof v === "number" && isFinite(v) ? v : 0);
@@ -519,14 +553,25 @@ export function computeTotals(kind: FeatureKind, data: FeatureData, defaults: Me
     }
     case "kitchen": {
       const d = data as KitchenData;
+      const linear = activeRuns(d).reduce((s, r) => s + n(r.length_ft), 0);
+      const splashLen = has(d.backsplash_length_ft) ? n(d.backsplash_length_ft) : linear;
       return clean({
-        linear_ft: activeRuns(d).reduce((s, r) => s + n(r.length_ft), 0),
+        linear_ft: linear,
         height_in: has(d.height_in) ? n(d.height_in) : defaults.kitchenHeightIn ?? DEFAULT_KITCHEN_HEIGHT_IN,
+        backsplash_sqft: d.backsplash ? (splashLen * n(d.backsplash_height_in)) / 12 : 0,
       });
     }
     case "seating_wall": {
       const d = data as SeatingWallData;
-      return clean({ linear_ft: activeRuns(d).reduce((s, r) => s + n(r.length_ft), 0), height_in: n(d.height_in) });
+      const linear = activeRuns(d).reduce((s, r) => s + n(r.length_ft), 0);
+      const backLen = has(d.backrest_length_ft) ? n(d.backrest_length_ft) : linear;
+      const backOn = d.backrest && n(d.backrest_height_in) > 0;
+      return clean({
+        linear_ft: linear,
+        height_in: n(d.height_in),
+        backrest_lf: backOn ? backLen : 0,
+        backrest_height_in: backOn && backLen > 0 ? n(d.backrest_height_in) : 0,
+      });
     }
     case "retaining_wall": {
       const d = data as RetainingWallData;
@@ -551,7 +596,10 @@ export function computeTotals(kind: FeatureKind, data: FeatureData, defaults: Me
       return clean({ footprint_sqft: n(d.approx_sqft), height_in: height });
     }
     case "lighting":
-      return clean({ fixture_count: (data as LightingData).fixtures.reduce((s, f) => s + n(f.qty), 0) });
+      return clean({
+        fixture_count: (data as LightingData).fixtures.reduce((s, f) => s + n(f.qty), 0),
+        strip_lf: n((data as LightingData).strip_lf),
+      });
     case "steps": {
       const d = data as StepsData;
       return clean({
@@ -576,6 +624,9 @@ export function sumTotals(list: FeatureTotals[]): FeatureTotals {
     "fixture_count",
     "step_count",
     "tread_lf",
+    "backsplash_sqft",
+    "backrest_lf",
+    "strip_lf",
   ];
   for (const k of additive) {
     const s = list.reduce((acc, t) => acc + (t[k] ?? 0), 0);
@@ -590,6 +641,8 @@ export function sumTotals(list: FeatureTotals[]): FeatureTotals {
     const hs = list.map((t) => t.height_in ?? 0).filter((h) => h > 0);
     if (hs.length) out.height_in = Math.max(...hs);
   }
+  const backs = list.map((t) => t.backrest_height_in ?? 0).filter((h) => h > 0);
+  if (backs.length) out.backrest_height_in = Math.max(...backs);
   return out;
 }
 
@@ -608,6 +661,8 @@ export function totalsHeadline(kind: FeatureKind, t: FeatureTotals): string | nu
     case "kitchen":
     case "seating_wall":
       if (t.linear_ft) parts.push(`${fmt(t.linear_ft)} LF${t.height_in ? ` · ${fmt(t.height_in)} in high` : ""}`);
+      if (t.backsplash_sqft) parts.push(`${fmt(t.backsplash_sqft)} sq ft backsplash`);
+      if (t.backrest_lf) parts.push(`${fmt(t.backrest_lf)} LF backrest`);
       break;
     case "retaining_wall":
       if (t.linear_ft) parts.push(`${fmt(t.linear_ft)} LF`);
@@ -618,6 +673,7 @@ export function totalsHeadline(kind: FeatureKind, t: FeatureTotals): string | nu
       break;
     case "lighting":
       if (t.fixture_count) parts.push(`${fmt(t.fixture_count)} ${t.fixture_count === 1 ? "fixture" : "fixtures"}`);
+      if (t.strip_lf) parts.push(`${fmt(t.strip_lf)} LF strip`);
       break;
     case "steps":
       if (t.step_count) parts.push(`${fmt(t.step_count)} ${t.step_count === 1 ? "step" : "steps"}`);
@@ -837,16 +893,31 @@ export function smartSectionPrefill(
     case "paver_patio":
       return t.area_sqft ? { area: { areaSqft: t.area_sqft, perimeterFt: t.perimeter_ft ?? null } } : {};
     case "outdoor_kitchen":
-      return t.linear_ft ? { run_ft: t.linear_ft, ...coursesFor(t.height_in, opts.courseHeightIn) } : {};
+      return t.linear_ft
+        ? { run_ft: t.linear_ft, ...coursesFor(t.height_in, opts.courseHeightIn), ...(t.backsplash_sqft ? { backsplash_sqft: t.backsplash_sqft } : {}) }
+        : {};
     case "seating_wall":
-      return t.linear_ft ? { length_ft: t.linear_ft, ...coursesFor(t.height_in, opts.courseHeightIn) } : {};
+      return t.linear_ft
+        ? {
+            length_ft: t.linear_ft,
+            ...coursesFor(t.height_in, opts.courseHeightIn),
+            ...(t.backrest_lf ? { backrest_lf: t.backrest_lf, backrest_courses: coursesFor(t.backrest_height_in, opts.courseHeightIn).courses ?? 0 } : {}),
+          }
+        : {};
     case "fire_pit":
       return {
         ...(t.perimeter_ft ? { wall_length_ft: t.perimeter_ft } : {}),
         ...(t.footprint_sqft ? { footprint_sqft: t.footprint_sqft } : {}),
       };
     case "outdoor_lighting":
-      return t.fixture_count ? { fixture_count: t.fixture_count } : {};
+      return {
+        ...(t.fixture_count ? { fixture_count: t.fixture_count } : {}),
+        ...(t.strip_lf ? { strip_lf: t.strip_lf } : {}),
+      };
+    case "water_feature":
+    case "sod":
+    case "irrigation":
+      return t.area_sqft ? { area: { areaSqft: t.area_sqft, perimeterFt: t.perimeter_ft ?? null } } : {};
     default:
       return {};
   }
@@ -865,6 +936,11 @@ export function quickQuotePrefill(buildType: string, t: FeatureTotals): Record<s
       return t.perimeter_ft ? { wall_length_ft: t.perimeter_ft } : {};
     case "outdoor_lighting":
       return t.fixture_count ? { fixture_count: t.fixture_count } : {};
+    case "pergola":
+    case "water_feature":
+    case "sod":
+    case "irrigation":
+      return t.area_sqft ? { area_sqft: t.area_sqft } : {};
     default:
       return {};
   }

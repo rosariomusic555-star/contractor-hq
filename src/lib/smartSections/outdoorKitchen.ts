@@ -12,6 +12,7 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
     { key: "countertop_material", defaultName: "Countertop Material" },
     { key: "construction_adhesive", defaultName: "Construction Adhesive" },
     { key: "caps", defaultName: "Caps" },
+    { key: "backsplash", defaultName: "Backsplash", addOn: true },
   ],
   questions: [
     // V1 scope: a single straight run only — L-shaped footprints (summing
@@ -35,6 +36,8 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
       type: "catalog_product",
       showWhen: { key: "countertop_mode", equals: "catalog" },
     },
+    // Filled from the Measurements card's Backsplash toggle; blank = no backsplash.
+    { key: "backsplash_sqft", label: "Backsplash area", type: "number", unit: "sq ft" },
   ],
   tunables: [
     { key: "courses", label: "Default courses", unit: "courses", defaultValue: 3, relatedSlotKey: "concrete_block_core" },
@@ -98,6 +101,7 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
       defaultValue: 12, // ASSUMPTION
       relatedSlotKey: "caps",
     },
+    { key: "backsplash_waste_pct", label: "Waste", unit: "%", defaultValue: 10, relatedSlotKey: "backsplash" }, // ASSUMPTION — tile/veneer cuts
   ],
   calculate: (answers) => {
     const runFt = Number(answers.run_ft) || 0;
@@ -150,6 +154,13 @@ export const outdoorKitchenTemplate: SmartSectionTemplate = {
     });
 
     lines.push({ slotKey: "caps", quantity: Math.ceil(runFt / capLengthFt), unit: "pieces" });
+
+    const backsplashSqft = Number(answers.backsplash_sqft) || 0;
+    if (backsplashSqft > 0) {
+      const waste = Number(answers.backsplash_waste_pct) || 0;
+      lines.push({ slotKey: "backsplash", quantity: Math.ceil(backsplashSqft * (1 + waste / 100)), unit: "sq ft" });
+    }
+    // else: no backsplash measured — line left untouched.
 
     return lines;
   },

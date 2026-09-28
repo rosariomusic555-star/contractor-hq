@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { joinFeet, parseMeasure as parseNum, splitFeet } from "@/lib/feetInches";
 
 /**
  * Building blocks for the Measurements cards. Mobile-first — these get
@@ -9,15 +11,52 @@ import { cn } from "@/lib/utils";
  * 44px+ tap targets everywhere.
  */
 
-const parseNum = (text: string): number | null => {
-  const t = text.trim().replace(",", ".");
-  if (!t) return null;
-  const v = Number(t);
-  return isFinite(v) && v >= 0 ? v : null;
-};
 
-/** A labelled number input with its unit inside the field. Keeps the typed
- * text locally so "12." or "0.5" can be typed without the value jumping. */
+/** One compact numeric box with the unit as a suffix inside it. */
+function CompactNumber({
+  id,
+  text,
+  onText,
+  suffix,
+  placeholder,
+  ariaLabel,
+  widthClass = "w-[6.5rem]",
+}: {
+  id?: string;
+  text: string;
+  onText: (t: string) => void;
+  suffix?: string;
+  placeholder?: string;
+  ariaLabel?: string;
+  widthClass?: string;
+}) {
+  return (
+    <span className={cn("relative inline-block", widthClass)}>
+      <Input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        enterKeyHint="next"
+        value={text}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        onChange={(e) => onText(e.target.value)}
+        className={cn("h-12 text-base tabular-nums", suffix && (suffix.length > 3 ? "pr-14" : "pr-9"))}
+      />
+      {suffix && <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{suffix}</span>}
+    </span>
+  );
+}
+
+/**
+ * A labelled measurement input: a compact numeric box with the unit inside
+ * it. Feet ("ft") are entered as ft + in (two small boxes) and stored as
+ * decimal feet, so every calculator reads the same number as before —
+ * decimal feet can still be typed straight into the ft box. Keeps the
+ * typed text locally so "12." or "0.5" can be typed without the value
+ * jumping.
+ */
 export function NumField({
   id,
   label,
@@ -37,39 +76,64 @@ export function NumField({
   className?: string;
   labelClassName?: string;
 }) {
+  const feet = suffix === "ft";
   const [text, setText] = useState(value == null ? "" : String(value));
+  const [ftIn, setFtIn] = useState(() => splitFeet(value));
   // Follow outside changes (Discard, switching instance) without clobbering
   // what's mid-typing: only resync when the parsed text disagrees.
   useEffect(() => {
-    if (parseNum(text) !== value) setText(value == null ? "" : String(value));
+    if (feet) {
+      if (joinFeet(ftIn.ft, ftIn.inch) !== value) setFtIn(splitFeet(value));
+    } else if (parseNum(text) !== value) setText(value == null ? "" : String(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   return (
-    <label className={cn("block space-y-1", className)}>
-      <span className={cn("block text-xs font-semibold text-muted-foreground", labelClassName)}>{label}</span>
-      <span className="relative block">
-        <Input
+    <div className={cn("space-y-1", className)}>
+      <label htmlFor={id} className={cn("block text-xs font-semibold text-muted-foreground", labelClassName)}>
+        {label}
+      </label>
+      {feet ? (
+        <span className="flex items-center gap-1.5">
+          <CompactNumber
+            id={id}
+            text={ftIn.ft}
+            suffix="ft"
+            placeholder={placeholder}
+            ariaLabel={typeof label === "string" ? `${label} feet` : "feet"}
+            onText={(t) => {
+              const next = { ...ftIn, ft: t };
+              setFtIn(next);
+              onChange(joinFeet(next.ft, next.inch));
+            }}
+          />
+          <CompactNumber
+            text={ftIn.inch}
+            suffix="in"
+            widthClass="w-[5.25rem]"
+            ariaLabel={typeof label === "string" ? `${label} inches` : "inches"}
+            onText={(t) => {
+              const next = { ...ftIn, inch: t };
+              setFtIn(next);
+              onChange(joinFeet(next.ft, next.inch));
+            }}
+          />
+        </span>
+      ) : (
+        <CompactNumber
           id={id}
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          enterKeyHint="next"
-          value={text}
+          text={text}
+          suffix={suffix}
           placeholder={placeholder}
-          onChange={(e) => {
-            setText(e.target.value);
-            onChange(parseNum(e.target.value));
+          ariaLabel={typeof label === "string" ? label : undefined}
+          widthClass={suffix && suffix.length > 3 ? "w-[8rem]" : "w-[6.5rem]"}
+          onText={(t) => {
+            setText(t);
+            onChange(parseNum(t));
           }}
-          className={cn("h-12 text-base", suffix && "pr-14")}
         />
-        {suffix && (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-            {suffix}
-          </span>
-        )}
-      </span>
-    </label>
+      )}
+    </div>
   );
 }
 
@@ -173,6 +237,30 @@ export function Computed({ children, muted }: { children: ReactNode; muted?: boo
     >
       {children}
     </p>
+  );
+}
+
+/** An optional add-on (kitchen backsplash, seating wall backrest): a switch
+ * row, with its fields underneath while it's on. */
+export function ToggleSection({
+  label,
+  checked,
+  onCheckedChange,
+  children,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <SubRow>
+      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
+      </label>
+      {checked && <div className="flex flex-wrap items-end gap-3">{children}</div>}
+    </SubRow>
   );
 }
 

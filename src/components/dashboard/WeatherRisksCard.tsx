@@ -5,6 +5,7 @@ import { useRainDelay } from "@/components/schedule/rainDelayContext";
 import { cn } from "@/lib/utils";
 import { jobRisks, useScheduleForecasts } from "@/lib/forecast";
 import { RISK_TEXT } from "@/components/weather/riskStyles";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const DAYS = 7;
 
@@ -15,13 +16,14 @@ const DAYS = 7;
  * Each row opens the job (its Schedule card has the day-by-day strip).
  */
 export function WeatherRisksCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/bookings");
   const { projects, batch } = useScheduleForecasts();
   const risks = jobRisks(projects, batch, DAYS);
   const openDelay = useRainDelay();
   if (risks.length === 0) return null;
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
         <AlertTriangle className="h-4 w-4 text-warning" />
         Upcoming weather risks <span className="font-semibold text-muted-foreground">· next {DAYS} days</span>

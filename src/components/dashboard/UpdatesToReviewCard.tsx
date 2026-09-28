@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getSignedImageUrls, listProgressUpdates, setProgressUpdateShared } from "@/lib/api";
+import { useCardLink } from "@/hooks/use-card-link";
 
 /** Dashboard (0126): crew progress posts waiting to be shared — two big
  * buttons each, quick on a phone. Hidden when there's nothing to review. */
 export function UpdatesToReviewCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/projects");
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data: pending = [] } = useQuery({ queryKey: ["progress-updates", "pending"], queryFn: () => listProgressUpdates(undefined, "pending") });
@@ -24,7 +26,7 @@ export function UpdatesToReviewCard({ className }: { className?: string }) {
   });
   if (pending.length === 0) return null;
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <h3 className="text-base font-bold text-foreground">
         Updates to review <span className="text-muted-foreground">· {pending.length}</span>
       </h3>

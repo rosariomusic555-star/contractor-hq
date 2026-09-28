@@ -33,4 +33,31 @@ export const BUILD_TYPES: BuildType[] = [
   { id: "retaining_wall", label: "Retaining Wall" },
   { id: "steps", label: "Steps" },
   { id: "pillars", label: "Pillars / Columns" },
+  { id: "pergola", label: "Pergola" },
+  { id: "water_feature", label: "Water Feature" },
+  { id: "sod", label: "Sod" },
+  { id: "irrigation", label: "Irrigation" },
+  { id: "plants", label: "Plants" },
+];
+
+/** The project types (Job Categories) a new account starts with — must match
+ * seed_default_categories() (migration 0134). "Reset to default" re-adds any
+ * of these that are missing; it never deletes the contractor's own. */
+export const DEFAULT_PROJECT_TYPES = [
+  "Paver Patio",
+  "Outdoor Kitchen",
+  "Seating Wall",
+  "Retaining Wall",
+  "Fire Pit / Fireplace",
+  "Walkway",
+  "Driveway",
+  "Outdoor Lighting",
+  "Steps",
+  "Drainage",
+  "Pergola",
+  "Water Feature",
+  "Sod",
+  "Irrigation",
+  "Plants",
+  "Other / Uncategorized",
 ];
