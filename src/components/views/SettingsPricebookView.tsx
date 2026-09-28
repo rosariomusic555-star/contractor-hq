@@ -307,7 +307,16 @@ function PriceBookItemDialog({
     });
   }, [open, item]);
 
-  const canSave = name.trim().length > 0 && categoryId != null;
+  // A negative price would cost lines below $0; a 0 / negative spec (coverage,
+  // pieces per pallet…) breaks the package rounding on the order sheet.
+  const priceNum = priceStr.trim() === "" ? 0 : parseFloat(priceStr);
+  const numberProblem =
+    Number.isNaN(priceNum) || priceNum < 0
+      ? "Unit price can't be negative."
+      : Object.values(specStr).some((v) => v.trim() !== "" && !(parseFloat(v) > 0))
+        ? "Product specs must be numbers above 0 (or left blank)."
+        : null;
+  const canSave = name.trim().length > 0 && categoryId != null && !numberProblem;
 
   const handleSave = () => {
     if (!canSave) return;
@@ -532,6 +541,11 @@ function PriceBookItemDialog({
             </AlertDialog>
           ) : (
             <span />
+          )}
+          {numberProblem && (
+            <p role="alert" className="mr-auto self-center text-sm font-semibold text-destructive">
+              {numberProblem}
+            </p>
           )}
           <Button onClick={handleSave} disabled={!canSave || saving} className="font-bold">
             {saving ? "Saving…" : "Save"}

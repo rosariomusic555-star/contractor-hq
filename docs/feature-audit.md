@@ -42,6 +42,7 @@ Every record created for testing is named with the prefix **`TEST —`**. They a
 | 2026-09-28 | Expenses | TEST — Gravel delivery $1,234.50 (split 1,000 / 234.50) · TEST — Paver pallets $1,200 | on the TEST project |
 | 2026-09-28 | Labor entry | TEST — Crew A, 24 h × $35 = $840 (Paver Patio) | on the TEST project |
 | 2026-09-28 | Schedule | TEST project booked Oct 12–16 (+ one undone rain delay) | on the TEST project |
+| 2026-09-28 | Price Book item | TEST — Paver X ($4.25 / sq ft, Pavers) | /settings/pricebook |
 | 2026-09-28 | Add-on quote #1 (approved) + Walkway feature | 45 sq ft × $28.75 = $1,293.75 | /projects/ef03095a-1e58-45c1-8288-226502188306/quotes/d4a46fd4-09c1-4007-b930-550590911234 |
 
 
@@ -81,6 +82,8 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 **Settings › Quote defaults** — ❌→fixed no limits: 150% or −5% deposit and 0-day validity saved (a 150% default would make every new quote fail the 0143 deposit check) — now 0–100% and 1–365 whole days, Save off with the reason shown, also enforced in saveQuoteDefaults · ✅ Revert restores 50% / 14 days (nothing saved — the account still has no quote_defaults row, so the built-in defaults apply).
 
 **Settings › number limits (by page)** — ✅ Weather (1–100% / >0 in / 70–130°F), Precon, Business health, Reviews, Payroll and Overhead already validate before saving · ❌→fixed Business profile: a negative default labor rate (→ negative labor costs), an over-order margin over 100% and fractional alert days could be saved — now refused (page + saveBusinessProfile), the leave prompt offers Save / Discard / Stay · (checked with the values put back or discarded — nothing in your settings was changed).
+
+**Settings › Price Book** — ✅ add (name, unit, price, required category), edit, delete with a clear confirm ("lines keep their values, become editable") · ❌→fixed a negative unit price saved (−$4.25) and 0 / negative product specs were accepted (they break order-sheet package rounding) — now refused with the reason · ⚠️ duplicate names allowed ("TEST — Paver X" and "test — paver x") with no warning.
 
 **Not yet tested live:** order sheet email (needs Resend); timesheets / payroll (needs an employee login); settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
 
