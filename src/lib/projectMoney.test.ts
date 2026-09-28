@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  depositAmount,
   remainingToInvoice,
   restoreOverpays,
   invoiceBalance,
@@ -133,6 +134,21 @@ describe("restoreOverpays", () => {
     expect(restoreOverpays([{ invoice_id: "i1", amount: 1000 }], [{ ...inv, amount_paid: 0 }])).toEqual([]);
     expect(restoreOverpays([{ invoice_id: "i1", amount: 400 }], [{ ...inv, amount_paid: 600 }])).toEqual([]);
     expect(restoreOverpays([{ invoice_id: "i1", amount: 400.01 }], [{ ...inv, amount_paid: 600 }])).toEqual([{ invoice_id: "i1", invoice_number: "INV-001", over: 0.01 }]);
+  });
+});
+
+// Money bug (2026-09-28): the quote builder rounded the deposit to whole
+// dollars ($12,345 × 33% = $4,074) while the client page and the deposit
+// invoice used $4,073.85; and 150% / negative deposits saved.
+describe("depositAmount", () => {
+  it("rounds to the cent, the same everywhere", () => {
+    expect(depositAmount(12345, 33)).toBe(4073.85);
+    expect(depositAmount(20000, "30")).toBe(6000);
+  });
+  it("the % is clamped to 0–100; blanks are 0", () => {
+    expect(depositAmount(1000, 150)).toBe(1000);
+    expect(depositAmount(1000, -10)).toBe(0);
+    expect(depositAmount(1000, null)).toBe(0);
   });
 });
 

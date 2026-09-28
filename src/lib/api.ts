@@ -3382,8 +3382,8 @@ export async function createProjectInvoice(
   const asDeposit = kind === "deposit" || (kind === "auto" && !hasDeposit && depositPct > 0 && contract > 0);
   // The deposit is on the original quote; add-ons draft their own (0108).
   const depositBase = headline ? quoteTotal(headline.quote_sections) : contract;
-  const { remainingToInvoice } = await import("./projectMoney");
-  const amount = asDeposit ? depositBase * (depositPct / 100) : remainingToInvoice(contract, invoices);
+  const { remainingToInvoice, depositAmount } = await import("./projectMoney");
+  const amount = asDeposit ? depositAmount(depositBase, depositPct) : remainingToInvoice(contract, invoices);
 
   const invoice = await createInvoice({
     project_id: projectId,

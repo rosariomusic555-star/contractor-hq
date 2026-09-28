@@ -35,6 +35,7 @@ import { isProjectActive } from "@/lib/materialTracking";
 import { addonQuoteNumbers } from "@/lib/featureFinancials";
 import { coldLabel, coldState } from "@/lib/quoteActivity";
 import { quoteDecisionLine, quoteKindLabel, quoteSummary } from "@/lib/projectBilling";
+import { depositAmount as depositAmountOf } from "@/lib/projectMoney";
 
 const shareUrl = (q: Pick<Quote, "share_token">) => (q.share_token ? `${window.location.origin}/quote/${q.share_token}` : null);
 const MAX_SECTION_NAMES = 3;
@@ -70,7 +71,7 @@ export function ProjectQuotesView() {
   const headline = pickHeadlineQuote(quotes);
   const depositPct = headline?.status === "approved" ? Number(headline.deposit_percentage) || 0 : 0;
   const depositInvoice = invoices.find((i) => i.notes === DEPOSIT_INVOICE_NOTE) ?? null;
-  const depositAmount = depositPct > 0 && headline ? Math.round(totalOf(headline) * depositPct) / 100 : 0;
+  const depositAmount = headline ? depositAmountOf(totalOf(headline), depositPct) : 0;
   const waiting = quotes.filter((q) => q.status === "sent");
   // Newest first, but the signed original always leads.
   const sorted = [...quotes].sort((a, b) =>

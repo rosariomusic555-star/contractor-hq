@@ -20,6 +20,7 @@ import { getClientViewProject } from "@/lib/api";
 import { versionDate, versionsOf } from "@/lib/projectHistory";
 import { cn } from "@/lib/utils";
 import { BackLink } from "@/components/common/BackLink";
+import { depositAmount } from "@/lib/projectMoney";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateStr = (iso: string | null) =>
@@ -176,7 +177,7 @@ function QuoteDocument({
   const status = statusOverride ?? quote.status;
   const total = clientQuoteTotal(quote.sections);
   const [requesting, setRequesting] = useState<PortalSelectionGroup | null>(null);
-  const deposit = (total * quote.deposit_percentage) / 100;
+  const deposit = depositAmount(total, quote.deposit_percentage);
 
   return (
     <div className="space-y-5">

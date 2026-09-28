@@ -55,6 +55,7 @@ import { ProgressSection } from "@/components/client-hub/ProgressSection";
 import { ReviewCard } from "@/components/client-hub/ReviewCard";
 import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
+import { depositAmount } from "@/lib/projectMoney";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateStr = (iso: string | null) =>
@@ -572,7 +573,7 @@ function QuoteApprovalDialog({
   });
 
   const total = clientQuoteTotal(quote.sections, picks);
-  const deposit = (total * quote.deposit_percentage) / 100;
+  const deposit = depositAmount(total, quote.deposit_percentage);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>

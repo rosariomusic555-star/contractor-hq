@@ -239,3 +239,11 @@ export function restoreOverpays(
   }
   return out;
 }
+
+/** The deposit on a quote total: the % clamped to 0–100, rounded to the cent
+ * — the one rule every screen and the deposit invoice use (the builder
+ * rounded to whole dollars and the rest didn't round at all). */
+export function depositAmount(total: number, pct: number | string | null | undefined): number {
+  const p = Math.min(100, Math.max(0, Number(pct) || 0));
+  return r2(((Number(total) || 0) * p) / 100);
+}

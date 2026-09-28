@@ -22,6 +22,7 @@ import {
   type SharedQuoteSection,
   setSharedQuoteSelection,
 } from "@/lib/api";
+import { depositAmount } from "@/lib/projectMoney";
 
 function PageShell({ children }: { children: ReactNode }) {
   return (
@@ -199,7 +200,7 @@ export default function SharedQuotePage() {
   // Deposit is a percentage of the full quote total — required items plus
   // whatever optional work the client currently has checked — matching how
   // the deposit is sized everywhere else a quote total is shown.
-  const deposit = (subtotal * Number(quote.deposit_percentage)) / 100;
+  const deposit = depositAmount(subtotal, quote.deposit_percentage);
   const isApproved = quote.status === "approved";
   // Only a quote that's out with the client can be signed (sign_quote 0141):
   // a draft opened from Preview, or a declined one, is view-only.

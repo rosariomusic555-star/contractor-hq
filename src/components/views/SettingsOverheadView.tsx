@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { BackLink } from "@/components/common/BackLink";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
+import { DecimalInput } from "@/components/common/DecimalInput";
+import { parseDecimal } from "@/lib/parseDecimal";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import { getOverheadSettings, saveOverheadSettings } from "@/lib/api";
@@ -55,7 +57,10 @@ export function SettingsOverheadView() {
     edit({ items: draft.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
 
   const saveMut = useMutation({
-    mutationFn: () => saveOverheadSettings({ ...draft, items: draft.items.filter((i) => i.label.trim() || i.amount) }),
+    mutationFn: () => {
+      if (!(Number(draft.crew_size) >= 1)) throw new Error("Enter a crew size of at least 1.");
+      return saveOverheadSettings({ ...draft, items: draft.items.filter((i) => i.label.trim() || i.amount) });
+    },
     onSuccess: () => {
       dirty.current = false;
       setIsDirty(false);
@@ -112,10 +117,9 @@ export function SettingsOverheadView() {
               />
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
-                <Input
-                  inputMode="decimal"
-                  value={it.amount ?? ""}
-                  onChange={(e) => editItem(i, { amount: e.target.value.trim() === "" ? null : Number(e.target.value) || 0 })}
+                <DecimalInput
+                  value={it.amount}
+                  onChange={(v) => editItem(i, { amount: v })}
                   aria-label={`${it.label} amount`}
                   className="h-10 pl-6 tabular-nums"
                   placeholder="0"
@@ -177,7 +181,8 @@ export function SettingsOverheadView() {
             : "Fill in every field to work out productive man-hours"}
         </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Num label="Crew size" value={draft.crew_size} onChange={(v) => edit({ crew_size: v ?? 3 })} />
+          {/* Blank while retyping (it used to snap back to 3, so typing 4 gave "34"). */}
+          <Num label="Crew size" value={draft.crew_size} onChange={(v) => edit({ crew_size: v as number })} />
           <Num label="Or: man-hours / year" value={draft.manual_man_hours} onChange={(v) => edit({ manual_man_hours: v, manual_crew_days: null })} />
           <Num label="Or: crew-days / year" value={draft.manual_crew_days} onChange={(v) => edit({ manual_crew_days: v, manual_man_hours: null })} />
         </div>
@@ -261,7 +266,7 @@ function Num({
 }) {
   const [text, setText] = useState(value == null ? "" : String(value));
   useEffect(() => {
-    const parsed = text.trim() === "" ? null : Number(text);
+    const parsed = parseDecimal(text);
     if (parsed !== value) setText(value == null ? "" : String(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
@@ -274,9 +279,7 @@ function Num({
           value={text}
           onChange={(e) => {
             setText(e.target.value);
-            const t = e.target.value.trim();
-            const n = Number(t);
-            onChange(t === "" || !isFinite(n) ? null : n);
+            onChange(parseDecimal(e.target.value));
           }}
           className={cn("h-10 tabular-nums", suffix && "pr-7")}
         />

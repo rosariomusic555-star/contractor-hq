@@ -149,6 +149,7 @@ import { findQuickQuoteTemplate } from "@/lib/quickQuote";
 import { buildTypeForCategoryName } from "@/lib/measurements";
 import { BackLink } from "@/components/common/BackLink";
 import { remapDraftIds } from "@/lib/draftRemap";
+import { depositAmount as depositAmountOf } from "@/lib/projectMoney";
 
 const NONE = "__none__";
 
@@ -1053,7 +1054,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // Deposit, cost, and margin all compare against the same all-in headline
   // — once optional work is part of "the total," it's part of everything
   // derived from it too.
-  const depositAmount = Math.round((grandTotal * draft.depositPct) / 100);
+  const depositAmount = depositAmountOf(grandTotal, draft.depositPct);
   // Standalone quotes (no project) have no real cost source — the Materials
   // Sheet lives on a project. There used to be a guessed fallback here
   // (60% of the quote total, from demoQuoteFinancials().estCost) but that
@@ -1507,7 +1508,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   value={String(draft.depositPct)}
                   className="pr-7"
                   onChange={(e) =>
-                    edit((d) => ({ ...d, depositPct: parseFloat(e.target.value) || 0 }))
+                    // 0–100 only (150% or a negative deposit used to save).
+                    edit((d) => ({ ...d, depositPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) }))
                   }
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
