@@ -26,3 +26,13 @@ describe("fmtFeet", () => {
     expect(fmtFeet(null)).toBe("");
   });
 });
+
+describe("fmtFeetPrime", () => {
+  it("diagram badges in feet + inches", async () => {
+    const { fmtFeetPrime } = await import("./feetInches");
+    expect(fmtFeetPrime(15.5)).toBe("15′ 6″");
+    expect(fmtFeetPrime(20)).toBe("20′");
+    expect(fmtFeetPrime(3.5)).toBe("3′ 6″");
+    expect(fmtFeetPrime(0.75)).toBe("9″");
+  });
+});

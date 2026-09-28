@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { BackLink } from "@/components/common/BackLink";
 import { useToast } from "@/hooks/use-toast";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import {
   approveTimesheet,
   deleteLaborEntry,
@@ -278,14 +278,15 @@ export function TimesheetDetailView() {
 }
 
 const FIELD_LABEL: Record<string, string> = { start_at: "start", end_at: "end", break_minutes: "break", hours: "hours", note: "note", entry_date: "date", project_id: "project" };
-const show = (k: string, v: unknown) => (v == null || v === "" ? "—" : k.endsWith("_at") ? fmtClock(String(v)) : String(v));
+const show = (k: string, v: unknown) =>
+  v == null || v === "" ? "—" : k.endsWith("_at") ? fmtClock(String(v)) : k === "entry_date" ? formatDate(String(v)) : String(v);
 
 function describeEvent(ev: TimesheetEvent): string {
   switch (ev.kind) {
     case "entry_added":
-      return `added ${ev.after?.start_at ? `${fmtClock(String(ev.after.start_at))}–${fmtClock((ev.after.end_at as string) ?? null)}` : "time"} on ${ev.after?.entry_date}`;
+      return `added ${ev.after?.start_at ? `${fmtClock(String(ev.after.start_at))}–${fmtClock((ev.after.end_at as string) ?? null)}` : "time"} on ${formatDate(ev.after?.entry_date as string | undefined)}`;
     case "entry_deleted":
-      return `deleted an entry on ${ev.before?.entry_date}`;
+      return `deleted an entry on ${formatDate(ev.before?.entry_date as string | undefined)}`;
     case "entry_edited": {
       const changes = Object.keys(FIELD_LABEL)
         .filter((k) => JSON.stringify(ev.before?.[k]) !== JSON.stringify(ev.after?.[k]))

@@ -1,4 +1,4 @@
-import { fmt } from "@/lib/measurements";
+import { fmtFeetPrime } from "@/lib/feetInches";
 
 /**
  * Simple, illustrative shape diagrams — not CAD. Each edge carries a badge
@@ -17,9 +17,9 @@ const focusInput = (id: string) => {
 };
 
 function Badge({ x, y, letter, value, idPrefix }: { x: number; y: number; letter: string; value: number | null; idPrefix: string }) {
-  const text = value ? `${letter} · ${fmt(value)}′` : letter;
+  const text = value ? `${letter} · ${fmtFeetPrime(value)}` : letter;
   const w = 10 + text.length * 6.2;
-  // Keep a long value ("B · 120.5′") inside the 240-wide frame instead of
+  // Keep a long value ("B · 120′ 6″") inside the 240-wide frame instead of
   // clipping at the edge — it just slides inward along its edge.
   x = Math.min(Math.max(x, w / 2 + 2), 240 - w / 2 - 2);
   return (

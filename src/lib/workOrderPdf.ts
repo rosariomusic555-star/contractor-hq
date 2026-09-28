@@ -130,14 +130,15 @@ export function buildWorkOrderPdf(raw: CrewWorkOrder, diagrams: Map<string, { da
   }
 
   // Materials
-  if (wo.materials.length) {
+  const materials = wo.materials.filter((m) => Number(m.planned_quantity ?? m.quantity) > 0);
+  if (materials.length) {
     heading("Materials");
     const featureName = new Map(wo.features.map((f) => [f.id, f.label]));
     autoTable(doc, {
       startY: y,
       margin: { left: X, right: X },
       head: [["Item", "Color / product", "Qty (incl. waste)", "Status"]],
-      body: wo.materials.map((m) => {
+      body: materials.map((m) => {
         const s = crewMaterialStatus(m);
         return [
           ascii(`${m.feature_id ? `${featureName.get(m.feature_id) ?? m.section}: ` : ""}${m.name}`),

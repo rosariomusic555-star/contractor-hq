@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { dayLabel, fmtHours, previewHours, toIso } from "@/lib/timesheets";
+import { dayLabel, entryProblem, fmtHours, previewHours, toIso } from "@/lib/timesheets";
 
 export interface EntryDraft {
   id: string | null;
@@ -48,7 +48,8 @@ export function TimeEntryDialog({
   const startIso = d.start ? toIso(d.date, d.start) : null;
   const endIso = d.end && startIso ? toIso(d.date, d.end, startIso) : null;
   const hours = previewHours(startIso, endIso, d.break_minutes);
-  const valid = !!d.project_id && !!d.start && (!d.end || (hours != null && hours > 0));
+  const problem = entryProblem(startIso, endIso, d.break_minutes);
+  const valid = !!d.project_id && !!d.start && (!d.end || (hours != null && hours > 0 && !problem.error));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -96,9 +97,12 @@ export function TimeEntryDialog({
             <Input value={d.note} onChange={(e) => setD({ ...d, note: e.target.value })} placeholder="What you worked on" className="mt-1 h-11" />
           </label>
           <p className="text-sm text-muted-foreground">
-            {hours != null ? (
+            {problem.error ? (
+              <span className="text-destructive">{problem.error}</span>
+            ) : hours != null ? (
               <>
                 <span className="font-bold text-foreground">{fmtHours(hours)} hours</span> before any rounding
+                {problem.overnight && <span className="font-semibold text-warning-strong"> · ends the next day</span>}
               </>
             ) : d.end ? (
               <span className="text-destructive">End time must be after the start.</span>

@@ -37,3 +37,11 @@ export function fmtFeet(v: number | null | undefined): string {
   if (ft === "0") return `${inch} in`;
   return `${ft} ft ${inch} in`;
 }
+
+/** Compact feet + inches for diagram badges: 15.5 → "15′ 6″", 20 → "20′". */
+export function fmtFeetPrime(v: number | null | undefined): string {
+  if (v == null || !isFinite(v)) return "";
+  const { ft, inch } = splitFeet(v);
+  if (!inch) return `${ft}′`;
+  return ft === "0" ? `${inch}″` : `${ft}′ ${inch}″`;
+}

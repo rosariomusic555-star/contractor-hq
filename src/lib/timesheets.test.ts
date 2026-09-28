@@ -79,3 +79,19 @@ describe("payroll", () => {
     expect(gustoPayrollCsv(rows)).toBe("first_name,last_name,regular_hours,overtime_hours\nJane,Rivera,40.00,2.00\n");
   });
 });
+
+describe("entryProblem (time entry form)", () => {
+  it("refuses a same-time or 16 h+ entry and a break as long as the shift; flags overnight", async () => {
+    const { entryProblem, toIso } = await import("./timesheets");
+    const e = (a: string, b: string, brk: number) => {
+      const s = toIso("2026-09-28", a);
+      return entryProblem(s, toIso("2026-09-28", b, s), brk);
+    };
+    expect(e("07:00", "15:30", 30)).toEqual({ error: null, overnight: false });
+    expect(e("07:00", "07:00", 0).error).toMatch(/same time/);
+    expect(e("15:30", "07:00", 30)).toEqual({ error: null, overnight: true }); // 15.5 h night shift — allowed, flagged
+    expect(e("06:00", "23:30", 0).error).toMatch(/over 16 hours/);
+    expect(e("07:00", "15:30", 600).error).toMatch(/break/);
+    expect(entryProblem(toIso("2026-09-28", "07:00"), null, 0).error).toBeNull(); // still clocked in
+  });
+});
