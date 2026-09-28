@@ -12,14 +12,17 @@ import { useQuoteTracking } from "@/hooks/use-quote-tracking";
 import { ClientSelectionGroups } from "@/components/selections/ClientSelectionGroups";
 import { clientGroupLike, groupPrice, missingRequired, priceLabel } from "@/lib/selections";
 import { cn, formatCurrency } from "@/lib/utils";
+import { seedOptionalSelection, selectionWrites } from "@/lib/sharedQuoteSelection";
 import {
   getSharedQuote,
   getSignedImageUrls,
   quoteLineTotal,
   signSharedQuote,
+  setSharedQuoteItemSelection,
   type SharedQuoteSection,
   setSharedQuoteSelection,
 } from "@/lib/api";
+import { depositAmount } from "@/lib/projectMoney";
 
 function PageShell({ children }: { children: ReactNode }) {
   return (
@@ -49,28 +52,41 @@ export default function SharedQuotePage() {
     enabled: token.length > 0,
   });
 
-  // Which optional sections / items the client currently has checked. This
-  // is purely local, view-only state — it's never written to Supabase.
-  // Only the final "Approve & sign" action touches the database. Seeded
-  // once, all-selected, the first time the quote loads.
+  // Which optional sections / items the client has checked — seeded from
+  // what's saved and SAVED on every tap (setSharedQuoteItemSelection), so the
+  // signed total and the deposit invoice match what they see here. Local
+  // state is the optimistic copy; a failed save reverts it.
   const [sectionSelected, setSectionSelected] = useState<Record<string, boolean>>({});
   const [itemSelected, setItemSelected] = useState<Record<string, boolean>>({});
   const seeded = useRef(false);
 
   useEffect(() => {
     if (seeded.current || !data) return;
-    const sections: Record<string, boolean> = {};
-    const items: Record<string, boolean> = {};
-    for (const section of data.sections) {
-      if (section.is_optional) sections[section.id] = true;
-      for (const item of section.items) {
-        if (item.is_optional) items[item.id] = true;
-      }
-    }
-    setSectionSelected(sections);
-    setItemSelected(items);
+    const seed = seedOptionalSelection(data.sections);
+    setSectionSelected(seed.sections);
+    setItemSelected(seed.items);
     seeded.current = true;
   }, [data]);
+
+  const [savingSelection, setSavingSelection] = useState(0);
+  const saveSelection = async (section: SharedQuoteSection, target: { kind: "section" } | { kind: "item"; itemId: string }, selected: boolean) => {
+    const writes = selectionWrites(section, target, selected);
+    if (writes.length === 0) return;
+    const prevSections = sectionSelected;
+    const prevItems = itemSelected;
+    if (target.kind === "section") setSectionSelected((p) => ({ ...p, [section.id]: selected }));
+    setItemSelected((p) => ({ ...p, ...Object.fromEntries(writes.map((w) => [w.itemId, w.selected])) }));
+    setSavingSelection((n) => n + 1);
+    try {
+      for (const w of writes) await setSharedQuoteItemSelection(token, w.itemId, w.selected);
+    } catch (err) {
+      setSectionSelected(prevSections);
+      setItemSelected(prevItems);
+      toast({ title: "Couldn't save your choice", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setSavingSelection((n) => n - 1);
+    }
+  };
 
   // Quote activity (0117): views / time / sections — never while signed in
   // to the app (the contractor), and ignored server-side for the team.
@@ -184,8 +200,14 @@ export default function SharedQuotePage() {
   // Deposit is a percentage of the full quote total — required items plus
   // whatever optional work the client currently has checked — matching how
   // the deposit is sized everywhere else a quote total is shown.
-  const deposit = (subtotal * Number(quote.deposit_percentage)) / 100;
+  const deposit = depositAmount(subtotal, quote.deposit_percentage);
   const isApproved = quote.status === "approved";
+  // Only a quote that's out with the client can be signed (sign_quote 0141):
+  // a draft opened from Preview, or a declined one, is view-only.
+  const canSign = quote.status === "sent";
+  // An add-on isn't a new proposal — it adds to the signed job.
+  const isAddon = quote.kind === "addon";
+  const docTitle = isAddon ? `Add-on quote${quote.addon_number ? ` #${quote.addon_number}` : ""}` : "Proposal";
 
   return (
     <PageShell>
@@ -194,7 +216,7 @@ export default function SharedQuotePage() {
           <p className="text-sm font-bold tracking-wide text-primary">ContractorPro</p>
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <h1 className="min-w-0 text-2xl font-bold text-foreground [overflow-wrap:anywhere]">
-              {project ? `${project.name} — Proposal` : "Proposal"}
+              {project ? `${project.name} — ${docTitle}` : docTitle}
             </h1>
             <div className="flex shrink-0 items-center gap-2">
               {isApproved && <span className="badge-status badge-paid shrink-0">Approved ✓</span>}
@@ -214,6 +236,11 @@ export default function SharedQuotePage() {
           {client?.name && (
             <p className="text-muted-foreground [overflow-wrap:anywhere]">Prepared for {client.name}</p>
           )}
+          {isAddon && (
+            <p className="text-sm text-muted-foreground">
+              Additional work on your current job — approving it adds to your existing contract; it doesn't replace it.
+            </p>
+          )}
         </header>
 
         {sections.length > 0 && (
@@ -224,15 +251,15 @@ export default function SharedQuotePage() {
                 section={section}
                 sectionChecked={isSectionSelected(section.id)}
                 itemChecked={isItemSelected}
-                locked={isApproved}
+                locked={!canSign}
                 signedUrls={signedUrls}
                 onImageClick={setLightboxUrl}
                 onToggleSection={(checked) => {
-                  setSectionSelected((prev) => ({ ...prev, [section.id]: checked }));
+                  void saveSelection(section, { kind: "section" }, checked);
                   trackEvent("optional_changed", { summary: `${checked ? "Added" : "Dropped"} optional section ${section.name}`, section: section.name, selected: checked });
                 }}
                 onToggleItem={(itemId, checked) => {
-                  setItemSelected((prev) => ({ ...prev, [itemId]: checked }));
+                  void saveSelection(section, { kind: "item", itemId }, checked);
                   const item = section.items.find((i) => i.id === itemId);
                   trackEvent("optional_changed", { summary: `${checked ? "Added" : "Dropped"} ${item?.name ?? "an optional item"}`, item: item?.name, selected: checked });
                 }}
@@ -245,8 +272,8 @@ export default function SharedQuotePage() {
                     <ClientSelectionGroups
                       groups={section.selections!}
                       picks={picks}
-                      onChange={isApproved ? undefined : choose}
-                      locked={isApproved}
+                      onChange={canSign ? choose : undefined}
+                      locked={!canSign}
                       imageUrls={selectionImageUrls}
                       flagMissing={missing.length > 0}
                     />
@@ -272,10 +299,20 @@ export default function SharedQuotePage() {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Optional items selected</span>
                 <span className="font-semibold text-foreground">
-                  {formatCurrency(subtotal - baseSubtotal)}
+                  {formatCurrency(subtotal - baseSubtotal - selectionsSubtotal)}
                 </span>
               </div>
             </>
+          )}
+          {/* Upgrades picked in Your selections are their own line — not "optional items". */}
+          {Math.abs(selectionsSubtotal) >= 0.005 && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Selections</span>
+              <span className="font-semibold text-foreground">
+                {selectionsSubtotal > 0 ? "+" : ""}
+                {formatCurrency(selectionsSubtotal)}
+              </span>
+            </div>
           )}
           <div className="flex items-center justify-between text-sm pt-1">
             <span className="text-muted-foreground">
@@ -312,6 +349,15 @@ export default function SharedQuotePage() {
                 month: "long",
                 day: "numeric",
               })}`}
+            </p>
+          </div>
+        ) : !canSign ? (
+          <div className="rounded-xl border border-border bg-muted/40 p-5">
+            <p className="font-semibold text-foreground">{quote.status === "declined" ? "This quote was declined" : "This quote isn't ready to sign yet"}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {quote.status === "declined"
+                ? "If you'd like to go ahead after all, ask your contractor to send it again."
+                : "Your contractor is still preparing it — they'll send it to you when it's ready."}
             </p>
           </div>
         ) : (
@@ -360,7 +406,7 @@ export default function SharedQuotePage() {
             </div>
             <Button
               onClick={() => signerName.trim() && signMut.mutate()}
-              disabled={!signerName.trim() || signMut.isPending || missing.length > 0 || pickMut.isPending}
+              disabled={!signerName.trim() || signMut.isPending || missing.length > 0 || pickMut.isPending || savingSelection > 0}
               className="bg-accent hover:bg-accent/90 text-accent-foreground"
             >
               {signMut.isPending ? "Submitting…" : "Approve & sign"}

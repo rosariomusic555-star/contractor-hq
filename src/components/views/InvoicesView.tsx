@@ -17,11 +17,21 @@ import { FilterSegment, FilterPills, type FilterOption } from "@/components/comm
 import { ListCard } from "@/components/common/ListCard";
 import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { listInvoices, listPayments, createInvoice, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceBalance, invoicePaymentState } from "@/lib/projectMoney";
-import { collectedInRange, agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/financials";
+import { collectedInRange, agingBuckets, effectiveInvoiceStatus, invoiceDaysLate, overdueCount } from "@/lib/financials";
 
 /** "unpaid" is a combined filter — sent + overdue, i.e. billed but not yet
  * paid. Same definition the Dashboard's own "Unpaid" KPI uses, so arriving
@@ -50,9 +60,13 @@ export function InvoicesView() {
   });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
 
+  const [confirmDelete, setConfirmDelete] = useState<Invoice | null>(null);
   const deleteMutation = useMutation({
     mutationFn: deleteInvoice,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
     onError: (err: Error) =>
       toast({ title: "Couldn't delete invoice", description: err.message, variant: "destructive" }),
   });
@@ -78,7 +92,9 @@ export function InvoicesView() {
   const paidLast30 = last30.reduce((s, p) => s + Number(p.amount), 0);
   const paidLast30Count = last30.length;
 
-  const countByStatus = (s: InvoiceStatus) => invoices.filter((i) => i.status === s).length;
+  // Overdue is derived (due date passed, still owed) — see effectiveInvoiceStatus.
+  const statusOf = (i: Invoice) => effectiveInvoiceStatus(i, now);
+  const countByStatus = (s: InvoiceStatus) => invoices.filter((i) => statusOf(i) === s).length;
 
   const unpaidCount = countByStatus("sent") + countByStatus("overdue");
 
@@ -99,8 +115,8 @@ export function InvoicesView() {
   const filtered = invoices.filter((inv) => {
     if (
       filter === "unpaid"
-        ? inv.status !== "sent" && inv.status !== "overdue"
-        : filter !== "all" && inv.status !== filter
+        ? statusOf(inv) !== "sent" && statusOf(inv) !== "overdue"
+        : filter !== "all" && statusOf(inv) !== filter
     )
       return false;
     const term = search.toLowerCase();
@@ -201,10 +217,10 @@ export function InvoicesView() {
                           {late ? (
                             <span className="badge-status badge-overdue">{late}</span>
                           ) : (
-                            <StatusPill meta={invoiceStatusMeta(inv.status, inv.amount_paid)} />
+                            <StatusPill meta={invoiceStatusMeta(statusOf(inv), inv.amount_paid)} />
                           )}
                         </td>
-                        <td className="text-muted-foreground">{inv.due_date?.slice(0, 10) ?? "—"}</td>
+                        <td className="text-muted-foreground">{formatDate(inv.due_date)}</td>
                         <td onClick={(e) => e.stopPropagation()}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -218,7 +234,7 @@ export function InvoicesView() {
                                   Open project
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(inv.id)}>
+                              <DropdownMenuItem className="text-destructive" onClick={() => setConfirmDelete(inv)}>
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Delete
                               </DropdownMenuItem>
@@ -241,7 +257,7 @@ export function InvoicesView() {
           <div className="space-y-2.5 md:hidden">
             {filtered.map((inv) => {
               const late = lateLabel(inv);
-              const meta = invoiceStatusMeta(inv.status, inv.amount_paid);
+              const meta = invoiceStatusMeta(statusOf(inv), inv.amount_paid);
               const border = late ? "hsl(var(--destructive))" : meta.border;
               return (
                 <ListCard
@@ -256,7 +272,7 @@ export function InvoicesView() {
                       : formatCurrency(Number(inv.amount))
                   }
                   title={inv.project?.name ?? "Standalone"}
-                  subtitle={`${inv.project?.client?.name ?? "—"}${inv.due_date ? ` · due ${inv.due_date.slice(0, 10)}` : ""}`}
+                  subtitle={`${inv.project?.client?.name ?? "—"}${inv.due_date ? ` · due ${formatDate(inv.due_date)}` : ""}`}
                 />
               );
             })}
@@ -264,6 +280,34 @@ export function InvoicesView() {
           </div>
         </>
       )}
+
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {confirmDelete?.invoice_number ?? "this invoice"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {Number(confirmDelete?.amount_paid ?? 0) > 0
+                ? "It has payments applied, so it can't be deleted — void those payments or apply them to another invoice first."
+                : "This can't be undone. The client's link to it stops working."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            {Number(confirmDelete?.amount_paid ?? 0) <= 0 && (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteMutation.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (confirmDelete) deleteMutation.mutate(confirmDelete.id);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

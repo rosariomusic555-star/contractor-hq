@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight as ChevronRightIcon, Calendar as CalendarIcon } from "lucide-react";
@@ -170,15 +170,24 @@ export function BookingsView() {
     );
   };
 
-  const handleDatesChange = (job: BookingJob, start: string | null, end: string | null) => {
-    const newStart = start;
-    let newEnd = end;
+  // Dates just written, until the refetched projects carry them — so picking
+  // an end date right after a start date never writes the old (blank) start
+  // back (the panel's job can be a step behind the save).
+  const recentDates = useRef(new Map<string, { start: string | null; end: string | null }>());
+  useEffect(() => recentDates.current.clear(), [projects]);
+
+  const handleDatesChange = (job: BookingJob, patch: { start?: string | null; end?: string | null }) => {
+    const fresh = jobsById.get(job.projectId) ?? job;
+    const cur = recentDates.current.get(job.projectId) ?? { start: fresh.startDate, end: fresh.endDate };
+    const newStart = patch.start !== undefined ? patch.start : cur.start;
+    let newEnd = patch.end !== undefined ? patch.end : cur.end;
     if (newStart && newEnd && newEnd < newStart) newEnd = newStart;
+    recentDates.current.set(job.projectId, { start: newStart, end: newEnd });
     reschedule(
       job.projectId,
       job.projectName,
       { scheduled_start_date: newStart, scheduled_end_date: newEnd },
-      { scheduled_start_date: job.startDate, scheduled_end_date: job.endDate },
+      { scheduled_start_date: cur.start, scheduled_end_date: cur.end },
     );
   };
 
@@ -207,7 +216,7 @@ export function BookingsView() {
       : panel?.mode === "month"
         ? (displayMonths[panel.monthIndex]?.jobs ?? [])
         : panel?.mode === "job"
-          ? [panel.job]
+          ? [jobsById.get(panel.job.projectId) ?? panel.job]
           : panel?.mode === "unscheduled"
             ? unscheduledJobs
             : [];

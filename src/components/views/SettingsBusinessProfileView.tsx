@@ -16,6 +16,7 @@ import {
   BUSINESS_PROFILE_FALLBACK,
   type BusinessProfile,
 } from "@/lib/api";
+import { businessProfileProblem } from "@/lib/settingsRules";
 import { BackLink } from "@/components/common/BackLink";
 
 const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
@@ -63,6 +64,8 @@ export function SettingsBusinessProfileView() {
     dirty.current = true;
     setDraft((d) => ({ ...d, ...patch }));
   };
+
+  const problem = businessProfileProblem(draft);
 
   const saveMut = useMutation({
     mutationFn: () => saveBusinessProfile(draft),
@@ -282,11 +285,16 @@ export function SettingsBusinessProfileView() {
         </div>
       </div>
 
+      {problem && (
+        <p role="alert" className="text-right text-sm font-semibold text-destructive">
+          {problem}
+        </p>
+      )}
       <div className="flex justify-end">
         <Button
           className="h-11 rounded-xl font-bold"
           onClick={() => saveMut.mutate()}
-          disabled={saveMut.isPending || isLoading}
+          disabled={saveMut.isPending || isLoading || !!problem}
         >
           {saveMut.isPending ? "Saving…" : "Save changes"}
         </Button>

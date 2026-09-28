@@ -99,7 +99,8 @@ export function ProjectLaborView() {
     if (value === CUSTOM_WORKER && !logRate && businessProfile?.default_labor_rate != null) setLogRate(String(businessProfile.default_labor_rate));
   };
 
-  const logCostComputed = logRate && logHours ? Number(logHours) * Number(logRate) : null;
+  // Rounded to the cent (7.33 h × $35.50 is $260.22, not 260.215).
+  const logCostComputed = logRate && logHours ? Math.round(Number(logHours) * Number(logRate) * 100) / 100 : null;
 
   const logMut = useMutation({
     mutationFn: () => {

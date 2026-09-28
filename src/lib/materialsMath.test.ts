@@ -42,11 +42,15 @@ describe("units", () => {
     expect(normalizeMaterialUnit("ea")).toBe("piece");
     expect(normalizeMaterialUnit("Bags")).toBe("bag");
     expect(normalizeMaterialUnit("tons")).toBe("ton");
+    // Calculator lines come out in "ft" / "cu yd" — both are dropdown options now.
+    expect(normalizeMaterialUnit("linear ft")).toBe("ft");
+    expect(normalizeMaterialUnit("LF")).toBe("ft");
+    expect(normalizeMaterialUnit("cy")).toBe("cu yd");
   });
 
   it("keeps anything else as a custom unit, never losing it", () => {
-    expect(normalizeMaterialUnit("cy")).toBe("cy");
-    expect(normalizeMaterialUnit("linear ft")).toBe("linear ft");
+    expect(normalizeMaterialUnit("gal")).toBe("gal");
+    expect(normalizeMaterialUnit("hour")).toBe("hour");
     expect(normalizeMaterialUnit(null)).toBe("");
   });
 });

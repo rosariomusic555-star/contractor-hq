@@ -24,7 +24,8 @@ import {
   type Invoice,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { invoiceBalance, invoicePaid, projectMoneySummary } from "@/lib/projectMoney";
+import { effectiveInvoiceStatus } from "@/lib/financials";
+import { invoiceBalance, invoicePaid, overInvoiced, projectMoneySummary, remainingToInvoice } from "@/lib/projectMoney";
 import {
   changeOrderNumbers,
   invoiceClientStep,
@@ -66,7 +67,10 @@ export function ProjectInvoicesView() {
 
   const contract = projectContractValue(quotes, changeOrders);
   const money = projectMoneySummary({ contractValue: contract, invoices, payments });
-  const notInvoiced = Math.max(0, Math.round((contract - money.invoiced) * 100) / 100);
+  // What "Remaining balance" will actually create — drafts count as already billed.
+  const balanceToBill = remainingToInvoice(contract, invoices);
+  const draftTotal = invoices.filter((i) => i.status === "draft").reduce((s, i) => s + Number(i.amount || 0), 0);
+  const overBy = overInvoiced(contract, invoices);
   const coNumbers = changeOrderNumbers(changeOrders);
   const attention = invoicesNeedingAttention(invoices);
   const attentionCount = attention.overdue.length + attention.notOpened.length + attention.viewedUnpaid.length;
@@ -112,7 +116,7 @@ export function ProjectInvoicesView() {
       <DropdownMenuContent align="end" className="w-64">
         {!hasDeposit && <DropdownMenuItem onSelect={() => createMut.mutate("deposit")}>Deposit (from the quote's deposit %)</DropdownMenuItem>}
         <DropdownMenuItem onSelect={() => createMut.mutate("balance")}>
-          Remaining balance{notInvoiced > 0 ? ` · ${formatCurrency(notInvoiced)}` : ""}
+          Remaining balance{balanceToBill > 0 ? ` · ${formatCurrency(balanceToBill)}` : ""}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -171,7 +175,19 @@ export function ProjectInvoicesView() {
             subTone="positive"
           />
           <KpiCard label="Outstanding" value={formatCurrency(money.unpaidInvoiceBalance)} sub={attention.overdue.length ? `${attention.overdue.length} late` : "on invoices sent"} subTone={attention.overdue.length ? "negative" : "muted"} />
-          <KpiCard label="Not invoiced yet" value={formatCurrency(notInvoiced)} sub="left to bill" className="col-span-2 md:col-span-1" />
+          <KpiCard
+            label="Not invoiced yet"
+            value={formatCurrency(balanceToBill)}
+            sub={
+              overBy > 0
+                ? `invoices are ${formatCurrency(overBy)} over the contract`
+                : draftTotal > 0
+                  ? `left to bill · ${formatCurrency(draftTotal)} in drafts`
+                  : "left to bill"
+            }
+            subTone={overBy > 0 ? "negative" : "muted"}
+            className="col-span-2 md:col-span-1"
+          />
         </div>
         {contract > 0 && (
           <div className="card-surface px-4 py-3">
@@ -244,7 +260,7 @@ export function ProjectInvoicesView() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-foreground">{inv.invoice_number ?? "Invoice"}</span>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{invoiceKindLabel(inv, coNumbers)}</span>
-                    <StatusPill meta={invoiceStatusMeta(inv.status, inv.amount_paid)} />
+                    <StatusPill meta={invoiceStatusMeta(effectiveInvoiceStatus(inv), inv.amount_paid)} />
                   </div>
                   <p className="mt-1 text-xs">
                     <span className={cn("font-semibold", TONE_TEXT[timing.tone])}>{timing.text}</span>

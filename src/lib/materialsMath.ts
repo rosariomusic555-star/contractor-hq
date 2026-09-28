@@ -10,7 +10,8 @@
 /** Required quantity with waste = quantity × (1 + waste%). An empty/blank
  * waste counts as 0. */
 export function quantityWithWaste(quantity: number | string | null | undefined, wastePercent: number | string | null | undefined): number {
-  return (Number(quantity) || 0) * (1 + (Number(wastePercent) || 0) / 100);
+  // Rounded to 6 places: 180 at 10% is 198, not 198.00000000000003.
+  return Math.round((Number(quantity) || 0) * (1 + (Number(wastePercent) || 0) / 100) * 1e6) / 1e6;
 }
 
 /** A line's cost: waste-adjusted quantity × unit cost. */
@@ -46,7 +47,7 @@ export function materialLineLabel(item: { name: string; color?: string | null })
 // ---------------------------------------------------------------------------
 
 /** The Unit dropdown's fixed options. Anything else is kept as a custom unit. */
-export const MATERIAL_UNITS = ["sq ft", "piece", "layer", "pallet", "ton", "bag", "roll", "tube"] as const;
+export const MATERIAL_UNITS = ["sq ft", "ft", "cu yd", "piece", "layer", "pallet", "ton", "bag", "roll", "tube"] as const;
 
 /** Spellings that mean one of MATERIAL_UNITS (lower-cased, trimmed). Same
  * mapping migration 0093 applied to existing lines. */
@@ -60,6 +61,21 @@ const UNIT_SYNONYMS: Record<string, (typeof MATERIAL_UNITS)[number]> = {
   "square foot": "sq ft",
   "square feet": "sq ft",
   ft2: "sq ft",
+  // Linear feet — calculator lines (edge restraint, rebar, countertop) are "ft".
+  ft: "ft",
+  feet: "ft",
+  foot: "ft",
+  lf: "ft",
+  "lin ft": "ft",
+  "lin. ft.": "ft",
+  "linear ft": "ft",
+  "linear feet": "ft",
+  "cu yd": "cu yd",
+  "cu. yd.": "cu yd",
+  cy: "cu yd",
+  yd3: "cu yd",
+  "cubic yard": "cu yd",
+  "cubic yards": "cu yd",
   piece: "piece",
   pieces: "piece",
   pc: "piece",

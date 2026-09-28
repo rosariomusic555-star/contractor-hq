@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, ChevronRight as Go, Receipt }
 import { Button } from "@/components/ui/button";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { approveTimesheet, getPayPeriod, getPayrollSettings, listEmployees, listRainDays, listTimesheets, payPeriodFor } from "@/lib/api";
 import { TIMESHEET_STATUS, addDaysIso, dayLabel, fmtHours, isoDay, periodTotals, timesheetEntries, timesheetFlags } from "@/lib/timesheets";
 
@@ -71,7 +71,7 @@ export function TimesheetsView() {
           <ChevronRight className="h-4 w-4" />
         </Button>
         {pp?.exported_at && (
-          <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-bold text-success">{pp.paid_on ? `Paid ${pp.paid_on}` : "Exported"}</span>
+          <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-bold text-success">{pp.paid_on ? `Paid ${formatDate(pp.paid_on)}` : "Exported"}</span>
         )}
         <div className="ml-auto flex gap-2">
           {clean.length > 0 && (

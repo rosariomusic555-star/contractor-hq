@@ -220,6 +220,7 @@ export function SettingsPricebookView() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         item={editingItem}
+        allItems={items}
         expenseCategories={expenseCategories}
         saving={createMut.isPending || updateMut.isPending}
         deleting={deleteMut.isPending}
@@ -235,6 +236,7 @@ function PriceBookItemDialog({
   open,
   onOpenChange,
   item,
+  allItems = [],
   expenseCategories,
   saving,
   deleting,
@@ -245,6 +247,8 @@ function PriceBookItemDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: PriceBookItem | null;
+  /** Every saved item — to warn about a name that's already there. */
+  allItems?: PriceBookItem[];
   expenseCategories: ExpenseCategory[];
   saving: boolean;
   deleting: boolean;
@@ -307,7 +311,19 @@ function PriceBookItemDialog({
     });
   }, [open, item]);
 
-  const canSave = name.trim().length > 0 && categoryId != null;
+  // A negative price would cost lines below $0; a 0 / negative spec (coverage,
+  // pieces per pallet…) breaks the package rounding on the order sheet.
+  const priceNum = priceStr.trim() === "" ? 0 : parseFloat(priceStr);
+  const numberProblem =
+    Number.isNaN(priceNum) || priceNum < 0
+      ? "Unit price can't be negative."
+      : Object.values(specStr).some((v) => v.trim() !== "" && !(parseFloat(v) > 0))
+        ? "Product specs must be numbers above 0 (or left blank)."
+        : null;
+  const canSave = name.trim().length > 0 && categoryId != null && !numberProblem;
+  // A warning, not a block — same product at two prices can be on purpose.
+  const duplicateName =
+    allItems.find((i) => i.id !== item?.id && i.name.trim().toLowerCase() === name.trim().toLowerCase() && name.trim() !== "")?.name ?? null;
 
   const handleSave = () => {
     if (!canSave) return;
@@ -346,6 +362,11 @@ function PriceBookItemDialog({
               placeholder="e.g. Techo-Bloc Blu 60mm"
               autoFocus
             />
+            {duplicateName && (
+              <p className="text-xs font-semibold text-warning-strong">
+                You already have “{duplicateName}” — two items with the same name are hard to tell apart in the picker.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -532,6 +553,11 @@ function PriceBookItemDialog({
             </AlertDialog>
           ) : (
             <span />
+          )}
+          {numberProblem && (
+            <p role="alert" className="mr-auto self-center text-sm font-semibold text-destructive">
+              {numberProblem}
+            </p>
           )}
           <Button onClick={handleSave} disabled={!canSave || saving} className="font-bold">
             {saving ? "Saving…" : "Save"}

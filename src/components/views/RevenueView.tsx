@@ -150,7 +150,7 @@ export function RevenueView() {
   const jobResult = jobStats(closedJobRows(projectFinancials, last12Range));
 
   // ---- 5. Invoiced by month ----
-  const monthlyData = useMemo(() => monthlyBreakdown(invoices, last12Range), [invoices, last12Range]);
+  const monthlyData = useMemo(() => monthlyBreakdown(invoices, last12Range, payments), [invoices, last12Range, payments]);
 
   // ---- 6. Revenue by category (collected basis — see financials.ts) ----
   const byCategory = useMemo(() => {

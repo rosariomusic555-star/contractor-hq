@@ -13,6 +13,7 @@ import type { ProjectFeature } from "@/lib/features";
 import { expenseBucket } from "@/lib/costPlan";
 import { CostTypeSelect, FeatureSelect } from "@/components/expenses/FeatureTypeSelects";
 import { splitAllocation } from "@/lib/expenseSplit";
+import { parseDecimal } from "@/lib/parseDecimal";
 
 const NONE = "__none__";
 
@@ -90,7 +91,7 @@ export function ExpenseSplitDialog({
 
   const { allocated, remainder, balanced } = splitAllocation(
     total,
-    lines.map((l) => parseFloat(l.amount) || 0),
+    lines.map((l) => parseDecimal(l.amount) ?? 0),
   );
   const pct = total > 0 ? Math.min(100, (allocated / total) * 100) : 0;
 
@@ -99,7 +100,7 @@ export function ExpenseSplitDialog({
     setLines((ls) => {
       if (ls.length === 0) return ls;
       const last = ls[ls.length - 1];
-      const next = Math.round(((parseFloat(last.amount) || 0) + remainder) * 100) / 100;
+      const next = Math.round(((parseDecimal(last.amount) ?? 0) + remainder) * 100) / 100;
       return [...ls.slice(0, -1), { ...last, amount: String(next) }];
     });
 
@@ -108,10 +109,10 @@ export function ExpenseSplitDialog({
       saveExpenseLines(
         expense.id,
         lines
-          .filter((l) => (parseFloat(l.amount) || 0) !== 0 || l.categoryId)
+          .filter((l) => (parseDecimal(l.amount) ?? 0) !== 0 || l.categoryId)
           .map((l) => ({
             expense_category_id: l.categoryId,
-            amount: parseFloat(l.amount) || 0,
+            amount: parseDecimal(l.amount) ?? 0,
             description: l.description.trim() || null,
             feature_id: l.featureId,
             cost_type: l.costType,
@@ -154,9 +155,8 @@ export function ExpenseSplitDialog({
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
                 <Input
-                  type="number"
-                  step="0.01"
                   inputMode="decimal"
+                  autoComplete="off"
                   aria-label={`Line ${i + 1} amount`}
                   value={l.amount}
                   onChange={(e) => edit(l.key, { amount: e.target.value })}

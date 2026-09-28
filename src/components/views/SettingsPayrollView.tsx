@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DecimalInput } from "@/components/common/DecimalInput";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
@@ -36,16 +37,14 @@ export function SettingsPayrollView() {
   });
   if (!d) return null;
 
-  const num = (v: string) => (v.trim() === "" ? NaN : Number(v));
   const field = (label: string, value: number | null, onChange: (v: number | null) => void, hint?: string, opts: { suffix?: string; optional?: boolean } = {}) => (
     <label className="block">
       <span className="text-xs font-semibold text-muted-foreground">{label}</span>
       <span className="mt-1 flex items-center gap-1.5">
-        <Input
-          inputMode="decimal"
-          value={value == null ? "" : String(value)}
+        <DecimalInput
+          value={value}
           placeholder={opts.optional ? "Off" : undefined}
-          onChange={(e) => onChange(e.target.value.trim() === "" && opts.optional ? null : num(e.target.value))}
+          onChange={(v) => onChange(v == null && !opts.optional ? NaN : v)}
           className="h-10 w-24"
         />
         {opts.suffix && <span className="text-sm text-muted-foreground">{opts.suffix}</span>}
@@ -57,6 +56,10 @@ export function SettingsPayrollView() {
     d.ot_weekly_hours > 0 &&
     (d.ot_daily_hours == null || d.ot_daily_hours > 0) &&
     d.ot_multiplier >= 1 &&
+    d.ot_multiplier <= 3 &&
+    d.ot_weekly_hours <= 168 &&
+    (d.ot_daily_hours == null || d.ot_daily_hours <= 24) &&
+    d.long_day_hours <= 24 &&
     d.burden_pct >= 0 &&
     d.burden_pct <= 100 &&
     d.lunch_after_hours > 0 &&

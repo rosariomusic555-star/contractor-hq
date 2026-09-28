@@ -30,7 +30,7 @@ export function DaySidePanel({
    * jobs" when `jobs` is empty. */
   unscheduledJobs?: BookingJob[];
   onScheduleJob?: (job: BookingJob) => void;
-  onDatesChange: (job: BookingJob, start: string | null, end: string | null) => void;
+  onDatesChange: (job: BookingJob, patch: { start?: string | null; end?: string | null }) => void;
   onUnschedule: (job: BookingJob) => void;
 }) {
   return (

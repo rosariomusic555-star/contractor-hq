@@ -46,7 +46,7 @@ import {
   snapshotDocument,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { invoiceDaysLate } from "@/lib/financials";
+import { effectiveInvoiceStatus, invoiceDaysLate } from "@/lib/financials";
 import { invoiceBalance, invoicePaid, projectMoneySummary } from "@/lib/projectMoney";
 import { RecordPaymentSheet } from "@/components/payments/RecordPaymentSheet";
 import { PaymentsList } from "@/components/payments/PaymentsList";
@@ -257,7 +257,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
     onError,
   });
 
-  const meta = invoiceStatusMeta(invoice.status, invoice.amount_paid);
+  const meta = invoiceStatusMeta(effectiveInvoiceStatus(invoice), invoice.amount_paid);
   const number = invoice.invoice_number ?? "Invoice";
   const amount = Number(invoice.amount);
   const isPaid = invoice.status === "paid";
@@ -363,7 +363,7 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
 
       {/* Client / Project cards + client link — same block as the Quote builder. */}
       <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
-        <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2.5 bg-foreground p-4 sm:grid-cols-2">
           {clientId ? (
             <Link to={`/clients/${clientId}`} aria-label="Open client" className={cn("group", pillClass)}>
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
@@ -581,7 +581,8 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
                       key={b.key}
                       type="button"
                       variant="ghost"
-                      className="h-10 font-semibold text-muted-foreground"
+                      // Long change-order titles wrap instead of running off a phone screen.
+                      className="h-auto min-h-10 max-w-full whitespace-normal py-2 text-left font-semibold text-muted-foreground"
                       onClick={() => addBillableLine(b.label, b.amount)}
                     >
                       <Plus className="mr-1.5 h-4 w-4" />

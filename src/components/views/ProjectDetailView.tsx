@@ -73,6 +73,7 @@ import {
   pickHeadlineQuote,
   projectContractValue,
   approvedChangeOrderTotal,
+  headlineDepositDue,
   isDepositOverdue,
   listProjectNotes,
   deleteProjectNote,
@@ -396,8 +397,8 @@ export function ProjectDetailView() {
   // Project money (0111) — one shared summary (src/lib/projectMoney.ts).
   const money = projectMoneySummary({ contractValue: contract, invoices, payments });
   const paidTotal = money.received;
-  const depositOverdue = isDepositOverdue(headlineQuote, contract, paidTotal);
-  const depositRequired = headlineQuote ? contract * (headlineQuote.deposit_percentage / 100) : 0;
+  const depositOverdue = isDepositOverdue(headlineQuote, paidTotal);
+  const depositRequired = headlineDepositDue(headlineQuote);
   const billing = projectBillingBadge(contract, projectInvoicedTotal, paidTotal, depositRequired);
   // "Won — project ready" CTAs, each shown only while it's still to do:
   // - Schedule: until the job has a start date (editable any time in the
@@ -807,6 +808,7 @@ export function ProjectDetailView() {
               materials alone; actual cost folds in actual labor the moment
               any is logged. See the Cost Plan/Labor pages for the breakdown. */}
           <ProfitSummaryCard
+            jobOpen={project.status !== "complete"}
             quoted={contract || null}
             predictedCost={predictedCost}
             actualCost={actualCost}
@@ -1322,6 +1324,7 @@ function profitColor(v: number): string {
 }
 
 function ProfitSummaryCard({
+  jobOpen = false,
   quoted,
   predictedCost,
   actualCost,
@@ -1330,6 +1333,9 @@ function ProfitSummaryCard({
   featureRows,
   overhead,
 }: {
+  /** Not Complete yet — costs are still coming in, so "actual" figures are
+   * spend so far, and there's no final variance to show. */
+  jobOpen?: boolean;
   quoted: number | null;
   predictedCost: number | null;
   actualCost: number | null;
@@ -1369,7 +1375,7 @@ function ProfitSummaryCard({
       <div className="grid grid-cols-3 gap-4 text-sm">
         <Metric label="Quoted" value={money(quoted)} />
         <Metric label="Predicted cost" value={money(predictedCost)} />
-        <Metric label="Actual cost" value={money(actualCost)} />
+        <Metric label={jobOpen ? "Spent so far" : "Actual cost"} value={money(actualCost)} />
       </div>
       {/* By cost type: the Cost plan's estimate vs actual spend (expenses
           matched through their category's cost type + logged labor). */}
@@ -1378,8 +1384,9 @@ function ProfitSummaryCard({
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-2 sm:gap-x-4 bg-muted/50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
             <span>Type</span>
             <span className="w-[4.5rem] text-right sm:w-20">Planned</span>
-            <span className="w-[4.5rem] text-right sm:w-20">Actual</span>
-            <span className="w-[4.5rem] text-right sm:w-20">Variance</span>
+            <span className="w-[4.5rem] text-right sm:w-20">{jobOpen ? "Spent" : "Actual"}</span>
+            {/* Mid-job the difference is budget left, not a result. */}
+            <span className="w-[4.5rem] text-right sm:w-20">{jobOpen ? "Left" : "Variance"}</span>
           </div>
           {typeRows.map((k) => {
             const a = actual?.[k] ?? null;
@@ -1389,7 +1396,12 @@ function ProfitSummaryCard({
                 <span className="font-semibold text-foreground">{COST_TYPE_GROUP_LABEL[k]}</span>
                 <span className="w-[4.5rem] text-right sm:w-20">{formatCurrency(planned[k])}</span>
                 <span className="w-[4.5rem] text-right sm:w-20">{a === null ? "—" : formatCurrency(a)}</span>
-                <span className={cn("w-[4.5rem] text-right sm:w-20 font-semibold", v === null ? "text-muted-foreground" : v >= 0 ? "text-success" : "text-destructive")}>
+                <span
+                  className={cn(
+                    "w-[4.5rem] text-right sm:w-20 font-semibold",
+                    v === null ? "text-muted-foreground" : v < 0 ? "text-destructive" : jobOpen ? "text-foreground" : "text-success",
+                  )}
+                >
                   {v === null ? "—" : `${v >= 0 ? "+" : "−"}${formatCurrency(Math.abs(v))}`}
                 </span>
               </div>
@@ -1410,7 +1422,7 @@ function ProfitSummaryCard({
           )}
           {actualProfit !== null && (
             <div>
-              <p className="text-sm text-muted-foreground">Actual profit</p>
+              <p className="text-sm text-muted-foreground">{jobOpen ? "Profit on spend so far" : "Actual profit"}</p>
               <p className={cn("text-lg font-extrabold", profitColor(actualProfit))}>
                 {formatCurrency(actualProfit)}
                 {actualMargin !== null && <span className="ml-1.5 text-sm font-bold">({actualMargin.toFixed(0)}%)</span>}
@@ -1419,7 +1431,10 @@ function ProfitSummaryCard({
           )}
         </div>
       )}
-      {profitVariance !== null && (
+      {profitVariance !== null && jobOpen && (
+        <p className="text-xs text-muted-foreground">Costs are still coming in — profit variance shows once the job is Complete.</p>
+      )}
+      {profitVariance !== null && !jobOpen && (
         <div
           className={cn(
             "flex flex-wrap items-baseline justify-between gap-2 rounded-xl px-3.5 py-2.5",
@@ -1453,14 +1468,14 @@ function ProfitSummaryCard({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {predictedCost !== null && (
                 <FullyLoaded
-                  label="Predicted"
+                  label="Predicted fully loaded profit"
                   tc={trueCost({ direct: predictedCost, manHours: overhead.plannedManHours, rate: overhead.rate, price: quoted, targetMarginPct: overhead.targetMarginPct })}
                   hoursText={`${formatLabor(overhead.plannedManHours, overhead.settings)} planned`}
                 />
               )}
               {actualCost !== null && (
                 <FullyLoaded
-                  label="Actual"
+                  label={jobOpen ? "Fully loaded profit on spend so far" : "Actual fully loaded profit"}
                   tc={trueCost({ direct: actualCost, manHours: overhead.actualManHours, rate: overhead.rate, price: quoted, targetMarginPct: overhead.targetMarginPct })}
                   hoursText={`${formatLabor(overhead.actualManHours, overhead.settings)} logged`}
                 />
@@ -1474,7 +1489,7 @@ function ProfitSummaryCard({
       )}
       {featureRows && featureRows.length > 1 && (
         <div className="border-t border-hairline pt-3">
-          <FeatureProfitTable reports={featureRows} />
+          <FeatureProfitTable reports={featureRows} projected={jobOpen} />
         </div>
       )}
     </section>
@@ -1975,7 +1990,7 @@ function FieldUpdatesCard({ projectId }: { projectId: string }) {
 function FullyLoaded({ label, tc, hoursText }: { label: string; tc: TrueCost; hoursText: string }) {
   return (
     <div>
-      <p className="text-sm text-muted-foreground">{label} fully loaded profit</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
       <p className={cn("text-lg font-extrabold tabular-nums", TRUE_COST_STATUS_CLASS[tc.status])}>
         {formatCurrency(tc.fullyLoadedProfit)}
         {tc.fullyLoadedMarginPct != null && <span className="ml-1.5 text-sm font-bold">({tc.fullyLoadedMarginPct.toFixed(0)}%)</span>}

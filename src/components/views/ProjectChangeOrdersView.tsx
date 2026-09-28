@@ -10,7 +10,7 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { BackLink } from "@/components/common/BackLink";
 import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
+import { useRecorderName } from "@/hooks/use-recorder-name";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import {
   CHANGE_ORDER_REASONS,
@@ -28,7 +28,7 @@ import {
 } from "@/lib/api";
 import { changeOrderStatusMeta, invoiceStatusMeta } from "@/lib/statusMeta";
 import { featureName } from "@/lib/features";
-import { changeOrderDecisionLine, changeOrderNumbers, changeOrderSummary, invoicesByChangeOrder, signedMoney } from "@/lib/projectBilling";
+import { changeOrderDecisionLine, changeOrderInvoiceable, changeOrderNumbers, changeOrderSummary, invoicesByChangeOrder, signedMoney } from "@/lib/projectBilling";
 
 const amountColor = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "text-foreground");
 const shareUrl = (co: Pick<ChangeOrder, "share_token">) => (co.share_token ? `${window.location.origin}/change-order/${co.share_token}` : null);
@@ -47,7 +47,7 @@ export function ProjectChangeOrdersView() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { session } = useAuth();
+  const recordedBy = useRecorderName();
   const [approving, setApproving] = useState<ChangeOrder | null>(null);
 
   const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id) });
@@ -87,7 +87,7 @@ export function ProjectChangeOrdersView() {
         note: a.note,
         signedBy: a.signedBy,
         approvedOn: a.approvedOn,
-        recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
+        recordedBy,
       }),
     onSuccess: () => {
       setApproving(null);
@@ -285,7 +285,7 @@ export function ProjectChangeOrdersView() {
                             Mark approved
                           </Button>
                         )}
-                        {co.status === "approved" && amount > 0 && coInvoices.length === 0 && (
+                        {changeOrderInvoiceable(co, coInvoices).ok && (
                           <Button size="sm" variant="outline" className="h-9" disabled={invoiceMut.isPending} onClick={() => invoiceMut.mutate(co)}>
                             Create invoice
                           </Button>
@@ -309,9 +309,11 @@ export function ProjectChangeOrdersView() {
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {co.status === "approved" && amount > 0 && coInvoices.length > 0 && (
-                              <DropdownMenuItem onSelect={() => invoiceMut.mutate(co)}>Create another invoice</DropdownMenuItem>
-                            )}
+                            {coInvoices.map((i) => (
+                              <DropdownMenuItem key={i.id} onSelect={() => navigate(`/projects/${id}/invoices/${i.id}`)}>
+                                Open invoice {i.invoice_number ?? ""}
+                              </DropdownMenuItem>
+                            ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>

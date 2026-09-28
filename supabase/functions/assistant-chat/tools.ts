@@ -91,7 +91,7 @@ export const TOOLS = [
   {
     name: "search_invoices",
     description:
-      "Search/list invoices, filterable by status, client name, overdue-only, and a created_at date range. Includes days_late for each invoice.",
+      "Search/list invoices, filterable by status, client name, overdue-only, and a created_at date range. Each invoice has amount, paid (payments applied), balance_owed and days_late. A draft hasn't been sent, so it isn't owed: its balance_owed is 0. Use outstanding_total (sent/overdue balances) for \"what's outstanding / owed\" and draft_total for invoices not sent yet — both cover every match, even when the list is truncated.",
     input_schema: {
       type: "object",
       properties: {
@@ -295,7 +295,7 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
 
   const { data: quotes, error: qErr } = await sb
     .from("quotes")
-    .select("id,status,kind,created_at,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected))")
+    .select("id,status,kind,created_at,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected),quote_selection_groups(approved_price,quote_selection_options(id,price_delta,is_default),quote_selection_picks(option_id)))")
     .eq("project_id", input.project_id);
   if (qErr) throw qErr;
 
@@ -376,7 +376,7 @@ async function searchQuotes(
   let q = sb
     .from("quotes")
     .select(
-      "id,status,created_at,updated_at,deposit_percentage,project:projects(name,client:clients(name)),client:clients(name),quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected))",
+      "id,status,created_at,updated_at,deposit_percentage,project:projects(name,client:clients(name)),client:clients(name),quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected),quote_selection_groups(approved_price,quote_selection_options(id,price_delta,is_default),quote_selection_picks(option_id)))",
     )
     .order("updated_at", { ascending: false })
     .limit(200);
@@ -419,7 +419,7 @@ async function getQuoteDetail(input: { quote_id: string }, sb: SupabaseClient) {
   const { data: quote, error } = await sb
     .from("quotes")
     .select(
-      "id,status,deposit_percentage,created_at,updated_at,project:projects(name),client:clients(name),quote_sections(name,sort_order,is_optional,quote_items(name,description,price,quantity,unit,is_optional,client_selected,sort_order,category_id))",
+      "id,status,deposit_percentage,created_at,updated_at,project:projects(name),client:clients(name),quote_sections(name,sort_order,is_optional,quote_items(name,description,price,quantity,unit,is_optional,client_selected,sort_order,category_id),quote_selection_groups(approved_price,quote_selection_options(id,price_delta,is_default),quote_selection_picks(option_id)))",
     )
     .eq("id", input.quote_id)
     .single();
@@ -486,7 +486,7 @@ async function searchInvoices(
 ) {
   let q = sb
     .from("invoices")
-    .select("id,status,amount,due_date,invoice_number,created_at,project:projects(name,client:clients(name))")
+    .select("id,status,amount,amount_paid,due_date,invoice_number,created_at,project:projects(name,client:clients(name))")
     .order("created_at", { ascending: false })
     .limit(200);
   if (input.status) q = q.eq("status", input.status);
@@ -502,6 +502,12 @@ async function searchInvoices(
     status: inv.status,
     invoice_number: inv.invoice_number,
     amount: Number(inv.amount),
+    paid: Number(inv.amount_paid ?? 0),
+    // Same rule as the app (clientOutstandingBalance): a draft isn't owed yet.
+    balance_owed:
+      inv.status === "draft" || inv.status === "paid"
+        ? 0
+        : Math.max(0, Math.round((Number(inv.amount) - Number(inv.amount_paid ?? 0)) * 100) / 100),
     due_date: inv.due_date,
     project_name: inv.project?.name ?? null,
     client_name: inv.project?.client?.name ?? null,
@@ -521,7 +527,14 @@ async function searchInvoices(
     );
   }
 
-  return { invoices: rows.slice(0, 30), total_matches: rows.length, truncated: rows.length > 30 };
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  return {
+    invoices: rows.slice(0, 30),
+    total_matches: rows.length,
+    truncated: rows.length > 30,
+    outstanding_total: r2(rows.reduce((sum, r) => sum + r.balance_owed, 0)),
+    draft_total: r2(rows.filter((r) => r.status === "draft").reduce((sum, r) => sum + r.amount, 0)),
+  };
 }
 
 async function listExpensesTool(
@@ -609,7 +622,7 @@ async function getClientDetail(input: { search?: string; client_id?: string }, s
   // deno-lint-ignore no-explicit-any
   const projects = (allProjects ?? []).filter((p: any) => !isPreSale(p));
 
-  const quoteSelect = "id,status,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected))";
+  const quoteSelect = "id,status,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected),quote_selection_groups(approved_price,quote_selection_options(id,price_delta,is_default),quote_selection_picks(option_id)))";
   const quoteQueries = [sb.from("quotes").select(quoteSelect).eq("client_id", client.id)];
   if (projectIds.length) quoteQueries.push(sb.from("quotes").select(quoteSelect).in("project_id", projectIds));
   const quoteResults = await Promise.all(quoteQueries);
@@ -688,7 +701,7 @@ async function revenueSummaryTool(
   if (input.by_category) {
     const { data: quotes, error: qErr } = await sb
       .from("quotes")
-      .select("id,status,created_at,project_id,kind,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected,category_id))");
+      .select("id,status,created_at,project_id,kind,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected,category_id),quote_selection_groups(approved_price,quote_selection_options(id,price_delta,is_default),quote_selection_picks(option_id)))");
     if (qErr) throw qErr;
     const { data: categories, error: cErr } = await sb.from("categories").select("id,name");
     if (cErr) throw cErr;
@@ -751,7 +764,7 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
   const { data: quotes, error: qErr } = await sb
     .from("quotes")
     .select(
-      "id,status,updated_at,deposit_percentage,project_id,project:projects(name),quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected))",
+      "id,status,updated_at,deposit_percentage,project_id,project:projects(name),quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected),quote_selection_groups(approved_price,quote_selection_options(id,price_delta,is_default),quote_selection_picks(option_id)))",
     );
   if (qErr) throw qErr;
   const { data: invoices, error: iErr } = await sb
@@ -852,7 +865,7 @@ async function getNeedsAttention(_input: Record<string, never>, sb: SupabaseClie
 // a manually-typed estimate — the opportunities.estimated_value column is
 // no longer read anywhere in the app. null when there's no quote yet.
 const OPPORTUNITY_QUOTE_SELECT =
-  "quote:quotes(id,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected)))";
+  "quote:quotes(id,quote_sections(is_optional,quote_items(price,quantity,is_optional,client_selected),quote_selection_groups(approved_price,quote_selection_options(id,price_delta,is_default),quote_selection_picks(option_id))))";
 
 // deno-lint-ignore no-explicit-any
 function opportunityQuoteValue(o: any): number | null {

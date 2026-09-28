@@ -10,6 +10,7 @@ import {
   invoicesPaidLine,
   invoiceTiming,
   invoicesByChangeOrder,
+  changeOrderInvoiceable,
   quoteDecisionLine,
   quoteKindLabel,
   quoteSummary,
@@ -100,7 +101,7 @@ describe("project quotes page", () => {
 
   it("decision lines: hub signature, manual approval, decline, out with the client, draft", () => {
     const now = new Date("2026-10-10T12:00:00Z");
-    expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg" }), now)).toBe("Signed Sep 24, 2026 by Greg in the Client Hub");
+    expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg" }), now)).toBe("Signed Sep 24, 2026 by Greg online");
     expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg", approved_manually_by: "Rosa", approval_method: "in_person" }), now)).toBe(
       "Approved in person Sep 24, 2026 by Greg — recorded by Rosa",
     );
@@ -113,6 +114,18 @@ describe("project quotes page", () => {
     const list = [q({ status: "sent", t: 100 }), q({ status: "sent", t: 50 }), q({ status: "draft", t: 20 }), q({ status: "declined", t: 999 })];
     const withTotals = list as unknown as ({ status: "sent" | "draft" | "declined" } & { t: number })[];
     expect(quoteSummary(withTotals as never[], (x) => (x as unknown as { t: number }).t)).toEqual({ sent: { count: 2, total: 150 }, drafts: { count: 1, total: 20 }, declined: 1 });
+  });
+});
+
+// Money bug (2026-09-28): a change order could be invoiced again and again
+// (the builder never checked; the list offered "Create another invoice").
+describe("a change order is invoiced once", () => {
+  it("only approved, positive and not yet billed", () => {
+    expect(changeOrderInvoiceable({ status: "approved", amount: 1800 }, [])).toEqual({ ok: true });
+    expect(changeOrderInvoiceable({ status: "approved", amount: 1800 }, [{ id: "inv-3" }])).toEqual({ ok: false, reason: "already_invoiced" });
+    expect(changeOrderInvoiceable({ status: "approved", amount: -2400 }, [])).toEqual({ ok: false, reason: "credit" });
+    expect(changeOrderInvoiceable({ status: "approved", amount: 0 }, [])).toEqual({ ok: false, reason: "credit" });
+    expect(changeOrderInvoiceable({ status: "sent", amount: 950 }, [])).toEqual({ ok: false, reason: "not_approved" });
   });
 });
 

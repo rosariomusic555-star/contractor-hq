@@ -1,4 +1,5 @@
 import { BUILD_TYPES, type BuildType } from "./buildTypes";
+import { fmtFeet } from "./feetInches";
 
 /**
  * Project measurements — the one source for what each feature measures, how
@@ -720,7 +721,7 @@ export function totalsHeadline(kind: FeatureKind, t: FeatureTotals): string | nu
       break;
     case "fireplace":
       if (t.footprint_sqft) parts.push(`${fmt(t.footprint_sqft)} sq ft footprint`);
-      if (t.height_in) parts.push(`${fmt(t.height_in / 12)} ft tall`);
+      if (t.height_in) parts.push(`${fmtFeet(t.height_in / 12)} tall`);
       break;
     case "lighting":
       if (t.fixture_count) parts.push(`${fmt(t.fixture_count)} ${t.fixture_count === 1 ? "fixture" : "fixtures"}`);
@@ -918,6 +919,30 @@ export function prefillSources(instances: FeatureInstance[], buildType: string):
   return [{ id: "sum", label: `All ${singles.length} combined — ${totalsHeadline(kind, sum)}`, totals: sum }, ...singles];
 }
 
+/**
+ * The prefill choices for ONE feature's section (Seating Wall 2's Cost plan
+ * section, its quote section): that feature's own measurement first — the
+ * default — then the others and "all combined" to pick from. Without a
+ * feature (or nothing measured for it) it's prefillSources() as before.
+ * (Defaulting every section to "all combined" made each seating wall's
+ * section calculate BOTH walls' materials — counted twice across sections.)
+ */
+export function prefillSourcesForFeature(instances: FeatureInstance[], buildType: string, featureId: string | null | undefined): PrefillSource[] {
+  const all = prefillSources(instances, buildType);
+  if (!featureId) return all;
+  const mine = instances.filter((i) => i.build_type === buildType && i.feature_id === featureId).map((i) => i.id);
+  if (mine.length === 0) return all;
+  const own = all.filter((s) => mine.includes(s.id));
+  if (own.length === 0) return all;
+  let first: PrefillSource[] = own;
+  if (own.length > 1) {
+    const kind = featureKindOf(buildType)!;
+    const sum = sumTotals(own.map((s) => s.totals));
+    first = [{ id: `feature:${featureId}`, label: `This feature — ${totalsHeadline(kind, sum)}`, totals: sum }, ...own];
+  }
+  return [...first, ...all.filter((s) => !own.includes(s))];
+}
+
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Height ÷ the template's course height, rounded to the nearest whole
@@ -1037,18 +1062,18 @@ function instanceSummary(kind: FeatureKind, buildType: string | null, data: Feat
     case "retaining_wall": {
       const d = data as RetainingWallData;
       if (d.method === "lf_height" && t.linear_ft && t.wall_sqft && d.height_ft)
-        return `${fmt(t.linear_ft)} LF × ${fmt(d.height_ft)} ft = ${fmt(t.wall_sqft)} wall sq ft`;
+        return `${fmt(t.linear_ft)} LF × ${fmtFeet(d.height_ft)} = ${fmt(t.wall_sqft)} wall sq ft`;
       return headline;
     }
     case "fire_pit": {
       const d = data as FirePitData;
-      if (d.shape === "round" && t.perimeter_ft) return `Round · ${fmt(d.diameter_ft)} ft across · ${fmt(t.perimeter_ft)} LF around`;
-      if (d.shape === "rect" && t.perimeter_ft) return `${fmt(d.length_ft)} × ${fmt(d.width_ft)} ft · ${fmt(t.perimeter_ft)} LF around`;
+      if (d.shape === "round" && t.perimeter_ft) return `Round · ${fmtFeet(d.diameter_ft)} across · ${fmt(t.perimeter_ft)} LF around`;
+      if (d.shape === "rect" && t.perimeter_ft) return `${fmtFeet(d.length_ft)} × ${fmtFeet(d.width_ft)} · ${fmt(t.perimeter_ft)} LF around`;
       return `Custom · ≈ ${fmt(t.footprint_sqft)} sq ft`;
     }
     case "fireplace": {
       const d = data as FireplaceData;
-      if (d.width_ft && d.depth_ft && d.height_ft) return `${fmt(d.width_ft)} × ${fmt(d.depth_ft)} ft · ${fmt(d.height_ft)} ft tall`;
+      if (d.width_ft && d.depth_ft && d.height_ft) return `${fmtFeet(d.width_ft)} × ${fmtFeet(d.depth_ft)} · ${fmtFeet(d.height_ft)} tall`;
       return headline;
     }
     case "steps": {

@@ -211,3 +211,46 @@ export function contractBreakdown(quotes: BreakdownQuote[], changeOrders: Breakd
   }
   return { lines, total: r2(lines.reduce((s, l) => s + l.amount, 0)) };
 }
+
+/** What a "Remaining balance" invoice is for: the contract less EVERY
+ * invoice already on the job, drafts included (a drafted deposit is
+ * already spoken for), never below 0. The one number both the New invoice
+ * menu and createProjectInvoice use. */
+export function remainingToInvoice(contractValue: number, invoices: Pick<Invoice, "amount">[]): number {
+  const already = invoices.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+  return Math.max(0, r2(contractValue - already));
+}
+
+
+/** How far the project's invoices (drafts included) run past the contract —
+ * e.g. after a credit change order lowered it. 0 when they don't. */
+export function overInvoiced(contractValue: number, invoices: Pick<Invoice, "amount">[]): number {
+  const billed = invoices.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+  return Math.max(0, r2(billed - contractValue));
+}
+
+/** Restoring a voided payment re-applies its allocations. The invoices it
+ * would push past their amount (e.g. it was re-paid while this one was
+ * void) — restoring then would overpay them. `invoices` carry their current
+ * amount_paid (active allocations only, so this payment isn't in it). */
+export function restoreOverpays(
+  allocations: { invoice_id: string; amount: number }[],
+  invoices: Pick<Invoice, "id" | "amount" | "amount_paid" | "invoice_number">[],
+): { invoice_id: string; invoice_number: string | null; over: number }[] {
+  const out: { invoice_id: string; invoice_number: string | null; over: number }[] = [];
+  for (const a of allocations) {
+    const inv = invoices.find((i) => i.id === a.invoice_id);
+    if (!inv) continue;
+    const over = r2(Number(inv.amount_paid ?? 0) + Number(a.amount) - Number(inv.amount));
+    if (over > 0.004) out.push({ invoice_id: inv.id, invoice_number: inv.invoice_number ?? null, over });
+  }
+  return out;
+}
+
+/** The deposit on a quote total: the % clamped to 0–100, rounded to the cent
+ * — the one rule every screen and the deposit invoice use (the builder
+ * rounded to whole dollars and the rest didn't round at all). */
+export function depositAmount(total: number, pct: number | string | null | undefined): number {
+  const p = Math.min(100, Math.max(0, Number(pct) || 0));
+  return r2(((Number(total) || 0) * p) / 100);
+}

@@ -46,6 +46,7 @@ export function QuickQuoteFormDialog({
   catalogItems,
   onCreate,
   projectId,
+  featureId = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -56,6 +57,8 @@ export function QuickQuoteFormDialog({
   /** The quote's project — its site measurements prefill the size question
    * (src/lib/measurements.ts quickQuotePrefill). */
   projectId?: string | null;
+  /** The section's feature — its own measurement prefills (not all of this type combined). */
+  featureId?: string | null;
 }) {
   const [step, setStep] = useState<"form" | "preview">("form");
   const [answers, setAnswers] = useState<QuickQuoteAnswers>({});
@@ -65,7 +68,7 @@ export function QuickQuoteFormDialog({
   const [description, setDescription] = useState("");
   const [descLoading, setDescLoading] = useState(false);
   const [descIsFallback, setDescIsFallback] = useState(false);
-  const prefill = useMeasurementPrefill(projectId, template.id, open);
+  const prefill = useMeasurementPrefill(projectId, template.id, open, featureId);
   // Bumped on every prefill so AreaField re-syncs its own sq ft input.
   const [areaPrefillV, setAreaPrefillV] = useState(0);
   const applyPrefill = (totals: Parameters<typeof quickQuotePrefill>[1] | undefined) => {

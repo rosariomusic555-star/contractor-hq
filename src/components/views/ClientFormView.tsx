@@ -16,6 +16,9 @@ import {
   getClient,
   createClient,
   updateClient,
+  listClients,
+  findPossibleDuplicates,
+  type PossibleDuplicate,
   type ClientStatus,
   type PreferredContactMethod,
 } from "@/lib/api";
@@ -59,6 +62,9 @@ export function ClientFormView() {
   const [form, setForm] = useState(EMPTY);
   const set = (patch: Partial<typeof EMPTY>) => setForm((f) => ({ ...f, ...patch }));
 
+  const { data: allClients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients, enabled: !isEdit });
+  const [duplicate, setDuplicate] = useState<PossibleDuplicate | null>(null);
+  const [createAnyway, setCreateAnyway] = useState(false);
   const { data: client, isLoading, isError } = useQuery({
     queryKey: ["client", clientId],
     queryFn: () => getClient(clientId!),
@@ -87,6 +93,7 @@ export function ClientFormView() {
         phone: form.phone.trim(),
         address: form.address.trim(),
         lead_source: form.lead_source.trim(),
+        preferred_contact_method: form.preferred_contact_method || null,
       };
       if (isEdit) {
         await updateClient(clientId!, {
@@ -100,10 +107,20 @@ export function ClientFormView() {
         });
         return clientId!;
       }
+      // Same phone or email as an existing client → stop and ask (the picker
+      // elsewhere already did this; this page created duplicates silently).
+      if (!createAnyway) {
+        const dup = findPossibleDuplicates({ email: payload.email, phone: payload.phone }, allClients).find((d) => d.reason !== "name");
+        if (dup) {
+          setDuplicate(dup);
+          return null;
+        }
+      }
       const created = await createClient(payload);
       return created.id;
     },
-    onSuccess: () => {
+    onSuccess: (id) => {
+      if (id === null) return; // stopped at the duplicate prompt
       qc.invalidateQueries({ queryKey: ["clients"] });
       if (isEdit) qc.invalidateQueries({ queryKey: ["client", clientId] });
       navigate("/clients");
@@ -243,6 +260,29 @@ export function ClientFormView() {
           </div>
         </div>
       </div>
+
+      {duplicate && (
+        <div className="rounded-card border border-warning-strong/50 bg-warning-strong/10 p-4 text-sm">
+          <p className="font-semibold text-foreground">
+            {duplicate.client.name} already has this {duplicate.reason === "phone" ? "phone number" : "email"}.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button asChild variant="outline" className="h-10">
+              <Link to={`/clients/${duplicate.client.id}`}>Open {duplicate.client.name}</Link>
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-10"
+              onClick={() => {
+                setCreateAnyway(true);
+                setDuplicate(null);
+              }}
+            >
+              It's a different person — create anyway
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={() => navigate("/clients")} className="h-11 rounded-xl">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
-import { costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
+import { costPlanHasEntries, costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -148,6 +148,8 @@ import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
 import { buildTypeForCategoryName } from "@/lib/measurements";
 import { BackLink } from "@/components/common/BackLink";
+import { remapDraftIds } from "@/lib/draftRemap";
+import { depositAmount as depositAmountOf } from "@/lib/projectMoney";
 
 const NONE = "__none__";
 
@@ -679,8 +681,12 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     onError,
   });
   // Diff the draft against the server quote and write only what changed.
+  // Rows a save has created so far — a save that fails partway must not
+  // create them again on the next try (remapDraftIds).
+  const createdIds = useRef(new Map<string, string>());
   const saveMut = useMutation({
     mutationFn: async () => {
+      createdIds.current = new Map();
       // An approved quote's sections/items/photos are locked at the DB
       // level (0033) — editing must revert it to draft FIRST (a separate,
       // awaited call — these are independent REST requests, not one
@@ -742,6 +748,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
             materials_link_mode: ds.materials_link_mode,
           });
           sectionId = created.id;
+          createdIds.current.set(ds.id, created.id);
         } else if (
           server.name !== name ||
           server.is_optional !== ds.is_optional ||
@@ -808,6 +815,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               quick_quote_build_type: di.quick_quote_build_type,
             });
             itemId = created.id;
+            createdIds.current.set(di.id, created.id);
           } else {
             itemId = srv.id;
             if (
@@ -899,7 +907,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         navigate(to);
       }
     },
-    onError,
+    onError: (err: Error) => {
+      // Keep what did save (real ids + refreshed server copy) so Save again finishes it without duplicates.
+      if (createdIds.current.size) {
+        const created = createdIds.current;
+        edit((d) => ({ ...d, sections: remapDraftIds(d.sections, created) }));
+      }
+      invalidate();
+      toast({ title: "Couldn't finish saving", description: `${err.message} — what saved is kept; Save again to finish.`, variant: "destructive" });
+    },
   });
 
   const shareQuoteMut = useMutation({
@@ -1011,10 +1027,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // The add-on's (first) new feature and its Cost plan section — the step links' targets.
   const addonFeature = isAddon ? pickableFeatures[0] ?? null : null;
   const addonSection = addonFeature ? materials.find((m) => m.feature_id === addonFeature.id) ?? null : null;
+  const addonCostSections = isAddon ? materials.filter((m) => m.feature_id && addonFeatureIds.has(m.feature_id)) : [];
+  // Its features not priced in the Cost plan yet → cost unknown, not $0.
   const materialsCost = !hasMaterialsSheet
     ? null
     : isAddon
-      ? sumSectionTotals(materials.filter((m) => m.feature_id && addonFeatureIds.has(m.feature_id)), { all: true }).total
+      ? costPlanHasEntries(addonCostSections)
+        ? sumSectionTotals(addonCostSections, { all: true }).total
+        : null
       : costPlanTotal(materials);
   const materialsAction: MaterialsAction = !projectId
     ? { label: "Create project to add a cost plan", onClick: () => handleCreateProjectClick(), primary: true }
@@ -1038,7 +1058,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // Deposit, cost, and margin all compare against the same all-in headline
   // — once optional work is part of "the total," it's part of everything
   // derived from it too.
-  const depositAmount = Math.round((grandTotal * draft.depositPct) / 100);
+  const depositAmount = depositAmountOf(grandTotal, draft.depositPct);
   // Standalone quotes (no project) have no real cost source — the Materials
   // Sheet lives on a project. There used to be a guessed fallback here
   // (60% of the quote total, from demoQuoteFinancials().estCost) but that
@@ -1062,10 +1082,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const canRecalculate =
     quote.status === "draft" && currentOverheadRate != null && (storedRate == null || Math.abs(storedRate - currentOverheadRate) >= 0.005);
   const trueCostNode = (collapsible: boolean) =>
-    projectId && hasMaterialsSheet ? (
+    // Only with a real cost — an unpriced add-on would read as 100% profit.
+    projectId && hasMaterialsSheet && estCost != null ? (
       <TrueCostSummary
         collapsible={collapsible}
-        direct={estCost ?? 0}
+        direct={estCost}
         manHours={plannedManHours(trueCostSections)}
         rate={overheadRate}
         price={grandTotal}
@@ -1337,6 +1358,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                               <>
                                 <SectionQuickQuoteAction
                                   projectId={quote.project_id}
+                                  featureId={section.feature_id ?? null}
                                   buildType={quickQuoteBuildTypeFor(section)}
                                   hasQuickQuote={section.items.some((i) => i.quick_quote_build_type)}
                                   onClick={() => startSectionQuickQuote(section)}
@@ -1492,7 +1514,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   value={String(draft.depositPct)}
                   className="pr-7"
                   onChange={(e) =>
-                    edit((d) => ({ ...d, depositPct: parseFloat(e.target.value) || 0 }))
+                    // 0–100 only (150% or a negative deposit used to save).
+                    edit((d) => ({ ...d, depositPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) }))
                   }
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -1705,6 +1728,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   : addQuickQuoteSection(result, quickQuoteBuildType)
               }
               projectId={quote.project_id}
+              featureId={quickQuoteSectionId ? draft.sections.find((s) => s.id === quickQuoteSectionId)?.feature_id ?? null : null}
             />
           );
         })()}
@@ -2045,7 +2069,7 @@ function ClientShareCard({
             create-project flow instead. Its chevron is a separate control
             that moves the quote to another project / unlinks it — it sits
             above the overlay and never triggers navigation. */}
-      <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2.5 bg-foreground p-4 sm:grid-cols-2">
         <button
           type="button"
           onClick={() => setClientPickerOpen(true)}
@@ -2254,9 +2278,11 @@ function QuoteSectionHeaderTags({
 }) {
   const linked = linkedSheetSectionsFor(section, section.materialIds, sheetSections);
   const cost = sheetSectionsCost(linked);
+  // Linked but nothing entered yet → cost unknown (not a $0 cost / 100% margin).
+  const priced = costPlanHasEntries(linked);
   const { marginPct } = sectionMargin(price, cost);
   const autoIds = autoMatchedSheetSections(section, sheetSections).map((s) => s.id);
-  const marginTag = linked.length > 0 && marginPct != null && (
+  const marginTag = priced && marginPct != null && (
     <span
       className={cn("text-[11px] font-semibold tabular-nums", marginPct < 0 ? "text-destructive-foreground" : "text-background")}
     >
@@ -2284,16 +2310,16 @@ function QuoteSectionHeaderTags({
               {typeName}
               <span className={cn("font-normal", linked.length === 0 && "text-background/60")}>
                 {" · "}
-                {linked.length > 0 ? `Cost ${formatCurrency(cost)}` : "No cost plan section yet"}
+                {linked.length === 0 ? "No cost plan section yet" : priced ? `Cost ${formatCurrency(cost)}` : "Not priced yet"}
               </span>
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 space-y-1.5 p-3 text-sm tabular-nums" onClick={(e) => e.stopPropagation()}>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{typeName} · internal</div>
             <DetailRow label="Section price" value={formatCurrency(price)} />
-            <DetailRow label="Direct cost" value={formatCurrency(cost)} />
-            <DetailRow label="Expected margin" value={pctText(sectionMargin(price, cost).marginPct)} />
-            {overheadRate != null ? (
+            <DetailRow label="Direct cost" value={priced ? formatCurrency(cost) : "Not priced yet"} />
+            <DetailRow label="Expected margin" value={priced ? pctText(sectionMargin(price, cost).marginPct) : "—"} />
+            {!priced ? null : overheadRate != null ? (
               <>
                 <DetailRow
                   label="Allocated overhead"
@@ -2351,13 +2377,15 @@ function SectionQuickQuoteAction({
   buildType,
   hasQuickQuote,
   onClick,
+  featureId = null,
 }: {
   projectId: string | null;
   buildType: string | null;
   hasQuickQuote: boolean;
   onClick: () => void;
+  featureId?: string | null;
 }) {
-  const prefill = useMeasurementPrefill(projectId, buildType ?? "", !!buildType && !!projectId);
+  const prefill = useMeasurementPrefill(projectId, buildType ?? "", !!buildType && !!projectId, featureId);
   const label = hasQuickQuote ? "Update quick quote" : "Quick quote";
   return (
     <SectionToolbarAction

@@ -112,9 +112,9 @@ export interface BucketRow extends VarianceCell {
   label: string;
   /** Labor split across features by planned share, not logged per feature. */
   estimatedSplit?: boolean;
-  /** Materials before they count (not Complete + reconciled) and with no
-   * material expenses logged: carried at planned cost, variance 0 — never
-   * read as "$X under plan". */
+  /** Job still open (not Complete + reconciled) and spend on this type is
+   * below plan: carried at planned cost, variance 0 — never read as "$X
+   * under plan" before the costs are all in. */
   pending?: boolean;
 }
 
@@ -282,17 +282,28 @@ export function plannedActualReport(input: {
     const act = { ...(actual.get(fid) ?? { material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0 }) };
     const lines = lineRows(fid);
     if (input.materialsCounted) act.material += lines.reduce((s, l) => s + l.cost.actual, 0);
-    const materialPending = !input.materialsCounted && act.material === 0 && planned.material > 0;
-    if (materialPending) act.material = planned.material;
     const lab = laborActual.get(fid);
     act.labor += lab?.cost ?? 0;
+    // Job still open (not Complete + reconciled): each type counts as what's
+    // been spent, or its plan if that's more — spend isn't all in yet, so an
+    // unspent plan never reads as "$X under plan / +$X profit", while an
+    // overrun shows as soon as it happens.
+    const carried = new Set<CostBucket>();
+    if (!input.materialsCounted) {
+      for (const b of COST_BUCKETS) {
+        if (planned[b] > 0 && act[b] < planned[b]) {
+          act[b] = planned[b];
+          carried.add(b);
+        }
+      }
+    }
     const buckets = COST_BUCKETS.map((b) => {
       const c = cell(planned[b], act[b], t);
       return {
         bucket: b,
         label: COST_TYPE_LABEL[b],
         ...c,
-        ...(b === "material" && materialPending ? { tone: "none" as const, pending: true } : {}),
+        ...(carried.has(b) ? { tone: "none" as const, pending: true } : {}),
         estimatedSplit: b === "labor" && laborTracking === "project" && live.length > 0 ? true : undefined,
       };
     }).filter((b) => b.planned > 0 || b.actual > 0);

@@ -65,7 +65,7 @@ export function PlannedVsActualCard({ projectId, showContext = true, showCloseou
         {!report.materialsCounted && (
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Delivered material cost counts in the totals once the job is Complete and every line is reconciled — the lines below show deliveries so far.
+            Job still open: each cost type counts as what's been spent or its plan, whichever is more, so unspent budget never shows as profit — overruns show right away. Delivered material cost counts once the job is Complete and every line is reconciled; the lines below show deliveries so far.
           </p>
         )}
         <ProjectTotals report={report} />
@@ -128,7 +128,9 @@ function ProfitImpact({ report, sentence }: { report: PlannedActualReport; sente
           <div className="text-base font-extrabold tabular-nums text-foreground">{formatCurrency(exp)}</div>
         </div>
         <div>
-          <div className="text-[11px] font-semibold text-muted-foreground">Actual {loaded ? "(fully loaded)" : "profit"}</div>
+          <div className="text-[11px] font-semibold text-muted-foreground">
+            {report.materialsCounted ? "Actual" : "Projected"} {loaded ? "(fully loaded)" : "profit"}
+          </div>
           <div className="text-base font-extrabold tabular-nums text-foreground">{formatCurrency(act)}</div>
         </div>
         <div>

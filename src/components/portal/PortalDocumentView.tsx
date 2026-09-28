@@ -20,8 +20,10 @@ import { getClientViewProject } from "@/lib/api";
 import { versionDate, versionsOf } from "@/lib/projectHistory";
 import { cn } from "@/lib/utils";
 import { BackLink } from "@/components/common/BackLink";
+import { depositAmount } from "@/lib/projectMoney";
 
-const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (n: number) =>
+  `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateStr = (iso: string | null) =>
   iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—";
 
@@ -34,6 +36,18 @@ const dateStr = (iso: string | null) =>
  * mode "preview" is the contractor's Client view: same page, same
  * client-safe data, loaded through the contractor's session.
  */
+/** "45 sq ft × $28.75" under a line — only when it's more than one of something. */
+function qtyLine(quantity: number | null | undefined, unit: string | null | undefined, price: number) {
+  const q = Number(quantity ?? 1);
+  if (!Number.isFinite(q) || q === 1) return null;
+  return (
+    <p className="text-xs text-muted-foreground tabular-nums">
+      {q} {unit || "×"} {unit ? "× " : ""}
+      {money(price)}
+    </p>
+  );
+}
+
 export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "preview" }) {
   const { projectId = "", kind = "", id = "" } = useParams();
   const [params] = useSearchParams();
@@ -176,7 +190,7 @@ function QuoteDocument({
   const status = statusOverride ?? quote.status;
   const total = clientQuoteTotal(quote.sections);
   const [requesting, setRequesting] = useState<PortalSelectionGroup | null>(null);
-  const deposit = (total * quote.deposit_percentage) / 100;
+  const deposit = depositAmount(total, quote.deposit_percentage);
 
   return (
     <div className="space-y-5">
@@ -194,17 +208,24 @@ function QuoteDocument({
         <div key={section.id}>
           <h3 className="text-sm font-bold text-foreground">{section.name}</h3>
           <div className="mt-2 divide-y divide-hairline">
-            {section.items.map((item) => (
-              <div key={item.id} className="flex items-start justify-between gap-3 py-2">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{item.name}</p>
-                  {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+            {section.items.map((item) => {
+              // An optional line the client didn't choose isn't in the total —
+              // say so, or the lines add up to more than the quote.
+              const notChosen = (section.is_optional || item.is_optional) && !item.client_selected;
+              return (
+                <div key={item.id} className={cn("flex items-start justify-between gap-3 py-2", notChosen && "opacity-60")}>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{item.name}</p>
+                    {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                    {qtyLine(item.quantity, item.unit, item.price)}
+                  </div>
+                  <p className="shrink-0 text-right text-sm font-bold tabular-nums text-foreground">
+                    <span className={cn(notChosen && "font-semibold line-through")}>{money(item.price * item.quantity)}</span>
+                    {notChosen && <span className="block text-xs font-semibold text-muted-foreground">Optional · not included</span>}
+                  </p>
                 </div>
-                <p className="shrink-0 text-sm font-bold tabular-nums text-foreground">
-                  {money(item.price * item.quantity)}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {(section.selections ?? []).length > 0 && (
             <div className="mt-2 space-y-1 rounded-lg bg-muted/40 p-2.5 text-sm">
@@ -295,6 +316,7 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
                       <div>
                         <p className="text-sm font-semibold text-foreground">{item.name}</p>
                         {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                        {qtyLine(item.quantity ?? 1, item.unit ?? null, item.price)}
                       </div>
                       <p className="shrink-0 text-sm font-bold tabular-nums text-foreground">
                         {lineTotal >= 0 ? "+" : "−"}

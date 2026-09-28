@@ -1,4 +1,5 @@
 import type { AreaAndPerimeter, RawCalculatedLine, SmartSectionTemplate } from "./types";
+import { numOr } from "./numOr";
 
 /**
  * Pergola, Water Feature, Sod, Irrigation, Plants. Every number here is a
@@ -88,7 +89,7 @@ export const waterFeatureTemplate: SmartSectionTemplate = {
       { slotKey: "pump", quantity: area > 0 ? 1 : 0, unit: "ea" },
       { slotKey: "plumbing", quantity: area > 0 ? 1 : 0, unit: "kit" },
       { slotKey: "stone", quantity: Math.round(((area * (Number(a.stone_tons_per_100sqft) || 2)) / 100) * 10) / 10, unit: "ton" },
-      { slotKey: "gravel", quantity: Math.round(((area * (Number(a.gravel_depth_in) || 2)) / 12 / 27) * 10) / 10, unit: "cu yd" },
+      { slotKey: "gravel", quantity: Math.round(((area * (numOr(a.gravel_depth_in, 2))) / 12 / 27) * 10) / 10, unit: "cu yd" },
     ];
   },
 };
@@ -110,10 +111,12 @@ export const sodTemplate: SmartSectionTemplate = {
   ],
   calculate: (a) => {
     const area = areaOf(a.area);
-    const withWaste = area * (1 + (Number(a.waste_pct) || 0) / 100);
+    // Pallets of the measured area; the 5% waste goes on the line's Waste %,
+    // and the Order Sheet rounds (area + waste) up to whole pallets.
+    const waste = a.waste_pct == null ? 5 : Number(a.waste_pct) || 0;
     return [
-      { slotKey: "sod", quantity: area > 0 ? Math.ceil(withWaste / (Number(a.sqft_per_pallet) || 450)) : 0, unit: "pallet" },
-      { slotKey: "topsoil", quantity: Math.round(((area * (Number(a.topsoil_depth_in) || 1)) / 12 / 27) * 10) / 10, unit: "cu yd" },
+      { slotKey: "sod", quantity: area > 0 ? Math.round((area / (Number(a.sqft_per_pallet) || 450)) * 100) / 100 : 0, unit: "pallet", wastePercent: waste },
+      { slotKey: "topsoil", quantity: Math.round(((area * (numOr(a.topsoil_depth_in, 1))) / 12 / 27) * 10) / 10, unit: "cu yd" },
       { slotKey: "fertilizer", quantity: area > 0 ? Math.ceil(area / (Number(a.sqft_per_fert_bag) || 5000)) : 0, unit: "bag" },
     ];
   },
@@ -180,8 +183,8 @@ export const plantsTemplate: SmartSectionTemplate = {
       { slotKey: "trees", quantity: trees, unit: "ea" },
       { slotKey: "shrubs", quantity: shrubs, unit: "ea" },
       { slotKey: "perennials", quantity: perennials, unit: "ea" },
-      { slotKey: "mulch", quantity: Math.round(((bed * (Number(a.mulch_depth_in) || 3)) / 12 / 27) * 10) / 10, unit: "cu yd" },
-      { slotKey: "amendment", quantity: Math.ceil((trees + shrubs) * (Number(a.amendment_bags_per_plant) || 0.5)), unit: "bag" },
+      { slotKey: "mulch", quantity: Math.round(((bed * (numOr(a.mulch_depth_in, 3))) / 12 / 27) * 10) / 10, unit: "cu yd" },
+      { slotKey: "amendment", quantity: Math.ceil((trees + shrubs) * (numOr(a.amendment_bags_per_plant, 0.5))), unit: "bag" },
     ];
   },
 };

@@ -14,6 +14,7 @@ import type { ChangeOrder, Invoice, MaterialsSection, Payment, Project, Quote } 
 import { costPlanHasEntries, costPlanTotal } from "./costPlanMath";
 import { approvedAddonQuoteTotal, approvedChangeOrderTotal, pickHeadlineQuote, quoteTotal } from "./api";
 import { ALL_TIME_RANGE, invoicedTotal, collectedTotal } from "./financials";
+import { remainingToInvoice } from "./projectMoney";
 
 export interface ProjectImpact {
   originalContract: number;
@@ -27,6 +28,10 @@ export interface ProjectImpact {
 
   invoicedToDate: number;
   paidToDate: number;
+  /** Contract left to put on an invoice — drafts count as already billed
+   * (same rule as the project's Invoices page and createProjectInvoice), so
+   * a change order's drafted invoice isn't offered again. */
+  remainingToBillBefore: number;
   remainingToBill: number;
 
   /** Null when there's no materials sheet at all yet — "cost unknown,"
@@ -103,7 +108,8 @@ export function computeProjectImpact(input: {
 
   const invoicedToDate = invoicedTotal(invoices, ALL_TIME_RANGE);
   const paidToDate = collectedTotal(input.payments ?? [], ALL_TIME_RANGE);
-  const remainingToBill = Math.max(0, revisedContractTotal - invoicedToDate);
+  const remainingToBillBefore = remainingToInvoice(originalContract + previouslyApproved, invoices);
+  const remainingToBill = remainingToInvoice(revisedContractTotal, invoices);
 
   // Any planned cost at all (lines or labor) — else "unknown", not $0.
   const planCost = costPlanHasEntries(materialsSections) ? costPlanTotal(materialsSections) : null;
@@ -137,6 +143,7 @@ export function computeProjectImpact(input: {
     revisedContractTotal,
     invoicedToDate,
     paidToDate,
+    remainingToBillBefore,
     remainingToBill,
     costBefore,
     costAfter,

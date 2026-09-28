@@ -27,3 +27,21 @@ export function joinFeet(ft: string, inch: string): number | null {
   if (f == null && i == null) return null;
   return Math.round(((f ?? 0) + (i ?? 0) / 12) * 10000) / 10000;
 }
+
+/** A typed dimension for a summary, the way it was entered: 12.5 → "12 ft 6 in",
+ * 5 → "5 ft", 0.5 → "6 in" (decimal feet read oddly after a ft + in entry). */
+export function fmtFeet(v: number | null | undefined): string {
+  if (v == null || !isFinite(v)) return "";
+  const { ft, inch } = splitFeet(v);
+  if (!inch) return `${ft} ft`;
+  if (ft === "0") return `${inch} in`;
+  return `${ft} ft ${inch} in`;
+}
+
+/** Compact feet + inches for diagram badges: 15.5 → "15′ 6″", 20 → "20′". */
+export function fmtFeetPrime(v: number | null | undefined): string {
+  if (v == null || !isFinite(v)) return "";
+  const { ft, inch } = splitFeet(v);
+  if (!inch) return `${ft}′`;
+  return ft === "0" ? `${inch}″` : `${ft}′ ${inch}″`;
+}

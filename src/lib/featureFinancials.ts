@@ -86,9 +86,9 @@ export function featureReports(input: {
   laborEntries: Pick<LaborEntry, "cost" | "feature_id">[];
   /** Reconciled material cost per feature id (null key = General). */
   materialActual?: Map<string | null, number>;
-  /** Materials don't count yet (not Complete + reconciled): a feature with
-   * no material expenses carries its planned material cost, so it never
-   * reads as "under plan" (same rule as plannedActual.ts). */
+  /** Job still open (not Complete + reconciled): each cost type carries its
+   * plan until spend passes it, so it never reads as "under plan" (same rule
+   * as plannedActual.ts). */
   materialPending?: boolean;
 }): FeatureReport[] {
   const live = activeFeatures(input.features);
@@ -135,7 +135,9 @@ export function featureReports(input: {
       { all: featureId !== null },
     );
     const act = { ...(actual.get(featureId) ?? zero()) };
-    if (input.materialPending && act.material === 0) act.material = planned.material;
+    // Job still open: each type is spend so far or its plan, whichever is more
+    // (same rule as plannedActual.ts) — unspent plan never reads as profit.
+    if (input.materialPending) for (const k of COST_BUCKETS) act[k] = Math.max(act[k], planned[k]);
     act.total = COST_BUCKETS.reduce((s, k) => s + act[k], 0);
     const varianceCost = act.total - planned.total;
     const plannedProfit = price - planned.total;

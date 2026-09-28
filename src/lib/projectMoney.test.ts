@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  depositAmount,
+  remainingToInvoice,
+  overInvoiced,
+  restoreOverpays,
   invoiceBalance,
   invoicePaymentState,
   openInvoices,
@@ -106,5 +110,56 @@ describe("contract breakdown", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(b.total).toBe(projectContractValue(quotes as any, cos as any));
     expect(b.total).toBe(33_000);
+  });
+});
+
+// Money bug (2026-09-28): the New invoice menu said "Remaining balance ·
+// $10,000" while the invoice it created was $7,000 (a $3,000 draft deposit
+// was subtracted by one and not the other). One helper now.
+describe("remainingToInvoice", () => {
+  it("subtracts every invoice, drafts included, never below 0", () => {
+    expect(remainingToInvoice(10000, [{ amount: 3000 }])).toBe(7000);
+    expect(remainingToInvoice(10000, [{ amount: 6000 }, { amount: 6000 }])).toBe(0);
+    expect(remainingToInvoice(0.3, [{ amount: 0.1 }, { amount: 0.1 }])).toBe(0.1);
+  });
+});
+
+// Money bug (2026-09-28): a $1,000 invoice paid by payment A (voided) and
+// then payment B — restoring A made it $2,000 paid.
+describe("restoreOverpays", () => {
+  const inv = { id: "i1", amount: 1000, amount_paid: 1000, invoice_number: "INV-001" };
+  it("flags an invoice the restore would push past its amount", () => {
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 1000 }], [inv])).toEqual([{ invoice_id: "i1", invoice_number: "INV-001", over: 1000 }]);
+  });
+  it("allows it when there's room (still unpaid, or partly paid)", () => {
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 1000 }], [{ ...inv, amount_paid: 0 }])).toEqual([]);
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 400 }], [{ ...inv, amount_paid: 600 }])).toEqual([]);
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 400.01 }], [{ ...inv, amount_paid: 600 }])).toEqual([{ invoice_id: "i1", invoice_number: "INV-001", over: 0.01 }]);
+  });
+});
+
+// Money bug (2026-09-28): the quote builder rounded the deposit to whole
+// dollars ($12,345 × 33% = $4,074) while the client page and the deposit
+// invoice used $4,073.85; and 150% / negative deposits saved.
+describe("depositAmount", () => {
+  it("rounds to the cent, the same everywhere", () => {
+    expect(depositAmount(12345, 33)).toBe(4073.85);
+    expect(depositAmount(20000, "30")).toBe(6000);
+  });
+  it("the % is clamped to 0–100; blanks are 0", () => {
+    expect(depositAmount(1000, 150)).toBe(1000);
+    expect(depositAmount(1000, -10)).toBe(0);
+    expect(depositAmount(1000, null)).toBe(0);
+  });
+});
+
+
+describe("overInvoiced", () => {
+  it("flags invoices (drafts included) that run past a contract lowered by a credit change order", () => {
+    // $22,789 + $513 CO − $250 credit = $23,052; invoices 7,520.37 + 15,268.63 + 513 (draft)
+    expect(overInvoiced(23052, [{ amount: 7520.37 }, { amount: 15268.63 }, { amount: 513 }])).toBe(250);
+  });
+  it("is 0 when the invoices fit the contract", () => {
+    expect(overInvoiced(23302, [{ amount: 7520.37 }, { amount: 15268.63 }, { amount: 513 }])).toBe(0);
   });
 });

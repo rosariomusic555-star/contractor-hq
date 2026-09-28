@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,8 +125,14 @@ export function RecordPaymentSheet({
     [invoices, ownAlloc],
   );
 
+  // Until the contractor edits an allocation by hand, the "apply to
+  // invoices" amounts follow the payment amount (oldest first) — typing a
+  // partial payment no longer leaves the full balance applied (and the save
+  // blocked with "Applied … is more than the payment").
+  const allocTouched = useRef(false);
   useEffect(() => {
     if (!open) return;
+    allocTouched.current = !!payment;
     if (payment) {
       setAmount(money(Number(payment.amount)));
       setPaidOn(payment.paid_on);
@@ -198,14 +204,18 @@ export function RecordPaymentSheet({
     onError: (err: Error) => toast({ title: "Couldn't save payment", description: err.message, variant: "destructive" }),
   });
 
-  const fill = () => {
+  const suggested = (forTotal: number) => {
     const next: Record<string, string> = {};
     for (const s of suggestAllocations(
-      total,
+      forTotal,
       candidates.map((c) => ({ ...c.inv, amount_paid: Number(c.inv.amount) - c.available })),
     ))
       next[s.invoice_id] = money(s.amount);
-    setAlloc(next);
+    return next;
+  };
+  const fill = () => {
+    allocTouched.current = true;
+    setAlloc(suggested(total));
   };
 
   return (
@@ -234,7 +244,10 @@ export function RecordPaymentSheet({
                 placeholder="0.00"
                 className="pl-6 text-base font-bold tabular-nums"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  if (!allocTouched.current && applyOn) setAlloc(suggested(num(e.target.value)));
+                }}
                 autoFocus={!payment}
               />
             </div>
@@ -305,7 +318,10 @@ export function RecordPaymentSheet({
                       className="h-9 pl-5 text-right tabular-nums"
                       placeholder="0"
                       value={alloc[inv.id] ?? ""}
-                      onChange={(e) => setAlloc((a) => ({ ...a, [inv.id]: e.target.value }))}
+                      onChange={(e) => {
+                        allocTouched.current = true;
+                        setAlloc((a) => ({ ...a, [inv.id]: e.target.value }));
+                      }}
                     />
                   </div>
                 </div>

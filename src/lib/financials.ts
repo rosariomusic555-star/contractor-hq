@@ -141,9 +141,23 @@ export const ALL_TIME_RANGE: DateRange = {
   label: "All time",
 };
 
+/** A stored date as a local Date: a plain date ("2026-09-01", e.g. paid_on,
+ * actual_end_date) is that LOCAL day — `new Date("2026-09-01")` is UTC
+ * midnight, i.e. Aug 31 in the US, which pushed Sep 1 into August. */
+export function localDateOf(iso: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T00:00:00`) : new Date(iso);
+}
+
+/** "2026-09" for a stored date or timestamp, in LOCAL time (a UTC slice put
+ * an 8:30 pm Sep 30 invoice in October). */
+export function localMonthKey(iso: string): string {
+  const d = localDateOf(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function withinRange(iso: string | null | undefined, range: DateRange): boolean {
   if (!iso) return false;
-  const d = new Date(iso);
+  const d = localDateOf(iso);
   return d >= range.start && d < range.end;
 }
 
@@ -244,6 +258,18 @@ export function outstandingTotal(invoices: Invoice[]): number {
 }
 
 /** Count of outstanding invoices more than `days` past due. */
+/** The status to show and filter by: a shared invoice that still has a
+ * balance and is past its due date is "overdue" (nothing ever stores that
+ * status, so every Overdue filter and count read 0). */
+export function effectiveInvoiceStatus(
+  inv: Pick<Invoice, "status" | "due_date" | "amount" | "amount_paid">,
+  now: Date = new Date(),
+): Invoice["status"] {
+  if (inv.status !== "sent") return inv.status;
+  const balance = Number(inv.amount) - Number(inv.amount_paid ?? 0);
+  return balance > 0.004 && invoiceDaysLate(inv, now) > 0 ? "overdue" : "sent";
+}
+
 export function overdueCount(invoices: Invoice[], days = 30, now: Date = new Date()): number {
   return invoices.filter(
     (i) => (i.status === "sent" || i.status === "overdue") && invoiceDaysLate(i, now) > days,
@@ -531,9 +557,17 @@ export interface MonthlyPoint {
   invoiceCount: number;
 }
 
-const monthKeyOf = (iso: string) => iso.slice(0, 7);
+const monthKeyOf = localMonthKey;
 
-export function monthlyBreakdown(invoices: Invoice[], range: DateRange): MonthlyPoint[] {
+/** Per month in range: invoiced (by invoice date), outstanding (still owed
+ * on that month's invoices) and collected — by the date the money came in
+ * when `payments` are given (matching the Collected total beside it),
+ * else how much of that month's invoices is paid. */
+export function monthlyBreakdown(
+  invoices: Invoice[],
+  range: DateRange,
+  payments?: Pick<Payment, "status" | "paid_on" | "amount">[],
+): MonthlyPoint[] {
   const inRange = invoices.filter((i) => isRealInvoice(i) && withinRange(i.created_at, range));
   const buckets = new Map<string, MonthlyPoint>();
   for (const inv of inRange) {
@@ -553,8 +587,26 @@ export function monthlyBreakdown(invoices: Invoice[], range: DateRange): Monthly
     const bucket = buckets.get(key)!;
     bucket.invoiced += Number(inv.amount);
     bucket.invoiceCount += 1;
-    bucket.collected += invoicePaid(inv);
+    if (!payments) bucket.collected += invoicePaid(inv);
     if (inv.status === "sent" || inv.status === "overdue") bucket.outstanding += invoiceBalance(inv);
+  }
+  if (payments) {
+    for (const p of collectedInRange(payments, range)) {
+      const key = monthKeyOf(p.paid_on);
+      if (!buckets.has(key)) {
+        const d = new Date(`${key}-01T00:00:00`);
+        buckets.set(key, {
+          key,
+          label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+          shortLabel: d.toLocaleDateString("en-US", { month: "short" }),
+          invoiced: 0,
+          collected: 0,
+          outstanding: 0,
+          invoiceCount: 0,
+        });
+      }
+      buckets.get(key)!.collected += Number(p.amount);
+    }
   }
   return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -578,9 +630,8 @@ export interface MonthPoint {
   revenue: number;
 }
 
-const monthKeyShort = (isoDate: string) => isoDate.slice(0, 7);
-const monthShortLabel = (isoDate: string) =>
-  new Date(isoDate.slice(0, 10) + "T00:00:00").toLocaleString("en-US", { month: "short" });
+const monthKeyShort = localMonthKey;
+const monthShortLabel = (isoDate: string) => localDateOf(isoDate).toLocaleString("en-US", { month: "short" });
 
 /** Invoiced amounts summed per calendar month (by created_at), ascending —
  * excludes drafts. Explicitly labeled "invoiced" everywhere it's shown

@@ -1,6 +1,6 @@
 import { pluralize, formatCurrency } from "./utils";
 import { reviewNeedsYouItems, type ReviewNeedsYouInput, type ReviewSettingsLike } from "./reviews";
-import { quoteTotal, type Appointment, type Invoice, type Opportunity, type Quote } from "./api";
+import { headlineDepositDue, quoteTotal, type Appointment, type Invoice, type Opportunity, type Quote } from "./api";
 import { coldLabel, coldState } from "./quoteActivity";
 import { invoiceDaysLate } from "./financials";
 import { overdueSiteVisitsByOpportunity, siteVisitDateLabel } from "./siteVisitCheck";
@@ -243,7 +243,7 @@ function moreItems(m: NeedsYouMore, now: Date): NeedsYouItem[] {
  * `updated_at` is the best available proxy for "days since approved" —
  * same reasoning/caveat as quoteFollowUpItems' "days since shared".
  */
-function depositItems(quotes: Quote[], invoices: Invoice[], now: Date): NeedsYouItem[] {
+export function depositItems(quotes: Quote[], invoices: Invoice[], now: Date): NeedsYouItem[] {
   const billed = new Set<string>();
   for (const inv of invoices) {
     if (inv.quote_id) billed.add(`quote:${inv.quote_id}`);
@@ -252,13 +252,13 @@ function depositItems(quotes: Quote[], invoices: Invoice[], now: Date): NeedsYou
   return quotes
     .filter((q) => q.status === "approved")
     .filter((q) => !billed.has(`quote:${q.id}`) && !(q.project_id && billed.has(`project:${q.project_id}`)))
+    // No deposit to ask for ($0 quote or 0%) → nothing to bill.
+    .filter((q) => headlineDepositDue(q) > 0)
     .map((quote) => ({
       key: `deposit-${quote.id}`,
       tone: "green" as const,
       title: "Quote approved — needs deposit",
-      subtitle: `${quote.project?.name ?? "Standalone quote"} · ${quote.deposit_percentage}% of ${formatCurrency(
-        quoteTotal(quote.quote_sections),
-      )}`,
+      subtitle: `${quote.project?.name ?? "Standalone quote"} · ${formatCurrency(headlineDepositDue(quote))} (${quote.deposit_percentage}%)`,
       action: "Bill",
       href: `/quotes/${quote.id}`,
       sortValue: daysSince(quote.updated_at, now),

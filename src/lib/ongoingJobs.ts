@@ -196,7 +196,7 @@ export function buildOngoingJobCards(input: {
       const delivery = deliveriesByProject.get(project.id)?.[0];
       const appointment = appointmentsByProject.get(project.id)?.[0];
       const pendingChangeOrder = changeOrders.some((co) => co.status === "sent");
-      const depositOverdue = isDepositOverdue(pickHeadlineQuote(quotes), contractTotal, paidTotal);
+      const depositOverdue = isDepositOverdue(pickHeadlineQuote(quotes), paidTotal);
 
       let materialAlertCount = 0;
       const trackedLines = input.trackedLinesByProject?.get(project.id) ?? [];

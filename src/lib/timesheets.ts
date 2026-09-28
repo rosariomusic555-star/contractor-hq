@@ -110,6 +110,26 @@ export function previewHours(startIso: string | null, endIso: string | null, bre
   return mins > 0 ? r2(mins / 60) : null;
 }
 
+/** Longest believable single entry — a longer one is almost always a typo'd
+ * start / end (or a forgotten clock-out). */
+export const MAX_ENTRY_HOURS = 16;
+
+/** What's wrong with a time entry's start / end / break, and whether it runs
+ * past midnight (allowed, but said out loud). No end yet = still open, fine. */
+export function entryProblem(
+  startIso: string | null,
+  endIso: string | null,
+  breakMinutes: number,
+): { error: string | null; overnight: boolean } {
+  if (!startIso || !endIso) return { error: null, overnight: false };
+  const span = (Date.parse(endIso) - Date.parse(startIso)) / 60000;
+  const overnight = new Date(endIso).toDateString() !== new Date(startIso).toDateString();
+  if (span >= 24 * 60) return { error: "Start and end are the same time.", overnight };
+  if (span > MAX_ENTRY_HOURS * 60) return { error: `That's over ${MAX_ENTRY_HOURS} hours — check the start and end times.`, overnight };
+  if ((breakMinutes || 0) >= span) return { error: "The break is as long as the whole shift.", overnight };
+  return { error: null, overnight };
+}
+
 export function dayTotals(entries: TimeEntryLike[]): Map<string, { hours: number; ot: number }> {
   const m = new Map<string, { hours: number; ot: number }>();
   for (const e of entries) {

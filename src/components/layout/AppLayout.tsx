@@ -103,7 +103,10 @@ export function AppLayout() {
       <div className="min-h-screen bg-background">
         <Sidebar />
         <BottomTabBar />
-        <main className="p-4 pb-[calc(6rem+var(--draft-bar-h,0px))] md:ml-[276px] md:p-8 md:pb-[calc(2rem+var(--draft-bar-h,0px))]">
+        {/* Phone bottom padding clears the tab bar AND the two stacked floating
+            buttons (+ at 8.75rem + 52px, assistant below it), so the end of a
+            page can scroll out from under them. */}
+        <main className="p-4 pb-[calc(12.5rem+var(--draft-bar-h,0px))] md:ml-[276px] md:p-8 md:pb-[calc(2rem+var(--draft-bar-h,0px))]">
           <div className="mx-auto w-full max-w-[1200px]">
             <Outlet />
           </div>

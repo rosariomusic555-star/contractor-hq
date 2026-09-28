@@ -453,7 +453,8 @@ function FeatureBlock({ feature: f, changedLabels }: { feature: CrewWorkOrder["f
 function MaterialsList({ wo, canLog }: { wo: CrewWorkOrder; canLog: boolean }) {
   const groups = new Map<string, CrewMaterial[]>();
   const label = (m: CrewMaterial) => wo.features.find((f) => f.id === m.feature_id)?.label ?? m.section ?? "General";
-  for (const m of wo.materials) groups.set(label(m), [...(groups.get(label(m)) ?? []), m]);
+  // A 0-quantity line (a calculator slot that didn't apply) is nothing to bring.
+  for (const m of wo.materials.filter((x) => Number(x.planned_quantity ?? x.quantity) > 0)) groups.set(label(m), [...(groups.get(label(m)) ?? []), m]);
   const [logging, setLogging] = useState<CrewMaterial | null>(null);
   return (
     <div className="space-y-4">

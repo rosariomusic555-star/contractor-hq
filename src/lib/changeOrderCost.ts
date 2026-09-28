@@ -99,3 +99,12 @@ export function describeCostChange(c: CostChangeLike): string {
     }
   }
 }
+
+/** What a change order charges the client: Σ its lines' quantity × price —
+ * the builder's total AND the saved `amount` (what the contract, the
+ * client's page and invoices use). No sales tax: nothing charges one, same
+ * as quotes. Rounded to the cent so float noise never reaches the amount. */
+export function changeOrderDraftTotal(sections: { items: { price: number; quantity: number }[] }[]): number {
+  const t = sections.reduce((sum, s) => sum + s.items.reduce((x, i) => x + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0), 0);
+  return Math.round(t * 100) / 100;
+}

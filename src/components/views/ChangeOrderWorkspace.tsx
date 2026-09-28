@@ -33,7 +33,7 @@ import { MoneyRow } from "@/components/common/MoneyRow";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
-import { useAuth } from "@/lib/auth";
+import { useRecorderName } from "@/hooks/use-recorder-name";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
@@ -42,7 +42,8 @@ import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { revokeLocalImageUrls, type DraftLineItem, type DraftLineSection } from "@/lib/draftLineItem";
 import { changeOrderStatusMeta } from "@/lib/statusMeta";
 import { computeProjectImpact, scheduleImpactLabel } from "@/lib/changeOrderImpact";
-import { costChangesDelta } from "@/lib/changeOrderCost";
+import { changeOrderDraftTotal, costChangesDelta } from "@/lib/changeOrderCost";
+import { changeOrderInvoiceable } from "@/lib/projectBilling";
 import { activeFeatures, featureName } from "@/lib/features";
 import { CostChangesBlock, type DraftCostChange } from "@/components/changeOrders/CostChangesBlock";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
@@ -55,8 +56,6 @@ import {
   listMaterials,
   listMaterialsSheets,
   listCategories,
-  getQuoteDefaults,
-  QUOTE_DEFAULTS_FALLBACK,
   updateChangeOrder,
   addChangeOrderSection,
   updateChangeOrderSection,
@@ -187,10 +186,6 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
 
   const { data: project } = useQuery({ queryKey: ["projects", projectId], queryFn: () => getProject(projectId) });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  const { data: quoteDefaults = QUOTE_DEFAULTS_FALLBACK } = useQuery({
-    queryKey: ["quote-defaults"],
-    queryFn: getQuoteDefaults,
-  });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes", { project: projectId }], queryFn: () => listQuotes(projectId) });
   const { data: projectChangeOrders = [] } = useQuery({
     queryKey: ["change-orders", { project: projectId }],
@@ -321,9 +316,11 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     );
 
   // --- derived amounts (from the draft) ------------------------------------
-  const subtotal = draft.sections.reduce((sum, s) => sum + sectionSubtotal(s), 0);
-  const taxAmount = (subtotal * quoteDefaults.sales_tax_pct) / 100;
-  const total = subtotal + taxAmount;
+  const subtotal = changeOrderDraftTotal(draft.sections);
+  // No sales tax: nothing charges it (the saved amount, the client's page,
+  // the contract value and invoices are all this subtotal) — same as quotes,
+  // where a shown-but-never-charged tax line was removed earlier.
+  const total = subtotal;
   const itemCount = draft.sections.reduce((n, s) => n + s.items.length, 0);
   const scheduleImpactDays = draft.scheduleImpactDays.trim() ? parseInt(draft.scheduleImpactDays, 10) || 0 : 0;
   const costDelta = costChangesDelta(draft.costChanges);
@@ -349,7 +346,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const locked = changeOrder.status === "approved" || changeOrder.status === "declined";
   const meta = changeOrderStatusMeta(changeOrder.status);
   const clientName = changeOrder.project?.client?.name ?? "No client";
-  const { session } = useAuth();
+  const recordedBy = useRecorderName();
   const projectName = changeOrder.project?.name ?? "Project";
 
   // --- server sync ----------------------------------------------------------
@@ -565,7 +562,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         note: a.note,
         signedBy: a.signedBy,
         approvedOn: a.approvedOn,
-        recordedBy: (session?.user?.user_metadata?.full_name as string | undefined) || session?.user?.email || "Contractor",
+        recordedBy,
       }),
     onSuccess: () => {
       setApproveOpen(false);
@@ -598,6 +595,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     onError,
   });
 
+  const coInvoice = invoices.find((i) => i.change_order_id === changeOrder.id) ?? null;
   const createInvoiceMut = useMutation({
     mutationFn: () => createChangeOrderInvoice(changeOrder),
     onSuccess: (invoice) => navigate(`/invoices/${invoice.id}`),
@@ -605,6 +603,50 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   });
 
   const canSave = draft.title.trim().length > 0 || itemCount > 0;
+
+  // Send / approve / decline / invoice — the same buttons in the desktop
+  // header and, on phones, under the title (the desktop header is hidden there).
+  const headerActions = (
+    <>
+      {isDirty && <span className="text-xs text-muted-foreground">Save your changes first</span>}
+      {!locked && changeOrder.status === "draft" && (
+        <>
+          {/* Agreed on site / on paper — no need to send it first (same as quotes). */}
+          <Button variant="outline" onClick={() => setApproveOpen(true)} disabled={approveMut.isPending || isDirty || !canSave}>
+            <Check className="mr-1.5 h-4 w-4" />
+            Mark approved
+          </Button>
+          <Button onClick={() => sendMut.mutate()} disabled={sendMut.isPending || isDirty || !canSave} className="font-bold">
+            {sendMut.isPending ? "Preparing…" : "Send for signature"}
+          </Button>
+        </>
+      )}
+      {!locked && changeOrder.status === "sent" && (
+        <>
+          <Button variant="outline" onClick={() => setDeclineOpen(true)} disabled={approveMut.isPending}>
+            <X className="mr-1.5 h-4 w-4" />
+            Decline
+          </Button>
+          <Button onClick={() => setApproveOpen(true)} disabled={approveMut.isPending} className="font-bold">
+            <Check className="mr-1.5 h-4 w-4" />
+            Mark approved
+          </Button>
+        </>
+      )}
+      {/* One invoice per change order; a credit comes off the balance — nothing to invoice. */}
+      {coInvoice ? (
+        <Button variant="outline" onClick={() => navigate(`/invoices/${coInvoice.id}`)} className="font-bold">
+          Open invoice {coInvoice.invoice_number ?? ""}
+        </Button>
+      ) : (
+        changeOrderInvoiceable(changeOrder, []).ok && (
+          <Button onClick={() => createInvoiceMut.mutate()} disabled={createInvoiceMut.isPending} className="font-bold">
+            {createInvoiceMut.isPending ? "Creating…" : "Create invoice"}
+          </Button>
+        )
+      )}
+    </>
+  );
 
   return (
     <div className="animate-fade-in max-w-6xl space-y-5">
@@ -620,6 +662,19 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           </>
         }
       />
+
+      {/* Phone: title + actions (the desktop header below is hidden) */}
+      <div className="space-y-3 md:hidden">
+        <Input
+          value={draft.title}
+          onChange={(e) => edit((d) => ({ ...d, title: e.target.value }))}
+          placeholder="e.g. Add retaining wall extension"
+          aria-label="Change order title"
+          disabled={locked}
+          className="h-11 text-base font-semibold"
+        />
+        <div className="flex flex-wrap items-center gap-2 [&>button]:flex-1">{headerActions}</div>
+      </div>
 
       {/* Desktop header */}
       <div className="hidden md:block">
@@ -639,38 +694,13 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             </div>
             <p className="mt-1 text-sm text-muted-foreground">{clientName}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {isDirty && <span className="text-xs text-muted-foreground">Save your changes first</span>}
-            {!locked && changeOrder.status === "draft" && (
-              <Button onClick={() => sendMut.mutate()} disabled={sendMut.isPending || isDirty || !canSave} className="font-bold">
-                {sendMut.isPending ? "Preparing…" : "Send for signature"}
-              </Button>
-            )}
-            {!locked && changeOrder.status === "sent" && (
-              <>
-                <Button variant="outline" onClick={() => setDeclineOpen(true)} disabled={approveMut.isPending}>
-                  <X className="mr-1.5 h-4 w-4" />
-                  Decline
-                </Button>
-                <Button onClick={() => setApproveOpen(true)} disabled={approveMut.isPending} className="font-bold">
-                  <Check className="mr-1.5 h-4 w-4" />
-                  Mark approved
-                </Button>
-              </>
-            )}
-            {/* A credit (negative) comes off the balance — nothing to invoice. */}
-            {changeOrder.status === "approved" && Number(changeOrder.amount) > 0 && (
-              <Button onClick={() => createInvoiceMut.mutate()} disabled={createInvoiceMut.isPending} className="font-bold">
-                {createInvoiceMut.isPending ? "Creating…" : "Create invoice"}
-              </Button>
-            )}
-          </div>
+          <div className="flex items-center gap-2">{headerActions}</div>
         </div>
       </div>
 
       {/* Client / Project — inherited from the project, not editable here */}
       <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
-        <div className="grid gap-2.5 bg-foreground p-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2.5 bg-foreground p-4 sm:grid-cols-2">
           <div className="flex h-auto items-center gap-2.5 rounded-xl bg-white/[0.08] px-3.5 py-3">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-extrabold text-primary-foreground">
               {clientName.trim().charAt(0).toUpperCase() || "?"}
@@ -899,7 +929,6 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             <div className="text-base font-bold text-foreground">Change order totals</div>
             <div className="mt-2.5">
               <MoneyRow label="Subtotal" value={formatCurrency(subtotal)} />
-              <MoneyRow label={`Sales tax ${quoteDefaults.sales_tax_pct}%`} value={formatCurrency(taxAmount)} />
               {hasCostChanges && (
                 <>
                   <MoneyRow label="Planned cost change" value={`${costDelta < 0 ? "−" : "+"}${formatCurrency(Math.abs(costDelta))}`} />
@@ -952,7 +981,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                 <ImpactRow label="Paid to date" before={formatCurrency(impact.paidToDate)} after={formatCurrency(impact.paidToDate)} />
                 <ImpactRow
                   label="Remaining to bill"
-                  before={formatCurrency(Math.max(0, impact.originalContract + impact.previouslyApproved - impact.invoicedToDate))}
+                  before={formatCurrency(impact.remainingToBillBefore)}
                   after={formatCurrency(impact.remainingToBill)}
                   strong
                 />

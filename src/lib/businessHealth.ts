@@ -196,7 +196,9 @@ export interface FJob {
   contract: number;
   /** Everything invoiced so far, drafts included. */
   invoiced: number;
-  depositPct: number;
+  /** The signed quote's deposit (headlineDepositDue) — not a % of the
+   * contract, which change orders / add-ons raise. */
+  deposit: number;
 }
 
 export type CashLine = { kind: "invoice" | "projected_deposit" | "projected_final" | "draft"; label: string; amount: number; date: string; refId: string };
@@ -250,7 +252,7 @@ export function cashForecast(input: {
     if (!isBookedStatus(j.status) || !j.start) continue;
     const remaining = j.contract - j.invoiced;
     if (remaining <= 0.005) continue;
-    const deposit = Math.max(0, Math.min(remaining, (j.contract * j.depositPct) / 100 - j.invoiced));
+    const deposit = Math.max(0, Math.min(remaining, j.deposit - j.invoiced));
     const startDate = j.start < today ? today : j.start;
     const endDate = (j.end ?? j.start) < today ? today : (j.end ?? j.start);
     if (deposit > 0.005) lines.push({ kind: "projected_deposit", label: `${j.name} — deposit`, amount: deposit, date: addDays(startDate, dueDays), refId: j.id });

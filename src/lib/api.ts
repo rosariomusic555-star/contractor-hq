@@ -1,3 +1,4 @@
+import { depositAmount as depositAmountOf } from "./projectMoney";
 import { supabase } from "./supabase";
 import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
@@ -1240,7 +1241,7 @@ export function approvedAddonQuoteTotal(quotes: Quote[]): number {
 /** Won means signed (see the Pipeline's stage meanings) — deposit is
  * tracked separately, here, not as part of the pipeline. A project's
  * deposit counts as received once payments received (0111) cover the headline
- * quote's deposit_percentage of the contract total; there's no dedicated
+ * quote's deposit (headlineDepositDue); there's no dedicated
  * "deposit invoice" concept in the schema, so this is derived, live, from
  * the same figures every other money screen already shows (no second
  * calculation path) — never a stored flag, so it clears the moment enough
@@ -1249,18 +1250,21 @@ export function approvedAddonQuoteTotal(quotes: Quote[]): number {
  * yesterday doesn't immediately read as overdue. */
 export const DEPOSIT_GRACE_DAYS = 3;
 
-export function isDepositOverdue(
-  headlineQuote: Quote | undefined,
-  contractTotal: number,
-  paidTotal: number,
-  now: Date = new Date(),
-): boolean {
+/** The deposit a job asks for — the signed quote's deposit % of that quote's
+ * total (cents, 0–100%), the same rule as the deposit invoice
+ * (createProjectInvoice). Never a % of the whole contract: approved change
+ * orders and add-ons (which draft their own deposit) don't raise it. */
+export function headlineDepositDue(headlineQuote: Pick<Quote, "quote_sections" | "deposit_percentage"> | null | undefined): number {
+  return headlineQuote ? depositAmountOf(quoteTotal(headlineQuote.quote_sections), headlineQuote.deposit_percentage) : 0;
+}
+
+export function isDepositOverdue(headlineQuote: Quote | undefined, paidTotal: number, now: Date = new Date()): boolean {
   if (!headlineQuote?.signed_at) return false;
   const daysSinceSigned = (now.getTime() - new Date(headlineQuote.signed_at).getTime()) / 86_400_000;
   if (daysSinceSigned < DEPOSIT_GRACE_DAYS) return false;
-  const depositAmount = contractTotal * (headlineQuote.deposit_percentage / 100);
-  if (depositAmount <= 0) return false;
-  return paidTotal < depositAmount;
+  const due = headlineDepositDue(headlineQuote);
+  if (due <= 0) return false;
+  return paidTotal + 0.005 < due;
 }
 
 
@@ -1300,6 +1304,7 @@ export async function createClient(input: {
   phone: string;
   address: string;
   lead_source?: string | null;
+  preferred_contact_method?: PreferredContactMethod | null;
 }): Promise<Client> {
   const { data, error } = await supabase
     .from("clients")
@@ -1309,6 +1314,8 @@ export async function createClient(input: {
       phone: input.phone || null,
       address: input.address || null,
       lead_source: input.lead_source || null,
+      // Only sent when chosen (it was silently dropped on create before).
+      ...(input.preferred_contact_method ? { preferred_contact_method: input.preferred_contact_method } : {}),
     })
     .select()
     .single();
@@ -1703,6 +1710,9 @@ export async function saveWeatherRiskSettings(patch: Partial<WeatherRiskSettings
 
 export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Promise<BusinessProfile> {
   const merged = { ...(await getBusinessProfile()), ...patch };
+  const { businessProfileProblem } = await import("./settingsRules");
+  const problem = businessProfileProblem(merged);
+  if (problem) throw new Error(problem);
   const { data, error } = await supabase
     .from("business_profile")
     .upsert({
@@ -2919,6 +2929,9 @@ export async function getQuoteDefaults(): Promise<QuoteDefaults> {
 
 export async function saveQuoteDefaults(patch: Partial<QuoteDefaults>): Promise<QuoteDefaults> {
   const merged = { ...(await getQuoteDefaults()), ...patch };
+  const { quoteDefaultsProblem } = await import("./settingsRules");
+  const problem = quoteDefaultsProblem(merged);
+  if (problem) throw new Error(problem);
   const { data, error } = await supabase
     .from("quote_defaults")
     .upsert({
@@ -3324,13 +3337,13 @@ export async function createInvoice(
     notes?: string | null;
   } = {},
 ): Promise<Invoice> {
-  let countQuery = supabase.from("invoices").select("id", { count: "exact", head: true });
-  countQuery = input.project_id
-    ? countQuery.eq("project_id", input.project_id)
-    : countQuery.is("project_id", null);
-  const { count, error: countError } = await countQuery;
+  let numbersQuery = supabase.from("invoices").select("invoice_number");
+  numbersQuery = input.project_id
+    ? numbersQuery.eq("project_id", input.project_id)
+    : numbersQuery.is("project_id", null);
+  const { data: numbers, error: countError } = await numbersQuery;
   if (countError) throw countError;
-  const invoice_number = `INV-${String((count ?? 0) + 1).padStart(3, "0")}`;
+  const invoice_number = nextInvoiceNumber((numbers ?? []).map((r) => r.invoice_number));
 
   const { data, error } = await supabase
     .from("invoices")
@@ -3380,10 +3393,10 @@ export async function createProjectInvoice(
   const depositPct = headline ? Number(headline.deposit_percentage) : 0;
   const hasDeposit = invoices.some((i) => i.notes === DEPOSIT_INVOICE_NOTE);
   const asDeposit = kind === "deposit" || (kind === "auto" && !hasDeposit && depositPct > 0 && contract > 0);
-  const alreadyInvoiced = invoices.reduce((sum, i) => sum + Number(i.amount), 0);
   // The deposit is on the original quote; add-ons draft their own (0108).
   const depositBase = headline ? quoteTotal(headline.quote_sections) : contract;
-  const amount = asDeposit ? depositBase * (depositPct / 100) : Math.max(0, contract - alreadyInvoiced);
+  const { remainingToInvoice, depositAmount } = await import("./projectMoney");
+  const amount = asDeposit ? depositAmount(depositBase, depositPct) : remainingToInvoice(contract, invoices);
 
   const invoice = await createInvoice({
     project_id: projectId,
@@ -3414,8 +3427,25 @@ export async function updateInvoice(
 }
 
 export async function deleteInvoice(id: string): Promise<void> {
+  // An invoice with money applied can't just vanish (its payments would
+  // silently turn into loose project credit) — void or move them first.
+  const { data: inv, error: readError } = await supabase.from("invoices").select("amount_paid, invoice_number").eq("id", id).maybeSingle();
+  if (readError) throw readError;
+  if (inv && Number(inv.amount_paid ?? 0) > 0.004)
+    throw new Error(`${inv.invoice_number ?? "This invoice"} has payments applied. Void them or apply them to another invoice first.`);
   const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) throw error;
+}
+
+/** The next "INV-00N": one past the highest number already used on the
+ * project (or among standalone invoices) — never a count, which re-used a
+ * number after a delete (INV-001, INV-003 left → a second INV-003). */
+export function nextInvoiceNumber(existing: (string | null | undefined)[]): string {
+  const max = existing.reduce((m, n) => {
+    const hit = /(\d+)\s*$/.exec(n ?? "");
+    return hit ? Math.max(m, Number(hit[1])) : m;
+  }, 0);
+  return `INV-${String(max + 1).padStart(3, "0")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3609,6 +3639,23 @@ export async function voidPayment(id: string, reason: string | null): Promise<vo
 }
 
 export async function restorePayment(id: string): Promise<void> {
+  // Never overpay: if an invoice this payment was applied to has since been
+  // paid another way, restoring would count the money twice.
+  const { data: allocs, error: allocError } = await supabase.from("payment_allocations").select("invoice_id, amount").eq("payment_id", id);
+  if (allocError) throw allocError;
+  if (allocs?.length) {
+    const { data: invs, error: invError } = await supabase
+      .from("invoices")
+      .select("id, amount, amount_paid, invoice_number")
+      .in("id", allocs.map((a) => a.invoice_id));
+    if (invError) throw invError;
+    const { restoreOverpays } = await import("./projectMoney");
+    const over = restoreOverpays(allocs as { invoice_id: string; amount: number }[], (invs ?? []) as Invoice[]);
+    if (over.length)
+      throw new Error(
+        `Restoring this would overpay ${over.map((o) => `${o.invoice_number ?? "an invoice"} by $${o.over.toFixed(2)}`).join(" and ")} — it's been paid another way since. Edit this payment's allocation first, or leave it void.`,
+      );
+  }
   const { error } = await supabase.from("payments").update({ status: "active", voided_at: null, voided_by: null, void_reason: null }).eq("id", id);
   if (error) throw error;
 }
@@ -3944,7 +3991,20 @@ export async function contractorApproveChangeOrder(input: {
 }
 
 /** An invoice billing one approved change order (its amount, linked by change_order_id). */
-export async function createChangeOrderInvoice(co: Pick<ChangeOrder, "id" | "project_id" | "title" | "amount">): Promise<Invoice> {
+export async function createChangeOrderInvoice(co: Pick<ChangeOrder, "id" | "project_id" | "title" | "amount" | "status">): Promise<Invoice> {
+  // Never bill a change order twice (or a credit / unapproved one).
+  const { data: existing, error: existingError } = await supabase.from("invoices").select("id").eq("change_order_id", co.id);
+  if (existingError) throw existingError;
+  const { changeOrderInvoiceable } = await import("./projectBilling");
+  const can = changeOrderInvoiceable(co, existing ?? []);
+  if ("reason" in can)
+    throw new Error(
+      can.reason === "already_invoiced"
+        ? "This change order already has an invoice."
+        : can.reason === "credit"
+          ? "A credit comes off the balance — there's nothing to invoice."
+          : "Only an approved change order can be invoiced.",
+    );
   const invoice = await createInvoice({
     project_id: co.project_id,
     change_order_id: co.id,
@@ -4414,7 +4474,7 @@ export async function touchSupplierUsage(name: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export type MaterialOrderStatus = "ordered" | "delivered" | "delayed";
-export type MaterialOrderUnit = "pallet" | "ton" | "cubic_yard" | "bag" | "linear_foot" | "each";
+export type MaterialOrderUnit = "pallet" | "ton" | "cubic_yard" | "bag" | "linear_foot" | "each" | "square_foot" | "roll" | "tube" | "layer";
 
 export const MATERIAL_ORDER_UNITS: { value: MaterialOrderUnit; label: string; plural: string }[] = [
   { value: "pallet", label: "Pallet", plural: "pallets" },
@@ -4422,6 +4482,10 @@ export const MATERIAL_ORDER_UNITS: { value: MaterialOrderUnit; label: string; pl
   { value: "cubic_yard", label: "Cubic yard", plural: "cubic yards" },
   { value: "bag", label: "Bag", plural: "bags" },
   { value: "linear_foot", label: "Linear foot", plural: "linear feet" },
+  { value: "square_foot", label: "Square foot", plural: "square feet" },
+  { value: "roll", label: "Roll", plural: "rolls" },
+  { value: "tube", label: "Tube", plural: "tubes" },
+  { value: "layer", label: "Layer", plural: "layers" },
   { value: "each", label: "Each", plural: "each" },
 ];
 
@@ -4873,6 +4937,9 @@ export interface SharedQuote {
   quote: {
     id: string;
     status: QuoteStatus;
+    /** 'addon' = new work on a job the client already signed (client_quote_json). */
+    kind?: "original" | "addon";
+    addon_number?: number | null;
     deposit_percentage: number;
     notes: string | null;
     terms: string | null;
@@ -4893,9 +4960,13 @@ export async function getSharedQuote(token: string): Promise<SharedQuote | null>
   return clientSharedQuote((data as SharedQuote | null) ?? null);
 }
 
-// Note: which optional sections/items the client has checked is kept as
-// local view state on the share page only (never written back) — see
-// SharedQuotePage. The only client-facing write is signSharedQuote below.
+/** The client ticks / unticks an optional item on the share link — saved,
+ * so signing and the deposit use it (set_quote_item_selection, 0008; the
+ * approved-quote lock, 0033, rejects it once signed). */
+export async function setSharedQuoteItemSelection(token: string, itemId: string, selected: boolean): Promise<void> {
+  const { error } = await supabase.rpc("set_quote_item_selection", { p_token: token, p_item_id: itemId, p_selected: selected });
+  if (error) throw error;
+}
 
 export async function signSharedQuote(token: string, signedBy: string): Promise<void> {
   const { error } = await supabase.rpc("sign_quote", { p_token: token, p_signed_by: signedBy });
@@ -5008,7 +5079,12 @@ export async function createEmployeeAccount(input: {
     error?: string;
     message?: string;
   }>("create-employee", { body: input });
-  if (error) throw error;
+  if (error) {
+    // Non-2xx (e.g. 409 "That email belongs to a client"): the function's JSON is on the response.
+    const ctx = (error as { context?: Response }).context;
+    const body = ctx && typeof ctx.json === "function" ? await ctx.json().catch(() => null) : null;
+    throw new Error(body?.message ?? error.message);
+  }
   if (!data?.ok || !data.employee) throw new Error(data?.message ?? "Couldn't create employee.");
   return data.employee;
 }

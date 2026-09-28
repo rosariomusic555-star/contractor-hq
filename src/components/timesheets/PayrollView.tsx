@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { BackLink } from "@/components/common/BackLink";
 import { useToast } from "@/hooks/use-toast";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { getPayPeriod, getPayrollSettings, listTimesheets, markPayPeriod, payPeriodFor } from "@/lib/api";
 import { dayLabel, fmtHours, genericPayrollCsv, gustoPayrollCsv, isoDay, payrollRow, r2, type PayrollRow } from "@/lib/timesheets";
 
@@ -137,7 +137,7 @@ export function PayrollView() {
             {pp?.exported_at ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-bold text-success">
-                  {pp.paid_on ? `Paid ${pp.paid_on}` : `Exported ${new Date(pp.exported_at).toLocaleDateString()}`} · locked
+                  {pp.paid_on ? `Paid ${formatDate(pp.paid_on)}` : `Exported ${formatDate(pp.exported_at)}`} · locked
                 </span>
                 {!pp.paid_on && (
                   <>
