@@ -19,6 +19,16 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 import { listInvoices, listPayments, createInvoice, deleteInvoice, type Invoice, type InvoiceStatus } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceBalance, invoicePaymentState } from "@/lib/projectMoney";
 import { collectedInRange, agingBuckets, invoiceDaysLate, overdueCount } from "@/lib/financials";
@@ -50,9 +60,13 @@ export function InvoicesView() {
   });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
 
+  const [confirmDelete, setConfirmDelete] = useState<Invoice | null>(null);
   const deleteMutation = useMutation({
     mutationFn: deleteInvoice,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
     onError: (err: Error) =>
       toast({ title: "Couldn't delete invoice", description: err.message, variant: "destructive" }),
   });
@@ -218,7 +232,7 @@ export function InvoicesView() {
                                   Open project
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(inv.id)}>
+                              <DropdownMenuItem className="text-destructive" onClick={() => setConfirmDelete(inv)}>
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Delete
                               </DropdownMenuItem>
@@ -264,6 +278,34 @@ export function InvoicesView() {
           </div>
         </>
       )}
+
+      <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {confirmDelete?.invoice_number ?? "this invoice"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {Number(confirmDelete?.amount_paid ?? 0) > 0
+                ? "It has payments applied, so it can't be deleted — void those payments or apply them to another invoice first."
+                : "This can't be undone. The client's link to it stops working."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            {Number(confirmDelete?.amount_paid ?? 0) <= 0 && (
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteMutation.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (confirmDelete) deleteMutation.mutate(confirmDelete.id);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

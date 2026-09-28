@@ -221,3 +221,21 @@ export function remainingToInvoice(contractValue: number, invoices: Pick<Invoice
   return Math.max(0, r2(contractValue - already));
 }
 
+
+/** Restoring a voided payment re-applies its allocations. The invoices it
+ * would push past their amount (e.g. it was re-paid while this one was
+ * void) — restoring then would overpay them. `invoices` carry their current
+ * amount_paid (active allocations only, so this payment isn't in it). */
+export function restoreOverpays(
+  allocations: { invoice_id: string; amount: number }[],
+  invoices: Pick<Invoice, "id" | "amount" | "amount_paid" | "invoice_number">[],
+): { invoice_id: string; invoice_number: string | null; over: number }[] {
+  const out: { invoice_id: string; invoice_number: string | null; over: number }[] = [];
+  for (const a of allocations) {
+    const inv = invoices.find((i) => i.id === a.invoice_id);
+    if (!inv) continue;
+    const over = r2(Number(inv.amount_paid ?? 0) + Number(a.amount) - Number(inv.amount));
+    if (over > 0.004) out.push({ invoice_id: inv.id, invoice_number: inv.invoice_number ?? null, over });
+  }
+  return out;
+}

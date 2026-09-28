@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   remainingToInvoice,
+  restoreOverpays,
   invoiceBalance,
   invoicePaymentState,
   openInvoices,
@@ -120,3 +121,18 @@ describe("remainingToInvoice", () => {
     expect(remainingToInvoice(0.3, [{ amount: 0.1 }, { amount: 0.1 }])).toBe(0.1);
   });
 });
+
+// Money bug (2026-09-28): a $1,000 invoice paid by payment A (voided) and
+// then payment B — restoring A made it $2,000 paid.
+describe("restoreOverpays", () => {
+  const inv = { id: "i1", amount: 1000, amount_paid: 1000, invoice_number: "INV-001" };
+  it("flags an invoice the restore would push past its amount", () => {
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 1000 }], [inv])).toEqual([{ invoice_id: "i1", invoice_number: "INV-001", over: 1000 }]);
+  });
+  it("allows it when there's room (still unpaid, or partly paid)", () => {
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 1000 }], [{ ...inv, amount_paid: 0 }])).toEqual([]);
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 400 }], [{ ...inv, amount_paid: 600 }])).toEqual([]);
+    expect(restoreOverpays([{ invoice_id: "i1", amount: 400.01 }], [{ ...inv, amount_paid: 600 }])).toEqual([{ invoice_id: "i1", invoice_number: "INV-001", over: 0.01 }]);
+  });
+});
+

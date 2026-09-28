@@ -3324,13 +3324,13 @@ export async function createInvoice(
     notes?: string | null;
   } = {},
 ): Promise<Invoice> {
-  let countQuery = supabase.from("invoices").select("id", { count: "exact", head: true });
-  countQuery = input.project_id
-    ? countQuery.eq("project_id", input.project_id)
-    : countQuery.is("project_id", null);
-  const { count, error: countError } = await countQuery;
+  let numbersQuery = supabase.from("invoices").select("invoice_number");
+  numbersQuery = input.project_id
+    ? numbersQuery.eq("project_id", input.project_id)
+    : numbersQuery.is("project_id", null);
+  const { data: numbers, error: countError } = await numbersQuery;
   if (countError) throw countError;
-  const invoice_number = `INV-${String((count ?? 0) + 1).padStart(3, "0")}`;
+  const invoice_number = nextInvoiceNumber((numbers ?? []).map((r) => r.invoice_number));
 
   const { data, error } = await supabase
     .from("invoices")
@@ -3414,8 +3414,25 @@ export async function updateInvoice(
 }
 
 export async function deleteInvoice(id: string): Promise<void> {
+  // An invoice with money applied can't just vanish (its payments would
+  // silently turn into loose project credit) — void or move them first.
+  const { data: inv, error: readError } = await supabase.from("invoices").select("amount_paid, invoice_number").eq("id", id).maybeSingle();
+  if (readError) throw readError;
+  if (inv && Number(inv.amount_paid ?? 0) > 0.004)
+    throw new Error(`${inv.invoice_number ?? "This invoice"} has payments applied. Void them or apply them to another invoice first.`);
   const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) throw error;
+}
+
+/** The next "INV-00N": one past the highest number already used on the
+ * project (or among standalone invoices) — never a count, which re-used a
+ * number after a delete (INV-001, INV-003 left → a second INV-003). */
+export function nextInvoiceNumber(existing: (string | null | undefined)[]): string {
+  const max = existing.reduce((m, n) => {
+    const hit = /(\d+)\s*$/.exec(n ?? "");
+    return hit ? Math.max(m, Number(hit[1])) : m;
+  }, 0);
+  return `INV-${String(max + 1).padStart(3, "0")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3609,6 +3626,23 @@ export async function voidPayment(id: string, reason: string | null): Promise<vo
 }
 
 export async function restorePayment(id: string): Promise<void> {
+  // Never overpay: if an invoice this payment was applied to has since been
+  // paid another way, restoring would count the money twice.
+  const { data: allocs, error: allocError } = await supabase.from("payment_allocations").select("invoice_id, amount").eq("payment_id", id);
+  if (allocError) throw allocError;
+  if (allocs?.length) {
+    const { data: invs, error: invError } = await supabase
+      .from("invoices")
+      .select("id, amount, amount_paid, invoice_number")
+      .in("id", allocs.map((a) => a.invoice_id));
+    if (invError) throw invError;
+    const { restoreOverpays } = await import("./projectMoney");
+    const over = restoreOverpays(allocs as { invoice_id: string; amount: number }[], (invs ?? []) as Invoice[]);
+    if (over.length)
+      throw new Error(
+        `Restoring this would overpay ${over.map((o) => `${o.invoice_number ?? "an invoice"} by $${o.over.toFixed(2)}`).join(" and ")} — it's been paid another way since. Edit this payment's allocation first, or leave it void.`,
+      );
+  }
   const { error } = await supabase.from("payments").update({ status: "active", voided_at: null, voided_by: null, void_reason: null }).eq("id", id);
   if (error) throw error;
 }
