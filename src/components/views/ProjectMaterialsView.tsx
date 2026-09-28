@@ -1023,9 +1023,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     edit((d) =>
       d.map((s) => {
         if (s.id !== sid) return s;
+        // Measured add-ons (backsplash, backrest caps, strip lighting) the
+        // section doesn't have a line for yet get one.
+        const missing = lines
+          .filter((l) => l.addIfMissing && !s.items.some((item) => item.name === l.name))
+          .map((l) => blankDraftItem("material", l.name));
         return {
           ...s,
-          items: s.items.map((item) => {
+          items: [...s.items, ...missing].map((item) => {
             const line = lines.find((l) => l.name === item.name);
             if (!line) return item;
             const patch: Partial<DraftItem> = { quantity: line.quantity, unit: normalizeMaterialUnit(line.unit) };

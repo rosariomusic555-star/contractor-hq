@@ -28,7 +28,7 @@ import {
   type SeatingWallData,
   type StepsData,
 } from "@/lib/measurements";
-import { AddLink, Computed, DefaultableHeightField, NumField, RemoveButton, Segmented, SubRow, TextField, Warning } from "./fields";
+import { AddLink, Computed, DefaultableHeightField, NumField, RemoveButton, Segmented, SubRow, TextField, ToggleSection, Warning } from "./fields";
 import { ArrowLeftRight } from "lucide-react";
 import { CircleDiagram, LShapeDiagram, OutlinePlaceholder, PathUDiagram, RectDiagram, RunDiagram, UShapeDiagram } from "./diagrams";
 
@@ -380,7 +380,8 @@ function RunBuilder({
 }
 
 function KitchenEditor({ data, onChange, idPrefix, defaultHeightIn }: EditorProps<KitchenData> & { defaultHeightIn: number }) {
-  const height = computeTotals("kitchen", data, { kitchenHeightIn: defaultHeightIn }).height_in;
+  const totals = computeTotals("kitchen", data, { kitchenHeightIn: defaultHeightIn });
+  const height = totals.height_in;
   return (
     <div className="space-y-3">
       <RunBuilder
@@ -392,11 +393,24 @@ function KitchenEditor({ data, onChange, idPrefix, defaultHeightIn }: EditorProp
         after={height ? ` · ${fmt(height)} in high` : ""}
       />
       <DefaultableHeightField label="Counter height" value={data.height_in} defaultValue={defaultHeightIn} onChange={(height_in) => onChange({ ...data, height_in })} />
+      <ToggleSection label="Backsplash" checked={data.backsplash} onCheckedChange={(backsplash) => onChange({ ...data, backsplash })}>
+        <NumField
+          label="Length"
+          suffix="ft"
+          placeholder={totals.linear_ft ? fmt(totals.linear_ft) : "counter"}
+          value={data.backsplash_length_ft}
+          onChange={(backsplash_length_ft) => onChange({ ...data, backsplash_length_ft })}
+        />
+        <NumField label="Height" suffix="in" placeholder="e.g. 18" value={data.backsplash_height_in} onChange={(backsplash_height_in) => onChange({ ...data, backsplash_height_in })} />
+        <p className="w-full text-xs text-muted-foreground">Blank length = the whole counter run.</p>
+        {totals.backsplash_sqft ? <Computed>{fmt(totals.backsplash_sqft)} sq ft backsplash</Computed> : null}
+      </ToggleSection>
     </div>
   );
 }
 
 function SeatingWallEditor({ data, onChange, idPrefix }: EditorProps<SeatingWallData>) {
+  const totals = computeTotals("seating_wall", data);
   return (
     <div className="space-y-3">
       <NumField label="Height" suffix="in" placeholder="e.g. 20" value={data.height_in} onChange={(height_in) => onChange({ ...data, height_in })} />
@@ -408,6 +422,22 @@ function SeatingWallEditor({ data, onChange, idPrefix }: EditorProps<SeatingWall
         idPrefix={idPrefix}
         after={data.height_in ? ` · ${fmt(data.height_in)} in high` : ""}
       />
+      <ToggleSection label="Backrest" checked={data.backrest} onCheckedChange={(backrest) => onChange({ ...data, backrest })}>
+        <NumField
+          label="Length"
+          suffix="ft"
+          placeholder={totals.linear_ft ? fmt(totals.linear_ft) : "wall"}
+          value={data.backrest_length_ft}
+          onChange={(backrest_length_ft) => onChange({ ...data, backrest_length_ft })}
+        />
+        <NumField label="Height above seat" suffix="in" placeholder="e.g. 18" value={data.backrest_height_in} onChange={(backrest_height_in) => onChange({ ...data, backrest_height_in })} />
+        <p className="w-full text-xs text-muted-foreground">Blank length = the whole wall.</p>
+        {totals.backrest_lf ? (
+          <Computed>
+            {fmt(totals.backrest_lf)} LF backrest · {fmt(totals.backrest_height_in)} in above the seat
+          </Computed>
+        ) : null}
+      </ToggleSection>
     </div>
   );
 }
@@ -521,7 +551,7 @@ function FirePitEditor({ data, onChange, idPrefix, defaultHeightIn }: EditorProp
 
 function LightingEditor({ data, onChange }: EditorProps<LightingData>) {
   const setRow = (id: string, patch: Partial<LightingData["fixtures"][number]>) =>
-    onChange({ fixtures: data.fixtures.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
+    onChange({ ...data, fixtures: data.fixtures.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
   const count = computeTotals("lighting", data).fixture_count ?? 0;
 
   return (
@@ -546,7 +576,7 @@ function LightingEditor({ data, onChange }: EditorProps<LightingData>) {
             </label>
             <NumField label="Qty" value={f.qty} onChange={(qty) => setRow(f.id, { qty })} className="w-24 shrink-0" />
             {data.fixtures.length > 1 && (
-              <RemoveButton label={`Remove fixture row ${i + 1}`} onClick={() => onChange({ fixtures: data.fixtures.filter((x) => x.id !== f.id) })} />
+              <RemoveButton label={`Remove fixture row ${i + 1}`} onClick={() => onChange({ ...data, fixtures: data.fixtures.filter((x) => x.id !== f.id) })} />
             )}
           </div>
           {f.type === "other" && (
@@ -554,10 +584,11 @@ function LightingEditor({ data, onChange }: EditorProps<LightingData>) {
           )}
         </SubRow>
       ))}
-      <AddLink onClick={() => onChange({ fixtures: [...data.fixtures, { id: newId(), type: "path", name: "", qty: null }] })}>
+      <AddLink onClick={() => onChange({ ...data, fixtures: [...data.fixtures, { id: newId(), type: "path", name: "", qty: null }] })}>
         Add fixture type
       </AddLink>
       {count > 0 && <Computed>{fmt(count)} {count === 1 ? "fixture" : "fixtures"} total</Computed>}
+      <NumField label="Strip lighting" suffix="ft" placeholder="0" value={data.strip_lf} onChange={(strip_lf) => onChange({ ...data, strip_lf })} />
     </div>
   );
 }
