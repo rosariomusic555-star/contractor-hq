@@ -48,8 +48,9 @@ Started 2026-09-28. **Steps 1–3 done for the owner role**; employee + Client H
 - Weather forecast flags (job outside the 7-day window, made-up test address).
 - Stripe — not in the app (Client Hub phase 4 was skipped).
 
+**Deploys — done 2026-09-28:** `create-employee` (security fix live), `assistant-chat` (re-checked: contract $24,345.75 · cost $3,323.10 · profit $21,022.65 · outstanding $15,268.63 with drafts excluded — all match the app; a missing Client Selections term in its quote total was found and fixed on the way), `weather-forecast` (the pending crew-location redeploy).
+
 **Needs you:**
-- Deploy `create-employee` (security fix) and `assistant-chat` (the live assistant is an older build: it reported the TEST job's contract as $1,293.75 and a loss; the repo code gets $24,345.75 / $21,071.25 profit) — `env -u SUPABASE_ACCESS_TOKEN supabase functions deploy <name>`.
 - Branches `fix/client-hub-auth` and `fix/audit-batch-1` are committed, not merged.
 
 **Settings I changed (left in place):** Quote defaults saved as 35% deposit / 30-day validity, terms now "Prices hold for 30 days…" (the account had no saved defaults before — built-in 50% / 14 days). Price Book: added "TEST — Paver X" ($4.25 / sq ft). Nothing else in Settings was saved (dashboard switch put back to the new dashboard).
@@ -155,7 +156,7 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 | Low · money | Labor log hours × rate saved unrounded | Rounded to the cent | — |
 | Low · wording | Share-link signatures labelled "in the Client Hub" | "online" | `projectBilling.test.ts` |
 
-**Needs you:** deploy `create-employee` (`env -u SUPABASE_ACCESS_TOKEN supabase functions deploy create-employee`).
+**Deploys:** done 2026-09-28 (create-employee, assistant-chat, weather-forecast).
 
 ## Verified so far
 
