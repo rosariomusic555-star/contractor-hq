@@ -50,7 +50,7 @@ export function QuoteApprovalRow({ quote, clientName, disabledReason }: { quote:
           <p className="font-semibold text-foreground">
             {manual
               ? `Approved ${methodText(quote.approval_method)}${quote.signed_by ? ` by ${quote.signed_by}` : ""} — recorded by ${quote.approved_manually_by}`
-              : `Approved by the client in the Client Hub${quote.signed_by ? ` — signed by ${quote.signed_by}` : ""}`}
+              : `Approved by the client online${quote.signed_by ? ` — signed by ${quote.signed_by}` : ""}`}
           </p>
           <p className="text-xs text-muted-foreground">
             {day(quote.signed_at)}

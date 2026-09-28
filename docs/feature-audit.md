@@ -1,6 +1,6 @@
 # ContractorHQ — feature audit checklist
 
-Started 2026-09-28. **Step 1 (inventory) is done; Step 2 (live testing) has not started.** Nothing has been fixed yet.
+Started 2026-09-28. **Step 1 (inventory) is done; Step 2 (live testing) is in progress** — see the live test log and the Fixed table below.
 
 ## How to read this
 
@@ -37,6 +37,9 @@ Every record created for testing is named with the prefix **`TEST —`**. They a
 | 2026-09-28 | Quote (approved) + Client Selection "Countertop" | on the TEST project | /quotes/a0a94dbc-46b0-47d0-9417-e53d74df3ff8 |
 | 2026-09-28 | Invoices | INV-001 (paid), INV-002 ($15,268.63 sent) | on the TEST project |
 | 2026-09-28 | Payments | R-0001 $3,000 (void), R-0002 $7,520.37 | on the TEST project |
+| 2026-09-28 | Change orders | CO-001 TEST — Extend seating wall 6 ft (+$513, client-signed) · CO-002 TEST — Skip firepit 2 cap upgrade (−$250, marked approved on paper) | on the TEST project |
+| 2026-09-28 | Invoices | INV-003 $513 draft (CO-001) · INV-004 $646.88 draft (add-on deposit) | on the TEST project |
+| 2026-09-28 | Add-on quote #1 (approved) + Walkway feature | 45 sq ft × $28.75 = $1,293.75 | /projects/ef03095a-1e58-45c1-8288-226502188306/quotes/d4a46fd4-09c1-4007-b930-550590911234 |
 
 
 ## Live test log (Step 2)
@@ -52,7 +55,10 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 **Won chain** — ✅ quote approved, opportunity Won, project Scheduled, deposit INV-001 = $7,520.37 (optional excluded), contract $22,789 · ✅ profit summary cost $2,823.50 incl. Quartz's $500 internal cost.
 **Invoices / payments** — ✅ send, "8 days late" · ❌→fixed Record payment: typing a partial amount left the full balance applied and blocked Save · ✅ partial $3,000 → balance $4,520.37, receipt R-0001 · ✅ void → paid in full → restore **refused** (overpay guard) · ✅ delete paid invoice refused · ✅ numbering never re-uses a number in use · ✅ Remaining balance label = created $15,268.63 · ✅ project Invoices page KPIs · ✅ /invoices Overdue filter = 1 · ⚠️ due dates shown as raw "2026-09-25".
 
-**Not yet tested live:** phone width (~390px) pass; change orders & add-on quotes; expenses; deliveries / order sheet email (needs Resend); schedule / bookings / rain delay; dashboard; reports (revenue, business health, marketing ROI); timesheets / payroll; settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
+**Change orders** — ✅ KPIs before (original = current $22,789) · ✅ builder: feature section, 6 lin ft × $85.50 = $513.00, no tax, revised contract $23,302 · ✅ send → client link shows no internal numbers, "+$513 · Adds 1 working day" · ✅ client signs → approved, list KPIs +$513 / $23,302 / +1 day · ✅ Create invoice → INV-003 $513; second attempt refused (page + API) · ✅ credit CO −$250: total $23,052, margin (23,052 − 2,823.50)/23,052 = 88%, no invoice offered, "Credit — comes off what the client still owes" · ✅ Mark approved dialog: client name prefilled, date defaults today; method/note/who recorded + activity log · ❌→fixed the builder's "Remaining to bill" ignored the drafted CO invoice ($513 shown after INV-003 was drafted) · ❌→fixed project Invoices "Not invoiced yet" ignored drafts ($263 while its own Remaining-balance item makes $0) and never said the invoices ran $250 over the contract after the credit · ⚠️ "recorded by" shows the owner's email, not a name · ⚠️ "−$250" / "-$250" minus signs mixed · ⚠️ Mark approved only appears after sending (SQL allows drafts).
+**Add-on quotes** — ✅ Add new work → feature picker (existing ones marked "already on this job") → add-on draft with a Walkway section · ✅ 45 sq ft × $28.75 = $1,293.75, deposit 50% (no saved Quote defaults → 50%) = $646.88 · ❌→fixed an add-on whose features aren't priced in the Cost plan showed Est. cost $0 · Margin 100% · Profit $1,293.75 (header, section chip and True cost panel) — now "Not available" / "Not priced yet" · ✅ send → client signs → approved; contract $24,345.75 = 23,052 + 1,293.75; Walkway feature active; add-on deposit INV-004 $646.88 drafted with the next free number · ✅ Quotes page Signed $24,082.75 (original + add-ons) · ❌→fixed "Signed … in the Client Hub" shown for share-link signatures too (now "online") · ⚠️ the client's add-on page is titled "Proposal" with nothing saying it's added to the existing job · ⚠️ Quotes page Deposit tile shows only the original deposit.
+
+**Not yet tested live:** phone width (~390px) pass; expenses; deliveries / order sheet email (needs Resend); schedule / bookings / rain delay; dashboard; reports (revenue, business health, marketing ROI); timesheets / payroll; settings pages; AI assistant chat; employee + Client Hub roles (later, with your sign-in).
 
 ## Fixed so far (branch `fix/audit-batch-1`, each with an automated test)
 
@@ -74,8 +80,10 @@ Real browser, your account, TEST — data. ✅ works · ❌ broken (fixed → co
 | High · data | Cost plan / quote save failing partway duplicated lines on retry | Created rows keep real ids after a failure | `draftRemap.test.ts` |
 | High · money | Payroll "1.5" saved as 15× overtime; overhead "1,200" saved $0; crew size not retypable | DecimalInput + parseDecimal + limits | `parseDecimal.test.tsx` |
 | High · money | Deposit rounded differently per screen; 150% / negative allowed | One depositAmount (cents, 0–100) + DB check (0143) | `projectMoney.test.ts` |
+| High · money | Change order "Remaining to bill" and project "Not invoiced yet" ignored draft invoices (invites billing a CO twice); over-billing after a credit CO never flagged | Shared remainingToInvoice everywhere + overInvoiced warning | `changeOrderImpact.test.ts`, `projectMoney.test.ts` |
+| Medium · money | Unpriced add-on quote showed $0 cost / 100% margin / full profit | Cost unknown until its features have Cost plan entries | — (display) |
 
-**Needs you:** run migrations **0141, 0142, 0143**; deploy `create-employee` (`env -u SUPABASE_ACCESS_TOKEN supabase functions deploy create-employee`).
+**Needs you:** deploy `create-employee` (`env -u SUPABASE_ACCESS_TOKEN supabase functions deploy create-employee`).
 
 ## Verified so far
 

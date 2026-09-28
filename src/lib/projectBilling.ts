@@ -170,7 +170,7 @@ export function quoteDecisionLine(
       const how = q.approval_method === "in_person" ? " in person" : q.approval_method === "paper" ? " on paper" : "";
       return `Approved${how}${when}${q.signed_by ? ` by ${q.signed_by}` : ""} — recorded by ${q.approved_manually_by}`;
     }
-    return `Signed${when}${q.signed_by ? ` by ${q.signed_by}` : ""} in the Client Hub`;
+    return `Signed${when}${q.signed_by ? ` by ${q.signed_by}` : ""} online`;
   }
   if (q.status === "declined") return `Declined${q.declined_at ? ` ${shortDate(q.declined_at)}` : ""}${q.decline_comment ? ` — "${q.decline_comment}"` : ""}`;
   if (q.status === "sent") return activityLine(q, now) ?? "Sent to the client";

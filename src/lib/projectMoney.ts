@@ -222,6 +222,13 @@ export function remainingToInvoice(contractValue: number, invoices: Pick<Invoice
 }
 
 
+/** How far the project's invoices (drafts included) run past the contract —
+ * e.g. after a credit change order lowered it. 0 when they don't. */
+export function overInvoiced(contractValue: number, invoices: Pick<Invoice, "amount">[]): number {
+  const billed = invoices.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+  return Math.max(0, r2(billed - contractValue));
+}
+
 /** Restoring a voided payment re-applies its allocations. The invoices it
  * would push past their amount (e.g. it was re-paid while this one was
  * void) — restoring then would overpay them. `invoices` carry their current

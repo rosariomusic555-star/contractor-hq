@@ -101,7 +101,7 @@ describe("project quotes page", () => {
 
   it("decision lines: hub signature, manual approval, decline, out with the client, draft", () => {
     const now = new Date("2026-10-10T12:00:00Z");
-    expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg" }), now)).toBe("Signed Sep 24, 2026 by Greg in the Client Hub");
+    expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg" }), now)).toBe("Signed Sep 24, 2026 by Greg online");
     expect(quoteDecisionLine(q({ status: "approved", signed_at: "2026-09-24T12:00:00Z", signed_by: "Greg", approved_manually_by: "Rosa", approval_method: "in_person" }), now)).toBe(
       "Approved in person Sep 24, 2026 by Greg — recorded by Rosa",
     );

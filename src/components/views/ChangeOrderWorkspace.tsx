@@ -955,7 +955,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                 <ImpactRow label="Paid to date" before={formatCurrency(impact.paidToDate)} after={formatCurrency(impact.paidToDate)} />
                 <ImpactRow
                   label="Remaining to bill"
-                  before={formatCurrency(Math.max(0, impact.originalContract + impact.previouslyApproved - impact.invoicedToDate))}
+                  before={formatCurrency(impact.remainingToBillBefore)}
                   after={formatCurrency(impact.remainingToBill)}
                   strong
                 />

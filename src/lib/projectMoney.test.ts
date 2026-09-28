@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   depositAmount,
   remainingToInvoice,
+  overInvoiced,
   restoreOverpays,
   invoiceBalance,
   invoicePaymentState,
@@ -152,3 +153,13 @@ describe("depositAmount", () => {
   });
 });
 
+
+describe("overInvoiced", () => {
+  it("flags invoices (drafts included) that run past a contract lowered by a credit change order", () => {
+    // $22,789 + $513 CO − $250 credit = $23,052; invoices 7,520.37 + 15,268.63 + 513 (draft)
+    expect(overInvoiced(23052, [{ amount: 7520.37 }, { amount: 15268.63 }, { amount: 513 }])).toBe(250);
+  });
+  it("is 0 when the invoices fit the contract", () => {
+    expect(overInvoiced(23302, [{ amount: 7520.37 }, { amount: 15268.63 }, { amount: 513 }])).toBe(0);
+  });
+});

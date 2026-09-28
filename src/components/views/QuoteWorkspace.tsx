@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
-import { costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
+import { costPlanHasEntries, costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -1027,10 +1027,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // The add-on's (first) new feature and its Cost plan section — the step links' targets.
   const addonFeature = isAddon ? pickableFeatures[0] ?? null : null;
   const addonSection = addonFeature ? materials.find((m) => m.feature_id === addonFeature.id) ?? null : null;
+  const addonCostSections = isAddon ? materials.filter((m) => m.feature_id && addonFeatureIds.has(m.feature_id)) : [];
+  // Its features not priced in the Cost plan yet → cost unknown, not $0.
   const materialsCost = !hasMaterialsSheet
     ? null
     : isAddon
-      ? sumSectionTotals(materials.filter((m) => m.feature_id && addonFeatureIds.has(m.feature_id)), { all: true }).total
+      ? costPlanHasEntries(addonCostSections)
+        ? sumSectionTotals(addonCostSections, { all: true }).total
+        : null
       : costPlanTotal(materials);
   const materialsAction: MaterialsAction = !projectId
     ? { label: "Create project to add a cost plan", onClick: () => handleCreateProjectClick(), primary: true }
@@ -1078,10 +1082,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const canRecalculate =
     quote.status === "draft" && currentOverheadRate != null && (storedRate == null || Math.abs(storedRate - currentOverheadRate) >= 0.005);
   const trueCostNode = (collapsible: boolean) =>
-    projectId && hasMaterialsSheet ? (
+    // Only with a real cost — an unpriced add-on would read as 100% profit.
+    projectId && hasMaterialsSheet && estCost != null ? (
       <TrueCostSummary
         collapsible={collapsible}
-        direct={estCost ?? 0}
+        direct={estCost}
         manHours={plannedManHours(trueCostSections)}
         rate={overheadRate}
         price={grandTotal}
@@ -2273,9 +2278,11 @@ function QuoteSectionHeaderTags({
 }) {
   const linked = linkedSheetSectionsFor(section, section.materialIds, sheetSections);
   const cost = sheetSectionsCost(linked);
+  // Linked but nothing entered yet → cost unknown (not a $0 cost / 100% margin).
+  const priced = costPlanHasEntries(linked);
   const { marginPct } = sectionMargin(price, cost);
   const autoIds = autoMatchedSheetSections(section, sheetSections).map((s) => s.id);
-  const marginTag = linked.length > 0 && marginPct != null && (
+  const marginTag = priced && marginPct != null && (
     <span
       className={cn("text-[11px] font-semibold tabular-nums", marginPct < 0 ? "text-destructive-foreground" : "text-background")}
     >
@@ -2303,16 +2310,16 @@ function QuoteSectionHeaderTags({
               {typeName}
               <span className={cn("font-normal", linked.length === 0 && "text-background/60")}>
                 {" · "}
-                {linked.length > 0 ? `Cost ${formatCurrency(cost)}` : "No cost plan section yet"}
+                {linked.length === 0 ? "No cost plan section yet" : priced ? `Cost ${formatCurrency(cost)}` : "Not priced yet"}
               </span>
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 space-y-1.5 p-3 text-sm tabular-nums" onClick={(e) => e.stopPropagation()}>
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{typeName} · internal</div>
             <DetailRow label="Section price" value={formatCurrency(price)} />
-            <DetailRow label="Direct cost" value={formatCurrency(cost)} />
-            <DetailRow label="Expected margin" value={pctText(sectionMargin(price, cost).marginPct)} />
-            {overheadRate != null ? (
+            <DetailRow label="Direct cost" value={priced ? formatCurrency(cost) : "Not priced yet"} />
+            <DetailRow label="Expected margin" value={priced ? pctText(sectionMargin(price, cost).marginPct) : "—"} />
+            {!priced ? null : overheadRate != null ? (
               <>
                 <DetailRow
                   label="Allocated overhead"

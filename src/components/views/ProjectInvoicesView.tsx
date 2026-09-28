@@ -25,7 +25,7 @@ import {
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { effectiveInvoiceStatus } from "@/lib/financials";
-import { invoiceBalance, invoicePaid, projectMoneySummary, remainingToInvoice } from "@/lib/projectMoney";
+import { invoiceBalance, invoicePaid, overInvoiced, projectMoneySummary, remainingToInvoice } from "@/lib/projectMoney";
 import {
   changeOrderNumbers,
   invoiceClientStep,
@@ -67,9 +67,10 @@ export function ProjectInvoicesView() {
 
   const contract = projectContractValue(quotes, changeOrders);
   const money = projectMoneySummary({ contractValue: contract, invoices, payments });
-  const notInvoiced = Math.max(0, Math.round((contract - money.invoiced) * 100) / 100);
   // What "Remaining balance" will actually create — drafts count as already billed.
   const balanceToBill = remainingToInvoice(contract, invoices);
+  const draftTotal = invoices.filter((i) => i.status === "draft").reduce((s, i) => s + Number(i.amount || 0), 0);
+  const overBy = overInvoiced(contract, invoices);
   const coNumbers = changeOrderNumbers(changeOrders);
   const attention = invoicesNeedingAttention(invoices);
   const attentionCount = attention.overdue.length + attention.notOpened.length + attention.viewedUnpaid.length;
@@ -174,7 +175,19 @@ export function ProjectInvoicesView() {
             subTone="positive"
           />
           <KpiCard label="Outstanding" value={formatCurrency(money.unpaidInvoiceBalance)} sub={attention.overdue.length ? `${attention.overdue.length} late` : "on invoices sent"} subTone={attention.overdue.length ? "negative" : "muted"} />
-          <KpiCard label="Not invoiced yet" value={formatCurrency(notInvoiced)} sub="left to bill" className="col-span-2 md:col-span-1" />
+          <KpiCard
+            label="Not invoiced yet"
+            value={formatCurrency(balanceToBill)}
+            sub={
+              overBy > 0
+                ? `invoices are ${formatCurrency(overBy)} over the contract`
+                : draftTotal > 0
+                  ? `left to bill · ${formatCurrency(draftTotal)} in drafts`
+                  : "left to bill"
+            }
+            subTone={overBy > 0 ? "negative" : "muted"}
+            className="col-span-2 md:col-span-1"
+          />
         </div>
         {contract > 0 && (
           <div className="card-surface px-4 py-3">
