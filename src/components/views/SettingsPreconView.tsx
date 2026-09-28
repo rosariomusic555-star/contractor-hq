@@ -77,6 +77,8 @@ export function SettingsPreconView() {
         <h2 className="text-[17px] font-bold tracking-tight text-foreground">Checklist</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Every won job starts with these. Items marked “auto” check themselves off from the app; you can still override them on a job.
+          Changes here apply to new jobs — a job that already has its checklist keeps its own list (edit it from the job's
+          Pre-construction card).
         </p>
         <ul className="mt-3 divide-y divide-hairline">
           {active.map((it, i) => (

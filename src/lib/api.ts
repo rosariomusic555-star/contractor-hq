@@ -7593,7 +7593,7 @@ export async function listProjectPrecon(projectId: string, ensure = true): Promi
 
 export async function updatePreconItem(
   id: string,
-  patch: Partial<Pick<PreconItem, "status" | "override" | "note" | "details" | "removed" | "label" | "required">>,
+  patch: Partial<Pick<PreconItem, "status" | "override" | "note" | "details" | "removed" | "label" | "required" | "sort_order">>,
 ): Promise<void> {
   const full = { ...patch, ...(patch.status ? { done_at: patch.status === "done" ? new Date().toISOString() : null } : {}) };
   const { error } = await supabase.from("project_precon_items").update(full).eq("id", id);
