@@ -24,7 +24,7 @@ const raw = L({
     }),
   ],
   general_scope: [],
-  materials: [L({ id: "l1", feature_id: "f1", section: "Patio", name: "Pavers", color: "Chestnut", product: "Blu 60", quantity: 300, unit: "sf", waste_percent: 10, planned_quantity: 300, conversion_factor: 100, conversion_unit: "pallet", tracked: true, orders: [L({ quantity: 2, unit: "pallet", status: "delivered", expected_date: "2026-10-02" }), L({ quantity: 130, unit: "sf", status: "ordered", expected_date: "2026-10-03" })] })],
+  materials: [L({ id: "l1", feature_id: "f1", section: "Patio", name: "Pavers", color: "Chestnut", product: "Blu 60", quantity: 300, unit: "sf", waste_percent: 10, planned_quantity: 300, conversion_factor: 100, conversion_unit: "pallet", tracked: true, used: 120, orders: [L({ quantity: 2, unit: "pallet", status: "delivered", expected_date: "2026-10-02" }), L({ quantity: 130, unit: "sf", status: "ordered", expected_date: "2026-10-03" })] })],
   deliveries: [L({ id: "d1", supplier: "Stone Co", expected_date: "2026-10-03", status: "ordered" })],
   photos: [L({ id: "ph", storage_path: "projects/p/a.jpg", caption: null })],
   delays: [L({ date: "2026-10-05", days: 1, reason: "rain" })],
@@ -81,5 +81,11 @@ describe("work order helpers", () => {
     next.crew_notes.text = "New note";
     expect(workOrderChanges(wo, next)).toEqual(["Crew notes updated", "Paver Patio: Paver color → Onyx Black", "Paver Patio: new change order"]);
     expect(workOrderChanges(null, next)).toEqual([]);
+  });
+});
+
+describe("used so far (0145)", () => {
+  it("keeps a material's logged usage on the crew-safe work order", () => {
+    expect(crewSafeWorkOrder(raw)!.materials[0].used).toBe(120);
   });
 });

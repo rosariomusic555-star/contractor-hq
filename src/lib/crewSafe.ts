@@ -23,7 +23,7 @@ export const CREW_FIELDS = {
   scopeItem: ["name", "description", "quantity", "unit"],
   labor: ["crew_days", "crew_size", "man_hours"],
   change: ["number", "title", "approved_at", "scope_note", "items"],
-  material: ["id", "feature_id", "section", "name", "color", "product", "quantity", "unit", "waste_percent", "planned_quantity", "conversion_factor", "conversion_unit", "tracked", "orders"],
+  material: ["id", "feature_id", "section", "name", "color", "product", "quantity", "unit", "waste_percent", "planned_quantity", "conversion_factor", "conversion_unit", "tracked", "orders", "used"],
   materialOrder: ["quantity", "unit", "status", "expected_date"],
   delivery: ["id", "supplier", "expected_date", "status"],
   photo: ["id", "storage_path", "caption"],
@@ -136,6 +136,8 @@ export interface CrewMaterial {
   conversion_unit: string | null;
   tracked: boolean;
   orders: { quantity: number; unit: string | null; status: string; expected_date: string | null }[];
+  /** Logged as used so far, in the line's unit (0145; absent before it). */
+  used?: number;
 }
 
 export interface CrewWorkOrder {

@@ -473,6 +473,12 @@ function MaterialsList({ wo, canLog }: { wo: CrewWorkOrder; canLog: boolean }) {
                       {fmtQty(s.planned)} {m.unit ?? ""}
                       {m.waste_percent ? <span className="text-muted-subtle"> (incl. {fmtQty(Number(m.waste_percent))}% waste)</span> : null}
                     </span>
+                    {/* What's already logged — so a second person doesn't log it again. */}
+                    {Number(m.used) > 0 && (
+                      <span className="block text-sm font-semibold text-info">
+                        Used so far: {fmtQty(Number(m.used))} {m.unit ?? ""}
+                      </span>
+                    )}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
                     <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold", STATUS_TONE[s.status])}>{CREW_MATERIAL_STATUS_LABEL[s.status]}</span>
