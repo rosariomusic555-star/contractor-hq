@@ -27,7 +27,8 @@ export function JobDetailCard({
   onUnschedule,
 }: {
   job: BookingJob;
-  onDatesChange: (job: BookingJob, start: string | null, end: string | null) => void;
+  /** Only the field that changed — the other one is merged from the latest saved dates. */
+  onDatesChange: (job: BookingJob, patch: { start?: string | null; end?: string | null }) => void;
   onUnschedule: (job: BookingJob) => void;
 }) {
   const navigate = useNavigate();
@@ -70,7 +71,7 @@ export function JobDetailCard({
           <Input
             type="date"
             value={job.startDate ?? ""}
-            onChange={(e) => onDatesChange(job, e.target.value || null, job.endDate)}
+            onChange={(e) => onDatesChange(job, { start: e.target.value || null })}
             className="h-9 text-sm"
           />
         </div>
@@ -80,7 +81,7 @@ export function JobDetailCard({
             type="date"
             min={job.startDate ?? undefined}
             value={job.endDate ?? ""}
-            onChange={(e) => onDatesChange(job, job.startDate, e.target.value || null)}
+            onChange={(e) => onDatesChange(job, { end: e.target.value || null })}
             className="h-9 text-sm"
           />
         </div>
