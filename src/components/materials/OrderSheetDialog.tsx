@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, FileDown, Mail } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -50,6 +50,9 @@ interface FlatItem {
   item: MaterialsItem;
   sectionName: string;
   category: string;
+  /** What goes on the sheet: waste-adjusted, rounded up to the package. */
+  orderQuantity: number;
+  orderUnit: string | null;
 }
 
 /**
@@ -82,6 +85,14 @@ export function OrderSheetDialog({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [jobName, setJobName] = useState(projectName);
   const [address, setAddress] = useState(deliveryAddress ?? "");
+  // The dialog mounts before the project loads — fill the job name and
+  // address each time it opens, not just from the first render's props.
+  useEffect(() => {
+    if (!open) return;
+    setJobName(projectName);
+    setAddress(deliveryAddress ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const [supplier, setSupplier] = useState("");
   const [dateNeeded, setDateNeeded] = useState("");
   const [notes, setNotes] = useState("");
@@ -98,14 +109,18 @@ export function OrderSheetDialog({
   const flatItems: FlatItem[] = useMemo(
     () =>
       sections.flatMap((s) =>
-        s.materials_items.map((item) => {
-          const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
-          const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
-          const category = orderCategoryGroup(
-            lineCategoryName(item, materialCategoryNameById) ?? catalogProduct?.category ?? priceBookItem?.category ?? null,
-          );
-          return { item, sectionName: s.name, category };
-        }),
+        s.materials_items
+          // Nothing to order on a 0-quantity line.
+          .filter((item) => Number(item.quantity) > 0)
+          .map((item) => {
+            const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
+            const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
+            const category = orderCategoryGroup(
+              lineCategoryName(item, materialCategoryNameById) ?? catalogProduct?.category ?? priceBookItem?.category ?? null,
+            );
+            const order = resolveOrderLine(item, catalogById, priceBookById, materialCategoryNameById);
+            return { item, sectionName: s.name, category, orderQuantity: order.quantity, orderUnit: order.unit };
+          }),
       ),
     [sections, catalogById, priceBookById, materialCategoryNameById],
   );
@@ -274,15 +289,19 @@ export function OrderSheetDialog({
                   <div key={category}>
                     <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{category}</p>
                     <div className="space-y-0.5">
-                      {(itemsByCategory.get(category) ?? []).map(({ item }) => (
+                      {(itemsByCategory.get(category) ?? []).map(({ item, sectionName, orderQuantity, orderUnit }) => (
                         <label
                           key={item.id}
                           className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/50"
                         >
                           <Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() => toggleItem(item.id)} />
-                          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{materialLineLabel(item) || "Untitled item"}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm text-foreground">{materialLineLabel(item) || "Untitled item"}</span>
+                            {/* Which feature — several sections can have a "Wall Block". */}
+                            <span className="block truncate text-xs text-muted-foreground">{sectionName}</span>
+                          </span>
                           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                            {item.quantity} {item.unit || ""}
+                            {orderQuantity} {orderUnit || ""}
                           </span>
                         </label>
                       ))}
