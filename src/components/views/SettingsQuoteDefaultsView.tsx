@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, FileText } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { useToast } from "@/hooks/use-toast";
 import { getQuoteDefaults, saveQuoteDefaults, QUOTE_DEFAULTS_FALLBACK, type QuoteDefaults } from "@/lib/api";
+import { quoteDefaultsProblem } from "@/lib/quoteDefaultsRules";
+import { DecimalInput } from "@/components/common/DecimalInput";
 import { BackLink } from "@/components/common/BackLink";
 
 /**
@@ -40,6 +41,8 @@ export function SettingsQuoteDefaultsView() {
     dirty.current = false;
     setDraft(seed());
   };
+
+  const problem = quoteDefaultsProblem(draft);
 
   const saveMut = useMutation({
     mutationFn: () => saveQuoteDefaults(draft),
@@ -103,6 +106,11 @@ export function SettingsQuoteDefaultsView() {
         </div>
       </div>
 
+      {problem && (
+        <p role="alert" className="text-right text-sm font-semibold text-destructive">
+          {problem}
+        </p>
+      )}
       <div className="flex justify-end gap-2.5">
         <Button variant="outline" onClick={revert} disabled={saveMut.isPending} className="h-11 rounded-xl">
           Revert
@@ -110,7 +118,7 @@ export function SettingsQuoteDefaultsView() {
         <Button
           className="h-11 rounded-xl font-bold"
           onClick={() => saveMut.mutate()}
-          disabled={saveMut.isPending || isLoading}
+          disabled={saveMut.isPending || isLoading || !!problem}
         >
           {saveMut.isPending ? "Saving…" : "Save defaults"}
         </Button>
@@ -128,8 +136,9 @@ function NumberField({
   step,
 }: {
   label: string;
-  value: number;
-  onChange: (v: number) => void;
+  value: number | null;
+  /** null while the field is blank — the page says what's missing. */
+  onChange: (v: number | null) => void;
   note: string;
   suffix: string;
   step?: string;
@@ -138,15 +147,9 @@ function NumberField({
     <div>
       <div className="text-xs font-semibold text-muted-foreground">{label}</div>
       <div className="relative mt-1.5">
-        <Input
-          type="number"
-          step={step ?? "1"}
-          min="0"
-          inputMode="decimal"
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="h-10 pr-12"
-        />
+        {/* Keeps "33." while typing and lets the field be cleared (a number
+            field re-rendered from the parsed value dropped both). */}
+        <DecimalInput value={value} onChange={onChange} aria-label={label} className="h-10 pr-12" />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
           {suffix}
         </span>

@@ -2926,6 +2926,9 @@ export async function getQuoteDefaults(): Promise<QuoteDefaults> {
 
 export async function saveQuoteDefaults(patch: Partial<QuoteDefaults>): Promise<QuoteDefaults> {
   const merged = { ...(await getQuoteDefaults()), ...patch };
+  const { quoteDefaultsProblem } = await import("./quoteDefaultsRules");
+  const problem = quoteDefaultsProblem(merged);
+  if (problem) throw new Error(problem);
   const { data, error } = await supabase
     .from("quote_defaults")
     .upsert({
