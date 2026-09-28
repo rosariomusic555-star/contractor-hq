@@ -97,6 +97,7 @@ import {
   DEPOSIT_INVOICE_NOTE,
   type ProjectStatus,
   type MaterialsItem,
+  type MaterialsSection,
   type MaterialsUsageLog,
 } from "@/lib/api";
 import { countsTowardTotals } from "@/lib/features";
@@ -739,6 +740,7 @@ export function ProjectDetailView() {
             <MaterialsTrackingCard
               summary={materialCostSummary}
               trackedLines={trackedLines}
+              sections={materials.filter(countsTowardTotals)}
               usageLogs={usageLogs}
               onOpen={() => navigate(`/projects/${id}/materials`)}
               onLogUsage={(line) => setLogUsageLine(line)}
@@ -1488,6 +1490,7 @@ const MATERIAL_ROWS_PREVIEW = 5;
 function MaterialsTrackingCard({
   summary,
   trackedLines,
+  sections,
   usageLogs,
   onOpen,
   onLogUsage,
@@ -1495,6 +1498,8 @@ function MaterialsTrackingCard({
 }: {
   summary: ReturnType<typeof sheetCostSummary>;
   trackedLines: MaterialsItem[];
+  /** Cost plan sections (one per feature + General), in plan order — the group headers. */
+  sections: MaterialsSection[];
   usageLogs: MaterialsUsageLog[];
   onOpen: () => void;
   onLogUsage: (line: MaterialsItem) => void;
@@ -1510,8 +1515,21 @@ function MaterialsTrackingCard({
   });
   const usedValue = rows.reduce((sum, r) => sum + r.used * r.unitCost, 0);
   const estValue = rows.reduce((sum, r) => sum + r.estQty * r.unitCost, 0);
-  const shown = showAll ? rows : rows.slice(0, MATERIAL_ROWS_PREVIEW);
   const qty = (n: number) => String(Math.round(n * 100) / 100);
+  // Grouped under their feature (Seating Wall 1, Fire Pit…) in Cost plan
+  // order; General last. Collapsed, the first few rows show across groups.
+  const groups = sections
+    .map((s) => ({ id: s.id, title: s.is_general ? "General" : s.name, rows: rows.filter((r) => r.line.section_id === s.id) }))
+    .filter((g) => g.rows.length > 0)
+    .sort((a, b) => Number(a.title === "General") - Number(b.title === "General"));
+  let budget = showAll ? Infinity : MATERIAL_ROWS_PREVIEW;
+  const shownGroups = groups
+    .map((g) => {
+      const take = g.rows.slice(0, Math.max(0, budget));
+      budget -= take.length;
+      return { ...g, rows: take };
+    })
+    .filter((g) => g.rows.length > 0);
 
   return (
     <div className="card-surface p-5">
@@ -1529,42 +1547,51 @@ function MaterialsTrackingCard({
             Used <span className="font-bold tabular-nums text-foreground">{formatCurrency(usedValue)}</span> of{" "}
             <span className="tabular-nums">{formatCurrency(estValue)}</span> estimated · log what the crew uses as you go
           </p>
-          <ul className="mt-3 divide-y divide-hairline">
-            {shown.map(({ line, estQty, used, unitCost, entries }) => {
-              const unit = line.unit || "units";
-              const pct = estQty > 0 ? Math.min(100, (used / estQty) * 100) : used > 0 ? 100 : 0;
-              const over = estQty > 0 && used > estQty;
-              return (
-                <li key={line.id} className="py-3 first:pt-0 last:pb-0">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-foreground">{materialLineLabel(line)}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
-                        <span className={cn("font-bold", over ? "text-destructive" : "text-foreground")}>
-                          {qty(used)} / {qty(estQty)} {unit}
-                        </span>{" "}
-                        used · {formatCurrency(used * unitCost)} of {formatCurrency(estQty * unitCost)}
-                      </p>
-                    </div>
-                    <Button size="sm" variant="outline" className="h-8 shrink-0 px-2.5 text-xs font-bold" onClick={() => onLogUsage(line)}>
-                      <Plus className="mr-1 h-3.5 w-3.5" />
-                      Log usage
-                    </Button>
-                  </div>
-                  <div className="mt-2 flex items-center gap-3">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div className={cn("h-full rounded-full", over ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
-                    </div>
-                    {entries > 0 && (
-                      <button type="button" onClick={() => onShowHistory(line)} className="shrink-0 text-[11px] font-semibold text-primary hover:underline">
-                        History ({entries})
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="mt-3 space-y-4">
+            {shownGroups.map((g) => (
+              <div key={g.id}>
+                {groups.length > 1 && (
+                  <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{g.title}</p>
+                )}
+                <ul className="divide-y divide-hairline">
+                  {g.rows.map(({ line, estQty, used, unitCost, entries }) => {
+                    const unit = line.unit || "units";
+                    const pct = estQty > 0 ? Math.min(100, (used / estQty) * 100) : used > 0 ? 100 : 0;
+                    const over = estQty > 0 && used > estQty;
+                    return (
+                      <li key={line.id} className="py-3 first:pt-0 last:pb-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">{materialLineLabel(line)}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                              <span className={cn("font-bold", over ? "text-destructive" : "text-foreground")}>
+                                {qty(used)} / {qty(estQty)} {unit}
+                              </span>{" "}
+                              used · {formatCurrency(used * unitCost)} of {formatCurrency(estQty * unitCost)}
+                            </p>
+                          </div>
+                          <Button size="sm" variant="outline" className="h-8 shrink-0 px-2.5 text-xs font-bold" onClick={() => onLogUsage(line)}>
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Log usage
+                          </Button>
+                        </div>
+                        <div className="mt-2 flex items-center gap-3">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                            <div className={cn("h-full rounded-full", over ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
+                          </div>
+                          {entries > 0 && (
+                            <button type="button" onClick={() => onShowHistory(line)} className="shrink-0 text-[11px] font-semibold text-primary hover:underline">
+                              History ({entries})
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
           {rows.length > MATERIAL_ROWS_PREVIEW && (
             <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-2 text-sm font-semibold text-primary hover:underline">
               {showAll ? "See less" : `See all ${rows.length} materials`}
