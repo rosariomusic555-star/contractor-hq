@@ -20,6 +20,9 @@ import { OngoingJobsCard } from "@/components/dashboard/OngoingJobsCard";
 import { NeedsYou } from "@/components/dashboard/NeedsYou";
 import { EstimatingInsightsBanner } from "@/components/dashboard/EstimatingInsightsBanner";
 import { FollowUpsCard } from "@/components/dashboard/FollowUpsCard";
+import { DashboardV2 } from "@/components/dashboard2/DashboardV2";
+import { useDashboardPrefs } from "@/components/dashboard2/prefs";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { CreateOpportunityDialog } from "@/components/common/CreateOpportunityDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -42,7 +45,18 @@ import { DEMO_REVENUE_GOAL } from "@/lib/demoData";
 const KPI_LINK_CLASS =
   "group block rounded-card transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
+/**
+ * /dashboard — the original Dashboard, or the refreshed one (DashboardV2)
+ * behind the "New dashboard" switch (per user, this browser). The original
+ * stays untouched until the new one is approved.
+ */
 export function DashboardView() {
+  const { prefs, update } = useDashboardPrefs();
+  if (prefs.useNew) return <DashboardV2 onUseOld={() => update({ useNew: false })} />;
+  return <DashboardV1 onUseNew={() => update({ useNew: true })} />;
+}
+
+function DashboardV1({ onUseNew }: { onUseNew: () => void }) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { session } = useAuth();
@@ -159,6 +173,10 @@ export function DashboardView() {
           <Plus className="mr-1.5 h-4 w-4" />
           New opportunity
         </Button>
+        <label className="mt-2 flex min-h-[44px] items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <Switch checked={false} onCheckedChange={(v) => v && onUseNew()} aria-label="New dashboard" />
+          Try the new dashboard
+        </label>
       </div>
 
       {/* ---- Desktop header ---- */}
@@ -167,6 +185,10 @@ export function DashboardView() {
         subtitle={`${dateLabel} · here's your business overview`}
         actions={
           <>
+            <label className="flex items-center gap-1.5 px-1 text-xs font-semibold text-muted-foreground">
+              <Switch checked={false} onCheckedChange={(v) => v && onUseNew()} aria-label="New dashboard" />
+              New dashboard
+            </label>
             <Button
               variant="outline"
               onClick={() => newInvoiceMut.mutate()}

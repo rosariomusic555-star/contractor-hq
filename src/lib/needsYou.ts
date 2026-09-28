@@ -1,6 +1,7 @@
 import { pluralize, formatCurrency } from "./utils";
 import { reviewNeedsYouItems, type ReviewNeedsYouInput, type ReviewSettingsLike } from "./reviews";
 import { quoteTotal, type Appointment, type Invoice, type Opportunity, type Quote } from "./api";
+import { coldLabel, coldState } from "./quoteActivity";
 import { invoiceDaysLate } from "./financials";
 import { overdueSiteVisitsByOpportunity, siteVisitDateLabel } from "./siteVisitCheck";
 
@@ -11,6 +12,15 @@ const FOLLOWUP_DAYS_THRESHOLD = 3;
 const DAY = 86_400_000;
 
 export type NeedsYouTone = "red" | "grey" | "green";
+
+/** Filter chips on the Dashboard: All / Jobs / Money / Clients / Crew. */
+export type NeedsYouCategory = "jobs" | "money" | "clients" | "crew";
+export const NEEDS_YOU_CATEGORIES: { key: NeedsYouCategory; label: string }[] = [
+  { key: "jobs", label: "Jobs" },
+  { key: "money", label: "Money" },
+  { key: "clients", label: "Clients" },
+  { key: "crew", label: "Crew" },
+];
 
 export interface NeedsYouItem {
   key: string;
@@ -23,6 +33,30 @@ export interface NeedsYouItem {
    * across categories on purpose, so the combined feed is genuinely
    * "most overdue first" rather than grouped by category first. */
   sortValue: number;
+  /** Set by the builders; items from other modules get one from their key prefix (categoryOf). */
+  category?: NeedsYouCategory;
+}
+
+const PREFIX_CATEGORY: [string, NeedsYouCategory][] = [
+  ["precon", "jobs"],
+  ["heads-up", "jobs"],
+  ["insights", "jobs"],
+  ["maint", "clients"],
+  ["review", "clients"],
+  ["quote", "clients"],
+  ["site-visit", "clients"],
+  ["change-request", "clients"],
+  ["co-", "clients"],
+  ["task", "clients"],
+  ["invoice", "money"],
+  ["deposit", "money"],
+  ["credit", "money"],
+  ["progress", "crew"],
+  ["timesheet", "crew"],
+];
+
+export function categoryOf(item: Pick<NeedsYouItem, "key" | "category">): NeedsYouCategory {
+  return item.category ?? PREFIX_CATEGORY.find(([p]) => item.key.startsWith(p))?.[1] ?? "jobs";
 }
 
 const daysSince = (iso: string, now: Date) => Math.floor((now.getTime() - new Date(iso).getTime()) / DAY);
@@ -55,21 +89,151 @@ function overdueInvoiceItems(invoices: Invoice[], now: Date): NeedsYouItem[] {
  * quote edited after sharing (still unread by the client) would reset the
  * clock. Good enough for a nudge threshold.
  */
-function quoteFollowUpItems(quotes: Quote[], now: Date): NeedsYouItem[] {
+function quoteFollowUpItems(quotes: Quote[], now: Date, cold?: ColdSettings | null): NeedsYouItem[] {
   return quotes
     .filter((q) => q.status === "sent")
-    .map((q) => ({ quote: q, since: daysSince(q.updated_at, now) }))
-    .filter(({ since }) => since >= FOLLOWUP_DAYS_THRESHOLD)
+    .map((q) => ({ quote: q, since: daysSince(q.updated_at, now), cold: cold ? coldState(q, cold, now) : null }))
+    .filter(({ since, cold: c }) => since >= FOLLOWUP_DAYS_THRESHOLD || !!c)
     .sort((a, b) => b.since - a.since)
-    .map(({ quote, since }) => ({
+    .map(({ quote, since, cold: c }) => ({
+      // Going cold (0117) replaces the plain follow-up for the same quote.
       key: `quote-followup-${quote.id}`,
-      tone: "grey" as const,
-      title: `Quote shared ${pluralize(since, "day")} ago`,
+      tone: c ? ("red" as const) : ("grey" as const),
+      title: c ? coldLabel(c) : `Quote shared ${pluralize(since, "day")} ago`,
       subtitle: `${quote.project?.name ?? "Standalone quote"} · ${formatCurrency(quoteTotal(quote.quote_sections))}`,
       action: "Follow up",
       href: `/quotes/${quote.id}`,
-      sortValue: since,
+      sortValue: Math.max(since, c?.days ?? 0),
+      category: "clients" as const,
     }));
+}
+
+type ColdSettings = { cold_unopened_days: number; cold_unsigned_days: number };
+
+/** Everything else the Dashboard queue pulls in — each list already loaded elsewhere. */
+export interface NeedsYouMore {
+  coldSettings?: ColdSettings | null;
+  /** Client change requests on approved selections (0115), status open. */
+  changeRequests?: { id: string; project_id: string | null; note: string | null; created_at: string; requested_by: string | null; project?: { name: string } | null }[];
+  /** Change orders sent to the client, no answer yet. */
+  changeOrders?: { id: string; project_id: string; status: string; title?: string | null; updated_at: string; project?: { name: string } | null }[];
+  /** Payments with money not yet applied to an invoice. */
+  credits?: { id: string; unallocated: number; paid_on: string; project_id: string | null; project?: { name: string } | null }[];
+  /** CRM tasks (overdue / due today). */
+  tasks?: { id: string; title: string; due_at: string | null; completed: boolean }[];
+  progressPending?: { id: string; project_id: string; project?: { name: string } | null; author_name?: string | null; created_at: string }[];
+  timesheetsSubmitted?: { id: string; employee?: { name: string } | null; period_start: string; submitted_at: string | null }[];
+  headsUps?: { id: string; project_id: string; project?: { name: string } | null; created_at: string }[];
+  insightsOpen?: number;
+}
+
+function moreItems(m: NeedsYouMore, now: Date): NeedsYouItem[] {
+  const out: NeedsYouItem[] = [];
+  const today = now.toISOString().slice(0, 10);
+  for (const r of m.changeRequests ?? []) {
+    out.push({
+      key: `change-request-${r.id}`,
+      tone: "red",
+      title: `Change request${r.requested_by ? ` from ${r.requested_by}` : ""}`,
+      subtitle: `${r.project?.name ?? "Project"}${r.note ? ` · “${r.note}”` : ""}`,
+      action: "Review",
+      href: `/projects/${r.project_id}`,
+      sortValue: Math.max(daysSince(r.created_at, now), 1) + 2,
+      category: "clients",
+    });
+  }
+  for (const c of m.changeOrders ?? []) {
+    const since = daysSince(c.updated_at, now);
+    if (c.status !== "sent" || since < FOLLOWUP_DAYS_THRESHOLD) continue;
+    out.push({
+      key: `co-${c.id}`,
+      tone: "grey",
+      title: `Change order waiting ${pluralize(since, "day")}`,
+      subtitle: `${c.project?.name ?? "Project"}${c.title ? ` · ${c.title}` : ""}`,
+      action: "Follow up",
+      href: `/projects/${c.project_id}/change-orders/${c.id}`,
+      sortValue: since,
+      category: "clients",
+    });
+  }
+  for (const p of m.credits ?? []) {
+    if (p.unallocated < 0.01) continue;
+    out.push({
+      key: `credit-${p.id}`,
+      tone: "green",
+      title: `${formatCurrency(p.unallocated)} unapplied credit`,
+      subtitle: `${p.project?.name ?? "Payment"} · received ${p.paid_on}`,
+      action: "Apply",
+      href: p.project_id ? `/projects/${p.project_id}` : "/invoices",
+      sortValue: Math.max(daysSince(p.paid_on, now), 1),
+      category: "money",
+    });
+  }
+  const due = (m.tasks ?? []).filter((t) => !t.completed && t.due_at && t.due_at.slice(0, 10) <= today);
+  for (const t of due) {
+    const late = daysSince(t.due_at!, now);
+    out.push({
+      key: `task-${t.id}`,
+      tone: late > 0 ? "red" : "grey",
+      title: t.title,
+      subtitle: late > 0 ? `Task · ${pluralize(late, "day")} overdue` : "Task · due today",
+      action: "Open",
+      href: "/tasks",
+      sortValue: Math.max(late, 0) + 1,
+      category: "clients",
+    });
+  }
+  const prog = m.progressPending ?? [];
+  if (prog.length) {
+    out.push({
+      key: "progress-pending",
+      tone: "grey",
+      title: `${pluralize(prog.length, "crew update")} to review`,
+      subtitle: [...new Set(prog.map((p) => p.project?.name).filter(Boolean))].join(", ") || "Progress updates",
+      action: "Review",
+      href: "/dashboard#crew",
+      sortValue: Math.max(...prog.map((p) => daysSince(p.created_at, now)), 1),
+      category: "crew",
+    });
+  }
+  const ts = m.timesheetsSubmitted ?? [];
+  if (ts.length) {
+    out.push({
+      key: "timesheets-waiting",
+      tone: "grey",
+      title: `${pluralize(ts.length, "timesheet")} waiting for approval`,
+      subtitle: ts.map((t) => t.employee?.name).filter(Boolean).join(", "),
+      action: "Review",
+      href: "/timesheets",
+      sortValue: Math.max(...ts.map((t) => (t.submitted_at ? daysSince(t.submitted_at, now) : 0)), 1),
+      category: "crew",
+    });
+  }
+  for (const h of m.headsUps ?? []) {
+    out.push({
+      key: `heads-up-${h.id}`,
+      tone: "red",
+      title: "Let the client know about the schedule change",
+      subtitle: h.project?.name ?? "Schedule change",
+      action: "Send",
+      href: `/projects/${h.project_id}`,
+      sortValue: Math.max(daysSince(h.created_at, now), 1) + 1,
+      category: "jobs",
+    });
+  }
+  if (m.insightsOpen) {
+    out.push({
+      key: "insights-open",
+      tone: "grey",
+      title: `${pluralize(m.insightsOpen, "estimating insight")} to review`,
+      subtitle: "From your closed-out jobs",
+      action: "Review",
+      href: "/settings/estimating-insights",
+      sortValue: 0,
+      category: "jobs",
+    });
+  }
+  return out;
 }
 
 /**
@@ -139,6 +303,7 @@ export function buildNeedsYouItems(
   siteVisits: { opportunities: Opportunity[]; appointments: Appointment[] } = { opportunities: [], appointments: [] },
   reviews: { requests: ReviewNeedsYouInput[]; settings: ReviewSettingsLike | null } = { requests: [], settings: null },
   extra: NeedsYouItem[] = [],
+  more: NeedsYouMore = {},
 ): NeedsYouItem[] {
   return [
     // Pre-construction (0124) and anything else computed elsewhere.
@@ -147,6 +312,9 @@ export function buildNeedsYouItems(
     ...siteVisitConfirmItems(siteVisits.opportunities, siteVisits.appointments, now),
     ...overdueInvoiceItems(invoices, now),
     ...depositItems(quotes, invoices, now),
-    ...quoteFollowUpItems(quotes, now),
-  ].sort((a, b) => b.sortValue - a.sortValue);
+    ...quoteFollowUpItems(quotes, now, more.coldSettings),
+    ...moreItems(more, now),
+  ]
+    .map((i) => ({ ...i, category: categoryOf(i) }))
+    .sort((a, b) => b.sortValue - a.sortValue);
 }

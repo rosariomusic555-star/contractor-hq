@@ -1,12 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { listAppointments, listInvoices, listOpportunities, listQuotes } from "@/lib/api";
-import { buildNeedsYouItems } from "@/lib/needsYou";
-import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
-import { usePreconNeedsYou } from "@/components/precon/usePrecon";
-import { useMaintenanceNeedsYou } from "@/components/maintenance/useMaintenance";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
+import { useNeedsYouItems } from "./useNeedsYouItems";
 
 const MAX_ITEMS = 5;
 
@@ -14,18 +9,8 @@ const MAX_ITEMS = 5;
  * follow-ups, deposit prompts. Capped to the 5 most urgent; see /needs-you (NeedsYouView) for
  * the full, uncapped list — same buildNeedsYouItems() source, same order. */
 export function NeedsYou({ className }: { className?: string }) {
-  const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
-  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
-  const { data: appointments = [] } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
-  // Review requests (0122) — "Ask Greg Gray for a review" / "Remind Greg…".
-  const reviews = useReviewNeedsYou();
-  // Pre-construction (0124) — jobs starting soon with required items open.
-  const precon = usePreconNeedsYou();
-  // Maintenance reminders (0127) — set-up prompts + past clients coming due.
-  const maintenance = useMaintenanceNeedsYou();
-
-  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, [...precon, ...maintenance]);
+  // Every feature's action items (useNeedsYouItems) — same list as /needs-you.
+  const { items } = useNeedsYouItems();
   const shown = items.slice(0, MAX_ITEMS);
 
   return (
