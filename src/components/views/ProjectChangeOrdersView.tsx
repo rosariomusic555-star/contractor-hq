@@ -28,7 +28,7 @@ import {
 } from "@/lib/api";
 import { changeOrderStatusMeta, invoiceStatusMeta } from "@/lib/statusMeta";
 import { featureName } from "@/lib/features";
-import { changeOrderDecisionLine, changeOrderNumbers, changeOrderSummary, invoicesByChangeOrder, signedMoney } from "@/lib/projectBilling";
+import { changeOrderDecisionLine, changeOrderInvoiceable, changeOrderNumbers, changeOrderSummary, invoicesByChangeOrder, signedMoney } from "@/lib/projectBilling";
 
 const amountColor = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "text-foreground");
 const shareUrl = (co: Pick<ChangeOrder, "share_token">) => (co.share_token ? `${window.location.origin}/change-order/${co.share_token}` : null);
@@ -285,7 +285,7 @@ export function ProjectChangeOrdersView() {
                             Mark approved
                           </Button>
                         )}
-                        {co.status === "approved" && amount > 0 && coInvoices.length === 0 && (
+                        {changeOrderInvoiceable(co, coInvoices).ok && (
                           <Button size="sm" variant="outline" className="h-9" disabled={invoiceMut.isPending} onClick={() => invoiceMut.mutate(co)}>
                             Create invoice
                           </Button>
@@ -309,9 +309,11 @@ export function ProjectChangeOrdersView() {
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {co.status === "approved" && amount > 0 && coInvoices.length > 0 && (
-                              <DropdownMenuItem onSelect={() => invoiceMut.mutate(co)}>Create another invoice</DropdownMenuItem>
-                            )}
+                            {coInvoices.map((i) => (
+                              <DropdownMenuItem key={i.id} onSelect={() => navigate(`/projects/${id}/invoices/${i.id}`)}>
+                                Open invoice {i.invoice_number ?? ""}
+                              </DropdownMenuItem>
+                            ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>

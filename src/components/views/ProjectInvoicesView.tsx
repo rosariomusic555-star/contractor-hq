@@ -24,7 +24,7 @@ import {
   type Invoice,
 } from "@/lib/api";
 import { invoiceStatusMeta } from "@/lib/statusMeta";
-import { invoiceBalance, invoicePaid, projectMoneySummary } from "@/lib/projectMoney";
+import { invoiceBalance, invoicePaid, projectMoneySummary, remainingToInvoice } from "@/lib/projectMoney";
 import {
   changeOrderNumbers,
   invoiceClientStep,
@@ -67,6 +67,8 @@ export function ProjectInvoicesView() {
   const contract = projectContractValue(quotes, changeOrders);
   const money = projectMoneySummary({ contractValue: contract, invoices, payments });
   const notInvoiced = Math.max(0, Math.round((contract - money.invoiced) * 100) / 100);
+  // What "Remaining balance" will actually create — drafts count as already billed.
+  const balanceToBill = remainingToInvoice(contract, invoices);
   const coNumbers = changeOrderNumbers(changeOrders);
   const attention = invoicesNeedingAttention(invoices);
   const attentionCount = attention.overdue.length + attention.notOpened.length + attention.viewedUnpaid.length;
@@ -112,7 +114,7 @@ export function ProjectInvoicesView() {
       <DropdownMenuContent align="end" className="w-64">
         {!hasDeposit && <DropdownMenuItem onSelect={() => createMut.mutate("deposit")}>Deposit (from the quote's deposit %)</DropdownMenuItem>}
         <DropdownMenuItem onSelect={() => createMut.mutate("balance")}>
-          Remaining balance{notInvoiced > 0 ? ` · ${formatCurrency(notInvoiced)}` : ""}
+          Remaining balance{balanceToBill > 0 ? ` · ${formatCurrency(balanceToBill)}` : ""}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

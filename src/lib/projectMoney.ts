@@ -211,3 +211,13 @@ export function contractBreakdown(quotes: BreakdownQuote[], changeOrders: Breakd
   }
   return { lines, total: r2(lines.reduce((s, l) => s + l.amount, 0)) };
 }
+
+/** What a "Remaining balance" invoice is for: the contract less EVERY
+ * invoice already on the job, drafts included (a drafted deposit is
+ * already spoken for), never below 0. The one number both the New invoice
+ * menu and createProjectInvoice use. */
+export function remainingToInvoice(contractValue: number, invoices: Pick<Invoice, "amount">[]): number {
+  const already = invoices.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+  return Math.max(0, r2(contractValue - already));
+}
+

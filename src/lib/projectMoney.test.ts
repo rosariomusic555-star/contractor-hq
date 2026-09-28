@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  remainingToInvoice,
   invoiceBalance,
   invoicePaymentState,
   openInvoices,
@@ -106,5 +107,16 @@ describe("contract breakdown", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(b.total).toBe(projectContractValue(quotes as any, cos as any));
     expect(b.total).toBe(33_000);
+  });
+});
+
+// Money bug (2026-09-28): the New invoice menu said "Remaining balance ·
+// $10,000" while the invoice it created was $7,000 (a $3,000 draft deposit
+// was subtracted by one and not the other). One helper now.
+describe("remainingToInvoice", () => {
+  it("subtracts every invoice, drafts included, never below 0", () => {
+    expect(remainingToInvoice(10000, [{ amount: 3000 }])).toBe(7000);
+    expect(remainingToInvoice(10000, [{ amount: 6000 }, { amount: 6000 }])).toBe(0);
+    expect(remainingToInvoice(0.3, [{ amount: 0.1 }, { amount: 0.1 }])).toBe(0.1);
   });
 });

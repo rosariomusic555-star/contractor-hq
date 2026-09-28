@@ -42,7 +42,8 @@ import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { revokeLocalImageUrls, type DraftLineItem, type DraftLineSection } from "@/lib/draftLineItem";
 import { changeOrderStatusMeta } from "@/lib/statusMeta";
 import { computeProjectImpact, scheduleImpactLabel } from "@/lib/changeOrderImpact";
-import { costChangesDelta } from "@/lib/changeOrderCost";
+import { changeOrderDraftTotal, costChangesDelta } from "@/lib/changeOrderCost";
+import { changeOrderInvoiceable } from "@/lib/projectBilling";
 import { activeFeatures, featureName } from "@/lib/features";
 import { CostChangesBlock, type DraftCostChange } from "@/components/changeOrders/CostChangesBlock";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
@@ -55,8 +56,6 @@ import {
   listMaterials,
   listMaterialsSheets,
   listCategories,
-  getQuoteDefaults,
-  QUOTE_DEFAULTS_FALLBACK,
   updateChangeOrder,
   addChangeOrderSection,
   updateChangeOrderSection,
@@ -187,10 +186,6 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
 
   const { data: project } = useQuery({ queryKey: ["projects", projectId], queryFn: () => getProject(projectId) });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  const { data: quoteDefaults = QUOTE_DEFAULTS_FALLBACK } = useQuery({
-    queryKey: ["quote-defaults"],
-    queryFn: getQuoteDefaults,
-  });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes", { project: projectId }], queryFn: () => listQuotes(projectId) });
   const { data: projectChangeOrders = [] } = useQuery({
     queryKey: ["change-orders", { project: projectId }],
@@ -321,9 +316,11 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     );
 
   // --- derived amounts (from the draft) ------------------------------------
-  const subtotal = draft.sections.reduce((sum, s) => sum + sectionSubtotal(s), 0);
-  const taxAmount = (subtotal * quoteDefaults.sales_tax_pct) / 100;
-  const total = subtotal + taxAmount;
+  const subtotal = changeOrderDraftTotal(draft.sections);
+  // No sales tax: nothing charges it (the saved amount, the client's page,
+  // the contract value and invoices are all this subtotal) — same as quotes,
+  // where a shown-but-never-charged tax line was removed earlier.
+  const total = subtotal;
   const itemCount = draft.sections.reduce((n, s) => n + s.items.length, 0);
   const scheduleImpactDays = draft.scheduleImpactDays.trim() ? parseInt(draft.scheduleImpactDays, 10) || 0 : 0;
   const costDelta = costChangesDelta(draft.costChanges);
@@ -598,6 +595,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     onError,
   });
 
+  const coInvoice = invoices.find((i) => i.change_order_id === changeOrder.id) ?? null;
   const createInvoiceMut = useMutation({
     mutationFn: () => createChangeOrderInvoice(changeOrder),
     onSuccess: (invoice) => navigate(`/invoices/${invoice.id}`),
@@ -658,11 +656,17 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                 </Button>
               </>
             )}
-            {/* A credit (negative) comes off the balance — nothing to invoice. */}
-            {changeOrder.status === "approved" && Number(changeOrder.amount) > 0 && (
-              <Button onClick={() => createInvoiceMut.mutate()} disabled={createInvoiceMut.isPending} className="font-bold">
-                {createInvoiceMut.isPending ? "Creating…" : "Create invoice"}
+            {/* One invoice per change order; a credit comes off the balance — nothing to invoice. */}
+            {coInvoice ? (
+              <Button variant="outline" onClick={() => navigate(`/invoices/${coInvoice.id}`)} className="font-bold">
+                Open invoice {coInvoice.invoice_number ?? ""}
               </Button>
+            ) : (
+              changeOrderInvoiceable(changeOrder, []).ok && (
+                <Button onClick={() => createInvoiceMut.mutate()} disabled={createInvoiceMut.isPending} className="font-bold">
+                  {createInvoiceMut.isPending ? "Creating…" : "Create invoice"}
+                </Button>
+              )
             )}
           </div>
         </div>
@@ -899,7 +903,6 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             <div className="text-base font-bold text-foreground">Change order totals</div>
             <div className="mt-2.5">
               <MoneyRow label="Subtotal" value={formatCurrency(subtotal)} />
-              <MoneyRow label={`Sales tax ${quoteDefaults.sales_tax_pct}%`} value={formatCurrency(taxAmount)} />
               {hasCostChanges && (
                 <>
                   <MoneyRow label="Planned cost change" value={`${costDelta < 0 ? "−" : "+"}${formatCurrency(Math.abs(costDelta))}`} />

@@ -87,15 +87,7 @@ export function SettingsQuoteDefaultsView() {
               suffix="days"
               value={draft.quote_validity_days}
               onChange={(v) => edit({ quote_validity_days: v })}
-              note="Auto-expires after"
-            />
-            <NumberField
-              label="Sales tax"
-              suffix="%"
-              step="0.01"
-              value={draft.sales_tax_pct}
-              onChange={(v) => edit({ sales_tax_pct: v })}
-              note="MA — materials only"
+              note="Sets the quote's “valid until” date"
             />
           </div>
 

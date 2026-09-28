@@ -3380,10 +3380,10 @@ export async function createProjectInvoice(
   const depositPct = headline ? Number(headline.deposit_percentage) : 0;
   const hasDeposit = invoices.some((i) => i.notes === DEPOSIT_INVOICE_NOTE);
   const asDeposit = kind === "deposit" || (kind === "auto" && !hasDeposit && depositPct > 0 && contract > 0);
-  const alreadyInvoiced = invoices.reduce((sum, i) => sum + Number(i.amount), 0);
   // The deposit is on the original quote; add-ons draft their own (0108).
   const depositBase = headline ? quoteTotal(headline.quote_sections) : contract;
-  const amount = asDeposit ? depositBase * (depositPct / 100) : Math.max(0, contract - alreadyInvoiced);
+  const { remainingToInvoice } = await import("./projectMoney");
+  const amount = asDeposit ? depositBase * (depositPct / 100) : remainingToInvoice(contract, invoices);
 
   const invoice = await createInvoice({
     project_id: projectId,
@@ -3944,7 +3944,20 @@ export async function contractorApproveChangeOrder(input: {
 }
 
 /** An invoice billing one approved change order (its amount, linked by change_order_id). */
-export async function createChangeOrderInvoice(co: Pick<ChangeOrder, "id" | "project_id" | "title" | "amount">): Promise<Invoice> {
+export async function createChangeOrderInvoice(co: Pick<ChangeOrder, "id" | "project_id" | "title" | "amount" | "status">): Promise<Invoice> {
+  // Never bill a change order twice (or a credit / unapproved one).
+  const { data: existing, error: existingError } = await supabase.from("invoices").select("id").eq("change_order_id", co.id);
+  if (existingError) throw existingError;
+  const { changeOrderInvoiceable } = await import("./projectBilling");
+  const can = changeOrderInvoiceable(co, existing ?? []);
+  if ("reason" in can)
+    throw new Error(
+      can.reason === "already_invoiced"
+        ? "This change order already has an invoice."
+        : can.reason === "credit"
+          ? "A credit comes off the balance — there's nothing to invoice."
+          : "Only an approved change order can be invoiced.",
+    );
   const invoice = await createInvoice({
     project_id: co.project_id,
     change_order_id: co.id,
@@ -4893,9 +4906,13 @@ export async function getSharedQuote(token: string): Promise<SharedQuote | null>
   return clientSharedQuote((data as SharedQuote | null) ?? null);
 }
 
-// Note: which optional sections/items the client has checked is kept as
-// local view state on the share page only (never written back) — see
-// SharedQuotePage. The only client-facing write is signSharedQuote below.
+/** The client ticks / unticks an optional item on the share link — saved,
+ * so signing and the deposit use it (set_quote_item_selection, 0008; the
+ * approved-quote lock, 0033, rejects it once signed). */
+export async function setSharedQuoteItemSelection(token: string, itemId: string, selected: boolean): Promise<void> {
+  const { error } = await supabase.rpc("set_quote_item_selection", { p_token: token, p_item_id: itemId, p_selected: selected });
+  if (error) throw error;
+}
 
 export async function signSharedQuote(token: string, signedBy: string): Promise<void> {
   const { error } = await supabase.rpc("sign_quote", { p_token: token, p_signed_by: signedBy });

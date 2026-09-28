@@ -195,3 +195,16 @@ export function quoteSummary<T extends Pick<Quote, "status">>(quotes: T[], total
   };
 }
 
+
+/** Can this change order get an invoice now? Only an approved, positive one
+ * (a credit comes off the balance) that isn't billed yet — so it's never
+ * invoiced twice. `existing` = the invoices already billing it. */
+export function changeOrderInvoiceable(
+  co: Pick<ChangeOrder, "status" | "amount">,
+  existing: Pick<Invoice, "id">[],
+): { ok: true } | { ok: false; reason: "not_approved" | "credit" | "already_invoiced" } {
+  if (co.status !== "approved") return { ok: false, reason: "not_approved" };
+  if (!(Number(co.amount) > 0)) return { ok: false, reason: "credit" };
+  if (existing.length > 0) return { ok: false, reason: "already_invoiced" };
+  return { ok: true };
+}
