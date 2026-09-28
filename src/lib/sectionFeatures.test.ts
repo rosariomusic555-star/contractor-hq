@@ -91,3 +91,23 @@ describe("new sheet: one section per project feature", () => {
     expect(featureSectionSeeds([], all, [])).toEqual([]);
   });
 });
+
+// Clutter bug (2026-09-28, live test): feature sections were seeded with the
+// optional add-on lines (Backrest Caps on every seating wall, Backsplash on
+// every kitchen) even when nothing was measured for them.
+import { featureSeeds } from "./sectionFeatures";
+describe("feature sections start without add-on lines", () => {
+  it("no Backrest Caps / Backsplash / Strip Lighting until measured", () => {
+    const cats = [
+      { id: "c-sw", name: "Seating Wall" },
+      { id: "c-k", name: "Outdoor Kitchen" },
+      { id: "c-l", name: "Outdoor Lighting" },
+    ] as never[];
+    const feats = ["c-sw", "c-k", "c-l"].map((c, i) => ({ id: `f${i}`, project_id: "p", category_id: c, label: null, status: "active", source_quote_id: null, sort_order: i, created_at: "" })) as never[];
+    const names = featureSeeds(feats, cats, []).flatMap((s) => s.items.map((i) => i.name));
+    expect(names).toContain("Wall Block");
+    expect(names).not.toContain("Backrest Caps");
+    expect(names).not.toContain("Backsplash");
+    expect(names).not.toContain("Strip Lighting");
+  });
+});

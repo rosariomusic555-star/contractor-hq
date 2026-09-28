@@ -1,7 +1,7 @@
 import type { Category, SmartSectionLaborDefault, SmartSectionSettings } from "./api";
 import { featureName, liveFeatures, typeNameOf, type ProjectFeature } from "./features";
 import type { LineCostType } from "./costPlanMath";
-import { findSmartSectionSettings, findSmartSectionTemplate, resolveEffectiveLineItems } from "./smartSections";
+import { findSmartSectionSettings, findSmartSectionTemplate, startingLineItems } from "./smartSections";
 import { BUILD_TYPES } from "./buildTypes";
 import { buildTypeForCategoryName } from "./measurements";
 
@@ -185,7 +185,7 @@ export function featureSectionSeeds(
       job_category_id: cat.id,
       smart_section_build_type: template?.id ?? null,
       items: template
-        ? resolveEffectiveLineItems(template, findSmartSectionSettings(smartSettings, template.id)).map((li) => ({
+        ? startingLineItems(template, findSmartSectionSettings(smartSettings, template.id)).map((li) => ({
             name: li.name,
             cost_type: li.cost_type ?? "material",
           }))
@@ -213,7 +213,7 @@ export function featureSeeds(
       feature_id: f.id,
       smart_section_build_type: template?.id ?? null,
       items: template
-        ? resolveEffectiveLineItems(template, settings).map((li) => ({ name: li.name, cost_type: li.cost_type ?? "material" }))
+        ? startingLineItems(template, settings).map((li) => ({ name: li.name, cost_type: li.cost_type ?? "material" }))
         : [],
       labor: settings?.labor_default ?? null,
     };

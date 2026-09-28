@@ -57,6 +57,7 @@ export function SmartSectionCalculatorDialog({
   catalogItems,
   onApply,
   projectId,
+  featureId = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -66,6 +67,8 @@ export function SmartSectionCalculatorDialog({
    * section for closeouts / similar-job matching. */
   onApply: (lines: CalculatedLine[], inputs: Record<string, unknown>) => void;
   projectId?: string | null;
+  /** The section's feature — its own measurement prefills (not all of this type combined). */
+  featureId?: string | null;
 }) {
   const [answers, setAnswers] = useState<SmartSectionAnswers>({});
   const ec = useEstimatingContext(projectId);
@@ -77,7 +80,7 @@ export function SmartSectionCalculatorDialog({
   );
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [areaPrefill, setAreaPrefill] = useState<AreaPrefill | null>(null);
-  const prefill = useMeasurementPrefill(projectId, template.id, open);
+  const prefill = useMeasurementPrefill(projectId, template.id, open, featureId);
 
   /** Measurement totals → answers. Area goes through AreaOrDimensionsField
    * (it owns its sq ft / L×W inputs); plain numbers are set directly. */

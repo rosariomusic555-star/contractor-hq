@@ -1300,6 +1300,7 @@ export async function createClient(input: {
   phone: string;
   address: string;
   lead_source?: string | null;
+  preferred_contact_method?: PreferredContactMethod | null;
 }): Promise<Client> {
   const { data, error } = await supabase
     .from("clients")
@@ -1309,6 +1310,8 @@ export async function createClient(input: {
       phone: input.phone || null,
       address: input.address || null,
       lead_source: input.lead_source || null,
+      // Only sent when chosen (it was silently dropped on create before).
+      ...(input.preferred_contact_method ? { preferred_contact_method: input.preferred_contact_method } : {}),
     })
     .select()
     .single();

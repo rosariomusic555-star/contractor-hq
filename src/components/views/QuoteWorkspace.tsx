@@ -1353,6 +1353,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                               <>
                                 <SectionQuickQuoteAction
                                   projectId={quote.project_id}
+                                  featureId={section.feature_id ?? null}
                                   buildType={quickQuoteBuildTypeFor(section)}
                                   hasQuickQuote={section.items.some((i) => i.quick_quote_build_type)}
                                   onClick={() => startSectionQuickQuote(section)}
@@ -1722,6 +1723,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   : addQuickQuoteSection(result, quickQuoteBuildType)
               }
               projectId={quote.project_id}
+              featureId={quickQuoteSectionId ? draft.sections.find((s) => s.id === quickQuoteSectionId)?.feature_id ?? null : null}
             />
           );
         })()}
@@ -2368,13 +2370,15 @@ function SectionQuickQuoteAction({
   buildType,
   hasQuickQuote,
   onClick,
+  featureId = null,
 }: {
   projectId: string | null;
   buildType: string | null;
   hasQuickQuote: boolean;
   onClick: () => void;
+  featureId?: string | null;
 }) {
-  const prefill = useMeasurementPrefill(projectId, buildType ?? "", !!buildType && !!projectId);
+  const prefill = useMeasurementPrefill(projectId, buildType ?? "", !!buildType && !!projectId, featureId);
   const label = hasQuickQuote ? "Update quick quote" : "Quick quote";
   return (
     <SectionToolbarAction

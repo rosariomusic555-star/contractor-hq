@@ -43,6 +43,18 @@ export const resolveEffectiveLineItems = (
 ): SmartSectionLineItemSetting[] =>
   settings?.line_items ?? template.lineItemSlots.map((s) => ({ slot_key: s.key, name: s.defaultName }));
 
+/** The lines a NEW section starts with: the effective line items minus the
+ * add-on slots (backsplash, backrest caps, strip lighting) — those are added
+ * by the calculator only when measured, so a kitchen without a backsplash
+ * never gets an empty Backsplash line. */
+export const startingLineItems = (
+  template: SmartSectionTemplate,
+  settings: SmartSectionSettings | null,
+): SmartSectionLineItemSetting[] => {
+  const addOns = new Set(template.lineItemSlots.filter((s) => s.addOn).map((s) => s.key));
+  return resolveEffectiveLineItems(template, settings).filter((li) => !li.slot_key || !addOns.has(li.slot_key));
+};
+
 /** Step 2 — one tunable's effective value for this contractor: their
  * stored override if present, else the template's shipped default. */
 export const resolveTunableValue = (

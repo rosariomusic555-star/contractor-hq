@@ -918,6 +918,30 @@ export function prefillSources(instances: FeatureInstance[], buildType: string):
   return [{ id: "sum", label: `All ${singles.length} combined — ${totalsHeadline(kind, sum)}`, totals: sum }, ...singles];
 }
 
+/**
+ * The prefill choices for ONE feature's section (Seating Wall 2's Cost plan
+ * section, its quote section): that feature's own measurement first — the
+ * default — then the others and "all combined" to pick from. Without a
+ * feature (or nothing measured for it) it's prefillSources() as before.
+ * (Defaulting every section to "all combined" made each seating wall's
+ * section calculate BOTH walls' materials — counted twice across sections.)
+ */
+export function prefillSourcesForFeature(instances: FeatureInstance[], buildType: string, featureId: string | null | undefined): PrefillSource[] {
+  const all = prefillSources(instances, buildType);
+  if (!featureId) return all;
+  const mine = instances.filter((i) => i.build_type === buildType && i.feature_id === featureId).map((i) => i.id);
+  if (mine.length === 0) return all;
+  const own = all.filter((s) => mine.includes(s.id));
+  if (own.length === 0) return all;
+  let first: PrefillSource[] = own;
+  if (own.length > 1) {
+    const kind = featureKindOf(buildType)!;
+    const sum = sumTotals(own.map((s) => s.totals));
+    first = [{ id: `feature:${featureId}`, label: `This feature — ${totalsHeadline(kind, sum)}`, totals: sum }, ...own];
+  }
+  return [...first, ...all.filter((s) => !own.includes(s))];
+}
+
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Height ÷ the template's course height, rounded to the nearest whole

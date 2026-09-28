@@ -1856,7 +1856,7 @@ function MaterialsSectionCard({
   // "Measurements available · Fill quantities": the project has site
   // measurements for this feature and nothing's been filled in yet. Opens
   // the calculator (which prefills from them) — never runs it on its own.
-  const measurementPrefill = useMeasurementPrefill(projectId, buildType?.id ?? "", !!buildType);
+  const measurementPrefill = useMeasurementPrefill(projectId, buildType?.id ?? "", !!buildType, section.feature_id ?? null);
   const offerFillFromMeasurements =
     !!buildType && measurementPrefill.sources.length > 0 && section.items.every((i) => !i.quantity);
   // View order only — the saved manual order is untouched unless the user
@@ -2077,6 +2077,7 @@ function MaterialsSectionCard({
           catalogItems={catalogItems}
           onApply={onApplyCalculatedLines}
           projectId={projectId}
+          featureId={section.feature_id ?? null}
         />
       )}
     </SectionCard>

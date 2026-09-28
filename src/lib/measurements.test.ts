@@ -16,6 +16,7 @@ import {
   normalizeData,
   pathUArea,
   prefillSources,
+  prefillSourcesForFeature,
   quickQuotePrefill,
   smartSectionPrefill,
   sumTotals,
@@ -452,3 +453,24 @@ describe("walkway U-shape + corner rule", () => {
     expect(featureSummary({ build_type: "walkway", kind: "flatwork" }, [walk], [])).toBe("U-shape · 152 sq ft");
   });
 });
+
+// Math bug (2026-09-28, live test): each seating wall has its own Cost plan
+// section, but every section's calculator prefilled "all seating walls
+// combined" — 26 LF in Seating Wall 1's section AND Seating Wall 2's, so
+// the walls' block was counted twice across the plan.
+describe("a feature's section prefills its own measurement", () => {
+  const sw = (id: string, feature_id: string, lf: number, h: number) => ({ ...inst("seating_wall", { layout: "straight", height_in: h, runs: [{ id: `r${id}`, length_ft: lf }] }, null), id, feature_id });
+  const list = [sw("a", "F1", 16, 18), sw("b", "F2", 10, 20)];
+  it("defaults to that feature's wall; the others and the combined total stay pickable", () => {
+    const s2 = prefillSourcesForFeature(list, "seating_wall", "F2");
+    expect(s2[0].id).toBe("b");
+    expect(s2[0].totals.linear_ft).toBe(10);
+    expect(s2.map((s) => s.id)).toEqual(["b", "sum", "a"]);
+    expect(prefillSourcesForFeature(list, "seating_wall", "F1")[0].totals.linear_ft).toBe(16);
+  });
+  it("no feature (or nothing measured for it) keeps the old order: combined first", () => {
+    expect(prefillSourcesForFeature(list, "seating_wall", null)[0].id).toBe("sum");
+    expect(prefillSourcesForFeature(list, "seating_wall", "F9")[0].id).toBe("sum");
+  });
+});
+

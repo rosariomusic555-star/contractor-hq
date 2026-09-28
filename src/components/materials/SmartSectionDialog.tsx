@@ -8,7 +8,7 @@ import { listSmartSectionSettings } from "@/lib/api";
 import {
   SMART_SECTION_TEMPLATES,
   findSmartSectionSettings,
-  resolveEffectiveLineItems,
+  startingLineItems,
 } from "@/lib/smartSections";
 import { SmartSectionTemplateEditorDialog } from "./SmartSectionTemplateEditorDialog";
 
@@ -56,10 +56,7 @@ export function SmartSectionDialog({
               const settings = findSmartSectionSettings(allSettings, template.id);
               // Add-on lines (backsplash, backrest caps, strip lighting) are
               // added by the calculator only when they're measured.
-              const addOns = new Set(template.lineItemSlots.filter((sl) => sl.addOn).map((sl) => sl.key));
-              const lineItems = resolveEffectiveLineItems(template, settings)
-                .filter((li) => !li.slot_key || !addOns.has(li.slot_key))
-                .map((li) => ({
+              const lineItems = startingLineItems(template, settings).map((li) => ({
                 name: li.name,
                 cost_type: li.cost_type ?? ("material" as const),
               }));
