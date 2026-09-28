@@ -91,7 +91,7 @@ export const TOOLS = [
   {
     name: "search_invoices",
     description:
-      "Search/list invoices, filterable by status, client name, overdue-only, and a created_at date range. Includes days_late for each invoice.",
+      "Search/list invoices, filterable by status, client name, overdue-only, and a created_at date range. Each invoice has amount, paid (payments applied), balance_owed and days_late. A draft hasn't been sent, so it isn't owed: its balance_owed is 0. Use outstanding_total (sent/overdue balances) for \"what's outstanding / owed\" and draft_total for invoices not sent yet — both cover every match, even when the list is truncated.",
     input_schema: {
       type: "object",
       properties: {
@@ -486,7 +486,7 @@ async function searchInvoices(
 ) {
   let q = sb
     .from("invoices")
-    .select("id,status,amount,due_date,invoice_number,created_at,project:projects(name,client:clients(name))")
+    .select("id,status,amount,amount_paid,due_date,invoice_number,created_at,project:projects(name,client:clients(name))")
     .order("created_at", { ascending: false })
     .limit(200);
   if (input.status) q = q.eq("status", input.status);
@@ -502,6 +502,12 @@ async function searchInvoices(
     status: inv.status,
     invoice_number: inv.invoice_number,
     amount: Number(inv.amount),
+    paid: Number(inv.amount_paid ?? 0),
+    // Same rule as the app (clientOutstandingBalance): a draft isn't owed yet.
+    balance_owed:
+      inv.status === "draft" || inv.status === "paid"
+        ? 0
+        : Math.max(0, Math.round((Number(inv.amount) - Number(inv.amount_paid ?? 0)) * 100) / 100),
     due_date: inv.due_date,
     project_name: inv.project?.name ?? null,
     client_name: inv.project?.client?.name ?? null,
@@ -521,7 +527,14 @@ async function searchInvoices(
     );
   }
 
-  return { invoices: rows.slice(0, 30), total_matches: rows.length, truncated: rows.length > 30 };
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  return {
+    invoices: rows.slice(0, 30),
+    total_matches: rows.length,
+    truncated: rows.length > 30,
+    outstanding_total: r2(rows.reduce((sum, r) => sum + r.balance_owed, 0)),
+    draft_total: r2(rows.filter((r) => r.status === "draft").reduce((sum, r) => sum + r.amount, 0)),
+  };
 }
 
 async function listExpensesTool(
