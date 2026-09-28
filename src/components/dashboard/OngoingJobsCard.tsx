@@ -32,6 +32,7 @@ import { trackedSheetIds, type DeliveryLineWithOrderStatus } from "@/lib/materia
 import { projectStatusMeta } from "@/lib/statusMeta";
 import { CategoryChips } from "@/components/common/CategoryChips";
 import { countsTowardTotals } from "@/lib/features";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const MAX_ITEMS = 6;
 
@@ -61,6 +62,7 @@ function groupByProjectId<T extends { project_id: string | null }>(rows: T[]): M
  * the cards actually rendered, never one request per card.
  */
 export function OngoingJobsCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/projects");
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
@@ -178,7 +180,7 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   };
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <header className="flex items-center justify-between">
         <h3 className="text-base font-bold text-foreground">
           Ongoing jobs <span className="text-muted-foreground">· {pluralize(allCards.length, "job")}</span>

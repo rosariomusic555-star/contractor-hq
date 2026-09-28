@@ -5,6 +5,7 @@ import { listOpportunities, listQuotes, projectContractValue } from "@/lib/api";
 import { dueBuckets, maintenanceStats, monthYear } from "@/lib/maintenance";
 import { isoDate } from "@/lib/weatherRisk";
 import { useMaintenanceItems } from "@/components/maintenance/useMaintenance";
+import { useCardLink } from "@/hooks/use-card-link";
 
 /**
  * Dashboard "Maintenance due" (0127): past clients due this month / next
@@ -13,6 +14,7 @@ import { useMaintenanceItems } from "@/components/maintenance/useMaintenance";
  * at least one reminder.
  */
 export function MaintenanceDueCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/projects");
   const { data: items = [] } = useMaintenanceItems();
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
@@ -29,7 +31,7 @@ export function MaintenanceDueCard({ className }: { className?: string }) {
   ].filter((g) => g.rows.length);
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <h3 className="text-base font-bold text-foreground">Maintenance due</h3>
       {groups.length === 0 ? (
         <p className="py-3 text-sm text-muted-foreground">No past clients due this month or next.</p>

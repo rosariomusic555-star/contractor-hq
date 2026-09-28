@@ -4,10 +4,12 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { listInvoices } from "@/lib/api";
 import { monthlyRevenue, momChange } from "@/lib/financials";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const GREEN = "hsl(131 36% 64%)";
 
 export function RevenueChart({ className }: { className?: string }) {
+  const cardLink = useCardLink("/revenue", { desktop: true });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
 
   const data = monthlyRevenue(invoices);
@@ -16,7 +18,7 @@ export function RevenueChart({ className }: { className?: string }) {
   const up = change != null && change >= 0;
 
   return (
-    <section className={cn("card-surface flex flex-col p-5 md:p-6", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface flex flex-col p-5 md:p-6", className)}>
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-base font-bold text-foreground">Revenue overview</h3>

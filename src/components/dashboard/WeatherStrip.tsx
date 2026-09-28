@@ -3,6 +3,7 @@ import { Sun, Cloud, CloudRain, CloudSnow, CloudLightning, CloudFog, AlertTriang
 import { cn } from "@/lib/utils";
 import { getBusinessProfile } from "@/lib/api";
 import { getWeatherStrip, DEFAULT_WORK_WINDOW, type WeatherIconKey, type WorkWindow } from "@/lib/weather";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const ICON: Record<WeatherIconKey, typeof Sun> = {
   sun: Sun,
@@ -28,6 +29,7 @@ const FLAG_LABEL: Record<"rain" | "cold", string> = {
  * (not an error state) if no address is set or the API/geocode fails.
  */
 export function WeatherStrip({ className }: { className?: string }) {
+  const cardLink = useCardLink("/bookings", { desktop: true });
   const { data: profile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const address = profile?.address?.trim() || null;
   const workWindow: WorkWindow = profile
@@ -46,7 +48,8 @@ export function WeatherStrip({ className }: { className?: string }) {
 
   return (
     <section
-      className={cn(
+      onClick={cardLink.onClick}
+      className={cn(cardLink.className, 
         "card-surface flex items-stretch gap-2 overflow-x-auto p-3 md:grid md:grid-cols-7 md:gap-3 md:overflow-visible",
         className,
       )}

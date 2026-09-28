@@ -6,6 +6,7 @@ import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { listProjects, listQuotes, listChangeOrders, type ChangeOrder, type Quote } from "@/lib/api";
 import { seasonalBookings } from "@/lib/bookings";
 import { MonthThumbnail } from "@/components/bookings/MonthThumbnail";
+import { useCardLink } from "@/hooks/use-card-link";
 
 function groupById<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -41,6 +42,7 @@ const CURRENT_YEAR = new Date().getFullYear();
  * click/hover target instead of 42 of them.
  */
 export function BookingsCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/bookings");
   const navigate = useNavigate();
   const { data: projects = [], isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
@@ -65,7 +67,7 @@ export function BookingsCard({ className }: { className?: string }) {
   );
 
   return (
-    <section className={cn("card-surface flex flex-col p-4 md:p-6", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface flex flex-col p-4 md:p-6", className)}>
       {/* Mobile: title, then one compact row (year nav + total) below it.
           Desktop (md:): unchanged — title and nav/total side by side. */}
       <header className="mb-4 flex flex-col gap-2 md:mb-5 md:flex-row md:flex-wrap md:items-start md:justify-between md:gap-3">

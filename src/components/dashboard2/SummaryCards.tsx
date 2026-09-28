@@ -97,7 +97,7 @@ export function CrewTimeCard() {
     .filter((x) => x.h >= otLimit - 5)
     .sort((a, b) => b.h - a.h);
   return (
-    <Card title="Crew & time" count={timers.length ? `${timers.length} clocked in` : null} viewAll={{ to: "/timesheets", label: "Timesheets" }} id="crew">
+    <Card title="Crew & time" count={timers.length ? `${timers.length} clocked in` : null} viewAll={{ to: "/timesheets", label: "Timesheets" }} id="crew" single>
       <div className="divide-y divide-hairline">
         <div className="px-4 py-2">
           {timers.length === 0 ? (
@@ -162,7 +162,7 @@ export function MoneyCard() {
   const max = Math.max(1, ...h.aging.map((b) => b.amount));
   const p = h.cash.periods[0];
   return (
-    <Card title="Money" viewAll={{ to: "/business-health", label: "Business health" }}>
+    <Card title="Money" viewAll={{ to: "/business-health", label: "Business health" }} single>
       <div className="divide-y divide-hairline">
         <div className="px-4 py-2">
           <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Receivables</p>
@@ -278,7 +278,7 @@ export function InsightsCard() {
   const hasMarketing = (roi.spend ?? 0) > 0 || roi.leads > 0;
   if (!recs.length && !hasMarketing) return null;
   return (
-    <Card title="Insights" count={recs.length || null} viewAll={recs.length ? { to: "/settings/estimating-insights" } : undefined}>
+    <Card title="Insights" count={recs.length || null} viewAll={recs.length ? { to: "/settings/estimating-insights" } : undefined} to="/settings/estimating-insights">
       <ul className="divide-y divide-hairline">
         {recs.slice(0, 2).map((r) => (
           <li key={r.key}>

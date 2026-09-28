@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { listTasks, TASK_TYPE_LABEL } from "@/lib/api";
+import { useCardLink } from "@/hooks/use-card-link";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -11,6 +12,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
  * clearly on the home dashboard"). Same card shape/conventions as
  * NeedsYou.tsx. */
 export function FollowUpsCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/tasks", { desktop: true });
   const { data: tasks = [] } = useQuery({ queryKey: ["tasks"], queryFn: listTasks });
 
   const today = todayStr();
@@ -20,7 +22,7 @@ export function FollowUpsCard({ className }: { className?: string }) {
   const items = [...overdue, ...dueToday].slice(0, 6);
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <h3 className="text-base font-bold text-foreground">
         Follow-ups <span className="text-muted-foreground">· {overdue.length + dueToday.length}</span>
       </h3>

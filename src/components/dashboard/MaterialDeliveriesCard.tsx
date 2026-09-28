@@ -4,6 +4,7 @@ import { AlertTriangle, Truck } from "lucide-react";
 import { cn, pluralize } from "@/lib/utils";
 import { listMaterialOrders, listProjects, materialOrderUnitLabel } from "@/lib/api";
 import { upcomingDeliveries } from "@/lib/materialOrders";
+import { useCardLink } from "@/hooks/use-card-link";
 
 /**
  * "A crew standing around waiting on a pallet is the most expensive thing
@@ -13,6 +14,7 @@ import { upcomingDeliveries } from "@/lib/materialOrders";
  * (see upcomingDeliveries() — same scheduled_start gap as the Weather Strip).
  */
 export function MaterialDeliveriesCard({ className }: { className?: string }) {
+  const cardLink = useCardLink("/projects");
   const { data: orders = [] } = useQuery({ queryKey: ["material-orders"], queryFn: () => listMaterialOrders() });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
 
@@ -20,7 +22,7 @@ export function MaterialDeliveriesCard({ className }: { className?: string }) {
   const deliveries = upcomingDeliveries(orders, projectsById);
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <header className="flex items-center justify-between">
         <h3 className="text-base font-bold text-foreground">
           Deliveries <span className="text-muted-foreground">· next 14 days</span>

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { cn, formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import { listQuotes, listInvoices, listPayments, quoteTotal, type Quote, type Invoice } from "@/lib/api";
+import { useCardLink } from "@/hooks/use-card-link";
 
 type ActivityType = "quote" | "invoice" | "payment";
 type ActivityStatus = "completed" | "pending" | "overdue";
@@ -71,6 +72,7 @@ const projectLabel = (project?: { name: string; client: { name: string } | null 
   project?.client?.name ?? project?.name ?? "—";
 
 export function RecentActivity({ className }: { className?: string }) {
+  const cardLink = useCardLink("/notifications");
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
@@ -114,7 +116,7 @@ export function RecentActivity({ className }: { className?: string }) {
     .slice(0, 6);
 
   return (
-    <section className={cn("card-surface p-5", className)}>
+    <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <h3 className="mb-3 text-base font-bold text-foreground">Recent activity</h3>
       {activities.length === 0 ? (
         <p className="py-3 text-sm text-muted-foreground">No activity yet.</p>
