@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { bookedItems } from "@/lib/revenueReport";
 import { useQuery } from "@tanstack/react-query";
 import {
   getBusinessHealthSettings,
@@ -199,13 +200,12 @@ export function useBusinessHealth(profitRange: DateRange) {
     const overdueAR = aging.slice(1).reduce((s, b) => s + b.amount, 0);
 
     // --- Trends -------------------------------------------------------------
-    const bookedItems = [
-      ...quotes
-        .filter((x) => x.status === "approved" && x.project_id && projects.some((p) => p.id === x.project_id))
-        .map((x) => ({ date: (x.signed_at ?? x.updated_at).slice(0, 10), amount: quoteTotal(x.quote_sections) })),
-      ...changeOrders.filter((c) => c.status === "approved" && c.approved_at).map((c) => ({ date: c.approved_at!.slice(0, 10), amount: Number(c.amount) })),
-    ];
-    const bookedCompare = monthCompare(bookedItems, today);
+    // Booked = the Revenue report's definition (signed contracts by signing
+    // date, local), so "Booked this month" matches Revenue › Booked exactly.
+    const bookedCompare = monthCompare(
+      bookedItems(projects, quotes, changeOrders).map((i) => ({ date: i.date, amount: i.amount })),
+      today,
+    );
     const collectedCompare = monthCompare(
       payments.filter(isActivePayment).map((p) => ({ date: p.paid_on, amount: Number(p.amount) })),
       today,

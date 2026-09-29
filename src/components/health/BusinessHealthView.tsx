@@ -11,6 +11,7 @@ import { resolveRange, type RangeKey } from "@/lib/financials";
 import { opportunityStageMeta } from "@/lib/statusMeta";
 import { fmtMultiple } from "@/lib/marketingRoi";
 import { pctChange } from "@/lib/businessHealth";
+import { useCompletedProfit } from "@/hooks/use-revenue-data";
 import { useBusinessHealth } from "./useBusinessHealth";
 
 const money = (v: number | null | undefined) => (v == null ? "—" : formatCurrency(v));
@@ -57,9 +58,11 @@ function Change({ now, before, label }: { now: number; before: number; label: st
  * overhead helpers the rest of the app uses. Estimates, not accounting.
  */
 export function BusinessHealthView() {
-  const [rangeKey, setRangeKey] = useState<Exclude<RangeKey, "custom">>("ytd");
+  const [rangeKey] = useState<Exclude<RangeKey, "custom">>("ytd");
   const range = useMemo(() => resolveRange(rangeKey, undefined), [rangeKey]);
   const h = useBusinessHealth(range);
+  // Completed-job profit, year to date — the same numbers as Revenue › Gross profit.
+  const cp = useCompletedProfit("ytd");
   const { isCollapsed, toggle } = useSectionCollapse({ storageKey: "business-health-sections", defaultCollapsed: () => false });
   const [records, setRecords] = useState<{ title: string; note?: string; rows: Row[] } | null>(null);
 
@@ -114,11 +117,17 @@ export function BusinessHealthView() {
     },
     {
       key: "margin",
-      label: "Avg margin",
-      value: h.profit.avgPct == null ? "—" : `${h.profit.avgPct}%`,
-      sub: h.profit.avgLoadedPct != null ? `${h.profit.avgLoadedPct}% fully loaded` : `${range.label.toLowerCase()}`,
-      tip: `Average gross margin (price − direct cost) of jobs completed ${range.label.toLowerCase()}, same math as Revenue › Avg. margin. Jobs with no cost data are left out.`,
-      rows: () => h.profit.jobs.map((x) => ({ label: x.f.project.name, sub: x.f.marginPct == null ? "No cost data" : `${x.f.marginPct}% gross${x.loadedPct != null ? ` · ${x.loadedPct}% loaded` : ""}`, value: money(x.f.profit), href: `/projects/${x.f.project.id}` })),
+      label: "Margin",
+      value: cp.totals.marginPct == null ? "—" : `${Math.round(cp.totals.marginPct)}%`,
+      sub: cp.totals.fullyLoadedPct != null ? `${Math.round(cp.totals.fullyLoadedPct)}% fully loaded · YTD` : "jobs completed YTD",
+      tip: "Gross margin of jobs completed this year: total profit ÷ total price — the job's closeout when it has one, else its live Planned vs actual. Same number as Revenue › Gross profit.",
+      rows: () =>
+        cp.jobs.map((j) => ({
+          label: cp.names.get(j.projectId) ?? "Job",
+          sub: `${j.price > 0 ? Math.round((j.profit / j.price) * 100) : 0}% gross${j.fullyLoaded != null && j.price > 0 ? ` · ${Math.round((j.fullyLoaded / j.price) * 100)}% loaded` : ""}`,
+          value: money(j.profit),
+          href: `/projects/${j.projectId}`,
+        })),
     },
   ];
 
@@ -344,45 +353,20 @@ export function BusinessHealthView() {
         </div>,
       )}
 
-      {/* Trends */}
+      {/* Sales pipeline (forward-looking). Booked / collected history and
+          average job moved to Revenue — linked, not repeated. */}
       {section(
         "trends",
-        "Sales & revenue trends",
+        "Sales pipeline",
         <div className="space-y-5">
-          <div className="grid gap-3 md:grid-cols-2">
-            {[
-              ["Booked (signed)", h.bookedCompare, "Approved quotes (incl. add-ons) by approval date + approved change orders."],
-              ["Collected", h.collectedCompare, "Payments received, by paid date (same as Revenue › Collected)."],
-            ].map(([title, c, tip]) => {
-              const cc = c as typeof h.bookedCompare;
-              return (
-                <div key={title as string} className="rounded-xl border border-hairline p-3">
-                  <p className="flex items-center gap-1 text-sm font-bold text-foreground">
-                    {title as string} <Tip>{tip as string}</Tip>
-                  </p>
-                  <dl className="mt-2 space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">This month</dt>
-                      <dd className="text-right">
-                        <span className="font-semibold tabular-nums">{money(cc.thisMonth)}</span>
-                        <br />
-                        <Change now={cc.thisMonth} before={cc.lastMonth} label="last month" /> · <Change now={cc.thisMonth} before={cc.sameMonthLastYear} label="last year" />
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Year to date</dt>
-                      <dd className="text-right">
-                        <span className="font-semibold tabular-nums">{money(cc.ytd)}</span>
-                        <br />
-                        <Change now={cc.ytd} before={cc.ytdLastYear} label="same point last year" />
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-              );
-            })}
-          </div>
-
+          <p className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+            Booked this month <span className="font-semibold tabular-nums">{money(h.bookedCompare.thisMonth)}</span>{" "}
+            <Change now={h.bookedCompare.thisMonth} before={h.bookedCompare.sameMonthLastYear} label="last year" /> · collected{" "}
+            <span className="font-semibold tabular-nums">{money(h.collectedCompare.thisMonth)}</span>.{" "}
+            <Link to="/revenue?period=this_month&compare=last_year&basis=booked" className="font-semibold text-primary">
+              Trends by month, source and feature in Revenue →
+            </Link>
+          </p>
           <div>
             <h3 className="flex items-center gap-1 text-sm font-bold text-foreground">
               Pipeline <Tip>Open leads' quote value (their project's main quote) by stage. Weighted = value × the stage's win probability (Settings › Business health).</Tip>
@@ -415,57 +399,32 @@ export function BusinessHealthView() {
                 {h.win90.won}/{h.win90.decided} decided · prior 90 days {pct(h.winPrior.winRate)}
               </p>
             </div>
-            <div className="rounded-xl border border-hairline p-3">
-              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                Average job · last 90 days <Tip>Average contract value of jobs won in the window.</Tip>
-              </p>
-              <p className="text-lg font-extrabold">{money(h.win90.avgJob)}</p>
-              <p className="text-xs text-muted-foreground">prior 90 days {money(h.winPrior.avgJob)}</p>
-            </div>
           </div>
-          <Link to="/revenue/categories" className="inline-block text-sm font-semibold text-primary">
-            Revenue by feature type (year to date) →
-          </Link>
         </div>,
       )}
 
-      {/* Profitability */}
+      {/* Profitability — the full breakdown (by job, feature, crew; trend,
+          fully loaded) lives in Revenue; this is the year-to-date summary. */}
       {section(
         "profit",
         "Profitability",
         <div className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-4">
             {[
-              ["Avg margin", h.profit.avgPct == null ? "—" : `${h.profit.avgPct}%`],
-              ["Fully loaded", !h.profit.hasOverhead ? "Set up overhead" : h.profit.avgLoadedPct == null ? "—" : `${h.profit.avgLoadedPct}%`],
-              ["Total profit", money(h.profit.total)],
-              ["Jobs completed", String(h.profit.jobs.length)],
+              ["Margin", cp.totals.marginPct == null ? "—" : `${Math.round(cp.totals.marginPct)}%`],
+              ["Fully loaded", !h.profit.hasOverhead ? "Set up overhead" : cp.totals.fullyLoadedPct == null ? "—" : `${Math.round(cp.totals.fullyLoadedPct)}%`],
+              ["Total profit", money(cp.totals.profit)],
+              ["Jobs completed", String(cp.totals.count)],
             ].map(([kk, v]) => (
               <div key={kk} className="rounded-lg bg-muted/40 p-3">
-                <p className="text-[11px] text-muted-foreground">{kk}</p>
+                <p className="text-[11px] text-muted-foreground">{kk} · YTD</p>
                 <p className="font-bold tabular-nums text-foreground">{v}</p>
               </div>
             ))}
           </div>
-          {(h.profit.best || h.profit.worst) && (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {h.profit.best && (
-                <Link to={`/projects/${h.profit.best.project.id}`} className="rounded-lg border border-hairline p-3 text-sm hover:bg-muted/30">
-                  <span className="text-xs text-muted-foreground">Best</span>
-                  <br />
-                  <span className="font-semibold">{h.profit.best.project.name}</span> · <span className="text-success">{h.profit.best.marginPct}%</span>
-                </Link>
-              )}
-              {h.profit.worst && (
-                <Link to={`/projects/${h.profit.worst.project.id}`} className="rounded-lg border border-hairline p-3 text-sm hover:bg-muted/30">
-                  <span className="text-xs text-muted-foreground">Worst</span>
-                  <br />
-                  <span className="font-semibold">{h.profit.worst.project.name}</span> · <span className={(h.profit.worst.marginPct ?? 0) < 0 ? "text-destructive" : "text-foreground"}>{h.profit.worst.marginPct}%</span>
-                </Link>
-              )}
-            </div>
-          )}
-          {h.profit.excluded > 0 && <p className="text-[11px] text-muted-subtle">{h.profit.excluded} completed job(s) with no cost data are left out of the average.</p>}
+          <Link to="/revenue?period=ytd&compare=last_year" className="inline-block text-sm font-semibold text-primary">
+            Profit by job, feature and crew in Revenue →
+          </Link>
           <p className="text-sm">
             <span className="font-semibold">Planned vs actual:</span>{" "}
             {h.plannedVsActual.count === 0 ? (
@@ -487,17 +446,7 @@ export function BusinessHealthView() {
             </Link>
           </p>
         </div>,
-        <Select value={rangeKey} onValueChange={(v) => setRangeKey(v as Exclude<RangeKey, "custom">)}>
-          <SelectTrigger className="h-9 w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="this_month">This month</SelectItem>
-            <SelectItem value="last_3">Last 3 months</SelectItem>
-            <SelectItem value="last_12">Last 12 months</SelectItem>
-            <SelectItem value="ytd">Year to date</SelectItem>
-          </SelectContent>
-        </Select>,
+
       )}
 
       <p className="text-center text-xs text-muted-foreground">

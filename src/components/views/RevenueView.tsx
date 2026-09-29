@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
@@ -14,6 +14,8 @@ import {
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
+import { FilterSegment } from "@/components/common/FilterControls";
+import { RevenueReportView } from "@/components/revenue-report/RevenueReportView";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   listInvoices, listPayments,
@@ -61,7 +63,62 @@ const CATEGORY_COLORS = [
 const CARD_LINK_CLASS =
   "group block rounded-card transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
+type RevenueViewMode = "new" | "classic";
+const VIEW_PREF_KEY = "chq-revenue-view";
+const readViewPref = (): RevenueViewMode => {
+  try {
+    return localStorage.getItem(VIEW_PREF_KEY) === "classic" ? "classic" : "new";
+  } catch {
+    return "new";
+  }
+};
+
+/** Revenue: the revenue & profitability report (RevenueReportView) beside
+ * the original summary — a toggle switches between them (remembered per
+ * device) until the old one is retired. */
 export function RevenueView() {
+  const [mode, setMode] = useState<RevenueViewMode>(readViewPref);
+  const pick = (m: RevenueViewMode) => {
+    setMode(m);
+    try {
+      localStorage.setItem(VIEW_PREF_KEY, m);
+    } catch {
+      /* private mode */
+    }
+  };
+  const toggle = (
+    <FilterSegment
+      options={[
+        { value: "new", label: "Revenue report" },
+        { value: "classic", label: "Classic" },
+      ]}
+      value={mode}
+      onChange={(v) => pick(v as RevenueViewMode)}
+    />
+  );
+  if (mode === "classic")
+    return (
+      <div className="space-y-3">
+        <div className="flex justify-end">{toggle}</div>
+        <ClassicRevenueView />
+      </div>
+    );
+  return (
+    <div className="animate-fade-in space-y-4">
+      <MobilePageHeader title="Revenue" subtitle="Sold, billed, collected and earned" />
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="hidden md:block">
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Revenue</h1>
+          <p className="mt-1 text-muted-foreground">What you sold, billed, collected and earned — and where it came from.</p>
+        </div>
+        {toggle}
+      </div>
+      <RevenueReportView />
+    </div>
+  );
+}
+
+function ClassicRevenueView() {
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
