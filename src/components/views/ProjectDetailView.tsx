@@ -1412,7 +1412,7 @@ function ProfitSummaryCard({
           })}
         </div>
       )}
-      {(predictedProfit !== null || actualProfit !== null) && (
+      {(predictedProfit !== null || (actualProfit !== null && !jobOpen)) && (
         <div className="grid grid-cols-1 gap-4 border-t border-hairline pt-3 sm:grid-cols-2">
           {predictedProfit !== null && (
             <div>
@@ -1423,9 +1423,12 @@ function ProfitSummaryCard({
               </p>
             </div>
           )}
-          {actualProfit !== null && (
+          {/* Quoted − spend is only a profit once the job's done — while it's open
+              it reads as ~100% margin (most costs not in yet). Planned vs actual
+              below has the open-job projection. */}
+          {actualProfit !== null && !jobOpen && (
             <div>
-              <p className="text-sm text-muted-foreground">{jobOpen ? "Profit on spend so far" : "Actual profit"}</p>
+              <p className="text-sm text-muted-foreground">Actual profit</p>
               <p className={cn("text-lg font-extrabold", profitColor(actualProfit))}>
                 {formatCurrency(actualProfit)}
                 {actualMargin !== null && <span className="ml-1.5 text-sm font-bold">({actualMargin.toFixed(0)}%)</span>}
