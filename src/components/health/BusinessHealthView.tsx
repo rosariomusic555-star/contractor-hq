@@ -14,7 +14,7 @@ import { pctChange } from "@/lib/businessHealth";
 import { useBusinessHealth } from "./useBusinessHealth";
 
 const money = (v: number | null | undefined) => (v == null ? "—" : formatCurrency(v));
-const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? "-" : ""}$${Math.round(Math.abs(v) / 100) / 10}k` : formatCurrency(v));
+const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? "−" : ""}$${Math.round(Math.abs(v) / 100) / 10}k` : formatCurrency(v));
 const day = (d: string | null) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: d.slice(0, 4) === String(new Date().getFullYear()) ? undefined : "numeric" }) : "—");
 const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 

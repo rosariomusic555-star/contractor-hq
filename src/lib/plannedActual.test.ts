@@ -67,6 +67,15 @@ describe("planned vs actual", () => {
     expect(profitSentence(r)).toBe("Labor (Paver Patio) +$1,000, Gravel base (Paver Patio) +$450, Overhead on extra hours +$250 → Fully loaded profit −$1,700");
   });
 
+  it("open job: overhead counts planned hours until more are logged — no phantom overhead saving", () => {
+    const open = { ...base, materialsCounted: false, deliveries: [] };
+    const none = plannedActualReport({ ...open, laborEntries: [] });
+    expect(none.profit.actualFullyLoaded).toBe(none.profit.expectedFullyLoaded);
+    expect(none.profit.bridge.some((s) => s.label.startsWith("Overhead"))).toBe(false);
+    const over = plannedActualReport({ ...open, laborEntries: [{ cost: 5000, hours: 125, feature_id: "patio" }] });
+    expect(over.profit.bridge.find((s) => s.label.startsWith("Overhead"))).toEqual({ label: "Overhead on extra hours", amount: -250 });
+  });
+
   it("labor logged per project → compared project-wide, feature split flagged as estimated", () => {
     const r = plannedActualReport({ ...base, laborEntries: [{ cost: 5000, hours: 125, feature_id: null }] });
     expect(r.laborTracking).toBe("project");

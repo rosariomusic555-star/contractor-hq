@@ -378,9 +378,13 @@ export function plannedActualReport(input: {
   const actualProfit = r2(price - aTotal);
   const rate = input.overheadRate;
   const expectedFL = rate != null ? r2(expected - projectPlannedHours * rate) : null;
-  const actualFL = rate != null ? r2(actualProfit - totalHours * rate) : null;
-  if (rate != null && Math.abs((totalHours - projectPlannedHours) * rate) >= 1) {
-    bridge.push({ label: `Overhead on ${totalHours >= projectPlannedHours ? "extra" : "fewer"} hours`, amount: r2(-(totalHours - projectPlannedHours) * rate) });
+  // Overhead rides on hours, so it follows the same open-job rule as the cost
+  // types: hours logged or planned, whichever is more — unlogged hours never
+  // read as "+$X overhead saved".
+  const overheadHours = input.materialsCounted ? totalHours : Math.max(totalHours, projectPlannedHours);
+  const actualFL = rate != null ? r2(actualProfit - overheadHours * rate) : null;
+  if (rate != null && Math.abs((overheadHours - projectPlannedHours) * rate) >= 1) {
+    bridge.push({ label: `Overhead on ${overheadHours >= projectPlannedHours ? "extra" : "fewer"} hours`, amount: r2(-(overheadHours - projectPlannedHours) * rate) });
   }
 
   // --- Biggest over-plan items
