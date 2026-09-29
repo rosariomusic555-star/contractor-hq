@@ -514,7 +514,10 @@ export function ProjectDetailView() {
         })
       : null;
   const predictedCost = costPlan.planned.total > 0 ? costPlan.planned.total : null;
-  const realCost = resolveCost(actualCost, predictedCost);
+  // Actual cost only once the job's Complete — mid-job spend is a fraction of
+  // the cost, and read as ~100% margin (same rule as the Profit summary).
+  const showActualMargin = project.status === "complete" && actualCost != null;
+  const realCost = showActualMargin ? resolveCost(actualCost, predictedCost) : predictedCost;
   const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
   const marginProfit = realCost != null ? contract - realCost : null;
 
@@ -958,7 +961,7 @@ export function ProjectDetailView() {
             {marginProfit != null && (
               <div className="mt-3 rounded-xl bg-primary/10 p-3">
                 <div className="text-xs font-semibold text-success">
-                  {actualCost != null ? "Actual" : "Projected"} margin
+                  {showActualMargin ? "Actual" : "Projected"} margin
                 </div>
                 <div className="mt-0.5 text-2xl font-extrabold tracking-tight text-foreground">
                   {marginPct}% <span className="text-sm font-bold text-muted-foreground">· {formatCurrency(marginProfit)}</span>

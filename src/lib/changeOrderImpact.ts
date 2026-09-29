@@ -80,6 +80,9 @@ export function computeProjectImpact(input: {
   /** True once approved — the Cost plan already includes its changes, so
    * "before" backs them out instead of "after" adding them. */
   costAlreadyApplied?: boolean;
+  /** True once approved — its schedule_impact_days are already in the
+   * project's estimated duration (0071 trigger), so "before" backs them out. */
+  scheduleAlreadyApplied?: boolean;
 }): ProjectImpact {
   const {
     project,
@@ -92,6 +95,7 @@ export function computeProjectImpact(input: {
     draftScheduleImpactDays,
     thisChangeOrderCostDelta,
     costAlreadyApplied,
+    scheduleAlreadyApplied,
   } = input;
 
   // "Original contract" = the signed quote plus approved add-on quotes —
@@ -127,13 +131,16 @@ export function computeProjectImpact(input: {
   const marginPctAfter =
     costAfter != null && revisedContractTotal > 0 ? ((revisedContractTotal - costAfter) / revisedContractTotal) * 100 : null;
 
-  const estimatedDurationBefore = project.estimated_duration_days;
-  const previouslyApprovedScheduleImpact = approvedOthers.reduce((sum, co) => sum + (co.schedule_impact_days ?? 0), 0);
+  // The project's estimated duration already includes every approved change
+  // order's days (the 0071 approval trigger adds them) — so other approved
+  // COs are never added again, and this one is backed out of "before" once
+  // it's approved itself.
   const scheduleImpactDays = draftScheduleImpactDays ?? 0;
-  const estimatedDurationAfter =
-    estimatedDurationBefore == null
+  const estimatedDurationBefore =
+    project.estimated_duration_days == null
       ? null
-      : Math.max(0, estimatedDurationBefore + previouslyApprovedScheduleImpact + scheduleImpactDays);
+      : Math.max(0, project.estimated_duration_days - (scheduleAlreadyApplied ? scheduleImpactDays : 0));
+  const estimatedDurationAfter = estimatedDurationBefore == null ? null : Math.max(0, estimatedDurationBefore + scheduleImpactDays);
 
   return {
     originalContract,
