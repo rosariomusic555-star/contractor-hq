@@ -14,6 +14,7 @@ import {
   Send,
   X,
 } from "lucide-react";
+import { CopyHubLinkButton } from "@/components/common/CopyHubLinkButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -413,16 +414,20 @@ function ClientHubCard({ client }: { client: Client }) {
             <p className="text-xs text-muted-subtle">Hasn't been invited yet</p>
           )}
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="shrink-0"
-          disabled={!client.email || inviteMut.isPending}
-          onClick={() => inviteMut.mutate()}
-        >
-          <Send className="h-3.5 w-3.5" />
-          {inviteMut.isPending ? "Sending…" : status === "never" ? "Invite" : "Resend link"}
-        </Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {/* To text it instead of emailing: /portal — a client with one job lands on it. */}
+          <CopyHubLinkButton url={`${window.location.origin}/portal`} label="Copy link" size="sm" variant="ghost" />
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            disabled={!client.email || inviteMut.isPending}
+            onClick={() => inviteMut.mutate()}
+          >
+            <Send className="h-3.5 w-3.5" />
+            {inviteMut.isPending ? "Sending…" : status === "never" ? "Invite" : "Resend link"}
+          </Button>
+        </div>
       </div>
       {!client.email && (
         <p className="mt-2 text-xs text-muted-subtle">Add an email address above to invite this client.</p>
