@@ -125,6 +125,9 @@ Deno.serve(async (req: Request) => {
       options: {
         shouldCreateUser: true,
         emailRedirectTo: body.redirectTo,
+        // Only applied when this creates the login: a Client Hub account, so
+        // the sign-up seed triggers (0146) skip the contractor defaults.
+        data: { account_type: "client" },
       },
     });
   }

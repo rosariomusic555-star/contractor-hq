@@ -37,7 +37,6 @@ describe("project history", () => {
       "Change order #3 · CO 3",
       "Change order #2 · CO 2",
       "Change order #1 · CO 1",
-      "Payment received · R-0002",
       "Payment received · R-0001",
       "Invoice INV-001",
       "Revised quote v2",
@@ -50,7 +49,8 @@ describe("project history", () => {
     expect(byTitle["Revised quote v2"].counted).toBe(true);
     expect(byTitle["Change order #2 · CO 2"].counted).toBe(false);
     expect(byTitle["Add-on quote #2"].note).toMatch(/not included/);
-    expect(byTitle["Payment received · R-0002"].struck).toBe(true);
+    // A voided payment isn't shown to the client at all.
+    expect(byTitle["Payment received · R-0002"]).toBeUndefined();
     expect(byTitle["Invoice INV-001"].status.label).toBe("Partially paid");
     expect(buildProjectHistory(detail, "oldest")[0].title).toBe("Original quote v1");
   });
@@ -62,5 +62,16 @@ describe("project history", () => {
     expect(summary.unpaidInvoiceBalance).toBe(6_000);
     expect(summary.remaining).toBe(33_000 - 5_000);
     expect(unpaidInvoices.map((i) => i.id)).toEqual(["i1"]);
+  });
+});
+
+describe("invoiceStatusLabel", () => {
+  it("derives Overdue from the due date (the saved status stays sent)", async () => {
+    const { invoiceStatusLabel } = await import("./projectHistory");
+    const now = new Date("2026-09-28T12:00:00");
+    expect(invoiceStatusLabel({ amount: 1000, amount_paid: 0, status: "sent", due_date: "2026-09-25" }, now)).toEqual({ label: "Overdue", tone: "red" });
+    expect(invoiceStatusLabel({ amount: 1000, amount_paid: 400, status: "sent", due_date: "2026-09-25" }, now).label).toBe("Partially paid · overdue");
+    expect(invoiceStatusLabel({ amount: 1000, amount_paid: 0, status: "sent", due_date: "2026-10-05" }, now).label).toBe("Unpaid");
+    expect(invoiceStatusLabel({ amount: 1000, amount_paid: 1000, status: "paid", due_date: "2026-09-25" }, now).label).toBe("Paid");
   });
 });

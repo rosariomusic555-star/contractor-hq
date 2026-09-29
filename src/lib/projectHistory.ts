@@ -8,6 +8,7 @@ import type {
   PortalVersion,
 } from "./portalApi";
 import { contractBreakdown, invoiceBalance, invoicePaid, invoicePaymentState, paymentMethodLabel, projectMoneySummary } from "./projectMoney";
+import { effectiveInvoiceStatus } from "./financials";
 
 /**
  * The Client Hub's project history (0113) — the client-facing financial
@@ -155,11 +156,16 @@ function changeOrderEntries(detail: PortalProjectDetail): HistoryEntry[] {
   return out;
 }
 
-export function invoiceStatusLabel(inv: Pick<PortalInvoice, "amount" | "status" | "amount_paid">): HistoryEntry["status"] {
+export function invoiceStatusLabel(
+  inv: Pick<PortalInvoice, "amount" | "status" | "amount_paid"> & { due_date?: string | null },
+  now: Date = new Date(),
+): HistoryEntry["status"] {
   const state = invoicePaymentState({ ...inv, status: inv.status as "sent" });
+  // Overdue is derived from the due date (the saved status stays "sent").
+  const late = effectiveInvoiceStatus({ ...inv, due_date: inv.due_date ?? null, status: inv.status as "sent" }, now) === "overdue";
   if (state === "paid") return { label: "Paid", tone: "green" };
-  if (state === "partial") return { label: "Partially paid", tone: inv.status === "overdue" ? "red" : "amber" };
-  if (inv.status === "overdue") return { label: "Overdue", tone: "red" };
+  if (state === "partial") return { label: late ? "Partially paid · overdue" : "Partially paid", tone: late ? "red" : "amber" };
+  if (late) return { label: "Overdue", tone: "red" };
   return { label: "Unpaid", tone: "blue" };
 }
 
@@ -197,7 +203,9 @@ export const paymentAppliedText = (p: Pick<PortalPayment, "amount" | "applied_to
 };
 
 function paymentEntries(detail: PortalProjectDetail): HistoryEntry[] {
-  return (detail.payments ?? []).map((p) => {
+  // A voided payment (a bounced check, a mistake) isn't something the client
+  // needs in their history — it never counted.
+  return (detail.payments ?? []).filter((p) => p.status !== "void").map((p) => {
     const isVoid = p.status === "void";
     return {
       key: `pay-${p.token}`,

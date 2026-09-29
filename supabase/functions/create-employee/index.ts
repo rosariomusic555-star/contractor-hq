@@ -160,6 +160,9 @@ Deno.serve(async (req: Request) => {
     email,
     password,
     email_confirm: true,
+    // Tells the sign-up seed triggers (0146) this isn't a contractor account —
+    // no default categories / lead sources for a crew login.
+    user_metadata: { account_type: "employee" },
   });
   if (createError || !created.user) {
     return json(
