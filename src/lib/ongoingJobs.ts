@@ -254,3 +254,18 @@ export function buildOngoingJobCards(input: {
     })
     .map(({ _durationState, _closed, ...card }) => card);
 }
+
+/** Smallest a job tile gets before the Ongoing jobs grid drops a column. */
+export const ONGOING_TILE_MIN_PX = 150;
+/** Gap between tiles (Tailwind gap-4). */
+export const ONGOING_TILE_GAP_PX = 16;
+
+/** Columns for the Ongoing jobs grid: one per job, at most 3, and never so
+ * many that a tile drops under ONGOING_TILE_MIN_PX in a card `width` wide.
+ * Width unknown yet (0) → by job count alone. */
+export function ongoingGridColumns(jobCount: number, width: number): number {
+  const byCount = Math.max(1, Math.min(jobCount, 3));
+  if (!width) return byCount;
+  const byWidth = Math.max(1, Math.floor((width + ONGOING_TILE_GAP_PX) / (ONGOING_TILE_MIN_PX + ONGOING_TILE_GAP_PX)));
+  return Math.min(byCount, byWidth);
+}
