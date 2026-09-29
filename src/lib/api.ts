@@ -11,7 +11,7 @@ import { OVERHEAD_SETTINGS_DEFAULTS, burdenPerHour, type OverheadSettings } from
 import { LUMP_SUM_UNIT } from "./costPlanMath";
 import { clientSafeProjectDetail, clientSharedChangeOrder, clientSharedInvoice, clientSharedQuote, clientSharedReceipt } from "./clientSafe";
 import type { PortalProjectDetail } from "./portalApi";
-import { groupFromRows, sectionIncluded, selectionsTotal } from "./selections";
+import { groupCost, groupFromRows, sectionIncluded, selectionsTotal } from "./selections";
 import { appointmentWhenLabel, compareAppointments } from "./appointmentTime";
 
 /** Private Storage bucket (0023) holding both quote-item and project
@@ -1187,6 +1187,22 @@ export function quoteTotal(sections: QuoteSection[] = []): number {
     }
   }
   return total;
+}
+
+/** Client Selections' internal cost on a quote that isn't approved yet: the
+ * picked (else default) options' cost adjustments on included sections. The
+ * Cost plan only gets them — as "Selection:" lines, 0116/0148 — when the
+ * quote is approved, while quoteTotal() already counts their price; screens
+ * that compare the quote's price with the Cost plan add this so the margin
+ * reads the same before and after approval. 0 once approved. */
+export function pendingSelectionsCost(quote: Pick<Quote, "status" | "quote_sections"> | undefined): number {
+  if (!quote || quote.status === "approved") return 0;
+  let cost = 0;
+  for (const section of quote.quote_sections ?? []) {
+    if (!section.quote_selection_groups?.length || !sectionIncluded(section)) continue;
+    cost += section.quote_selection_groups.map(groupFromRows).reduce((s, g) => s + groupCost(g), 0);
+  }
+  return cost;
 }
 
 /**

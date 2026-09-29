@@ -41,6 +41,7 @@ export function TrueCostSummary({
   laborRate,
   settings,
   lumpSumsWithoutHours = 0,
+  directNote,
   rateNote,
   collapsible = false,
   className,
@@ -55,6 +56,8 @@ export function TrueCostSummary({
   laborRate: number | null;
   settings: OverheadSettings | null;
   lumpSumsWithoutHours?: number;
+  /** Small print under Direct cost (e.g. what's included beyond the lines). */
+  directNote?: string;
   /** e.g. "Rate stored on this quote" / a Recalculate action. */
   rateNote?: ReactNode;
   /** Starts folded to the fully loaded line (mobile totals card). */
@@ -71,7 +74,7 @@ export function TrueCostSummary({
 
   const rows = (
     <div className="space-y-1.5 text-sm tabular-nums">
-      <Row label="Direct cost" value={formatCurrency(tc.direct)} />
+      <Row label="Direct cost" value={formatCurrency(tc.direct)} sub={directNote} />
       <Row
         label="Overhead burden"
         value={formatCurrency(tc.overhead)}

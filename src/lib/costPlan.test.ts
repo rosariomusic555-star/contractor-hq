@@ -88,5 +88,42 @@ describe("profit summary by type", () => {
     expect(s.planned.total).toBe(7000);
     expect(s.projectedProfit).toBe(13000);
     expect(s.projectedMarginPct).toBeCloseTo(65);
+    expect(s.pendingSelections).toBe(0);
+  });
+
+  it("a not-yet-approved quote's client picks count in cost (Other), not just in price", () => {
+    const group = {
+      id: "g",
+      name: "Walkway material",
+      required: true,
+      multi: false,
+      approved_price: null,
+      quote_selection_options: [
+        { id: "std", name: "Pavers (included)", price_delta: 0, cost_delta: 0, is_default: true },
+        { id: "blue", name: "Bluestone", price_delta: 2280, cost_delta: 1520, is_default: false },
+      ],
+      quote_selection_picks: [{ option_id: "blue" }],
+    };
+    const quote = (status: string) =>
+      [
+        {
+          id: "q",
+          status,
+          kind: "original",
+          created_at: "2026-09-01",
+          quote_sections: [{ id: "s", is_optional: false, quote_items: [{ id: "i", price: 20000, quantity: 1, is_optional: false }], quote_selection_groups: [group] }],
+        },
+      ] as unknown as Parameters<typeof costPlanSummary>[0];
+    const plan = [{ materials_items: [{ quantity: 1, unit_cost: 7000, cost_type: "subcontractor" as const }] }];
+    const sent = costPlanSummary(quote("sent"), [], plan);
+    expect(sent.contractValue).toBe(22280);
+    expect(sent.pendingSelections).toBe(1520);
+    expect(sent.planned.other).toBe(1520);
+    expect(sent.planned.total).toBe(8520);
+    expect(sent.projectedProfit).toBe(13760);
+    // Approved: the trigger has added the "Selection:" line to the plan — not counted twice.
+    const approved = costPlanSummary(quote("approved"), [], [...plan, { materials_items: [{ quantity: 1, unit_cost: 1520, cost_type: "other" }] }]);
+    expect(approved.pendingSelections).toBe(0);
+    expect(approved.planned.total).toBe(8520);
   });
 });

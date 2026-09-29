@@ -13,7 +13,7 @@
  */
 
 import type { ChangeOrder, Expense, ExpenseCategory, Quote } from "./api";
-import { projectContractValue } from "./api";
+import { pendingSelectionsCost, pickHeadlineQuote, projectContractValue } from "./api";
 import { COST_BUCKETS, sumSectionTotals, type CostBucket, type CostSection, type CostTotals } from "./costPlanMath";
 
 const zero = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0 });
@@ -55,12 +55,21 @@ export interface CostPlanSummary {
   /** Null when there's no contract value yet to compare against. */
   projectedProfit: number | null;
   projectedMarginPct: number | null;
+  /** Client picks on the not-yet-approved headline quote — in the contract
+   * value already, so counted in planned "other" here (where their
+   * "Selection:" lines land on approval). */
+  pendingSelections: number;
 }
 
 export function costPlanSummary(quotes: Quote[], changeOrders: ChangeOrder[], sections: CostSection[]): CostPlanSummary {
   const contractValue = projectContractValue(quotes, changeOrders);
+  const pendingSelections = pendingSelectionsCost(pickHeadlineQuote(quotes));
   const planned = sumSectionTotals(sections);
+  if (pendingSelections) {
+    planned.other += pendingSelections;
+    planned.total += pendingSelections;
+  }
   const projectedProfit = contractValue > 0 ? contractValue - planned.total : null;
   const projectedMarginPct = projectedProfit !== null && contractValue > 0 ? (projectedProfit / contractValue) * 100 : null;
-  return { contractValue, planned, projectedProfit, projectedMarginPct };
+  return { contractValue, planned, projectedProfit, projectedMarginPct, pendingSelections };
 }

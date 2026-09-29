@@ -67,6 +67,7 @@ import {
   listProjectFeatures,
   listPendingCostChanges,
   getOverheadSettings,
+  pendingSelectionsCost,
   pickHeadlineQuote,
   projectContractValue,
   listFeatureHistory,
@@ -862,6 +863,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         : burdenPerHour(overheadSettings);
   const contractForPlan = projectContractValue(projectQuotes, projectChangeOrders);
   const planPrice = contractForPlan > 0 ? contractForPlan : null;
+  // The price already counts the client's picks; their cost joins the plan
+  // only on approval — count it here until then (pendingSelectionsCost).
+  const planPendingSelections = pendingSelectionsCost(headlineForPlan);
   const planTargetMargin = project?.target_margin_pct ?? headlineForPlan?.target_margin_pct ?? overheadSettings?.target_margin_pct ?? null;
   // Hide it now (without making the draft dirty), and remember it on the
   // line if it's saved.
@@ -1562,7 +1566,12 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       {/* True cost (0110, internal) — overhead through planned labor. */}
       <div className="card-surface p-5">
         <TrueCostSummary
-          direct={planTotals.total}
+          direct={planTotals.total + planPendingSelections}
+          directNote={
+            planPendingSelections > 0
+              ? `Includes ${formatCurrency(planPendingSelections)} for the client's selections — added as lines when the quote is approved`
+              : undefined
+          }
           manHours={plannedManHours(draft)}
           rate={planOverheadRate}
           price={planPrice}
