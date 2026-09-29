@@ -3706,6 +3706,16 @@ export async function applyProjectCredit(projectId: string, invoiceId: string, a
   return Math.round((amount - left) * 100) / 100;
 }
 
+/** The contractor's business on a public share page (0150, client_business_json). */
+export interface SharedBusiness {
+  company_name: string | null;
+  phone: string | null;
+  email: string | null;
+  license: string | null;
+  address: string | null;
+  logo_url?: string | null;
+}
+
 export interface SharedReceipt {
   receipt: {
     number: string | null;
@@ -4346,10 +4356,13 @@ export interface SharedChangeOrderSection {
   id: string;
   name: string;
   sort_order: number;
+  /** What's changing on this part of the job, e.g. "+2 lights on the backrest". */
+  scope_note?: string | null;
   items: SharedChangeOrderItem[];
 }
 
 export interface SharedChangeOrder {
+  business?: SharedBusiness | null;
   change_order: {
     id: string;
     title: string;
@@ -4950,6 +4963,7 @@ export interface SharedQuoteSection {
 }
 
 export interface SharedQuote {
+  business?: SharedBusiness | null;
   quote: {
     id: string;
     status: QuoteStatus;
@@ -4990,6 +5004,7 @@ export async function signSharedQuote(token: string, signedBy: string): Promise<
 }
 
 export interface SharedInvoice {
+  business?: SharedBusiness | null;
   invoice: {
     id: string;
     status: InvoiceStatus;
@@ -7220,6 +7235,8 @@ export interface NotificationSettings {
   maintenance: boolean;
   /** Timesheets (0131) — submitted / waiting for approval. */
   timesheets: boolean;
+  /** Change orders (0150) — the client signs or declines one. */
+  change_order_decided: boolean;
 }
 
 export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
@@ -7234,6 +7251,7 @@ export const NOTIFICATION_SETTINGS_DEFAULTS: NotificationSettings = {
   precon: true,
   maintenance: true,
   timesheets: true,
+  change_order_decided: true,
 };
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {

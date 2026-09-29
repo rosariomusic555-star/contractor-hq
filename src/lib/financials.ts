@@ -288,6 +288,17 @@ export function resolveCost(actualCost: number | null, predictedCost: number | n
   return actualCost ?? predictedCost ?? null;
 }
 
+/** A job's cost for the Revenue / Business health roll-ups, from expenses
+ * and the Cost plan. Expenses are only part of the record (labor lives on
+ * the labor log, materials on deliveries), so while there's a plan the cost
+ * is expenses or plan, whichever is more: a lone $85 permit never reads as
+ * a ~100% margin, while an overrun shows as soon as it's logged. No plan →
+ * expenses; neither → unknown (null). */
+export function jobCost(expensesTotal: number | null, plannedCost: number | null): number | null {
+  if (plannedCost == null) return expensesTotal;
+  return expensesTotal == null ? plannedCost : Math.max(expensesTotal, plannedCost);
+}
+
 /** A job counts as closed once it's been fully paid off — derived, live,
  * from the same contract-value and collected-total figures every other
  * screen already shows. Never a manual field to remember to set. */
@@ -435,7 +446,7 @@ export function buildProjectFinancials(
     const predictedCost = hasMaterialsSheet ? costPlanTotal(sectionsByProject.get(project.id) ?? []) : null;
     const hasExpenses = expenses.length > 0;
     const actualCost = hasExpenses ? expenses.reduce((s, e) => s + Number(e.amount), 0) : null;
-    const cost = resolveCost(actualCost, predictedCost);
+    const cost = jobCost(actualCost, predictedCost);
 
     const profit = cost != null ? contractValue - cost : null;
     const marginPct = cost != null && contractValue > 0 ? Math.round(((contractValue - cost) / contractValue) * 100) : null;

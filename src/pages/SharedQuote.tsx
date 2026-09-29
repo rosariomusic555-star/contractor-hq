@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SharedBusinessHeader } from "@/components/common/SharedBusinessHeader";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -213,7 +214,7 @@ export default function SharedQuotePage() {
     <PageShell>
       <div className="bg-white rounded-xl border border-border/60 shadow-sm p-6 md:p-10 space-y-8">
         <header className="space-y-2">
-          <p className="text-sm font-bold tracking-wide text-primary">ContractorPro</p>
+          <SharedBusinessHeader business={data.business} />
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <h1 className="min-w-0 text-2xl font-bold text-foreground [overflow-wrap:anywhere]">
               {project ? `${project.name} — ${docTitle}` : docTitle}

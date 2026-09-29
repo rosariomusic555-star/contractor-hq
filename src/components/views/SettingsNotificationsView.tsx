@@ -25,6 +25,7 @@ const TOGGLES: { key: keyof NotificationSettings; label: string; hint: string }[
   { key: "quote_selections", label: "A client changes selections or optional items", hint: "Grouped — at most one per quote per hour" },
   { key: "quote_decided", label: "A quote is signed or declined", hint: "When the client does it, not when you mark it in the app" },
   { key: "quote_viewed_again", label: "A client views a quote again", hint: "A \"viewed again\" summary, at most once a day per quote" },
+  { key: "change_order_decided", label: "A change order is signed or declined", hint: "When the client does it, not when you mark it approved in the app" },
 ];
 
 const PRECON_TOGGLES: typeof TOGGLES = [

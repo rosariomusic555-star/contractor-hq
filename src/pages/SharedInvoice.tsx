@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { SharedBusinessHeader } from "@/components/common/SharedBusinessHeader";
 import type { ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -76,7 +77,7 @@ export default function SharedInvoicePage() {
         )}
 
         <header className="space-y-2">
-          <p className="text-sm font-bold tracking-wide text-primary">ContractorPro</p>
+          <SharedBusinessHeader business={data.business} />
           <h1 className="text-2xl font-bold text-foreground [overflow-wrap:anywhere]">
             {project ? `${project.name} — ` : ""}Invoice {number}
           </h1>
