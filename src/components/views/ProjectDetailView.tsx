@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ExpensesHubCard } from "@/components/job-costs/ExpensesHubCard";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
 import { MaterialAlertsBar } from "@/components/materials/MaterialAlertsBar";
 import { markLinesOrdered } from "@/lib/materialAlertActions";
@@ -795,7 +796,7 @@ export function ProjectDetailView() {
             <HubCard title="Labor log" summary={laborSummary} onOpen={() => navigate(`/projects/${id}/labor`)} />
             <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
             <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
-            <HubCard title="Expenses" summary={expensesSummary} onOpen={() => navigate(`/projects/${id}/expenses`)} />
+            <ExpensesHubCard projectId={id} onOpen={() => navigate(`/projects/${id}/expenses`)} />
             <HubCard
               title="Change orders"
               summary={changeOrdersSummary}

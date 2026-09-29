@@ -979,6 +979,19 @@ export async function listUsageLogEventsForItem(materialsItemId: string): Promis
  * the materials_item (not the usage log itself, which doesn't exist yet
  * on the first-log path) so this can run before the log row is created.
  * Storage RLS for the "materials-usage/" prefix is 0082. */
+/** Compresses and uploads an expense's receipt photo (0151) — keyed by
+ * project, since a receipt is often scanned before its expense exists.
+ * Returns the path to save as expenses.receipt_path. */
+export async function uploadExpenseReceipt(projectId: string, file: File): Promise<string> {
+  const compressed = await compressImageFile(file);
+  const path = `expense-receipts/${projectId}/${randomImageFilename(file.name)}`;
+  const { error } = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (error) throw error;
+  return path;
+}
+
 export async function uploadUsageLogPhoto(materialsItemId: string, file: File): Promise<string> {
   const compressed = await compressImageFile(file);
   const path = `materials-usage/${materialsItemId}/${randomImageFilename(file.name)}`;
@@ -1011,6 +1024,12 @@ export interface Expense {
   feature_id?: string | null;
   /** Its cost type (0109) — null = follow the expense category's type. */
   cost_type?: CostBucket | null;
+  /** Who it was paid to (0151). */
+  vendor?: string | null;
+  /** Internal note (0151). */
+  notes?: string | null;
+  /** Receipt photo in the images bucket, expense-receipts/<project>/… (0151). */
+  receipt_path?: string | null;
 }
 
 export interface ExpenseLine {
@@ -3861,6 +3880,9 @@ export async function createExpense(input: {
   expense_category_id?: string | null;
   feature_id?: string | null;
   cost_type?: CostBucket | null;
+  vendor?: string | null;
+  notes?: string | null;
+  receipt_path?: string | null;
 }): Promise<Expense> {
   const {
     data: { user },
@@ -3880,6 +3902,10 @@ export async function createExpense(input: {
       expense_category_id: input.expense_category_id ?? null,
       ...(input.feature_id ? { feature_id: input.feature_id } : {}),
       ...(input.cost_type ? { cost_type: input.cost_type } : {}),
+      // 0151 columns — only sent when set, so the insert works before it's run.
+      ...(input.vendor?.trim() ? { vendor: input.vendor.trim() } : {}),
+      ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+      ...(input.receipt_path ? { receipt_path: input.receipt_path } : {}),
     })
     .select()
     .single();
@@ -3892,7 +3918,9 @@ export async function createExpense(input: {
  * re-adding it. */
 export async function updateExpense(
   id: string,
-  patch: Partial<Pick<Expense, "expense_category_id" | "date" | "feature_id" | "cost_type">>,
+  patch: Partial<
+    Pick<Expense, "expense_category_id" | "date" | "feature_id" | "cost_type" | "name" | "amount" | "vendor" | "notes" | "receipt_path">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("expenses").update(patch).eq("id", id);
   if (error) throw error;

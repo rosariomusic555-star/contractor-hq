@@ -46,6 +46,8 @@ import { expenseBucket } from "@/lib/costPlan";
 import type { CostBucket } from "@/lib/costPlanMath";
 import { CostTypeSelect, FeatureSelect } from "@/components/expenses/FeatureTypeSelects";
 import { BackLink } from "@/components/common/BackLink";
+import { FilterSegment } from "@/components/common/FilterControls";
+import { JobCostsView } from "@/components/job-costs/JobCostsView";
 import { ExpenseCategoryPill } from "@/components/expenses/ExpenseCategoryPill";
 import { ExpenseSplitDialog } from "@/components/expenses/ExpenseSplitDialog";
 
@@ -62,7 +64,66 @@ const formatDate = (iso: string | null) =>
       })
     : "";
 
+type ExpensesViewMode = "new" | "classic";
+const VIEW_PREF_KEY = "chq-project-expenses-view";
+const readViewPref = (): ExpensesViewMode => {
+  try {
+    return localStorage.getItem(VIEW_PREF_KEY) === "classic" ? "classic" : "new";
+  } catch {
+    return "new";
+  }
+};
+
+/** The project Expenses page: the new job-cost view (JobCostsView) beside
+ * the original list — a toggle switches between them (remembered per
+ * device) until the old one is retired. */
 export function ProjectExpensesView() {
+  const { id = "" } = useParams();
+  const [mode, setMode] = useState<ExpensesViewMode>(readViewPref);
+  const { data: project } = useQuery({ queryKey: ["projects", id], queryFn: () => getProject(id), enabled: !!id });
+  const pick = (m: ExpensesViewMode) => {
+    setMode(m);
+    try {
+      localStorage.setItem(VIEW_PREF_KEY, m);
+    } catch {
+      /* private mode — just don't remember it */
+    }
+  };
+  const toggle = (
+    <FilterSegment
+      options={[
+        { value: "new", label: "Job costs" },
+        { value: "classic", label: "Classic list" },
+      ]}
+      value={mode}
+      onChange={(v) => pick(v as ExpensesViewMode)}
+    />
+  );
+  if (mode === "classic")
+    return (
+      <div className="space-y-3">
+        <div className="flex justify-end">{toggle}</div>
+        <ClassicProjectExpensesView />
+      </div>
+    );
+  return (
+    <div className="animate-fade-in space-y-5">
+      <BackLink to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
+        Back to project
+      </BackLink>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground">Job costs</h1>
+          <p className="mt-1 truncate text-muted-foreground">{project?.name ?? " "}</p>
+        </div>
+        {toggle}
+      </div>
+      <JobCostsView projectId={id} />
+    </div>
+  );
+}
+
+function ClassicProjectExpensesView() {
   const { id = "" } = useParams();
   const { toast } = useToast();
   const qc = useQueryClient();
