@@ -558,7 +558,7 @@ export function ProjectDetailView() {
   const costPlanSummaryLine =
     materialsSheets.length === 0
       ? "Not started"
-      : `${materialsSheets.length > 1 ? `${pluralize(materialsSheets.length, "cost plan")} · ` : ""}${formatCurrency(costPlan.planned.total)} planned${
+      : `${materialsSheets.length > 1 ? `${pluralize(materialsSheets.length, "cost plan")} · ` : ""}${formatCurrency(costPlan.planned.total - costPlan.pendingSelections)} planned${
           costPlan.projectedMarginPct != null ? ` · ${costPlan.projectedMarginPct.toFixed(0)}% margin` : ""
         }`;
   const laborSummary =
@@ -813,6 +813,7 @@ export function ProjectDetailView() {
             jobOpen={project.status !== "complete"}
             quoted={contract || null}
             predictedCost={predictedCost}
+            pendingSelections={costPlan.pendingSelections}
             actualCost={actualCost}
             planned={costPlan.planned}
             actual={hasActualCostData ? actualByType : null}
@@ -1330,6 +1331,7 @@ function ProfitSummaryCard({
   jobOpen = false,
   quoted,
   predictedCost,
+  pendingSelections = 0,
   actualCost,
   planned,
   actual,
@@ -1341,6 +1343,8 @@ function ProfitSummaryCard({
   jobOpen?: boolean;
   quoted: number | null;
   predictedCost: number | null;
+  /** Client picks' cost counted in predicted cost before the quote's approved. */
+  pendingSelections?: number;
   actualCost: number | null;
   /** Per-feature breakdown — rows add up to the totals above. */
   featureRows?: FeatureReport[] | null;
@@ -1380,6 +1384,11 @@ function ProfitSummaryCard({
         <Metric label="Predicted cost" value={money(predictedCost)} />
         <Metric label={jobOpen ? "Spent so far" : "Actual cost"} value={money(actualCost)} />
       </div>
+      {pendingSelections > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Includes {formatCurrency(pendingSelections)} for the client's selections (in Other) — added to the Cost plan when the quote is approved.
+        </p>
+      )}
       {/* By cost type: the Cost plan's estimate vs actual spend (expenses
           matched through their category's cost type + logged labor). */}
       {typeRows.length > 0 && (
