@@ -209,12 +209,15 @@ export function allKeys(v: unknown, out = new Set<string>()): Set<string> {
 
 const named = (v: unknown) => (v ? pick<{ name: string }>(v, ["name"]) : null);
 
+/** The contractor's business on a share page (0150) — whitelisted fields only. */
+const sharedBusiness = (b: unknown) => (b ? pick(b, CLIENT_FIELDS.business) : null);
+
 export function clientSharedQuote<T>(data: T): T {
   if (!data) return data;
   const r = data as unknown as Row;
   const q = clientQuote({ ...(r.quote as Row), sections: r.sections });
   const { sections, ...quote } = q as PortalQuote & Row;
-  return { quote, project: named(r.project), client: named(r.client), sections } as unknown as T;
+  return { quote, project: named(r.project), client: named(r.client), business: sharedBusiness(r.business), sections } as unknown as T;
 }
 
 export function clientSharedChangeOrder<T>(data: T): T {
@@ -222,7 +225,7 @@ export function clientSharedChangeOrder<T>(data: T): T {
   const r = data as unknown as Row;
   const c = clientChangeOrder({ ...(r.change_order as Row), sections: r.sections });
   const { sections, ...change_order } = c as PortalChangeOrder & Row;
-  return { change_order, project: named(r.project), client: named(r.client), sections } as unknown as T;
+  return { change_order, project: named(r.project), client: named(r.client), business: sharedBusiness(r.business), sections } as unknown as T;
 }
 
 export function clientSharedInvoice<T>(data: T): T {
@@ -230,7 +233,7 @@ export function clientSharedInvoice<T>(data: T): T {
   const r = data as unknown as Row;
   const i = clientInvoice({ ...(r.invoice as Row), items: r.items });
   const { items, ...invoice } = i as PortalInvoice & Row;
-  return { invoice, project: named(r.project), client: named(r.client), items } as unknown as T;
+  return { invoice, project: named(r.project), client: named(r.client), business: sharedBusiness(r.business), items } as unknown as T;
 }
 
 export function clientSharedReceipt<T>(data: T): T {

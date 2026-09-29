@@ -254,7 +254,19 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
       const f = features.find((x) => x.id === featureId);
       return {
         ...d,
-        sections: d.sections.map((x) => (x.id === sid ? { ...x, feature_id: featureId, name: f ? featureName(f, categories) : x.name } : x)),
+        // Lines default to the feature's category (Revenue by category) —
+        // uncategorized ones, or ones still on the previous feature's.
+        sections: d.sections.map((x) => {
+          if (x.id !== sid) return x;
+          const prevCat = features.find((p) => p.id === x.feature_id)?.category_id ?? null;
+          const cat = f?.category_id ?? null;
+          return {
+            ...x,
+            feature_id: featureId,
+            name: f ? featureName(f, categories) : x.name,
+            items: x.items.map((i) => (i.category_id == null || i.category_id === prevCat ? { ...i, category_id: cat } : i)),
+          };
+        }),
         // cost changes belong to one feature's Cost plan section
         costChanges: d.costChanges.filter((c) => c.section_id !== sid || c.feature_id === featureId),
       };
@@ -295,7 +307,16 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
               ...x,
               items: [
                 ...x.items,
-                { id: tmpId(), name: "", description: "", price: 0, quantity: 1, unit: "ea", category_id: null, images: [] },
+                {
+                  id: tmpId(),
+                  name: "",
+                  description: "",
+                  price: 0,
+                  quantity: 1,
+                  unit: "ea",
+                  category_id: features.find((f) => f.id === x.feature_id)?.category_id ?? null,
+                  images: [],
+                },
               ],
             }
           : x,

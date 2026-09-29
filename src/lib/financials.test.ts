@@ -16,6 +16,7 @@ import {
   outstandingTotal,
   projectBillingBadge,
   resolveCost,
+  jobCost,
 } from "./financials";
 
 // ---------------------------------------------------------------------------
@@ -474,6 +475,15 @@ describe("Cost / profit / margin", () => {
 
     expect(rows[0].cost).toBe(8_000);
     expect(rows[0].marginPct).toBe(20); // (10,000 - 8,000) / 10,000
+  });
+
+  it("a few expenses under the plan don't replace it — the job isn't ~100% margin", () => {
+    // $6,000 planned; only an $85 permit logged as an expense so far.
+    expect(jobCost(85, 6_000)).toBe(6_000);
+    expect(jobCost(8_000, 6_000)).toBe(8_000); // an overrun shows right away
+    expect(jobCost(85, null)).toBe(85); // no plan: expenses are all there is
+    expect(jobCost(null, 6_000)).toBe(6_000);
+    expect(jobCost(null, null)).toBeNull();
   });
 });
 

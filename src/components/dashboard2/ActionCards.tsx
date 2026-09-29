@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarClock, Eye, MessageSquare, MousePointerClick, PenLine, Snowflake, Star, Truck, Wrench, XCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, Eye, MessageSquare, MousePointerClick, PenLine, Snowflake, Star, Truck, Wrench, XCircle } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
 import { NeedsYouChips } from "@/components/dashboard/NeedsYouChips";
@@ -128,6 +128,8 @@ const ACTIVITY_KINDS: Record<string, typeof Eye> = {
   quote_selections: PenLine,
   quote_approved: Star,
   quote_declined: XCircle,
+  change_order_approved: CheckCircle2,
+  change_order_declined: XCircle,
   progress_comment: MessageSquare,
   review_clicked: MousePointerClick,
   maintenance_request: Wrench,
@@ -167,7 +169,7 @@ export function ClientActivityCard() {
           return (
             <li key={n.id}>
               <Link to={n.link ?? "/notifications"} className="flex min-h-[44px] items-center gap-3 px-4 py-2 hover:bg-muted/40">
-                <Icon className={cn("h-4 w-4 shrink-0", n.kind === "quote_declined" ? "text-destructive" : n.kind === "quote_approved" ? "text-success" : "text-info")} />
+                <Icon className={cn("h-4 w-4 shrink-0", n.kind === "quote_declined" || n.kind === "change_order_declined" ? "text-destructive" : n.kind === "quote_approved" || n.kind === "change_order_approved" ? "text-success" : "text-info")} />
                 <span className="min-w-0 flex-1">
                   <span className={cn("block truncate text-sm text-foreground", !n.read_at && "font-semibold")}>{n.title}</span>
                   {n.body && <span className="block truncate text-xs text-muted-foreground">{n.body}</span>}
