@@ -1479,9 +1479,10 @@ function ProfitSummaryCard({
                   hoursText={`${formatLabor(overhead.plannedManHours, overhead.settings)} planned`}
                 />
               )}
-              {actualCost !== null && (
+              {/* Same rule as Actual profit above: only once the job's done. */}
+              {actualCost !== null && !jobOpen && (
                 <FullyLoaded
-                  label={jobOpen ? "Fully loaded profit on spend so far" : "Actual fully loaded profit"}
+                  label="Actual fully loaded profit"
                   tc={trueCost({ direct: actualCost, manHours: overhead.actualManHours, rate: overhead.rate, price: quoted, targetMarginPct: overhead.targetMarginPct })}
                   hoursText={`${formatLabor(overhead.actualManHours, overhead.settings)} logged`}
                 />
