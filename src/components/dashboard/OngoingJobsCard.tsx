@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Briefcase } from "lucide-react";
@@ -27,7 +28,7 @@ import {
 import { getWeatherStrip, DEFAULT_WORK_WINDOW, type WorkWindow } from "@/lib/weather";
 import { upcomingDeliveries } from "@/lib/materialOrders";
 import { upcomingAppointmentRows } from "@/lib/upcomingAppointments";
-import { buildOngoingJobCards, type OngoingJobCard } from "@/lib/ongoingJobs";
+import { buildOngoingJobCards, ongoingGridColumns, type OngoingJobCard } from "@/lib/ongoingJobs";
 import { trackedSheetIds, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import { CategoryChips } from "@/components/common/CategoryChips";
@@ -35,6 +36,23 @@ import { countsTowardTotals } from "@/lib/features";
 import { useCardLink } from "@/hooks/use-card-link";
 
 const MAX_ITEMS = 6;
+/** Phones stack the tiles, so fewer before "View all". */
+const MOBILE_MAX_ITEMS = 3;
+
+/** An element's content width, kept current as it resizes (0 until measured). */
+function useElementWidth<T extends HTMLElement>() {
+  // A callback ref, so measuring starts whenever the element mounts (the
+  // grid only renders once there are jobs to show).
+  const [el, setEl] = useState<T | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return [setEl, width] as const;
+}
 
 function groupByProjectId<T extends { project_id: string | null }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -63,6 +81,7 @@ function groupByProjectId<T extends { project_id: string | null }>(rows: T[]): M
  */
 export function OngoingJobsCard({ className }: { className?: string }) {
   const cardLink = useCardLink("/projects");
+  const [gridRef, gridWidth] = useElementWidth<HTMLDivElement>();
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
@@ -156,6 +175,12 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   });
   const shown = allCards.slice(0, MAX_ITEMS);
   const remaining = allCards.length - shown.length;
+  const mobileShown = shown.slice(0, MOBILE_MAX_ITEMS);
+  const mobileRemaining = allCards.length - mobileShown.length;
+  // Tiles share the card's full width: one column per job (max 3), fewer
+  // only if the card is too narrow for them. One job gets the wide layout.
+  const columns = ongoingGridColumns(shown.length, gridWidth);
+  const tileLayout: TileLayout = shown.length === 1 ? (gridWidth === 0 || gridWidth >= 420 ? "wide" : "roomy") : columns <= 2 ? "roomy" : "compact";
   const shownIds = shown.map((c) => c.project.id);
 
   const { data: images = [] } = useQuery({
@@ -194,30 +219,36 @@ export function OngoingJobsCard({ className }: { className?: string }) {
         <p className="mt-3 text-sm text-muted-foreground">No ongoing jobs right now.</p>
       ) : (
         <>
-          {/* Mobile — a horizontal swipe row (each card ~85% width so the
-              next one peeks in) instead of a tall single column, so this
-              card doesn't blow up the Dashboard's scroll length. */}
-          <div className="scrollbar-hide -mx-5 mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-5 pb-1 md:hidden">
-            {shown.map((card) => (
-              <div key={card.project.id} className="w-[85%] shrink-0 snap-start">
-                <JobSnapshotCard card={card} coverUrl={coverUrlFor(card.project.id)} />
-              </div>
+          {/* Phones — full-width tiles stacked, the first few only (the
+              rest behind "+N more"), so the Dashboard doesn't get too long. */}
+          <div className="mt-4 space-y-3 md:hidden">
+            {mobileShown.map((card) => (
+              <JobSnapshotCard key={card.project.id} card={card} coverUrl={coverUrlFor(card.project.id)} layout="roomy" />
             ))}
           </div>
+          {mobileRemaining > 0 && (
+            <Link to="/projects" className="mt-3 block text-[13px] font-semibold text-primary hover:text-primary/80 md:hidden">
+              +{mobileRemaining} more
+            </Link>
+          )}
 
-          {/* Desktop — a real grid (2 columns, 3 once there's room). */}
-          <div className="mt-4 hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
+          {/* Tablet / desktop — equal columns across the card's full width
+              (grid rows stretch, so tiles in a row share one height). */}
+          <div
+            ref={gridRef}
+            className="mt-4 hidden gap-4 md:grid"
+            style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+          >
             {shown.map((card) => (
-              <JobSnapshotCard key={card.project.id} card={card} coverUrl={coverUrlFor(card.project.id)} />
+              <JobSnapshotCard key={card.project.id} card={card} coverUrl={coverUrlFor(card.project.id)} layout={tileLayout} />
             ))}
           </div>
+          {remaining > 0 && (
+            <Link to="/projects" className="mt-3 hidden text-[13px] font-semibold text-primary hover:text-primary/80 md:block">
+              +{remaining} more
+            </Link>
+          )}
         </>
-      )}
-
-      {remaining > 0 && (
-        <Link to="/projects" className="mt-3 block text-[13px] font-semibold text-primary hover:text-primary/80">
-          +{remaining} more
-        </Link>
       )}
     </section>
   );
@@ -232,16 +263,30 @@ const ALERT_BADGE_CLASS: Record<OngoingJobCard["alerts"][number]["key"], string>
   material_alert: "badge-status badge-overdue",
 };
 
-function JobSnapshotCard({ card, coverUrl }: { card: OngoingJobCard; coverUrl: string | null }) {
+/** wide: the only job — photo left, full details right. roomy: 1–2 per row
+ * (and phones) — stacked, little truncation. compact: 3 per row. */
+type TileLayout = "wide" | "roomy" | "compact";
+
+function JobSnapshotCard({ card, coverUrl, layout = "compact" }: { card: OngoingJobCard; coverUrl: string | null; layout?: TileLayout }) {
   const { project } = card;
   const meta = projectStatusMeta(project.status);
+  const wide = layout === "wide";
+  const compact = layout === "compact";
 
   return (
     <Link
       to={`/projects/${project.id}`}
-      className="group flex h-full flex-col overflow-hidden rounded-card border border-border bg-card shadow-card transition-shadow hover:shadow-card-hover"
+      className={cn(
+        "group flex h-full overflow-hidden rounded-card border border-border bg-card shadow-card transition-shadow hover:shadow-card-hover",
+        wide ? "flex-row" : "flex-col",
+      )}
     >
-      <div className="h-24 w-full shrink-0 overflow-hidden bg-muted">
+      <div
+        className={cn(
+          "shrink-0 overflow-hidden bg-muted",
+          wide ? "min-h-[220px] w-[38%] self-stretch" : compact ? "h-24 w-full" : "h-32 w-full",
+        )}
+      >
         {coverUrl ? (
           <img src={coverUrl} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -251,18 +296,33 @@ function JobSnapshotCard({ card, coverUrl }: { card: OngoingJobCard; coverUrl: s
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 truncate text-[15px] font-bold text-foreground">{project.name}</p>
+      <div className={cn("flex min-w-0 flex-1 flex-col gap-2", wide ? "p-5" : "p-4")}>
+        {/* Narrow (3-up) tiles: the badge drops under the name so the name
+            gets the whole width. */}
+        <div className={cn("flex gap-2", compact ? "flex-col items-start gap-1.5" : "items-start justify-between")}>
+          <p
+            className={cn(
+              "min-w-0 font-bold text-foreground",
+              wide ? "text-base [overflow-wrap:anywhere]" : "line-clamp-2 text-[15px] [overflow-wrap:anywhere]",
+            )}
+          >
+            {project.name}
+          </p>
           <span className={cn("shrink-0", meta.badge)}>{meta.label}</span>
         </div>
-        <p className="-mt-1.5 truncate text-xs text-muted-foreground">{project.client?.name ?? "No client"}</p>
-        {card.scopeLabel && <p className="truncate text-xs text-muted-subtle">{card.scopeLabel}</p>}
-        <CategoryChips categoryIds={projectCategoryIds(project)} max={2} />
+        <p className={cn("-mt-1.5 text-xs text-muted-foreground", compact ? "truncate" : "[overflow-wrap:anywhere]")}>
+          {project.client?.name ?? "No client"}
+        </p>
+        {card.scopeLabel && (
+          <p className={cn("text-xs text-muted-subtle", wide ? "[overflow-wrap:anywhere]" : compact ? "truncate" : "line-clamp-2")}>
+            {card.scopeLabel}
+          </p>
+        )}
+        <CategoryChips categoryIds={projectCategoryIds(project)} max={wide ? undefined : compact ? 2 : 4} />
 
         <div>
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-sm font-extrabold tabular-nums text-foreground">
+            <span className={cn("font-extrabold tabular-nums text-foreground", wide ? "text-base" : "text-sm")}>
               {formatCurrency(card.contractTotal)}
             </span>
             <span className="shrink-0 text-[11px] text-muted-subtle">contract</span>
@@ -287,7 +347,7 @@ function JobSnapshotCard({ card, coverUrl }: { card: OngoingJobCard; coverUrl: s
         )}
 
         {card.upNext && (
-          <p className="truncate text-xs text-foreground">
+          <p className={cn("text-xs text-foreground", wide ? "[overflow-wrap:anywhere]" : compact ? "truncate" : "line-clamp-2")}>
             <span className="font-semibold text-muted-foreground">Up next:</span> {card.upNext}
           </p>
         )}

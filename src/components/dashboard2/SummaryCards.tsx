@@ -27,7 +27,7 @@ import { useMaintenanceItems } from "@/components/maintenance/useMaintenance";
 import { Card, CardSkeleton, EmptyLine } from "./CardShell";
 import { TONE_TEXT } from "./tones";
 
-const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? "-" : ""}$${Math.round(Math.abs(v) / 100) / 10}k` : formatCurrency(v));
+const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? "−" : ""}$${Math.round(Math.abs(v) / 100) / 10}k` : formatCurrency(v));
 const shortDay = (d: string | null) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—");
 
 /** Business health numbers (same hook as that page, so they always match). */
