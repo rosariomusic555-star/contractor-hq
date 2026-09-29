@@ -4572,7 +4572,21 @@ export interface MaterialOrderItem {
   source: "manual" | "ticket";
   /** Reserved for a future attached scale-ticket photo. */
   ticket_photo_path: string | null;
+  /** A delivery issue on this line (0152) — open until issue_resolved_at. */
+  issue?: DeliveryIssueKind | null;
+  issue_note?: string | null;
+  /** Backordered: when the rest is expected. */
+  issue_expected_on?: string | null;
+  issue_resolved_at?: string | null;
 }
+
+export type DeliveryIssueKind = "short" | "damaged" | "wrong_item" | "backordered";
+export const DELIVERY_ISSUE_LABEL: Record<DeliveryIssueKind, string> = {
+  short: "Short",
+  damaged: "Damaged",
+  wrong_item: "Wrong item / color",
+  backordered: "Backordered",
+};
 
 export interface MaterialOrder {
   id: string;
@@ -4586,6 +4600,14 @@ export interface MaterialOrder {
   updated_at: string;
   material_order_items: MaterialOrderItem[];
   project?: ProjectRef | null;
+  /** 0152: when it was ordered, the supplier's PO / confirmation #, when it arrived. */
+  ordered_on?: string | null;
+  po_number?: string | null;
+  delivered_on?: string | null;
+  /** 0152: pallet deposits — charged = delivered × each, credit = returned × each. */
+  pallets_delivered?: number | null;
+  pallets_returned?: number | null;
+  pallet_deposit_each?: number | null;
 }
 
 const MATERIAL_ORDER_SELECT = "*, material_order_items(*), project:projects(name)";
@@ -4612,6 +4634,8 @@ export async function createMaterialOrder(input: {
   expected_delivery_date?: string | null;
   status?: MaterialOrderStatus;
   notes?: string | null;
+  po_number?: string | null;
+  delivered_on?: string | null;
   items: {
     description: string;
     quantity: number;
@@ -4628,6 +4652,9 @@ export async function createMaterialOrder(input: {
       expected_delivery_date: input.expected_delivery_date ?? null,
       status: input.status ?? "ordered",
       notes: input.notes ?? null,
+      // 0152 — only sent when set, so creating works before it's run.
+      ...(input.po_number?.trim() ? { po_number: input.po_number.trim() } : {}),
+      ...(input.delivered_on ? { delivered_on: input.delivered_on } : input.status === "delivered" && input.expected_delivery_date ? { delivered_on: input.expected_delivery_date } : {}),
     })
     .select()
     .single();
@@ -4659,7 +4686,21 @@ export async function createMaterialOrder(input: {
 
 export async function updateMaterialOrder(
   id: string,
-  patch: Partial<Pick<MaterialOrder, "supplier" | "expected_delivery_date" | "status" | "notes">>,
+  patch: Partial<
+    Pick<
+      MaterialOrder,
+      | "supplier"
+      | "expected_delivery_date"
+      | "status"
+      | "notes"
+      | "ordered_on"
+      | "po_number"
+      | "delivered_on"
+      | "pallets_delivered"
+      | "pallets_returned"
+      | "pallet_deposit_each"
+    >
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("material_orders").update(patch).eq("id", id);
   if (error) throw error;
@@ -4714,7 +4755,20 @@ export async function addMaterialOrderItem(
 export async function updateMaterialOrderItem(
   id: string,
   patch: Partial<
-    Pick<MaterialOrderItem, "description" | "quantity" | "unit" | "sort_order" | "materials_item_id" | "unit_price" | "status">
+    Pick<
+      MaterialOrderItem,
+      | "description"
+      | "quantity"
+      | "unit"
+      | "sort_order"
+      | "materials_item_id"
+      | "unit_price"
+      | "status"
+      | "issue"
+      | "issue_note"
+      | "issue_expected_on"
+      | "issue_resolved_at"
+    >
   >,
 ): Promise<void> {
   const { error } = await supabase.from("material_order_items").update(patch).eq("id", id);
@@ -4731,6 +4785,78 @@ export async function matchMaterialOrderItem(id: string, materialsItemId: string
     .update({ materials_item_id: materialsItemId })
     .eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * Log a delivery against an order (0152). Each line: what arrived. All of
+ * it → the line is delivered; some → the line splits into the delivered
+ * part and an open remainder (still on order — same order, so the next
+ * delivery logs against it); none → it stays on order. The order reads
+ * delivered once nothing is left open. Optional issue per line (short /
+ * damaged / wrong item / backordered). Splitting keeps every existing
+ * ordered / delivered helper (tracking, precon, alerts, crew) unchanged.
+ */
+export async function logDelivery(input: {
+  order: MaterialOrder;
+  deliveredOn: string;
+  lines: {
+    itemId: string;
+    received: number;
+    unitPrice?: number | null;
+    issue?: DeliveryIssueKind | null;
+    issueNote?: string | null;
+    issueExpectedOn?: string | null;
+  }[];
+}): Promise<void> {
+  const byId = new Map(input.order.material_order_items.map((i) => [i.id, i]));
+  let openLeft = 0;
+  let sort = Math.max(0, ...input.order.material_order_items.map((i) => i.sort_order)) + 1;
+  for (const l of input.lines) {
+    const item = byId.get(l.itemId);
+    if (!item) continue;
+    const already = (item.status ?? input.order.status) === "delivered";
+    if (already) continue;
+    const ordered = Number(item.quantity);
+    const received = Math.max(0, Math.min(ordered, Number(l.received) || 0));
+    const issuePatch = l.issue
+      ? { issue: l.issue, issue_note: l.issueNote?.trim() || null, issue_expected_on: l.issueExpectedOn || null, issue_resolved_at: null }
+      : {};
+    const pricePatch = l.unitPrice != null ? { unit_price: l.unitPrice } : {};
+    if (received >= ordered - 1e-9) {
+      await updateMaterialOrderItem(item.id, { status: "delivered", ...pricePatch, ...issuePatch });
+    } else if (received > 0) {
+      await updateMaterialOrderItem(item.id, { quantity: received, status: "delivered", ...pricePatch, ...issuePatch });
+      const { error } = await supabase.from("material_order_items").insert({
+        material_order_id: input.order.id,
+        description: item.description,
+        quantity: Math.round((ordered - received) * 1000) / 1000,
+        unit: item.unit,
+        sort_order: sort++,
+        materials_item_id: item.materials_item_id,
+        unit_price: l.unitPrice ?? item.unit_price,
+        status: null,
+      });
+      if (error) throw error;
+      openLeft++;
+    } else {
+      if (l.issue) await updateMaterialOrderItem(item.id, issuePatch);
+      openLeft++;
+    }
+  }
+  // Lines not in the form stay as they were.
+  for (const item of input.order.material_order_items) {
+    if (input.lines.some((l) => l.itemId === item.id)) continue;
+    if ((item.status ?? input.order.status) !== "delivered") openLeft++;
+  }
+  await updateMaterialOrder(input.order.id, {
+    ...(openLeft === 0 ? { status: "delivered" as const } : {}),
+    delivered_on: input.deliveredOn,
+  });
+  // Items that were delivered through the override now match the order.
+  if (openLeft === 0) {
+    const { error } = await supabase.from("material_order_items").update({ status: null }).eq("material_order_id", input.order.id).eq("status", "delivered");
+    if (error) throw error;
+  }
 }
 
 export async function deleteMaterialOrderItem(id: string): Promise<void> {

@@ -24,8 +24,8 @@ export const CREW_FIELDS = {
   labor: ["crew_days", "crew_size", "man_hours"],
   change: ["number", "title", "approved_at", "scope_note", "items"],
   material: ["id", "feature_id", "section", "name", "color", "product", "quantity", "unit", "waste_percent", "planned_quantity", "conversion_factor", "conversion_unit", "tracked", "orders", "used"],
-  materialOrder: ["quantity", "unit", "status", "expected_date"],
-  delivery: ["id", "supplier", "expected_date", "status"],
+  materialOrder: ["quantity", "unit", "status", "expected_date", "issue", "issue_note", "issue_expected_date"],
+  delivery: ["id", "supplier", "expected_date", "status", "delivered_on", "open_issues", "photos"],
   photo: ["id", "storage_path", "caption"],
   delay: ["date", "days", "reason"],
   viewer: ["is_owner", "employee_id", "is_lead", "can_log_usage"],
@@ -94,7 +94,7 @@ export function crewSafeWorkOrder(raw: unknown): CrewWorkOrder | null {
     ),
     general_scope: list((s) => pick(s, CREW_FIELDS.scopeItem)),
     materials: list((m) => pick(m, CREW_FIELDS.material, { orders: list((o) => pick(o, CREW_FIELDS.materialOrder)) })),
-    deliveries: list((d) => pick(d, CREW_FIELDS.delivery)),
+    deliveries: list((d) => pick(d, CREW_FIELDS.delivery, { photos: list((p) => pick(p, CREW_FIELDS.photo)) })),
     photos: list((p) => pick(p, CREW_FIELDS.photo)),
     delays: list((d) => pick(d, CREW_FIELDS.delay)),
     viewer: (v) => pick(v, CREW_FIELDS.viewer),
@@ -102,6 +102,8 @@ export function crewSafeWorkOrder(raw: unknown): CrewWorkOrder | null {
     reviews: list((v) => pick(v, CREW_FIELDS.review)),
   }) as unknown as CrewWorkOrder;
 }
+
+export type DeliveryIssue = "short" | "damaged" | "wrong_item" | "backordered";
 
 export interface CrewScopeItem {
   name: string;
@@ -135,7 +137,16 @@ export interface CrewMaterial {
   conversion_factor: number | null;
   conversion_unit: string | null;
   tracked: boolean;
-  orders: { quantity: number; unit: string | null; status: string; expected_date: string | null }[];
+  orders: {
+    quantity: number;
+    unit: string | null;
+    status: string;
+    expected_date: string | null;
+    /** An open delivery issue on this line (0152). */
+    issue?: DeliveryIssue | null;
+    issue_note?: string | null;
+    issue_expected_date?: string | null;
+  }[];
   /** Logged as used so far, in the line's unit (0145; absent before it). */
   used?: number;
 }
@@ -159,7 +170,16 @@ export interface CrewWorkOrder {
   features: CrewFeature[];
   general_scope: CrewScopeItem[];
   materials: CrewMaterial[];
-  deliveries: { id: string; supplier: string | null; expected_date: string | null; status: string }[];
+  deliveries: {
+    id: string;
+    supplier: string | null;
+    expected_date: string | null;
+    status: string;
+    /** 0152: every delivery now (not just pending), with its photos and open issues. */
+    delivered_on?: string | null;
+    open_issues?: number;
+    photos?: { id: string; storage_path: string; caption: string | null }[];
+  }[];
   photos: { id: string; storage_path: string; caption: string | null }[];
   delays: { date: string; days: number; reason: string }[];
   updated_at: string | null;

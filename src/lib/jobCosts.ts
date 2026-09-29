@@ -48,8 +48,8 @@ import { countWorkingDays } from "./projectDuration";
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const GENERAL = "general";
 
-export type CostSource = "expense" | "delivery" | "labor";
-export const COST_SOURCE_LABEL: Record<CostSource, string> = { expense: "Expense", delivery: "Delivery", labor: "Labor" };
+export type CostSource = "expense" | "delivery" | "labor" | "credit";
+export const COST_SOURCE_LABEL: Record<CostSource, string> = { expense: "Expense", delivery: "Delivery", labor: "Labor", credit: "Credit" };
 
 /** One row of the "All costs" list. A split expense is one row whose
  * `lines` are its split lines. */
@@ -164,6 +164,8 @@ export interface JobCostReport {
     deliveries: DeliveryRow[];
     deliveredTotal: number;
     unplannedDeliveredCost: number;
+    /** Return credits + pallet deposits back (0152). */
+    supplierCredits: number;
     /** Manual expenses typed Material — bought outside a tracked delivery. */
     materialExpenses: number;
     materialExpenseCount: number;
@@ -433,6 +435,60 @@ export function jobCostReport(input: {
   }
   const deliveredTotal = r2(deliveryRows.reduce((s, d) => s + d.deliveredAmount, 0));
 
+  // Supplier credits (0152) — returned leftovers (reconciled line credit) and
+  // pallet deposits back; a pallet deposit charged is a cost. Same rule as
+  // deliveries: in the totals once the job is Complete and reconciled.
+  const creditNote = input.materialsCounted ? null : "Tracked — counts in the totals once the job is Complete and reconciled";
+  let supplierCredits = 0;
+  for (const l of allLines) {
+    const credit = l.disposition === "returned" ? Number(l.return_credit ?? 0) : 0;
+    if (credit <= 0) continue;
+    supplierCredits += credit;
+    if (input.materialsCounted) actualRow(keyOf(l.__section.feature_id)).material -= credit;
+    rows.push({
+      key: `credit-return-${l.id}`,
+      source: "credit",
+      date: (l.reconciled_at ?? input.today).slice(0, 10),
+      description: `Return credit · ${l.name}`,
+      vendor: null,
+      featureId: l.__section.feature_id && liveIds.has(l.__section.feature_id) ? l.__section.feature_id : null,
+      costType: "material",
+      categoryId: null,
+      amount: -r2(credit),
+      receiptPath: null,
+      inTotals: input.materialsCounted,
+      note: creditNote,
+      unassigned: false,
+    });
+  }
+  for (const o of input.materialOrders) {
+    const each = Number(o.pallet_deposit_each ?? 0);
+    if (!each) continue;
+    const charged = (o.pallets_delivered ?? 0) * each;
+    const back = (o.pallets_returned ?? 0) * each;
+    for (const [kind, amt] of [["charge", charged], ["back", -back]] as const) {
+      if (!amt) continue;
+      if (kind === "back") supplierCredits += back;
+      if (input.materialsCounted) actualRow(GENERAL).material += amt;
+      rows.push({
+        key: `pallet-${kind}-${o.id}`,
+        source: kind === "back" ? "credit" : "delivery",
+        date: ((kind === "back" ? o.updated_at : o.delivered_on ?? o.expected_delivery_date) ?? input.today).slice(0, 10),
+        description: kind === "back" ? `Pallet deposit back · ${o.pallets_returned} pallet${o.pallets_returned === 1 ? "" : "s"}` : `Pallet deposit · ${o.pallets_delivered} pallet${o.pallets_delivered === 1 ? "" : "s"}`,
+        vendor: o.supplier,
+        featureId: null,
+        costType: "material",
+        categoryId: null,
+        amount: r2(amt),
+        receiptPath: null,
+        inTotals: input.materialsCounted,
+        note: creditNote,
+        orderId: o.id,
+        unassigned: false,
+      });
+    }
+  }
+
   // --- Matrix (feature × type) --------------------------------------------
   const cellOf = (planned: number, actual: number): MatrixCell => ({ planned: r2(planned), actual: r2(actual), tone: varianceTone(planned, actual, t) });
   const buildRow = (key: string, featureId: string | null, name: string, planned: Record<CostBucket, number>, actual: Record<CostBucket, number>): MatrixRow => {
@@ -556,6 +612,7 @@ export function jobCostReport(input: {
       deliveries: deliveryRows,
       deliveredTotal,
       unplannedDeliveredCost: r2(unplannedDeliveredCost),
+      supplierCredits: r2(supplierCredits),
       materialExpenses: r2(materialExpenses),
       materialExpenseCount,
       counted: input.materialsCounted,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FileDown, Mail } from "lucide-react";
+import { Check, Copy, FileDown, Mail, Phone } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { cn, pluralize } from "@/lib/utils";
 import {
   createMaterialOrder,
   getBusinessProfile,
+  listSuppliers,
   touchSupplierUsage,
   type MaterialsItem,
   type MaterialsSection,
@@ -45,6 +46,13 @@ interface OrderSheetDialogProps {
   sections: MaterialsSection[];
   catalogItems: ProductCatalogItem[];
   priceBookItems: PriceBookItem[];
+  /** Lines to start with selected (e.g. "Still to order" → Create order). */
+  initialSelectedIds?: string[];
+  /** Quantity still to order per line, in the line's unit (waste included) —
+   * the sheet orders only what's left instead of the whole plan. */
+  quantityOverrides?: Map<string, number>;
+  /** After the order is recorded. */
+  onOrdered?: () => void;
 }
 
 interface FlatItem {
@@ -73,6 +81,9 @@ export function OrderSheetDialog({
   sections,
   catalogItems,
   priceBookItems,
+  initialSelectedIds,
+  quantityOverrides,
+  onOrdered,
 }: OrderSheetDialogProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -92,8 +103,12 @@ export function OrderSheetDialog({
     if (!open) return;
     setJobName(projectName);
     setAddress(deliveryAddress ?? "");
+    if (initialSelectedIds?.length) setSelectedIds(new Set(initialSelectedIds));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  const [poNumber, setPoNumber] = useState("");
+  const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: listSuppliers });
+  const supplierRow = suppliers.find((s) => s.name.trim().toLowerCase() === supplier.trim().toLowerCase());
   const [supplier, setSupplier] = useState("");
   const [dateNeeded, setDateNeeded] = useState("");
   const [notes, setNotes] = useState("");
@@ -113,6 +128,12 @@ export function OrderSheetDialog({
         s.materials_items
           // Nothing to order on a 0-quantity line.
           .filter((item) => Number(item.quantity) > 0)
+          // Only what's left to order: a copy of the line at the remaining
+          // quantity (waste already in it), so packages still round up.
+          .map((item) => {
+            const left = quantityOverrides?.get(item.id);
+            return left != null ? ({ ...item, quantity: left, waste_percent: 0 } as MaterialsItem) : item;
+          })
           .map((item) => {
             const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
             const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
@@ -123,7 +144,7 @@ export function OrderSheetDialog({
             return { item, sectionName: s.name, category, orderQuantity: order.quantity, orderUnit: order.unit };
           }),
       ),
-    [sections, catalogById, priceBookById, materialCategoryNameById],
+    [sections, catalogById, priceBookById, materialCategoryNameById, quantityOverrides],
   );
 
   const categories = useMemo(() => {
@@ -153,6 +174,7 @@ export function OrderSheetDialog({
     setSupplier("");
     setDateNeeded("");
     setNotes("");
+    setPoNumber("");
     setPendingLines([]);
     if (emailPdf) URL.revokeObjectURL(emailPdf.url);
     setEmailPdf(null);
@@ -235,6 +257,7 @@ export function OrderSheetDialog({
         supplier: supplier.trim() || null,
         expected_delivery_date: dateNeeded || null,
         notes: notes.trim() || null,
+        po_number: poNumber.trim() || null,
         items: pendingLines.map((l) => ({
           description: l.detail ? `${l.title} — ${l.detail}` : l.title,
           quantity: l.quantity,
@@ -247,10 +270,32 @@ export function OrderSheetDialog({
       qc.invalidateQueries({ queryKey: ["material-orders"] });
       if (order.supplier) void touchSupplierUsage(order.supplier);
       toast({ title: "Marked as ordered" });
+      onOrdered?.();
       close();
     },
     onError: (err: Error) => toast({ title: "Couldn't mark as ordered", description: err.message, variant: "destructive" }),
   });
+
+  /** The order as plain text — for Copy and the mail-app draft. */
+  const orderText = () => {
+    const email = defaultOrderEmail({ supplier, jobName: jobName.trim() || projectName, company: businessProfile?.company_name ?? null, dateNeeded, address });
+    const lines = combineOrderLines(pendingLines).map((l) => `• ${l.title}${l.detail ? ` (${l.detail})` : ""} — ${l.quantity} ${l.unit ?? ""}`.trimEnd());
+    const body = email.message.replace("Attached is the material list", "Here's the material list").replace("\nCould", `\n\n${lines.join("\n")}\n\nCould`);
+    return { subject: email.subject, body: `${body}\n\n(Order sheet PDF attached.)` };
+  };
+  const mailtoOrder = () => {
+    const t = orderText();
+    return `mailto:${encodeURIComponent(supplierRow?.email ?? "")}?subject=${encodeURIComponent(t.subject)}&body=${encodeURIComponent(t.body)}`;
+  };
+  const copyOrder = async () => {
+    const t = orderText();
+    try {
+      await navigator.clipboard.writeText(`${t.subject}\n\n${t.body}`);
+      toast({ title: "Order copied", description: "Paste it into a text or email." });
+    } catch {
+      toast({ title: "Couldn't copy", variant: "destructive" });
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
@@ -390,6 +435,30 @@ export function OrderSheetDialog({
                 {supplier.trim() ? ` creates a pending delivery from ${supplier.trim()}` : " logs them as ordered"} and
                 updates the Material Tracker.
               </p>
+              {!emailedTo && (
+                <div className="flex flex-wrap gap-2">
+                  {/* No in-app email set up (or not wanted): the PDF is downloaded — attach it. */}
+                  <Button asChild variant="outline" size="sm">
+                    <a href={mailtoOrder()}>
+                      <Mail className="mr-1.5 h-4 w-4" /> Email in your mail app
+                    </a>
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => void copyOrder()}>
+                    <Copy className="mr-1.5 h-4 w-4" /> Copy order
+                  </Button>
+                  {supplierRow?.phone && (
+                    <Button asChild variant="outline" size="sm">
+                      <a href={`tel:${supplierRow.phone.replace(/[^\d+]/g, "")}`}>
+                        <Phone className="mr-1.5 h-4 w-4" /> Call {supplierRow.name}
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="os-po">Supplier PO / confirmation # (optional)</Label>
+                <Input id="os-po" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="e.g. SO-48213" />
+              </div>
               <ul className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-hairline p-3 text-sm">
                 {pendingLines.map((l) => (
                   <li key={l.materialsItemId} className="flex items-center justify-between gap-3 text-foreground">

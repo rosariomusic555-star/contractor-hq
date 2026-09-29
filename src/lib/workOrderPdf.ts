@@ -152,7 +152,7 @@ export function buildWorkOrderPdf(raw: CrewWorkOrder, diagrams: Map<string, { da
       headStyles: { fontStyle: "bold", textColor: MUTED, fontSize: 8 },
     });
     y = lastY() + 16;
-    const upcoming = wo.deliveries.filter((d) => d.expected_date);
+    const upcoming = wo.deliveries.filter((d) => d.status !== "delivered" && d.expected_date);
     if (upcoming.length) text(`Deliveries: ${upcoming.map((d) => `${d.supplier ?? "Delivery"} ${day(d.expected_date)}`).join("   |   ")}`, X);
   }
 

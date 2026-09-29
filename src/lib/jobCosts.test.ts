@@ -142,3 +142,27 @@ describe("job costs export", () => {
     expect(doc.output()).toContain("INTERNAL");
   });
 });
+
+describe("supplier credits (0152)", () => {
+  it("return credits and pallet deposits back reduce material cost once counted; deposits charged add", () => {
+    const secs = [
+      { ...sections[0], materials_items: [{ ...sections[0].materials_items[0], disposition: "returned", return_credit: 150, reconciled_at: "2026-10-20T12:00:00Z" }] },
+      sections[1],
+    ] as any;
+    const orders = [
+      {
+        id: "o", project_id: "p", supplier: "Stone Co", expected_delivery_date: "2026-10-05", delivered_on: "2026-10-05", updated_at: "2026-10-20T00:00:00Z",
+        status: "delivered", pallets_delivered: 4, pallets_returned: 3, pallet_deposit_each: 25,
+        material_order_items: [{ id: "i", materials_item_id: "pav", quantity: 100, unit: "ea", unit_price: 50, status: null }],
+      },
+    ] as any;
+    const done = jobCostReport({ ...base, project: { ...base.project, status: "complete" }, sections: secs, materialOrders: orders, materialsCounted: true });
+    // 100×50 delivered − 150 return + 4×25 deposit − 3×25 back
+    expect(done.actual).toBe(5000 - 150 + 100 - 75);
+    expect(done.materials.supplierCredits).toBe(225);
+    expect(done.rows.filter((r) => r.source === "credit").map((r) => r.amount).sort()).toEqual([-150, -75]);
+    const open = jobCostReport({ ...base, sections: secs, materialOrders: orders });
+    expect(open.actual).toBe(0);
+    expect(open.rows.find((r) => r.key === "credit-return-pav")!.inTotals).toBe(false);
+  });
+});
