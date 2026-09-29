@@ -51,7 +51,6 @@ begin
      where coalesce(u.encrypted_password, '') = ''
        and not exists (select 1 from public.projects x where x.user_id = u.id)
        and not exists (select 1 from public.clients x where x.user_id = u.id)
-       and not exists (select 1 from public.opportunities x where x.user_id = u.id)
        and not exists (select 1 from public.quotes x where x.user_id = u.id)
        and not exists (select 1 from public.invoices x where x.user_id = u.id)
        and not exists (select 1 from public.employees x where x.owner_user_id = u.id);
