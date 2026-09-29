@@ -22,6 +22,8 @@ import {
   Plus,
   Eye,
 } from "lucide-react";
+import { clientHubLink } from "@/lib/messageTemplates";
+import { CopyHubLinkButton } from "@/components/common/CopyHubLinkButton";
 import {
   Select,
   SelectContent,
@@ -944,6 +946,7 @@ export function ProjectDetailView() {
                 loadDetail={() => getClientViewProject(id)}
                 getLogoUrl={async (path) => (await getSignedImageUrls([path]))[path] ?? null}
               />
+              <CopyHubLinkButton url={clientHubLink(id)} variant="ghost" size="sm" className="col-span-2 justify-center" />
             </div>
             {depositOverdue && (
               <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
