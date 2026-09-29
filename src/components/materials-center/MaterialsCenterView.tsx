@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, PackageCheck, ShoppingCart } from "lucide-react";
+import { AlertTriangle, CalendarDays, PackageCheck, Plus, ShoppingCart } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { KpiCard } from "@/components/common/KpiCard";
@@ -10,6 +12,7 @@ import { activeFeatures, countsTowardTotals, featureName as featureLabel } from 
 import type { MaterialLineView } from "@/lib/materialsCenter";
 import { cn, formatCurrency, formatDate, pluralize } from "@/lib/utils";
 import { LogDeliverySheet } from "./LogDeliverySheet";
+import { AddOrderDeliveryForm } from "./AddOrderDeliveryForm";
 import { OrdersTimeline } from "./OrdersTimeline";
 import { DeliveryCalendar, FeatureStatus, LeftoversAndPallets, SuppliersPanel } from "./MaterialsCenterPanels";
 
@@ -42,6 +45,8 @@ export function MaterialsCenterView({ projectId }: { projectId: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [orderOpen, setOrderOpen] = useState(false);
   const [logging, setLogging] = useState<MaterialOrder | null>(null);
+  const [adding, setAdding] = useState(false);
+  const isMobile = useIsMobile();
 
   const live = useMemo(() => (data ? activeFeatures(data.features) : []), [data]);
   if (!data) return <div className="py-16 text-center text-sm text-muted-foreground">Loading materials…</div>;
@@ -157,8 +162,16 @@ export function MaterialsCenterView({ projectId }: { projectId: string }) {
       </Section>
 
       {/* Orders and deliveries */}
-      <Section title="Orders and deliveries" icon={<PackageCheck className="h-4 w-4 text-muted-subtle" />}>
-        <OrdersTimeline orders={r.orders} suppliers={data.suppliers} rainDates={data.rainDates} onLogDelivery={setLogging} />
+      <Section
+        title="Orders and deliveries"
+        icon={<PackageCheck className="h-4 w-4 text-muted-subtle" />}
+        right={
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New order / delivery
+          </Button>
+        }
+      >
+        <OrdersTimeline orders={r.orders} suppliers={data.suppliers} sections={sections} rainDates={data.rainDates} onLogDelivery={setLogging} />
       </Section>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -202,6 +215,15 @@ export function MaterialsCenterView({ projectId }: { projectId: string }) {
         quantityOverrides={overrides}
         onOrdered={() => setSelected(new Set())}
       />
+      {/* Anything by hand — unplanned material, a delivery with no order, just a total. */}
+      <Sheet open={adding} onOpenChange={setAdding}>
+        <SheetContent side={isMobile ? "bottom" : "right"} className={cn("overflow-y-auto", isMobile ? "max-h-[92dvh] rounded-t-2xl px-3 pb-6 pt-5" : "w-full sm:max-w-2xl")}>
+          <SheetHeader className="mb-3 text-left">
+            <SheetTitle>New order or delivery</SheetTitle>
+          </SheetHeader>
+          <AddOrderDeliveryForm projectId={projectId} onSaved={() => setAdding(false)} />
+        </SheetContent>
+      </Sheet>
       <LogDeliverySheet order={logging} open={!!logging} onOpenChange={(v) => !v && setLogging(null)} showPrices />
     </div>
   );

@@ -7,12 +7,23 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { SupplierCombobox } from "@/components/common/SupplierCombobox";
 import { FeatureSelect, CostTypeSelect } from "@/components/expenses/FeatureTypeSelects";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import {
   createExpense,
+  deleteExpense,
   getSignedImageUrls,
   logProjectEvent,
   saveExpenseLines,
@@ -235,6 +246,21 @@ export function ExpenseSheet({
     onError: (e: Error) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" }),
   });
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const remove = useMutation({
+    mutationFn: async () => {
+      if (!editing) return;
+      await deleteExpense(editing.id); // removes its receipt photo too
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      setConfirmDelete(false);
+      toast({ title: "Expense deleted" });
+      onOpenChange(false);
+    },
+    onError: (e: Error) => toast({ title: "Couldn't delete", description: e.message, variant: "destructive" }),
+  });
+
   const setLine = (key: string, patch: Partial<DraftLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
   return (
@@ -376,6 +402,11 @@ export function ExpenseSheet({
           </div>
 
           <div className="flex gap-2 pt-1">
+            {editing && (
+              <Button type="button" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}>
+                <Trash2 className="mr-1 h-4 w-4" /> Delete
+              </Button>
+            )}
             <Button type="button" variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -384,6 +415,29 @@ export function ExpenseSheet({
             </Button>
           </div>
         </div>
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this expense?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {editing ? `${editing.name} · ${formatCurrency(Number(editing.amount))}` : ""} and its receipt are deleted. This can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep it</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={remove.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  remove.mutate();
+                }}
+              >
+                {remove.isPending ? "Deleting…" : "Delete expense"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
   );

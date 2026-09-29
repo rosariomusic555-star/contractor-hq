@@ -1,21 +1,38 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CloudRain, Mail, MoveRight, Pencil, Phone, Truck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CloudRain, Mail, MoveRight, Pencil, Phone, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { MaterialsLinePicker } from "@/components/common/MaterialsLinePicker";
 import { SupplierCombobox } from "@/components/common/SupplierCombobox";
 import { PhotoGallery } from "@/components/common/PhotoGallery";
 import { useToast } from "@/hooks/use-toast";
 import {
   DELIVERY_ISSUE_LABEL,
+  deleteMaterialOrder,
+  deleteMaterialOrderItem,
   materialOrderUnitLabel,
   touchSupplierUsage,
   updateMaterialOrder,
   updateMaterialOrderItem,
   type MaterialOrder,
+  type MaterialOrderItem,
+  type MaterialOrderStatus,
+  type MaterialsSection,
   type Supplier,
 } from "@/lib/api";
 import { effectiveDeliveryStatus } from "@/lib/materialTracking";
@@ -30,11 +47,14 @@ const telOf = (phone: string) => `tel:${phone.replace(/[^\d+]/g, "")}`;
 export function OrdersTimeline({
   orders,
   suppliers,
+  sections,
   rainDates,
   onLogDelivery,
 }: {
   orders: OrderView[];
   suppliers: Supplier[];
+  /** Cost plan sections — to match a line to a Cost plan line. */
+  sections: MaterialsSection[];
   rainDates: Set<string>;
   onLogDelivery: (order: MaterialOrder) => void;
 }) {
@@ -185,15 +205,56 @@ export function OrdersTimeline({
           );
         })}
       </ol>
-      <OrderEditDialog order={editing} onOpenChange={(v) => !v && setEditing(null)} />
+      <OrderEditDialog
+        order={editing ? (orders.find((o) => o.order.id === editing.id)?.order ?? editing) : null}
+        sections={sections}
+        onOpenChange={(v) => !v && setEditing(null)}
+      />
     </>
   );
 }
 
-function OrderEditDialog({ order, onOpenChange }: { order: MaterialOrder | null; onOpenChange: (open: boolean) => void }) {
+function OrderEditDialog({
+  order,
+  sections,
+  onOpenChange,
+}: {
+  order: MaterialOrder | null;
+  sections: MaterialsSection[];
+  onOpenChange: (open: boolean) => void;
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [f, setF] = useState<Record<string, string>>({});
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["material-orders"] });
+    qc.invalidateQueries({ queryKey: ["precon"] });
+  };
+  const onError = (e: Error) => toast({ title: "Couldn't save", description: e.message, variant: "destructive" });
+  // Line changes (match / price / status / remove) save as you make them.
+  const lineMut = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<MaterialOrderItem, "materials_item_id" | "unit_price" | "status">> }) =>
+      updateMaterialOrderItem(id, patch),
+    onSuccess: invalidate,
+    onError,
+  });
+  const removeLine = useMutation({ mutationFn: (id: string) => deleteMaterialOrderItem(id), onSuccess: invalidate, onError });
+  const statusMut = useMutation({
+    mutationFn: (status: MaterialOrderStatus) => updateMaterialOrder(order!.id, { status }),
+    onSuccess: invalidate,
+    onError,
+  });
+  const deleteMut = useMutation({
+    mutationFn: () => deleteMaterialOrder(order!.id),
+    onSuccess: () => {
+      invalidate();
+      setConfirmDelete(false);
+      toast({ title: "Order deleted" });
+      onOpenChange(false);
+    },
+    onError,
+  });
   const open = !!order;
   const v = (k: string, fallback: string | number | null | undefined) => f[k] ?? (fallback == null ? "" : String(fallback));
   const save = useMutation({
@@ -269,13 +330,124 @@ function OrderEditDialog({ order, onOpenChange }: { order: MaterialOrder | null;
               <Label htmlFor="oe-notes">Notes</Label>
               <Textarea id="oe-notes" rows={2} value={v("notes", order.notes)} onChange={(e) => setF((x) => ({ ...x, notes: e.target.value }))} />
             </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button className="font-bold" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save"}</Button>
+            <div className="space-y-1.5">
+              <Label>Order status</Label>
+              <Select value={order.status} onValueChange={(s) => statusMut.mutate(s as MaterialOrderStatus)}>
+                <SelectTrigger className="h-10" aria-label="Order status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ordered">Ordered</SelectItem>
+                  <SelectItem value="delayed">Delayed</SelectItem>
+                  <SelectItem value="delivered">Delivered (everything)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-subtle">To log what actually arrived (or part of it), use Log delivery.</p>
             </div>
+            <div className="space-y-2">
+              <Label>Lines</Label>
+              <p className="text-[11px] text-muted-subtle">Match a line to its Cost plan line, fix the price paid, or set one line's status — each change saves right away.</p>
+              {order.material_order_items.map((i) => (
+                <LineEditor
+                  key={i.id}
+                  item={i}
+                  sections={sections}
+                  orderStatus={order.status}
+                  onChange={(patch) => lineMut.mutate({ id: i.id, patch })}
+                  onRemove={order.material_order_items.length > 1 ? () => removeLine.mutate(i.id) : undefined}
+                />
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}>
+                <Trash2 className="mr-1.5 h-4 w-4" /> Delete order
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button className="font-bold" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save"}</Button>
+              </div>
+            </div>
+            <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this order?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {order.supplier ?? "This order"} and its {pluralize(order.material_order_items.length, "line")} and photos are deleted — what's ordered and delivered on the
+                    Cost plan goes down with it. This can't be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep it</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={deleteMut.isPending}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      deleteMut.mutate();
+                    }}
+                  >
+                    {deleteMut.isPending ? "Deleting…" : "Delete order"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** One order line: its Cost plan match, the price paid, its own status. */
+function LineEditor({
+  item,
+  sections,
+  orderStatus,
+  onChange,
+  onRemove,
+}: {
+  item: MaterialOrderItem;
+  sections: MaterialsSection[];
+  orderStatus: MaterialOrderStatus;
+  onChange: (patch: Partial<Pick<MaterialOrderItem, "materials_item_id" | "unit_price" | "status">>) => void;
+  onRemove?: () => void;
+}) {
+  const [price, setPrice] = useState(item.unit_price != null ? String(item.unit_price) : "");
+  return (
+    <div className="space-y-2 rounded-lg border border-hairline p-2.5 text-sm">
+      <div className="flex items-start justify-between gap-2">
+        <span className="min-w-0 text-foreground [overflow-wrap:anywhere]">
+          {Number(item.quantity)} {materialOrderUnitLabel(item.unit, Number(item.quantity))} — {item.description}
+        </span>
+        {onRemove && (
+          <button type="button" aria-label="Remove line" className="shrink-0 text-muted-subtle hover:text-destructive" onClick={onRemove}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      <MaterialsLinePicker sections={sections} value={item.materials_item_id} onChange={(v) => onChange({ materials_item_id: v })} className="h-8 w-full text-xs" />
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          inputMode="decimal"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          onBlur={() => onChange({ unit_price: price.trim() ? Number(price) : null })}
+          placeholder="Actual $/unit"
+          className="h-8 text-xs"
+          aria-label="Actual price per unit"
+        />
+        <Select value={item.status ?? "__inherit__"} onValueChange={(v) => onChange({ status: v === "__inherit__" ? null : (v as MaterialOrderStatus) })}>
+          <SelectTrigger className="h-8 text-xs" aria-label="This line's status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__inherit__">Same as order ({orderStatus})</SelectItem>
+            <SelectItem value="ordered">Ordered</SelectItem>
+            <SelectItem value="delivered">Delivered</SelectItem>
+            <SelectItem value="delayed">Delayed</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
   );
 }
