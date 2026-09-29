@@ -1268,7 +1268,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       {projectId && (
         <Button asChild variant="outline" className="h-11 w-full font-semibold md:hidden">
           <Link to={`/projects/${projectId}`}>
-            <FolderOpen className="mr-1.5 h-4 w-4" /> Go to project · {quote.project?.name ?? "Project"}
+            <FolderOpen className="mr-1.5 h-4 w-4" />
+            <span className="min-w-0 truncate">Go to project · {quote.project?.name ?? "Project"}</span>
           </Link>
         </Button>
       )}
@@ -1321,7 +1322,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         actionsDisabled={isDirty || ensureLinkMut.isPending}
       />
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         {/* Left column — sections + notes */}
         <div className="space-y-4">
           {draft.sections.length === 0 && (

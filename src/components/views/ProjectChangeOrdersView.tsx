@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, Copy, ExternalLink, FilePlus2, MoreHorizontal, PenLine, Plus } from "lucide-react";
+import { Clock, Copy, ExternalLink, FilePlus2, MoreHorizontal, PenLine, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { StatusPill } from "@/components/common/StatusPill";
 import { KpiCard } from "@/components/common/KpiCard";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
@@ -17,6 +27,7 @@ import {
   contractorApproveChangeOrder,
   createChangeOrder,
   createChangeOrderInvoice,
+  deleteChangeOrder,
   getProject,
   listCategories,
   listChangeOrders,
@@ -93,6 +104,18 @@ export function ProjectChangeOrdersView() {
       setApproving(null);
       refresh();
       toast({ title: "Change order approved", description: "The contract, features and schedule are updated." });
+    },
+    onError,
+  });
+  // A draft was never sent — "New change order" creates one straight away,
+  // so an abandoned one would otherwise sit in the list forever.
+  const [deleting, setDeleting] = useState<ChangeOrder | null>(null);
+  const deleteMut = useMutation({
+    mutationFn: (co: ChangeOrder) => deleteChangeOrder(co.id),
+    onSuccess: () => {
+      setDeleting(null);
+      refresh();
+      toast({ title: "Draft deleted" });
     },
     onError,
   });
@@ -299,6 +322,11 @@ export function ProjectChangeOrdersView() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onSelect={() => navigate(open)}>Open</DropdownMenuItem>
                             {co.status === "draft" && <DropdownMenuItem onSelect={() => setApproving(co)}>Mark approved</DropdownMenuItem>}
+                            {co.status === "draft" && (
+                              <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleting(co)}>
+                                <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete draft
+                              </DropdownMenuItem>
+                            )}
                             {co.share_token && (
                               <>
                                 <DropdownMenuItem onSelect={() => void copyLink(co)}>
@@ -325,6 +353,31 @@ export function ProjectChangeOrdersView() {
           </section>
         </>
       )}
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleting ? `${numbers.get(deleting.id) ?? "This change order"}${deleting.title ? ` — ${deleting.title}` : ""}` : ""} was never sent. Its lines and planned
+              cost changes are deleted too. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMut.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleting) deleteMut.mutate(deleting);
+              }}
+            >
+              {deleteMut.isPending ? "Deleting…" : "Delete draft"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ManualApprovalDialog
         open={!!approving}

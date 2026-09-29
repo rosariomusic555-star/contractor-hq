@@ -339,6 +339,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         draftScheduleImpactDays: changeOrder.status === "approved" ? changeOrder.schedule_impact_days : scheduleImpactDays,
         thisChangeOrderCostDelta: hasCostChanges ? costDelta : undefined,
         costAlreadyApplied: changeOrder.status === "approved",
+        scheduleAlreadyApplied: changeOrder.status === "approved",
       })
     : null;
 
@@ -755,7 +756,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         {/* Left column — sections + reason/notes/schedule */}
         <div className="space-y-4">
           {draft.sections.length === 0 && (

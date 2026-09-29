@@ -33,3 +33,33 @@ describe("computeProjectImpact — remaining to bill", () => {
     expect(r.remainingToBill).toBe(400.1);
   });
 });
+
+describe("computeProjectImpact — estimated duration", () => {
+  const withDuration = (days: number, others: ChangeOrder[], draft: number | null, applied = false) =>
+    computeProjectImpact({
+      project: { estimated_duration_days: days } as unknown as Project,
+      quotes: [],
+      otherChangeOrders: others,
+      invoices: [],
+      payments: [],
+      materialsSections: [],
+      thisChangeOrderTotal: 0,
+      thisChangeOrderItemCount: 0,
+      draftScheduleImpactDays: draft,
+      scheduleAlreadyApplied: applied,
+    });
+  const approvedWithDays = (d: number) => ({ id: `co-d${d}`, amount: 0, status: "approved", schedule_impact_days: d }) as unknown as ChangeOrder;
+
+  it("never re-adds other approved change orders' days — the project's estimate already has them", () => {
+    // 10-day job + an approved +1 (the trigger made it 11); a new draft adds 2.
+    const r = withDuration(11, [approvedWithDays(1)], 2);
+    expect(r.estimatedDurationBefore).toBe(11);
+    expect(r.estimatedDurationAfter).toBe(13);
+  });
+
+  it("an approved change order backs its own days out of before", () => {
+    const r = withDuration(11, [], 1, true);
+    expect(r.estimatedDurationBefore).toBe(10);
+    expect(r.estimatedDurationAfter).toBe(11);
+  });
+});
