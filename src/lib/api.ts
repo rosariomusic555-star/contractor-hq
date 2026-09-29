@@ -875,6 +875,17 @@ export async function listUsageLogsForItems(materialsItemIds: string[]): Promise
   return data ?? [];
 }
 
+/** Every usage log the account can see (RLS) — for cross-project reports
+ * (Revenue), without a huge `in (…ids)` list. */
+export async function listAllUsageLogs(): Promise<MaterialsUsageLog[]> {
+  const { data, error } = await supabase.from("materials_usage_logs").select("*");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
 /** materials_item_id is the audit row's permanent anchor (0081) — a
  * 'deleted' event's own log row won't exist anymore, so it can't be the
  * thing RLS/lookups key off. */
@@ -2401,6 +2412,17 @@ export async function ensureFeatureSections(projectId: string): Promise<number> 
 // Project features (0105) — see src/lib/features.ts. Reads degrade to []
 // before 0105 so every screen keeps working.
 // ---------------------------------------------------------------------------
+
+/** Every project's features (RLS) — for cross-project reports (Revenue). */
+export async function listAllProjectFeatures(): Promise<ProjectFeature[]> {
+  const base = "id, project_id, category_id, label, status, source_quote_id, sort_order, created_at";
+  const { data, error } = await supabase.from("project_features").select(base).order("sort_order");
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw error;
+  }
+  return (data ?? []) as unknown as ProjectFeature[];
+}
 
 export async function listProjectFeatures(projectId: string): Promise<ProjectFeature[]> {
   const run = (cols: string) =>
