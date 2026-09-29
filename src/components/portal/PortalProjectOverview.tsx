@@ -848,6 +848,12 @@ function ChangeOrderApprovalDialog({
                               {item.description && (
                                 <p className="text-xs text-muted-foreground">{item.description}</p>
                               )}
+                              {/* "2 ea × $145.00" — the client sees how the line is priced. */}
+                              {item.quantity != null && Number(item.quantity) !== 1 && (
+                                <p className="text-xs tabular-nums text-muted-foreground">
+                                  {Number(item.quantity)} {item.unit ? `${item.unit} ` : ""}× {money(item.price)}
+                                </p>
+                              )}
                             </div>
                             <p
                               className={cn(

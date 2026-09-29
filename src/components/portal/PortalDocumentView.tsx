@@ -18,6 +18,7 @@ import { RequestSelectionChangeDialog } from "@/components/selections/RequestSel
 import { useQuoteTracking } from "@/hooks/use-quote-tracking";
 import { getClientViewProject } from "@/lib/api";
 import { versionDate, versionsOf } from "@/lib/projectHistory";
+import { effectiveInvoiceStatus } from "@/lib/financials";
 import { cn } from "@/lib/utils";
 import { BackLink } from "@/components/common/BackLink";
 import { depositAmount } from "@/lib/projectMoney";
@@ -362,12 +363,14 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
 function InvoiceDocument({ invoice }: { invoice: PortalInvoice }) {
   const paidSoFar = Number(invoice.amount_paid ?? 0);
   const partial = invoice.status !== "paid" && paidSoFar > 0.004;
+  // Past its due date with a balance → overdue (derived — the saved status stays "sent").
+  const late = effectiveInvoiceStatus({ ...invoice, status: invoice.status as "sent" }) === "overdue";
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between border-b border-hairline pb-3">
         <h2 className="text-lg font-bold text-foreground">Invoice {invoice.invoice_number ?? ""}</h2>
         <span className="text-sm font-bold text-foreground">
-          {invoice.status === "paid" ? "Paid" : partial ? "Partially paid" : invoice.status === "overdue" ? "Overdue" : "Due"}
+          {invoice.status === "paid" ? "Paid" : late ? (partial ? "Partially paid · overdue" : "Overdue") : partial ? "Partially paid" : "Due"}
         </span>
       </div>
       {(invoice.items ?? []).length > 0 && (
