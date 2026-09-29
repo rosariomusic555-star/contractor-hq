@@ -3927,6 +3927,14 @@ export async function updateExpense(
 }
 
 export async function deleteExpense(id: string): Promise<void> {
+  // Best-effort: its receipt photo (0151) goes with it.
+  try {
+    const { data } = await supabase.from("expenses").select("receipt_path").eq("id", id).maybeSingle();
+    const path = (data as { receipt_path?: string | null } | null)?.receipt_path;
+    if (path) await supabase.storage.from(IMAGES_BUCKET).remove([path]);
+  } catch (err) {
+    console.warn("Failed to clean up the expense receipt before deleting it:", err);
+  }
   const { error } = await supabase.from("expenses").delete().eq("id", id);
   if (error) throw error;
 }
