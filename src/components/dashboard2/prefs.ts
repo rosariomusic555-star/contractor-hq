@@ -44,14 +44,12 @@ export const CARDS: { id: CardId; label: string; column: "left" | "right"; hidde
 ];
 
 export interface DashboardPrefs {
-  useNew: boolean;
   order: CardId[];
   hidden: CardId[];
   hideHeadline: boolean;
 }
 
 export const DEFAULT_PREFS: DashboardPrefs = {
-  useNew: false,
   order: CARDS.map((c) => c.id),
   hidden: CARDS.filter((c) => c.hiddenByDefault).map((c) => c.id),
   hideHeadline: false,

@@ -101,7 +101,7 @@ function Slot({ id }: { id: CardId }) {
  * browser). Lives beside the original DashboardView behind the "New
  * dashboard" switch.
  */
-export function DashboardV2({ onUseOld }: { onUseOld: () => void }) {
+export function DashboardV2() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -140,10 +140,6 @@ export function DashboardV2({ onUseOld }: { onUseOld: () => void }) {
           <p className="text-xs text-muted-foreground md:text-sm">{dateLabel}</p>
         </div>
         <div className="flex items-center gap-1.5">
-          <label className="flex min-h-[44px] items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-muted-foreground">
-            <Switch checked onCheckedChange={(v) => !v && onUseOld()} aria-label="New dashboard" />
-            New dashboard
-          </label>
           <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Customize dashboard" onClick={() => setCustomizing(true)}>
             <Settings2 className="h-4 w-4" />
           </Button>
