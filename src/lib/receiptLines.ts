@@ -26,6 +26,23 @@ const UNIT_MAP: Record<string, MaterialOrderUnit> = {
   "linear ft": "linear_foot",
   "linear foot": "linear_foot",
   "linear feet": "linear_foot",
+  // 0142 units.
+  sf: "square_foot",
+  sqft: "square_foot",
+  "sq ft": "square_foot",
+  "sq. ft": "square_foot",
+  "square foot": "square_foot",
+  "square feet": "square_foot",
+  ft2: "square_foot",
+  roll: "roll",
+  rolls: "roll",
+  rl: "roll",
+  tube: "tube",
+  tubes: "tube",
+  tb: "tube",
+  layer: "layer",
+  layers: "layer",
+  lyr: "layer",
   ea: "each",
   each: "each",
   pc: "each",
@@ -36,7 +53,7 @@ const UNIT_MAP: Record<string, MaterialOrderUnit> = {
 
 /**
  * A receipt's printed unit → the delivery form's fixed unit list. Anything
- * it can't place (sq ft, gal, box…) becomes "each" and the printed unit is
+ * it can't place (gal, box…) becomes "each" and the printed unit is
  * returned as `note` so the caller keeps it in the line's description —
  * nothing read off the receipt is dropped.
  */

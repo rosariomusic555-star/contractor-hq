@@ -63,6 +63,14 @@ const snapshotOf = (wo: CrewWorkOrder) => {
  * The owner sees exactly this as the "Preview". Last loaded copy is kept on
  * the device and opens read-only when signal drops.
  */
+
+const CREW_ISSUE_LABEL: Record<"short" | "damaged" | "wrong_item" | "backordered", string> = {
+  short: "Short on delivery",
+  damaged: "Damaged on delivery",
+  wrong_item: "Wrong item / color delivered",
+  backordered: "Backordered",
+};
+
 export function WorkOrderView({ projectId }: { projectId: string }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -99,7 +107,15 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
     void crewWorkOrderOpened(projectId, wo.version, snapshotOf(wo));
   }, [wo, offline, projectId]);
 
-  const photoPaths = useMemo(() => [...(wo?.photos ?? []).map((p) => p.storage_path), ...(wo?.crew_notes.photos ?? [])], [wo]);
+  const photoPaths = useMemo(
+    () => [
+      ...(wo?.photos ?? []).map((p) => p.storage_path),
+      ...(wo?.crew_notes.photos ?? []),
+      // 0152: delivery photos (where the pallets were dropped).
+      ...(wo?.deliveries ?? []).flatMap((d) => (d.photos ?? []).map((p) => p.storage_path)),
+    ],
+    [wo],
+  );
   const { data: urls = {} } = useQuery({
     queryKey: ["work-order-photos", projectId, photoPaths.join(",")],
     queryFn: () => getSignedImageUrls(photoPaths),
@@ -327,15 +343,33 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
       {wo.materials.length > 0 && (
         <Section title="Materials">
           <MaterialsList wo={wo} canLog={wo.viewer.can_log_usage && !offline} />
-          {wo.deliveries.some((d) => d.expected_date) && (
+          {/* 0152 sends every delivery; before it only pending ones (no status "delivered"). */}
+          {wo.deliveries.some((d) => d.status !== "delivered" && d.expected_date) && (
             <div className="space-y-1 border-t border-hairline pt-3">
               <p className="text-sm font-bold text-foreground">Upcoming deliveries</p>
               {wo.deliveries
-                .filter((d) => d.expected_date)
+                .filter((d) => d.status !== "delivered" && d.expected_date)
                 .map((d) => (
                   <p key={d.id} className="flex items-center gap-1.5 text-sm text-foreground">
                     <Truck className="h-4 w-4 text-muted-foreground" /> {d.supplier ?? "Delivery"} · {day(d.expected_date)}
+                    {d.open_issues ? <span className="text-xs font-semibold text-destructive">· {d.open_issues} issue{d.open_issues === 1 ? "" : "s"}</span> : null}
                   </p>
+                ))}
+            </div>
+          )}
+          {wo.deliveries.some((d) => (d.photos ?? []).length > 0) && (
+            <div className="space-y-2 border-t border-hairline pt-3">
+              <p className="text-sm font-bold text-foreground">Delivery photos</p>
+              {wo.deliveries
+                .filter((d) => (d.photos ?? []).length > 0)
+                .map((d) => (
+                  <div key={d.id}>
+                    <p className="mb-1 text-xs text-muted-foreground">
+                      {d.supplier ?? "Delivery"}
+                      {d.delivered_on ? ` · delivered ${day(d.delivered_on)}` : d.expected_date ? ` · ${day(d.expected_date)}` : ""}
+                    </p>
+                    <PhotoGrid paths={(d.photos ?? []).map((p) => p.storage_path)} urls={urls} onOpen={setZoom} />
+                  </div>
                 ))}
             </div>
           )}
@@ -473,6 +507,16 @@ function MaterialsList({ wo, canLog }: { wo: CrewWorkOrder; canLog: boolean }) {
                       {fmtQty(s.planned)} {m.unit ?? ""}
                       {m.waste_percent ? <span className="text-muted-subtle"> (incl. {fmtQty(Number(m.waste_percent))}% waste)</span> : null}
                     </span>
+                    {/* 0152: an open delivery issue on this material. */}
+                    {m.orders
+                      .filter((o) => o.issue)
+                      .map((o, i) => (
+                        <span key={i} className="block text-sm font-semibold text-destructive">
+                          {CREW_ISSUE_LABEL[o.issue!]}
+                          {o.issue_note ? ` — ${o.issue_note}` : ""}
+                          {o.issue === "backordered" && o.issue_expected_date ? ` · expected ${day(o.issue_expected_date)}` : ""}
+                        </span>
+                      ))}
                     {/* What's already logged — so a second person doesn't log it again. */}
                     {Number(m.used) > 0 && (
                       <span className="block text-sm font-semibold text-info">

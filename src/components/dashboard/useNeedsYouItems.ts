@@ -5,6 +5,7 @@ import {
   listChangeOrders,
   listCloseouts,
   listInvoices,
+  listMaterialOrders,
   listOpenSelectionChangeRequests,
   listOpportunities,
   listPayments,
@@ -22,6 +23,8 @@ import { isActivePayment, paymentUnallocated } from "@/lib/projectMoney";
 import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
 import { usePreconNeedsYou } from "@/components/precon/usePrecon";
 import { useMaintenanceNeedsYou } from "@/components/maintenance/useMaintenance";
+import { materialIssueNeedsYouItems } from "@/lib/materialsCenter";
+import { isoDate } from "@/lib/weatherRisk";
 
 /**
  * The one "Needs you" queue — every feature's action items, in one sorted
@@ -48,8 +51,11 @@ export function useNeedsYouItems(): { items: NeedsYouItem[]; isLoading: boolean 
   const reviews = useReviewNeedsYou();
   const precon = usePreconNeedsYou();
   const maintenance = useMaintenanceNeedsYou();
+  // Open delivery issues (0152) — short / damaged / wrong item / backordered.
+  const { data: materialOrders = [] } = useQuery({ queryKey: ["material-orders"], queryFn: () => listMaterialOrders() });
+  const materialIssues = materialIssueNeedsYouItems(materialOrders, new Map(projects.map((p) => [p.id, p])), isoDate(new Date()));
 
-  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, [...precon, ...maintenance], {
+  const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, [...precon, ...maintenance, ...materialIssues], {
     coldSettings,
     changeRequests,
     // No sent date on change orders — created_at is the closest proxy.
