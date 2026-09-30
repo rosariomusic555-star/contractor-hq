@@ -1,12 +1,11 @@
 /* =============================================================================
  * Financials — the ONE shared module for every derived money figure that
  * spans more than a single record: date ranges, invoiced/collected/
- * outstanding, aging, per-project cost/profit/margin, "closed" jobs, and
- * the revenue-by-category / revenue-by-client breakdowns. Every screen that
- * shows one of these figures — Dashboard, the Revenue page and its detail
- * pages, Bookings, Ongoing jobs, project pages, the Change Order builder —
- * calls into these same pure functions with the same input arrays, so a
- * card and its detail page (and every other screen) can never disagree.
+ * outstanding, aging, per-project cost/profit/margin and "closed" jobs.
+ * Every screen that shows one of these figures — Dashboard, Bookings,
+ * Ongoing jobs, project pages, the Change Order builder — calls into these
+ * same pure functions with the same input arrays, so screens can never
+ * disagree. (The Revenue report's own numbers live in revenueReport.ts.)
  *
  * Canonical definitions (see the CRM/financials audit for the full
  * reasoning):
@@ -40,7 +39,6 @@
 import type {
   Category,
   ChangeOrder,
-  Client,
   Invoice,
   MaterialsItem,
   Payment,
@@ -53,7 +51,7 @@ import type {
 import { pickHeadlineQuote, projectContractValue, quoteItemIncluded, quoteLineTotal } from "./api";
 import type { ProjectBillingStatus } from "./statusMeta";
 import { costPlanTotal } from "./costPlanMath";
-import { activePayments, invoiceBalance, invoicePaid, paidOnDate, paymentUnallocated } from "./projectMoney";
+import { activePayments, invoiceBalance, paidOnDate } from "./projectMoney";
 import { sheetCostSummary, type DeliveryLineWithOrderStatus, type SheetCostSummary } from "./materialTracking";
 
 /** Actual material cost for a project's tracked sheet(s) (0080) — "flows
@@ -88,13 +86,6 @@ export interface DateRange {
   end: Date;
   label: string;
 }
-
-export const RANGE_PRESETS: Array<{ key: Exclude<RangeKey, "custom">; label: string }> = [
-  { key: "this_month", label: "This month" },
-  { key: "last_3", label: "Last 3 months" },
-  { key: "last_12", label: "Last 12 months" },
-  { key: "ytd", label: "Year to date" },
-];
 
 const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 const dayAfter = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
@@ -161,14 +152,6 @@ export function withinRange(iso: string | null | undefined, range: DateRange): b
   return d >= range.start && d < range.end;
 }
 
-/** "Sep 1 – Sep 20, 2026" style label for a resolved range, for detail-page
- * subtitles. */
-export function rangeDateLabel(range: DateRange): string {
-  const endInclusive = new Date(range.end.getTime() - 86_400_000);
-  const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  return `${fmt(range.start)} – ${fmt(endInclusive)}`;
-}
-
 // ---------------------------------------------------------------------------
 // 1. Invoiced — never counts a draft invoice (see module doc comment).
 // ---------------------------------------------------------------------------
@@ -198,14 +181,6 @@ export function collectedInRange<T extends Pick<Payment, "status" | "paid_on">>(
 
 export function collectedTotal(payments: Pick<Payment, "status" | "paid_on" | "amount">[], range: DateRange): number {
   return collectedInRange(payments, range).reduce((s, p) => s + Number(p.amount), 0);
-}
-
-/** What fraction of what was billed in range has actually been collected.
- * null when nothing was billed (avoids a divide-by-zero / misleading 0%). */
-export function collectionRate(invoices: Invoice[], payments: Payment[], range: DateRange): number | null {
-  const billed = invoicedTotal(invoices, range);
-  if (billed <= 0) return null;
-  return (collectedTotal(payments, range) / billed) * 100;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +332,7 @@ export interface ProjectFinancials {
    * the project page's own Money card, everywhere. */
   contractValue: number;
   /** All-time collected total for this one project (status=paid, any
-   * date) — what isProjectClosed()/closedJobRows() below compare against
+   * date) — what isProjectClosed() below compares against
    * contractValue. */
   collectedTotal: number;
   /** Derived, live — see isProjectClosed(). */
@@ -474,13 +449,6 @@ export function buildProjectFinancials(
 // 5. Avg. margin
 // ---------------------------------------------------------------------------
 
-/** Every priced job (headline quote reaches a real contract value) whose
- * job date falls in range — margin doesn't require the job to be closed
- * out, unlike Avg. job below. */
-export function marginRowsInRange(rows: ProjectFinancials[], range: DateRange): ProjectFinancials[] {
-  return rows.filter((r) => r.contractValue > 0 && withinRange(r.jobDate, range));
-}
-
 export interface AvgMarginResult {
   avgPct: number | null;
   includedCount: number;
@@ -499,140 +467,7 @@ export function avgMargin(rows: ProjectFinancials[]): AvgMarginResult {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Avg. job
-// ---------------------------------------------------------------------------
-
-/** "Closed" = fully collected (see isProjectClosed()) — derived, never a
- * manual status field, so a job that's actually been paid off never
- * silently sits out of this average because someone forgot to flip a
- * dropdown. */
-export function closedJobRows(rows: ProjectFinancials[], range: DateRange): ProjectFinancials[] {
-  return rows.filter((r) => r.closed && withinRange(r.jobDate, range));
-}
-
-export interface JobStats {
-  count: number;
-  avg: number;
-  median: number;
-  max: number;
-  min: number;
-}
-
-export function jobStats(rows: ProjectFinancials[]): JobStats {
-  const values = rows.map((r) => r.contractValue).sort((a, b) => a - b);
-  const count = values.length;
-  if (count === 0) return { count: 0, avg: 0, median: 0, max: 0, min: 0 };
-  const avg = Math.round(values.reduce((s, v) => s + v, 0) / count);
-  const median =
-    count % 2 === 1 ? values[(count - 1) / 2] : Math.round((values[count / 2 - 1] + values[count / 2]) / 2);
-  return { count, avg, median, max: values[count - 1], min: values[0] };
-}
-
-export interface JobSizeBucket {
-  key: string;
-  label: string;
-  min: number;
-  max: number;
-  count: number;
-  amount: number;
-}
-
-const JOB_SIZE_BUCKET_DEFS: Array<{ key: string; label: string; min: number; max: number }> = [
-  { key: "under5k", label: "Under $5k", min: 0, max: 5_000 },
-  { key: "5to15k", label: "$5k – $15k", min: 5_000, max: 15_000 },
-  { key: "15to30k", label: "$15k – $30k", min: 15_000, max: 30_000 },
-  { key: "30kplus", label: "$30k+", min: 30_000, max: Infinity },
-];
-
-export function jobSizeDistribution(rows: ProjectFinancials[]): JobSizeBucket[] {
-  return JOB_SIZE_BUCKET_DEFS.map((def) => {
-    const inBucket = rows.filter((r) => r.contractValue >= def.min && r.contractValue < def.max);
-    return { ...def, count: inBucket.length, amount: inBucket.reduce((s, r) => s + r.contractValue, 0) };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 7. Invoiced by month
-// ---------------------------------------------------------------------------
-
-export interface MonthlyPoint {
-  /** "2026-09" */
-  key: string;
-  /** "Sep 2026" */
-  label: string;
-  /** "Sep" */
-  shortLabel: string;
-  invoiced: number;
-  collected: number;
-  outstanding: number;
-  invoiceCount: number;
-}
-
-const monthKeyOf = localMonthKey;
-
-/** Per month in range: invoiced (by invoice date), outstanding (still owed
- * on that month's invoices) and collected — by the date the money came in
- * when `payments` are given (matching the Collected total beside it),
- * else how much of that month's invoices is paid. */
-export function monthlyBreakdown(
-  invoices: Invoice[],
-  range: DateRange,
-  payments?: Pick<Payment, "status" | "paid_on" | "amount">[],
-): MonthlyPoint[] {
-  const inRange = invoices.filter((i) => isRealInvoice(i) && withinRange(i.created_at, range));
-  const buckets = new Map<string, MonthlyPoint>();
-  for (const inv of inRange) {
-    const key = monthKeyOf(inv.created_at);
-    if (!buckets.has(key)) {
-      const d = new Date(`${key}-01T00:00:00`);
-      buckets.set(key, {
-        key,
-        label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-        shortLabel: d.toLocaleDateString("en-US", { month: "short" }),
-        invoiced: 0,
-        collected: 0,
-        outstanding: 0,
-        invoiceCount: 0,
-      });
-    }
-    const bucket = buckets.get(key)!;
-    bucket.invoiced += Number(inv.amount);
-    bucket.invoiceCount += 1;
-    if (!payments) bucket.collected += invoicePaid(inv);
-    if (inv.status === "sent" || inv.status === "overdue") bucket.outstanding += invoiceBalance(inv);
-  }
-  if (payments) {
-    for (const p of collectedInRange(payments, range)) {
-      const key = monthKeyOf(p.paid_on);
-      if (!buckets.has(key)) {
-        const d = new Date(`${key}-01T00:00:00`);
-        buckets.set(key, {
-          key,
-          label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-          shortLabel: d.toLocaleDateString("en-US", { month: "short" }),
-          invoiced: 0,
-          collected: 0,
-          outstanding: 0,
-          invoiceCount: 0,
-        });
-      }
-      buckets.get(key)!.collected += Number(p.amount);
-    }
-  }
-  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
-}
-
-/** Whether there's enough invoice history to make a same-period-last-year
- * comparison meaningful — the Invoiced-by-month page hides that toggle
- * until this is true. */
-export function hasYearOfHistory(invoices: Invoice[], now: Date = new Date()): boolean {
-  if (invoices.length === 0) return false;
-  const earliest = invoices.reduce((min, i) => (i.created_at < min ? i.created_at : min), invoices[0].created_at);
-  return now.getTime() - new Date(earliest).getTime() >= 365 * 86_400_000;
-}
-
-// ---------------------------------------------------------------------------
-// 8. Monthly revenue points — Dashboard sparkline + "Revenue overview" chart.
+// 6. Monthly revenue points — Dashboard sparkline + "Revenue overview" chart.
 // ---------------------------------------------------------------------------
 
 export interface MonthPoint {
@@ -660,220 +495,12 @@ export function monthlyRevenue(invoices: Invoice[]): MonthPoint[] {
   return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/** Same shape as monthlyRevenue(), but collected (active payments, by
- * paid_on) — pairs with the Dashboard's Collected-basis "This month". */
-export function monthlyCollected(payments: Pick<Payment, "status" | "paid_on" | "amount">[]): MonthPoint[] {
-  const buckets = new Map<string, MonthPoint>();
-  for (const p of activePayments(payments)) {
-    const key = monthKeyShort(p.paid_on);
-    const point = buckets.get(key) ?? { key, month: monthShortLabel(p.paid_on), revenue: 0 };
-    point.revenue += Number(p.amount);
-    buckets.set(key, point);
-  }
-  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key));
-}
-
 /** Percent change between the two most recent points present; null if not
- * computable. Works for either monthlyRevenue() or monthlyCollected(). */
+ * computable. */
 export function momChange(points: MonthPoint[]): number | null {
   if (points.length < 2) return null;
   const prev = points[points.length - 2].revenue;
   const curr = points[points.length - 1].revenue;
   if (prev === 0) return null;
   return ((curr - prev) / prev) * 100;
-}
-
-// ---------------------------------------------------------------------------
-// 9. Collected by category
-// ---------------------------------------------------------------------------
-
-export interface CategoryRow {
-  id: string;
-  name: string;
-  /** Collected revenue attributed to this category — cash actually
-   * received (see module doc comment on why "revenue" means collected). */
-  revenue: number;
-  jobCount: number;
-  avgJobValue: number;
-  marginPct: number | null;
-}
-
-/**
- * Revenue by category, on the collected (cash-received) basis. Each active
- * payment in range is split by where it went:
- *   - the part applied to an invoice follows that invoice's linked quote's
- *     included line-item category mix (a $10k payment on an invoice against
- *     a 70% "Patios" / 30% "Walls" quote → $7k / $3k);
- *   - the unallocated part follows the project's contract mix (headline
- *     original quote + approved add-ons).
- * Anything with no quote / no categorized items counts toward
- * Uncategorized — nothing silently drops out of the total.
- *
- * Job count / avg job value / margin are project-level, not invoice-level
- * — each project counts once, toward its single dominant category (see
- * buildProjectFinancials), scoped by job date rather than payment date.
- */
-export function collectedByCategory(
-  payments: Payment[],
-  invoices: Invoice[],
-  quotes: Quote[],
-  categories: Category[],
-  projectRows: ProjectFinancials[],
-  range: DateRange,
-): CategoryRow[] {
-  const invoicesById = new Map(invoices.map((i) => [i.id, i]));
-  const quotesById = new Map(quotes.map((q) => [q.id, q]));
-  const quotesByProject = new Map<string, Quote[]>();
-  for (const q of quotes) {
-    if (!q.project_id) continue;
-    const list = quotesByProject.get(q.project_id);
-    if (list) list.push(q);
-    else quotesByProject.set(q.project_id, [q]);
-  }
-  const revenueTotals = new Map<string, number>();
-  const addRevenue = (id: string | null, amount: number) => {
-    const key = id ?? "uncategorized";
-    revenueTotals.set(key, (revenueTotals.get(key) ?? 0) + amount);
-  };
-  const spread = (mixQuotes: Quote[], amount: number) => {
-    const itemTotals = new Map<string, number>();
-    let committedTotal = 0;
-    for (const quote of mixQuotes) {
-      for (const section of quote.quote_sections ?? []) {
-        for (const item of section.quote_items ?? []) {
-          if (!quoteItemIncluded(section, item)) continue;
-          const key = item.category_id ?? "uncategorized";
-          const lineTotal = quoteLineTotal(item);
-          itemTotals.set(key, (itemTotals.get(key) ?? 0) + lineTotal);
-          committedTotal += lineTotal;
-        }
-      }
-    }
-    if (committedTotal <= 0) {
-      addRevenue(null, amount);
-      return;
-    }
-    for (const [key, lineTotal] of itemTotals) {
-      addRevenue(key === "uncategorized" ? null : key, (lineTotal / committedTotal) * amount);
-    }
-  };
-  const projectMix = (projectId: string | null) => {
-    const list = projectId ? (quotesByProject.get(projectId) ?? []) : [];
-    const headline = pickHeadlineQuote(list);
-    const addons = list.filter((q) => q.kind === "addon" && q.status === "approved");
-    return [...(headline ? [headline] : []), ...addons];
-  };
-
-  for (const p of collectedInRange(payments, range)) {
-    for (const a of p.payment_allocations ?? []) {
-      const inv = invoicesById.get(a.invoice_id);
-      const quote = inv?.quote_id ? quotesById.get(inv.quote_id) : undefined;
-      spread(quote ? [quote] : projectMix(inv?.project_id ?? p.project_id), Number(a.amount));
-    }
-    const credit = paymentUnallocated(p);
-    if (credit > 0) spread(projectMix(p.project_id), credit);
-  }
-
-  const jobs = marginRowsInRange(projectRows, range);
-  const jobCounts = new Map<string, number>();
-  const jobValueSums = new Map<string, number>();
-  const marginSums = new Map<string, { profit: number; revenue: number }>();
-  for (const job of jobs) {
-    const key = job.category?.id ?? "uncategorized";
-    jobCounts.set(key, (jobCounts.get(key) ?? 0) + 1);
-    jobValueSums.set(key, (jobValueSums.get(key) ?? 0) + job.contractValue);
-    if (job.profit != null) {
-      const prev = marginSums.get(key) ?? { profit: 0, revenue: 0 };
-      marginSums.set(key, { profit: prev.profit + job.profit, revenue: prev.revenue + job.contractValue });
-    }
-  }
-
-  const nameById = new Map(categories.map((c) => [c.id, c.name]));
-  const allKeys = new Set([...revenueTotals.keys(), ...jobCounts.keys()]);
-
-  return [...allKeys]
-    .map((key) => {
-      const jobCount = jobCounts.get(key) ?? 0;
-      const jobValueSum = jobValueSums.get(key) ?? 0;
-      const marginData = marginSums.get(key);
-      return {
-        id: key,
-        name: key === "uncategorized" ? "Uncategorized" : (nameById.get(key) ?? "Uncategorized"),
-        revenue: revenueTotals.get(key) ?? 0,
-        jobCount,
-        avgJobValue: jobCount > 0 ? Math.round(jobValueSum / jobCount) : 0,
-        marginPct: marginData && marginData.revenue > 0 ? Math.round((marginData.profit / marginData.revenue) * 100) : null,
-      };
-    })
-    .sort((a, b) => b.revenue - a.revenue);
-}
-
-// ---------------------------------------------------------------------------
-// 10. Collected by client
-// ---------------------------------------------------------------------------
-
-export interface ClientRevenueRow {
-  client: Client;
-  /** Collected revenue (cash actually received) — same basis as
-   * collectedByCategory, so the two always reconcile against the same
-   * total collected figure for a given range. */
-  revenue: number;
-  pct: number;
-  /** All-time job count — "how many jobs have we done for them," not
-   * scoped to the selected range (unlike revenue). */
-  jobCount: number;
-  /** Current outstanding balance — a snapshot, not range-scoped, same as
-   * the aging buckets on the Collected page. */
-  outstanding: number;
-  lastJobDate: string | null;
-}
-
-export function collectedByClient(
-  payments: Payment[],
-  invoices: Invoice[],
-  projects: Project[],
-  clients: Client[],
-  range: DateRange,
-): ClientRevenueRow[] {
-  const projectsById = new Map(projects.map((p) => [p.id, p]));
-  const revenueByClientId = new Map<string, number>();
-  const outstandingByClientId = new Map<string, number>();
-
-  for (const pay of collectedInRange(payments, range)) {
-    const clientId = pay.project_id ? projectsById.get(pay.project_id)?.client_id : undefined;
-    if (!clientId) continue;
-    revenueByClientId.set(clientId, (revenueByClientId.get(clientId) ?? 0) + Number(pay.amount));
-  }
-  for (const inv of invoices) {
-    const clientId = inv.project_id ? projectsById.get(inv.project_id)?.client_id : undefined;
-    if (!clientId) continue;
-    if (inv.status === "sent" || inv.status === "overdue") {
-      outstandingByClientId.set(clientId, (outstandingByClientId.get(clientId) ?? 0) + invoiceBalance(inv));
-    }
-  }
-
-  const jobCountByClientId = new Map<string, number>();
-  const lastJobDateByClientId = new Map<string, string>();
-  for (const p of projects) {
-    if (!p.client_id) continue;
-    jobCountByClientId.set(p.client_id, (jobCountByClientId.get(p.client_id) ?? 0) + 1);
-    const prev = lastJobDateByClientId.get(p.client_id);
-    if (!prev || p.created_at > prev) lastJobDateByClientId.set(p.client_id, p.created_at);
-  }
-
-  const totalRevenue = [...revenueByClientId.values()].reduce((a, b) => a + b, 0) || 1;
-
-  return clients
-    .map((client) => {
-      const revenue = revenueByClientId.get(client.id) ?? 0;
-      return {
-        client,
-        revenue,
-        pct: Math.round((revenue / totalRevenue) * 100),
-        jobCount: jobCountByClientId.get(client.id) ?? 0,
-        outstanding: outstandingByClientId.get(client.id) ?? 0,
-        lastJobDate: lastJobDateByClientId.get(client.id) ?? null,
-      };
-    })
-    .sort((a, b) => b.revenue - a.revenue);
 }

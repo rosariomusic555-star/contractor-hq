@@ -1,18 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeOrder, Client, Invoice, MaterialsSection, Payment, MaterialsSheet, Project, Quote, QuoteItem, QuoteSection } from "./api";
+import type { ChangeOrder, Invoice, MaterialsSection, Payment, MaterialsSheet, Project, Quote, QuoteItem, QuoteSection } from "./api";
 import { projectContractValue } from "./api";
 import {
   ALL_TIME_RANGE,
   avgMargin,
   buildProjectFinancials,
-  closedJobRows,
-  collectedByCategory,
-  collectedByClient,
   collectedTotal,
   invoicedTotal,
   isExcludedFromFinancials,
   isProjectClosed,
-  marginRowsInRange,
   outstandingTotal,
   projectBillingBadge,
   resolveCost,
@@ -178,27 +174,6 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   };
 }
 
-function makeClient(overrides: Partial<Client> = {}): Client {
-  return {
-    id: "client-1",
-    user_id: "user-1",
-    name: "Test client",
-    email: null,
-    phone: null,
-    address: null,
-    created_at: "2026-01-01T00:00:00Z",
-    status: "lead",
-    lead_source: null,
-    preferred_contact_method: null,
-    tags: [],
-    internal_notes: null,
-    custom_fields: {},
-    portal_invited_at: null,
-    portal_last_sign_in_at: null,
-    ...overrides,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Invariant 1: Invoiced − Collected = Outstanding, all-time.
 // ---------------------------------------------------------------------------
@@ -243,70 +218,6 @@ describe("Invoiced − Collected = Outstanding", () => {
 // Invariant 2: sum of collected by client = sum of collected by category =
 // total collected, same range and basis.
 // ---------------------------------------------------------------------------
-
-describe("Collected by client / by category reconcile with the total", () => {
-  it("sums to the same total across both breakdowns", () => {
-    const categoryA = "cat-a";
-    const categoryB = "cat-b";
-    const categories = [
-      { id: categoryA, name: "Patios", user_id: "user-1", sort_order: 0, created_at: "2026-01-01T00:00:00Z" },
-      { id: categoryB, name: "Walls", user_id: "user-1", sort_order: 1, created_at: "2026-01-01T00:00:00Z" },
-    ];
-
-    const quote = makeQuote({
-      id: "quote-shared",
-      project_id: "project-1",
-      quote_sections: [
-        makeQuoteSection({
-          quote_items: [
-            makeQuoteItem({ price: 7_000, category_id: categoryA }),
-            makeQuoteItem({ price: 3_000, category_id: categoryB }),
-          ],
-        }),
-      ],
-    });
-
-    const client = makeClient({ id: "client-1" });
-    const project = makeProject({ id: "project-1", client_id: "client-1" });
-
-    const invoices: Invoice[] = [
-      makeInvoice({ id: "inv-10k", project_id: "project-1", quote_id: "quote-shared", status: "paid", amount: 10_000, amount_paid: 10_000, paid_at: "2026-02-01T00:00:00Z" }),
-      makeInvoice({ project_id: "project-1", quote_id: "quote-shared", status: "sent", amount: 5_000 }), // unpaid — excluded from both breakdowns
-    ];
-    const payments: Payment[] = [
-      makePayment({ amount: 10_000, payment_allocations: [allocate("inv-10k", 10_000)] }),
-      // Unallocated project credit — split by the project's contract mix.
-      makePayment({ amount: 2_000 }),
-    ];
-
-    const projectFinancials = buildProjectFinancials(
-      [project],
-      new Map([["project-1", [quote]]]),
-      new Map(),
-      new Map([["project-1", payments]]),
-      [],
-      [],
-      new Map(),
-      categories,
-    );
-
-    const byCategory = collectedByCategory(payments, invoices, [quote], categories, projectFinancials, ALL_TIME_RANGE);
-    const byClient = collectedByClient(payments, invoices, [project], [client], ALL_TIME_RANGE);
-    const totalCollected = collectedTotal(payments, ALL_TIME_RANGE);
-
-    const categorySum = byCategory.reduce((s, r) => s + r.revenue, 0);
-    const clientSum = byClient.reduce((s, r) => s + r.revenue, 0);
-
-    expect(totalCollected).toBe(12_000);
-    expect(clientSum).toBe(12_000);
-    expect(categorySum).toBeCloseTo(12_000, 6);
-    // 70/30 split of the $10k applied payment (its invoice's quote mix) and
-    // of the $2k credit (the project's contract mix) — never the unpaid $5k.
-    expect(byCategory.find((r) => r.id === categoryA)?.revenue).toBeCloseTo(8_400, 6);
-    expect(byCategory.find((r) => r.id === categoryB)?.revenue).toBeCloseTo(3_600, 6);
-    expect(byClient[0].outstanding).toBe(5_000);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Invariant 3: contract value = approved quote total (required + selected
@@ -500,87 +411,13 @@ describe("Closed jobs are derived from collected vs. contract value", () => {
     expect(isProjectClosed(0, 0)).toBe(false); // no contract at all is never "closed"
   });
 
-  it("closedJobRows ignores the project.status lifecycle field entirely", () => {
-    // Job-lifecycle status still says "scheduled" (nobody's marked the
-    // physical work complete) — but it's been fully paid, so it must
-    // still show up as closed. Closed is a billing concept, derived from
-    // money, independent of where the job physically is.
-    const project = makeProject({ id: "priced", client_id: "client-1", status: "scheduled" });
-    const quote = makeQuote({
-      project_id: "priced",
-      quote_sections: [makeQuoteSection({ quote_items: [makeQuoteItem({ price: 5_000 })] })],
-    });
-    const payments = [makePayment({ project_id: "priced", amount: 5_000, paid_on: "2026-03-02" })];
 
-    const rows = buildProjectFinancials(
-      [project],
-      new Map([["priced", [quote]]]),
-      new Map(),
-      new Map([["priced", payments]]),
-      [],
-      [],
-      new Map(),
-      [],
-    );
-
-    expect(rows[0].closed).toBe(true);
-    const closed = closedJobRows(rows, ALL_TIME_RANGE);
-    expect(closed).toHaveLength(1);
-  });
-
-  it("a project billed but not yet fully paid is not closed", () => {
-    const project = makeProject({ id: "priced", client_id: "client-1" });
-    const quote = makeQuote({
-      project_id: "priced",
-      quote_sections: [makeQuoteSection({ quote_items: [makeQuoteItem({ price: 5_000 })] })],
-    });
-    // Billed, $4,999 received — one voided $1 payment doesn't close it.
-    const payments = [
-      makePayment({ project_id: "priced", amount: 4_999 }),
-      makePayment({ project_id: "priced", amount: 1, status: "void" }),
-    ];
-
-    const rows = buildProjectFinancials(
-      [project],
-      new Map([["priced", [quote]]]),
-      new Map(),
-      new Map([["priced", payments]]),
-      [],
-      [],
-      new Map(),
-      [],
-    );
-
-    expect(rows[0].closed).toBe(false);
-    expect(closedJobRows(rows, ALL_TIME_RANGE)).toHaveLength(0);
-  });
 });
 
 // ---------------------------------------------------------------------------
 // marginRowsInRange still includes priced-but-not-yet-closed jobs — margin
 // doesn't require the job to be paid off, unlike "closed".
 // ---------------------------------------------------------------------------
-
-describe("marginRowsInRange", () => {
-  it("includes any priced job regardless of collection status", () => {
-    const project = makeProject({ id: "priced", client_id: "client-1" });
-    const quote = makeQuote({
-      project_id: "priced",
-      quote_sections: [makeQuoteSection({ quote_items: [makeQuoteItem({ price: 5_000 })] })],
-    });
-    const rows = buildProjectFinancials(
-      [project],
-      new Map([["priced", [quote]]]),
-      new Map(),
-      new Map(),
-      [],
-      [],
-      new Map(),
-      [],
-    );
-    expect(marginRowsInRange(rows, ALL_TIME_RANGE)).toHaveLength(1);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Opportunity/Project restructure (migrations 0073-0078) — the pure,
@@ -654,7 +491,7 @@ describe("effectiveInvoiceStatus", () => {
 // Report bugs (2026-09-28): months were cut in UTC, date-only fields were
 // read as UTC midnight, and the monthly "Paid" bars counted invoices by the
 // month they were CREATED, disagreeing with the Collected card.
-import { localMonthKey, monthlyBreakdown, withinRange } from "./financials";
+import { localMonthKey, withinRange } from "./financials";
 describe("revenue months are local and collected is by payment date", () => {
   it("an 8:30 pm Sep 30 invoice is September; a Sep 1 date-only field is September", () => {
     expect(localMonthKey(new Date(2026, 8, 30, 20, 30).toISOString())).toBe("2026-09");
@@ -662,15 +499,5 @@ describe("revenue months are local and collected is by payment date", () => {
     const sept = { key: "custom" as const, start: new Date(2026, 8, 1), end: new Date(2026, 9, 1), label: "Sep" };
     expect(withinRange("2026-09-01", sept)).toBe(true);
     expect(withinRange("2026-10-01", sept)).toBe(false);
-  });
-  it("Paid per month follows when the money came in", () => {
-    const range = { key: "custom" as const, start: new Date(2026, 7, 1), end: new Date(2026, 9, 1), label: "Aug–Sep" };
-    const inv = { id: "i", status: "paid", amount: 5000, amount_paid: 5000, created_at: new Date(2026, 7, 20, 10).toISOString(), due_date: null } as Invoice;
-    const pay = [{ status: "active", paid_on: "2026-09-05", amount: 5000 }] as Payment[];
-    const months = monthlyBreakdown([inv], range, pay);
-    expect(months.map((m) => [m.key, m.invoiced, m.collected])).toEqual([
-      ["2026-08", 5000, 0],
-      ["2026-09", 0, 5000],
-    ]);
   });
 });
