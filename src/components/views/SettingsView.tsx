@@ -2,7 +2,9 @@ import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
-import { DEMO_CREWS } from "@/lib/demoData";
+import { useQuery } from "@tanstack/react-query";
+import { getBusinessProfile, listCrews } from "@/lib/api";
+import { pluralize } from "@/lib/utils";
 
 interface SettingsLink {
   label: string;
@@ -90,14 +92,32 @@ const GROUPS: readonly SettingsGroup[] = [
   },
 ];
 
+/** "Company · N crews" from the real business profile + crews; a link to
+ * set up the profile when there's no company name yet. */
+function SettingsSubtitle() {
+  const { data: profile, isLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
+  const { data: crews = [] } = useQuery({ queryKey: ["crews"], queryFn: listCrews });
+  if (isLoading) return null;
+  const name = profile?.company_name?.trim();
+  const crewCount = crews.length > 0 ? ` · ${pluralize(crews.length, "crew")}` : "";
+  if (!name) {
+    return (
+      <>
+        <Link to="/settings/business-profile" className="font-semibold underline underline-offset-2">
+          Set up your business profile
+        </Link>
+        {crewCount}
+      </>
+    );
+  }
+  return <>{name}{crewCount}</>;
+}
+
 export function SettingsView() {
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-6">
-      <MobilePageHeader title="Settings" subtitle={`Rossi Hardscape · ${DEMO_CREWS.length} crews`} />
-      <PageHeader
-        title="Settings"
-        subtitle={`Rossi Hardscape · ${DEMO_CREWS.length} crews · pricebook updated Aug 30`}
-      />
+      <MobilePageHeader title="Settings" subtitle={<SettingsSubtitle />} />
+      <PageHeader title="Settings" subtitle={<SettingsSubtitle />} />
 
       {GROUPS.map((group) => {
         const headingId = `settings-group-${group.title.toLowerCase().replace(/[^a-z]+/g, "-")}`;

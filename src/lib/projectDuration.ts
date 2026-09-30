@@ -59,3 +59,20 @@ export function scheduledWindowWorkingDays(
   if (!project.scheduled_start_date || !project.scheduled_end_date) return null;
   return countWorkingDays(project.scheduled_start_date, project.scheduled_end_date);
 }
+
+/** The Projects list's progress bar + caption, from real dates only.
+ * Complete → full bar; in progress → working days elapsed of the estimate
+ * (capped at 100%); anything without an estimate or a start date → null,
+ * so the list shows nothing rather than a guess. */
+export function projectListProgress(
+  project: Pick<Project, "status" | "estimated_duration_days" | "actual_start_date" | "actual_end_date">,
+  now: Date = new Date(),
+): { pct: number; label: string | null } | null {
+  if (project.status === "complete") return { pct: 100, label: null };
+  const d = projectDurationStatus(project, now);
+  if (d.state !== "in_progress") return null;
+  return {
+    pct: Math.min(100, Math.round((d.elapsedDays / d.estimateDays) * 100)),
+    label: `Day ${d.elapsedDays} of ${d.estimateDays}`,
+  };
+}

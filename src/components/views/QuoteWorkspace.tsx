@@ -100,7 +100,6 @@ import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { quoteStatusMeta } from "@/lib/statusMeta";
-import { demoQuoteTerms, type DemoQuoteTerms } from "@/lib/demoData";
 import { compressImageFile } from "@/lib/imageUpload";
 import {
   listClients,
@@ -1124,7 +1123,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const sectionRows = draft.sections
     .filter((s) => !s.is_optional && s.items.some((i) => !i.is_optional))
     .map((s) => ({ id: s.id, name: s.name || "Untitled section", subtotal: baseSubtotal(s) }));
-  const terms = demoQuoteTerms(quote, draft.depositPct, quoteDefaults.quote_validity_days);
+  const validFrom = quote.created_at ? new Date(quote.created_at) : new Date();
+  const terms = {
+    validUntil: new Date(validFrom.getTime() + quoteDefaults.quote_validity_days * 86_400_000).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }),
+    depositLabel: `${draft.depositPct}% at signing`,
+  };
 
   const meta = quoteStatusMeta(quote.status);
   const clientName = quote.client?.name ?? quote.project?.client?.name ?? "No client";

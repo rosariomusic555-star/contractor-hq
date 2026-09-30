@@ -21,9 +21,9 @@ import {
   projectCategoryIds,
   type ProjectStatus,
 } from "@/lib/api";
-import { PROJECT_STATUSES, projectStatusMeta, VISUAL_STATUS_META } from "@/lib/statusMeta";
+import { PROJECT_STATUSES, projectStatusMeta } from "@/lib/statusMeta";
 import { isExcludedFromFinancials } from "@/lib/financials";
-import { demoJobMeta, DEMO_WEEKS_BOOKED } from "@/lib/demoData";
+import { projectListProgress } from "@/lib/projectDuration";
 
 type Filter = "all" | ProjectStatus;
 
@@ -106,7 +106,7 @@ export function ProjectsView() {
 
       <PageHeader
         title="Projects"
-        subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract · ${DEMO_WEEKS_BOOKED} weeks booked out`}
+        subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract`}
         actions={
           <Button onClick={() => navigate("/projects/new")} className="font-bold">
             + New project
@@ -155,39 +155,37 @@ export function ProjectsView() {
                     <th>Contract</th>
                     <th>Stage</th>
                     <th>Progress</th>
-                    <th>Next</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((p) => {
                     const contract = contractOf.get(p.id) ?? 0;
-                    const demo = demoJobMeta(p);
+                    const progress = projectListProgress(p);
+                    const caption = [progress?.label, crewName(p)].filter(Boolean).join(" · ");
                     return (
                       <tr key={p.id} className="cursor-pointer" onClick={() => navigate(`/projects/${p.id}`)}>
                         <td>
                           <div className="font-bold text-foreground">{p.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {projectStatusMeta(p.status).label}
-                          </div>
                           <CategoryChips categoryIds={projectCategoryIds(p)} className="mt-1" max={3} />
                         </td>
                         <td className="text-muted-foreground">{p.client?.name ?? "No client"}</td>
                         <td className="font-bold tabular-nums">{contract > 0 ? formatCurrency(contract) : "—"}</td>
-                        <td><StatusPill meta={VISUAL_STATUS_META[demo.stage]} /></td>
+                        <td><StatusPill meta={projectStatusMeta(p.status)} /></td>
                         <td className="min-w-[140px]">
-                          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                            <div className="h-full rounded-full bg-primary" style={{ width: `${demo.progressPct}%` }} />
-                          </div>
-                          <div className="mt-1 text-[11px] font-semibold text-muted-subtle">
-                            {[demo.dayOfTotal ? `Day ${demo.dayOfTotal.day} of ${demo.dayOfTotal.total}` : null, crewName(p)].filter(Boolean).join(" · ")}
-                          </div>
+                          {progress ? (
+                            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                              <div className="h-full rounded-full bg-primary" style={{ width: `${progress.pct}%` }} />
+                            </div>
+                          ) : (
+                            !caption && <span className="text-muted-subtle">—</span>
+                          )}
+                          {caption && <div className="mt-1 text-[11px] font-semibold text-muted-subtle">{caption}</div>}
                         </td>
-                        <td className="text-[13px] text-muted-foreground">{demo.nextAction}</td>
                       </tr>
                     );
                   })}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No projects here.</td></tr>
+                    <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No projects here.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -198,8 +196,8 @@ export function ProjectsView() {
           <div className="space-y-2.5 md:hidden">
             {filtered.map((p) => {
               const contract = contractOf.get(p.id) ?? 0;
-              const demo = demoJobMeta(p);
-              const meta = VISUAL_STATUS_META[demo.stage];
+              const progress = projectListProgress(p);
+              const meta = projectStatusMeta(p.status);
               return (
                 <ListCard
                   key={p.id}
@@ -212,9 +210,11 @@ export function ProjectsView() {
                   subtitle={`${p.client?.name ?? "No client"}${crewName(p) ? ` · ${crewName(p)}` : ""}`}
                 >
                   <CategoryChips categoryIds={projectCategoryIds(p)} className="mt-1.5" max={3} />
-                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${demo.progressPct}%` }} />
-                  </div>
+                  {progress && (
+                    <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${progress.pct}%` }} />
+                    </div>
+                  )}
                 </ListCard>
               );
             })}
