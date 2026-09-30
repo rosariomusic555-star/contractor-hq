@@ -8,6 +8,7 @@ import {
   CloudRain,
   Download,
   MapPin,
+  Paperclip,
   MessageSquareText,
   Navigation,
   Phone,
@@ -33,12 +34,21 @@ import {
   telHref,
   workOrderChanges,
 } from "@/lib/workOrder";
-import { buildWorkOrderPdf, rasterizeDiagrams, workOrderFilename } from "@/lib/workOrderPdf";
+import { buildWorkOrderPdf, loadPinnedImagesForPdf, rasterizeDiagrams, saveWorkOrderPdf, workOrderFilename } from "@/lib/workOrderPdf";
 import { isoDate } from "@/lib/weatherRisk";
 import { PERMIT_STATUS_LABEL } from "@/lib/precon";
 import { MeasurementDiagramView } from "@/components/measurements/MeasurementDiagramView";
 import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 import { PostUpdateSheet } from "@/components/progress/PostUpdateSheet";
+import type { CrewAttachment } from "@/lib/crewSafe";
+import { ATTACHMENT_ACCEPT, attachmentFileError, groupAttachments, isPdf, newAttachmentIds, offlineAttachments } from "@/lib/workOrderAttachments";
+import { queueAttachmentUploads, saveMarkupAttachment } from "@/lib/workOrderAttachmentsApi";
+import { useAttachmentUrls, useOfflineAttachments } from "@/components/workorder/attachments/useAttachmentUrls";
+import { AttachmentRows, PinnedAttachments } from "@/components/workorder/attachments/AttachmentTiles";
+import { AttachmentViewer } from "@/components/workorder/attachments/AttachmentViewer";
+import { AttachmentsManager } from "@/components/workorder/attachments/AttachmentsManager";
+import { MarkupEditor } from "@/components/workorder/attachments/MarkupEditor";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const day = (iso: string | null | undefined) =>
   iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "—";
@@ -125,6 +135,23 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
   const [zoom, setZoom] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
 
+  // 0154 — attachments: where they show, their URLs (device copy first),
+  // what's new since this crew member last opened it, what's kept offline.
+  const attachments = useMemo(() => wo?.attachments ?? [], [wo]);
+  const groups = useMemo(() => groupAttachments(attachments, (wo?.features ?? []).map((f) => f.id)), [attachments, wo]);
+  const attUrls = useAttachmentUrls(projectId, attachments, !!offline);
+  const newIds = useMemo(
+    () => (wo && !wo.viewer?.is_owner && wo.last_open && wo.last_open.version !== wo.version ? newAttachmentIds(wo.last_open.snapshot, wo) : new Set<string>()),
+    [wo],
+  );
+  const keepOffline = useMemo(() => (wo ? offlineAttachments(wo, isoDate(new Date())) : []), [wo]);
+  const offlineIds = useOfflineAttachments(projectId, keepOffline, attachments, !!offline);
+  const [viewing, setViewing] = useState<number | null>(null);
+  const openAttachment = (a: CrewAttachment) => setViewing(Math.max(0, groups.all.findIndex((x) => x.id === a.id)));
+  const [markup, setMarkup] = useState<{ a: CrewAttachment; imageUrl: string; page?: number } | null>(null);
+  const [includePdfs, setIncludePdfs] = useState(false);
+  const crewFileInput = useRef<HTMLInputElement>(null);
+
   const review = useMutation({
     mutationFn: () => reviewCrewWorkOrder(projectId, wo!.version),
     onSuccess: () => {
@@ -133,11 +160,24 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
     },
     onError: (err: Error) => toast({ title: "Couldn't save", description: err.message, variant: "destructive" }),
   });
+  const markupSave = useMutation({
+    mutationFn: (out: { blob: Blob; width: number; height: number }) => saveMarkupAttachment(projectId, markup!.a, out, markup!.page),
+    onSuccess: () => {
+      toast({ title: "Marked-up copy saved", description: "It's next to the original — edit its title or pin it below." });
+      setMarkup(null);
+      setViewing(null);
+      qc.invalidateQueries({ queryKey: ["work-order", projectId] });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't save the markup", description: err.message, variant: "destructive" }),
+  });
   const pdf = useMutation({
     mutationFn: async () => {
       const diagrams = diagramsRef.current ? await rasterizeDiagrams(diagramsRef.current) : new Map();
-      const doc = buildWorkOrderPdf(wo!, diagrams);
-      doc.save(workOrderFilename(wo!));
+      const pinnedImages = await loadPinnedImagesForPdf(groups.pinned, attUrls);
+      const doc = buildWorkOrderPdf(wo!, diagrams, new Date(), { pinnedImages, attachments: groups.all, featureLabel: (id) => wo!.features.find((f) => f.id === id)?.label ?? null });
+      const pdfs = includePdfs ? groups.all.filter((a) => isPdf(a.mime_type) && attUrls[a.id]) : [];
+      const skipped = await saveWorkOrderPdf(doc, workOrderFilename(wo!), pdfs.map((a) => ({ title: a.title, url: attUrls[a.id] })));
+      if (skipped.length) toast({ title: "Some PDFs weren't added", description: `${skipped.join(", ")} couldn't be merged — open them from the work order.` });
     },
     onError: (err: Error) => toast({ title: "Couldn't make the PDF", description: err.message, variant: "destructive" }),
   });
@@ -180,7 +220,7 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
       {offline && (
         <p className="flex items-center gap-2 rounded-xl bg-muted p-3 text-sm font-semibold text-foreground">
           <WifiOff className="h-4 w-4 shrink-0" /> Offline — showing the copy from{" "}
-          {new Date(offline).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}. Read-only; photos may not load.
+          {new Date(offline).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}. Read-only; files marked "Offline" still open.
         </p>
       )}
 
@@ -195,6 +235,39 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
             ))}
           </ul>
         </section>
+      )}
+
+      {wo.viewer.is_owner && !offline && <AttachmentsManager projectId={projectId} wo={wo} urls={attUrls} onOpen={openAttachment} />}
+
+      {/* Key files (pinned) — first thing on the page. */}
+      <PinnedAttachments items={groups.pinned} urls={attUrls} newIds={newIds} offlineIds={offlineIds} onOpen={openAttachment} />
+      {(groups.general.length > 0 || (wo.viewer.is_lead && !wo.viewer.is_owner && !offline)) && (
+        <Section title="Attachments">
+          <AttachmentRows items={groups.general} urls={attUrls} newIds={newIds} offlineIds={offlineIds} onOpen={openAttachment} />
+          {wo.viewer.is_lead && !wo.viewer.is_owner && !offline && (
+            <>
+              <Button variant="outline" className="h-11 w-full font-semibold" onClick={() => crewFileInput.current?.click()}>
+                <Paperclip className="mr-1.5 h-4 w-4" /> Add a file for the office
+              </Button>
+              <input
+                ref={crewFileInput}
+                type="file"
+                accept={ATTACHMENT_ACCEPT}
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const all = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  all.map(attachmentFileError).filter(Boolean).forEach((m) => toast({ title: "Can't add that file", description: m!, variant: "destructive" }));
+                  const ok = all.filter((f) => !attachmentFileError(f));
+                  if (!ok.length) return;
+                  queueAttachmentUploads(projectId, ok, { as: "crew", onDone: () => qc.invalidateQueries({ queryKey: ["work-order", projectId] }) });
+                  toast({ title: `Uploading ${ok.length} file${ok.length === 1 ? "" : "s"}…`, description: "Shows as \"Added by crew\". Don't attach anything with prices." });
+                }}
+              />
+            </>
+          )}
+        </Section>
       )}
 
       {/* Progress updates (0126) — crew posts from the job. */}
@@ -241,17 +314,22 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
                   <CheckCircle2 className="h-4 w-4" /> Reviewed by {latestReview.name} · {new Date(latestReview.reviewed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                 </span>
               ) : (
-                <span className="font-semibold text-warning">Scope changed since {latestReview.name} reviewed it — needs another look</span>
+                <span className="font-semibold text-warning">Scope or files changed since {latestReview.name} reviewed it — needs another look</span>
               )
             ) : (
               <span className="text-muted-foreground">Not reviewed by a crew lead yet</span>
             )}
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {wo.viewer.is_lead && !reviewedCurrent && !offline && (
               <Button className="h-11 font-bold" disabled={review.isPending} onClick={() => review.mutate()}>
                 <CheckCircle2 className="mr-1.5 h-4 w-4" /> Reviewed
               </Button>
+            )}
+            {canPdf && attachments.some((a) => isPdf(a.mime_type)) && (
+              <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Checkbox checked={includePdfs} onCheckedChange={(v) => setIncludePdfs(v === true)} /> Include attached PDFs
+              </label>
             )}
             {canPdf && (
               <Button variant="outline" className="h-11" disabled={pdf.isPending} onClick={() => pdf.mutate()}>
@@ -331,7 +409,16 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
 
       {/* Scope by feature */}
       {wo.features.map((f) => (
-        <FeatureBlock key={f.id} feature={f} changedLabels={changes.filter((c) => c.startsWith(f.label))} />
+        <FeatureBlock
+          key={f.id}
+          feature={f}
+          changedLabels={changes.filter((c) => c.startsWith(f.label))}
+          attachments={
+            groups.byFeature.get(f.id)?.length ? (
+              <AttachmentRows items={groups.byFeature.get(f.id)!} urls={attUrls} newIds={newIds} offlineIds={offlineIds} onOpen={openAttachment} />
+            ) : null
+          }
+        />
       ))}
       {wo.general_scope.length > 0 && (
         <Section title="Other scope">
@@ -381,6 +468,22 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
           <PhotoGrid paths={wo.photos.map((p) => p.storage_path)} urls={urls} onOpen={setZoom} />
         </Section>
       )}
+
+      <AttachmentViewer
+        items={groups.all}
+        index={viewing}
+        urls={attUrls}
+        onIndexChange={setViewing}
+        onClose={() => setViewing(null)}
+        onMarkup={wo.viewer.is_owner && !offline ? (a, src) => setMarkup({ a, imageUrl: src.imageUrl, page: src.page }) : undefined}
+      />
+      <MarkupEditor
+        open={!!markup}
+        imageUrl={markup?.imageUrl ?? null}
+        title={markup ? `${markup.a.title}${markup.page ? ` p.${markup.page}` : ""}` : ""}
+        onClose={() => setMarkup(null)}
+        onSave={(out) => markupSave.mutateAsync(out)}
+      />
 
       <Dialog open={!!zoom} onOpenChange={(o) => !o && setZoom(null)}>
         <DialogContent className="max-w-3xl p-2">{zoom && <img src={zoom} alt="" className="max-h-[85vh] w-full object-contain" />}</DialogContent>
@@ -432,7 +535,7 @@ function ScopeList({ items }: { items: { name: string; description: string | nul
   );
 }
 
-function FeatureBlock({ feature: f, changedLabels }: { feature: CrewWorkOrder["features"][number]; changedLabels: string[] }) {
+function FeatureBlock({ feature: f, changedLabels, attachments }: { feature: CrewWorkOrder["features"][number]; changedLabels: string[]; attachments?: React.ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
     <section className="card-surface overflow-hidden">
@@ -447,6 +550,7 @@ function FeatureBlock({ feature: f, changedLabels }: { feature: CrewWorkOrder["f
       </button>
       {open && (
         <div className="space-y-4 border-t border-hairline p-4">
+          {attachments}
           {f.measurements.map((m) => (
             <MeasurementDiagramView key={m.id} buildType={m.build_type} data={m.data} idPrefix={`wo-${m.id}`} />
           ))}

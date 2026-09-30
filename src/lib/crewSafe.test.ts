@@ -28,11 +28,21 @@ const raw = L({
   deliveries: [L({ id: "d1", supplier: "Stone Co", expected_date: "2026-10-03", status: "ordered" })],
   photos: [L({ id: "ph", storage_path: "projects/p/a.jpg", caption: null })],
   delays: [L({ date: "2026-10-05", days: 1, reason: "rain" })],
+  attachments: [L({ id: "a1", feature_id: null, title: "Site plan", note: "North is up", category: "site_plan", pinned: true, sort_order: 0, storage_path: "work-order/p/a.pdf", mime_type: "application/pdf", size_bytes: 1000, width: null, height: null, page_count: 2, version: 1, marked_up_from: null, added_by_crew: false, added_by_name: null, updated_at: "x" })],
   updated_at: "x",
   version: "v1",
   viewer: L({ is_owner: false, employee_id: "e", is_lead: true, can_log_usage: false }),
   last_open: null,
   reviews: [L({ name: "Marco", version: "v1", reviewed_at: "x" })],
+});
+
+describe("work order attachments (0154)", () => {
+  it("pass through with their whitelisted fields only", () => {
+    const wo = crewSafeWorkOrder(raw)!;
+    expect(wo.attachments).toHaveLength(1);
+    expect(wo.attachments![0]).toMatchObject({ id: "a1", title: "Site plan", pinned: true, storage_path: "work-order/p/a.pdf", page_count: 2 });
+    expect(Object.keys(wo.attachments![0]).sort()).toEqual([...CREW_FIELDS.attachment].sort());
+  });
 });
 
 describe("crew-facing serializer — no money, ever", () => {

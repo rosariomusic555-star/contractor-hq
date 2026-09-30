@@ -9,6 +9,7 @@ import { quantityWithWaste } from "@/lib/materialsMath";
 import type { MaterialsItem } from "@/lib/api";
 import { locateDates, type PreconSettingsLike } from "@/lib/precon";
 import type { CrewMaterial, CrewWorkOrder } from "@/lib/crewSafe";
+import { attachmentChangeLines } from "@/lib/workOrderAttachments";
 
 export type CrewMaterialStatus = "not_ordered" | "ordered" | "partial" | "delivered" | "untracked";
 
@@ -115,6 +116,8 @@ export function workOrderChanges(prev: CrewWorkOrder | null | undefined, next: C
     if (!p || p.planned_quantity !== m.planned_quantity || p.color !== m.color || p.name !== m.name) matChanged++;
   }
   if (matChanged) out.push(`${matChanged} material line${matChanged === 1 ? "" : "s"} changed`);
+  // 0154 — only when the earlier copy knew about attachments at all.
+  if (prev.attachments) out.push(...attachmentChangeLines(prev, next));
   return out;
 }
 

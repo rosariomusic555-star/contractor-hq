@@ -10,7 +10,7 @@
  * ========================================================================== */
 
 export const CREW_FIELDS = {
-  root: ["project", "site", "permits", "locate_rules", "client", "crew_notes", "features", "general_scope", "materials", "deliveries", "photos", "delays", "updated_at", "version", "viewer", "last_open", "reviews"],
+  root: ["project", "site", "permits", "locate_rules", "client", "crew_notes", "features", "general_scope", "materials", "deliveries", "photos", "delays", "attachments", "updated_at", "version", "viewer", "last_open", "reviews"],
   project: ["id", "name", "status", "address", "scheduled_start_date", "scheduled_end_date", "actual_start_date", "crew_name"],
   site: ["conditions", "slope", "access", "soil", "demo"],
   permit: ["kind", "label", "status", "ticket", "submitted", "permit_status", "number", "date"],
@@ -28,6 +28,11 @@ export const CREW_FIELDS = {
   delivery: ["id", "supplier", "expected_date", "status", "delivered_on", "open_issues", "photos"],
   photo: ["id", "storage_path", "caption"],
   delay: ["date", "days", "reason"],
+  // 0154 — work order attachments (site plans, drawings, spec sheets…).
+  attachment: [
+    "id", "feature_id", "title", "note", "category", "pinned", "sort_order", "storage_path", "mime_type",
+    "size_bytes", "width", "height", "page_count", "version", "marked_up_from", "added_by_crew", "added_by_name", "updated_at",
+  ],
   viewer: ["is_owner", "employee_id", "is_lead", "can_log_usage"],
   lastOpen: ["version", "snapshot", "opened_at"],
   review: ["name", "version", "reviewed_at"],
@@ -97,6 +102,7 @@ export function crewSafeWorkOrder(raw: unknown): CrewWorkOrder | null {
     deliveries: list((d) => pick(d, CREW_FIELDS.delivery, { photos: list((p) => pick(p, CREW_FIELDS.photo)) })),
     photos: list((p) => pick(p, CREW_FIELDS.photo)),
     delays: list((d) => pick(d, CREW_FIELDS.delay)),
+    attachments: list((a) => pick(a, CREW_FIELDS.attachment)),
     viewer: (v) => pick(v, CREW_FIELDS.viewer),
     last_open: (v) => pick(v, CREW_FIELDS.lastOpen, { snapshot: (s) => crewSafeWorkOrder(s) }),
     reviews: list((v) => pick(v, CREW_FIELDS.review)),
@@ -151,6 +157,28 @@ export interface CrewMaterial {
   used?: number;
 }
 
+export interface CrewAttachment {
+  id: string;
+  /** null = the whole project. */
+  feature_id: string | null;
+  title: string;
+  note: string | null;
+  category: "site_plan" | "layout" | "photo" | "spec_sheet" | "permit_hoa" | "other";
+  pinned: boolean;
+  sort_order: number;
+  storage_path: string;
+  mime_type: string;
+  size_bytes: number | null;
+  width: number | null;
+  height: number | null;
+  page_count: number | null;
+  version: number;
+  marked_up_from: string | null;
+  added_by_crew: boolean;
+  added_by_name: string | null;
+  updated_at: string;
+}
+
 export interface CrewWorkOrder {
   project: {
     id: string;
@@ -182,6 +210,8 @@ export interface CrewWorkOrder {
   }[];
   photos: { id: string; storage_path: string; caption: string | null }[];
   delays: { date: string; days: number; reason: string }[];
+  /** 0154; absent on a copy saved before it. */
+  attachments?: CrewAttachment[];
   updated_at: string | null;
   version: string;
   viewer: { is_owner: boolean; employee_id: string | null; is_lead: boolean; can_log_usage: boolean };
