@@ -89,22 +89,31 @@ export function ProjectMoneyBlocks({ detail, docBase }: { detail: PortalProjectD
         )}
       </section>
 
-      <section className="card-surface order-2 p-5 md:order-1">
-        <h3 className="text-base font-bold text-foreground">Your contract</h3>
-        <div className="mt-2">
-          {breakdown.lines.length === 0 ? (
-            <p className="py-2 text-sm text-muted-foreground">No approved contract yet.</p>
-          ) : (
-            breakdown.lines.map((l, i) => (
-              <Line key={l.id} label={l.label} value={l.amount} sign={i === 0 ? undefined : l.amount < 0 ? "−" : "+"} />
-            ))
-          )}
-          <Line label="Current contract value" value={breakdown.total} sign="=" strong />
-        </div>
-        <p className="mt-1 text-xs text-muted-subtle">
-          Your original quote plus every change you've approved. Pending or declined changes aren't included.
-        </p>
-      </section>
+      <ContractBlock detail={detail} className="order-2 md:order-1" />
     </div>
+  );
+}
+
+/** "Your contract": original quote + approved changes = current contract
+ * value. Also the desktop Hub's contract math under Project history. */
+export function ContractBlock({ detail, className }: { detail: PortalProjectDetail; className?: string }) {
+  const { breakdown } = clientProjectMoney(detail);
+  return (
+    <section className={cn("card-surface p-5", className)}>
+      <h3 className="text-base font-bold text-foreground">Your contract</h3>
+      <div className="mt-2">
+        {breakdown.lines.length === 0 ? (
+          <p className="py-2 text-sm text-muted-foreground">No approved contract yet.</p>
+        ) : (
+          breakdown.lines.map((l, i) => (
+            <Line key={l.id} label={l.label} value={l.amount} sign={i === 0 ? undefined : l.amount < 0 ? "−" : "+"} />
+          ))
+        )}
+        <Line label="Current contract value" value={breakdown.total} sign="=" strong />
+      </div>
+      <p className="mt-1 text-xs text-muted-subtle">
+        Your original quote plus every change you've approved. Pending or declined changes aren't included.
+      </p>
+    </section>
   );
 }

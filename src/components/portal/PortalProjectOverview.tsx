@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useParams, Link, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -56,6 +56,9 @@ import { ReviewCard } from "@/components/client-hub/ReviewCard";
 import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 import { depositAmount } from "@/lib/projectMoney";
+import { useHubLayout, useMinWidth } from "@/hooks/use-hub-layout";
+import { projectScopeSections } from "@/lib/hubDesktop";
+import { HubDesktopHome, NoPhotosYet } from "@/components/client-hub/desktop/HubDesktopHome";
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateStr = (iso: string | null) =>
@@ -63,7 +66,75 @@ const dateStr = (iso: string | null) =>
     ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : null;
 
+/**
+ * The Hub's project page. Phones (and the classic desktop view) get the
+ * single column below; with the new desktop layout (the default; see
+ * useHubLayout) md and up get HubDesktopHome — same payload, same actions.
+ */
 export function PortalProjectOverview() {
+  const layout = useHubLayout();
+  const wide = useMinWidth(768);
+  if (layout === "new" && wide) return <PortalDesktopHome />;
+  return <ClassicProjectOverview />;
+}
+
+function PortalDesktopHome() {
+  const { id = "" } = useParams();
+  const location = useLocation();
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ["portal-project", id],
+    queryFn: () => getPortalProjectDetail(id),
+  });
+  const draft = (location.state as { messageDraft?: string } | null)?.messageDraft ?? "";
+  useEffect(() => {
+    if (!draft || !detail) return;
+    const el = document.getElementById("messages");
+    el?.scrollIntoView({ block: "start" });
+    el?.querySelector("textarea")?.focus({ preventScroll: true });
+  }, [draft, detail]);
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-subtle" />
+      </div>
+    );
+  }
+  if (!detail) {
+    return <div className="py-16 text-center text-sm text-muted-foreground">That project isn't linked to your account.</div>;
+  }
+  const deliveryPhotos = detail.deliveries.flatMap((d) => d.photos);
+  return (
+    <HubDesktopHome
+      detail={detail}
+      projectId={id}
+      docBase={`/portal/projects/${id}/documents`}
+      signUrls={getPortalSignedImageUrls}
+      interactive
+      twoColumnMin={1024}
+      photos={
+        <div className="card-surface p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-base font-bold text-foreground">Photos</h2>
+            <PortalPhotoUploadButton projectId={id} />
+          </div>
+          {detail.photos.length > 0 ? <PortalPhotoGrid photos={detail.photos} large /> : <NoPhotosYet />}
+          {deliveryPhotos.length > 0 && (
+            <div className="mt-4 border-t border-hairline pt-4">
+              <p className="mb-2 flex items-center gap-1.5 text-sm font-bold text-foreground">
+                <Truck className="h-4 w-4 text-muted-subtle" /> Delivery photos
+              </p>
+              <PortalPhotoGrid photos={deliveryPhotos} large />
+            </div>
+          )}
+        </div>
+      }
+      // "Ask a question" on a change order lands here with a draft started.
+      messages={<PortalMessagesCard id="messages" projectId={id} initialDraft={draft} />}
+    />
+  );
+}
+
+function ClassicProjectOverview() {
   const { id = "" } = useParams();
   const { data: detail, isLoading } = useQuery({
     queryKey: ["portal-project", id],
@@ -102,14 +173,7 @@ export function PortalProjectOverview() {
   const progress = portalProgressLabel(detail.project);
   const pendingQuotes = detail.quotes.filter((q) => q.status === "sent");
   const pendingChangeOrders = detail.change_orders.filter((c) => c.status === "sent");
-  // The job's scope comes from the original quote; add-ons are extra work.
-  const approvedQuote = detail.quotes.find((q) => q.status === "approved" && q.kind !== "addon") ?? null;
-  // Approved add-ons are part of the job now — their features belong in the scope too.
-  const approvedAddons = detail.quotes.filter((q) => q.status === "approved" && q.kind === "addon");
-  const scopeSections = [
-    ...(approvedQuote?.sections ?? []).map((s) => ({ s, tag: null as string | null })),
-    ...approvedAddons.flatMap((q) => q.sections.map((s) => ({ s, tag: `Add-on${q.addon_number ? ` #${q.addon_number}` : ""}` }))),
-  ];
+  const scopeSections = projectScopeSections(detail);
 
   return (
     <div className="space-y-5">
@@ -314,7 +378,7 @@ export function PortalProjectOverview() {
  * table the contractor's own gallery reads, hidden until they accept it
  * (see uploadPortalProjectImage's doc comment) — so there's nothing to add
  * to this page's own photo grid on success, just a confirmation toast. */
-function PortalPhotoUploadButton({ projectId }: { projectId: string }) {
+export function PortalPhotoUploadButton({ projectId }: { projectId: string }) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -355,11 +419,11 @@ function PortalPhotoUploadButton({ projectId }: { projectId: string }) {
  * contractor's side lives on the project page (ProjectMessagesCard in
  * ProjectDetailView.tsx) and in the existing Communications log — not a
  * second inbox, just this same thread from the other party's view. */
-function PortalMessagesCard({ projectId }: { projectId: string }) {
+export function PortalMessagesCard({ projectId, initialDraft = "", id }: { projectId: string; initialDraft?: string; id?: string }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(initialDraft);
   const [files, setFiles] = useState<File[]>([]);
 
   const { data: messages = [], isLoading } = useQuery({
@@ -387,7 +451,7 @@ function PortalMessagesCard({ projectId }: { projectId: string }) {
   const canSend = (body.trim().length > 0 || files.length > 0) && !sendMut.isPending;
 
   return (
-    <div className="card-surface p-5">
+    <div id={id} className="card-surface scroll-mt-6 p-5">
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
           <MessageCircle className="h-4 w-4 text-muted-subtle" />
@@ -462,6 +526,7 @@ function PortalMessagesCard({ projectId }: { projectId: string }) {
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="Write a message…"
+          aria-label="Message to your contractor"
           rows={2}
           className="min-h-0 flex-1 resize-none"
         />

@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Star } from "lucide-react";
 import type { PortalProjectDetail } from "@/lib/portalApi";
 
@@ -7,11 +8,12 @@ import type { PortalProjectDetail } from "@/lib/portalApi";
  * every client whose job is done (no "happy clients only" gate); hidden only
  * when the contractor turned reviews off or marked "Don't ask".
  */
-export function ReviewCard({ detail }: { detail: PortalProjectDetail }) {
+/** `stacked`: always one column (the desktop Hub's narrow side panel). */
+export function ReviewCard({ detail, stacked = false }: { detail: PortalProjectDetail; stacked?: boolean }) {
   const path = detail.review?.link_path;
   if (!path) return null;
   return (
-    <div className="card-surface flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className={cn("card-surface flex flex-col items-start gap-3 p-5", !stacked && "sm:flex-row sm:items-center sm:justify-between")}>
       <div className="flex items-start gap-3">
         <Star className="mt-0.5 h-6 w-6 shrink-0 fill-warning-strong text-warning-strong" />
         <div>
@@ -25,7 +27,7 @@ export function ReviewCard({ detail }: { detail: PortalProjectDetail }) {
         href={path}
         target="_blank"
         rel="noopener"
-        className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-primary px-5 text-base font-bold text-primary-foreground sm:w-auto"
+        className={cn("inline-flex h-12 w-full items-center justify-center rounded-lg bg-primary px-5 text-base font-bold text-primary-foreground", !stacked && "sm:w-auto")}
       >
         Leave us a review
       </a>

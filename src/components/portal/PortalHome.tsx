@@ -52,5 +52,10 @@ export function PortalHome() {
     );
   }
 
-  return <PortalProjectPicker projects={projects} />;
+  // mx-auto max-w-lg: the picker stays a narrow list on the wide desktop layout.
+  return (
+    <div className="mx-auto max-w-lg">
+      <PortalProjectPicker projects={projects} />
+    </div>
+  );
 }

@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Eye, Loader2 } from "lucide-react";
 import { BackLink } from "@/components/common/BackLink";
@@ -11,6 +11,8 @@ import { ReviewCard } from "@/components/client-hub/ReviewCard";
 import { ApprovedSelectionsCard } from "@/components/client-hub/ApprovedSelectionsCard";
 import { DownloadSummaryButton } from "@/components/client-hub/DownloadSummaryButton";
 import { getClientViewProject, getSignedImageUrls } from "@/lib/api";
+import { useHubLayout, useMinWidth } from "@/hooks/use-hub-layout";
+import { HubDesktopHome } from "@/components/client-hub/desktop/HubDesktopHome";
 
 /**
  * The contractor's "Client view" (0113) — the Client Hub's money and
@@ -20,6 +22,9 @@ import { getClientViewProject, getSignedImageUrls } from "@/lib/api";
  */
 export function ClientViewPage() {
   const { id = "" } = useParams();
+  const layout = useHubLayout();
+  const wide = useMinWidth(768);
+  const [, setParams] = useSearchParams();
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ["client-view", id],
     queryFn: () => getClientViewProject(id),
@@ -43,6 +48,55 @@ export function ClientViewPage() {
   const docBase = `/projects/${id}/client-view/documents`;
   const logo = logoPath ? logoUrls[logoPath] : null;
 
+  // Desktop layout preview (?layout=new): the client's new desktop Hub,
+  // read-only. Only a md+ question — phones look the same either way.
+  const layoutToggle = (
+    <div className="hidden items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-2.5 text-sm md:flex">
+      <span className="text-muted-foreground">
+        <span className="font-semibold text-foreground">Desktop layout</span> — how the Hub looks on a laptop or tablet
+      </span>
+      <div className="flex rounded-lg bg-muted p-0.5 text-xs font-semibold" role="group" aria-label="Desktop layout">
+        {(["classic", "new"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={layout === v}
+            onClick={() => setParams({ layout: v }, { replace: true })}
+            className={layout === v ? "rounded-md bg-card px-3 py-1 text-foreground shadow-sm" : "rounded-md px-3 py-1 text-muted-foreground"}
+          >
+            {v === "classic" ? "Classic" : "New"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (layout === "new" && wide) {
+    return (
+      <div className="animate-fade-in space-y-5">
+        <BackLink to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
+          Back to project
+        </BackLink>
+        <div className="flex items-start gap-2 rounded-xl border border-info/30 bg-info/10 px-4 py-3 text-sm">
+          <Eye className="mt-0.5 h-4 w-4 shrink-0 text-info" />
+          <p className="text-muted-foreground">
+            <span className="font-semibold text-foreground">Client view.</span> Exactly what your client sees, read-only. Their Hub also shows
+            photos and messages.
+          </p>
+        </div>
+        {layoutToggle}
+        <HubDesktopHome
+          detail={detail}
+          projectId={id}
+          docBase={docBase}
+          signUrls={getSignedImageUrls}
+          interactive={false}
+          twoColumnMin={1280}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="animate-fade-in mx-auto max-w-[760px] space-y-5">
       <BackLink to={`/projects/${id}`} className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">
@@ -58,6 +112,7 @@ export function ClientViewPage() {
           </span>
         </p>
       </div>
+      {layoutToggle}
 
       <div className="card-surface p-5">
         <div className="flex items-center gap-3">
