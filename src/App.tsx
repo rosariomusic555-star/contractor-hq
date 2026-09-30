@@ -20,6 +20,8 @@ import { PortalLayout } from "@/components/portal/PortalLayout";
 import { PortalHome } from "@/components/portal/PortalHome";
 import { PortalProjectOverview } from "@/components/portal/PortalProjectOverview";
 import { PortalDocumentView } from "@/components/portal/PortalDocumentView";
+import { PortalAuthConfirm } from "@/components/portal/PortalAuthConfirm";
+import { PORTAL_CONFIRM_PATH } from "@/lib/portalLinks";
 import { ScrollToTop } from "@/components/layout/ScrollToTop";
 import { DashboardView } from "@/components/views/DashboardView";
 import { NeedsYouView } from "@/components/views/NeedsYouView";
@@ -130,6 +132,13 @@ function CostPlanRedirect() {
 /** Every route's shell: scroll-to-top on navigation, and the app-wide
  * unsaved-changes guard (needs a data router for useBlocker). */
 function RootLayout() {
+  const location = useLocation();
+  // A Client Hub sign-in link that landed outside /portal (Supabase falls
+  // back to the Site URL when a redirect isn't allowed) — send it to the
+  // Hub's confirm page instead of the contractor app.
+  if (!location.pathname.startsWith("/portal") && new URLSearchParams(location.search).has("token_hash")) {
+    return <Navigate to={`${PORTAL_CONFIRM_PATH}${location.search}`} replace />;
+  }
   return (
     <UnsavedChangesProvider>
       <ScrollToTop />
@@ -154,6 +163,16 @@ const router = createBrowserRouter(
           contractor AuthProvider above. PortalLayout renders the sign-in
           screen in place when there's no portal session, same convention
           AppLayout uses for the contractor side. */}
+      {/* Where every Hub sign-in link lands — outside PortalLayout's sign-in
+          gate so the link is handled before any "not signed in" screen. */}
+      <Route
+        path={PORTAL_CONFIRM_PATH}
+        element={
+          <PortalAuthProvider>
+            <PortalAuthConfirm />
+          </PortalAuthProvider>
+        }
+      />
       <Route
         path="/portal"
         element={
