@@ -1,16 +1,7 @@
 import { CalendarClock, CloudRain } from "lucide-react";
 import type { PortalProjectDetail, PortalScheduleUpdate } from "@/lib/portalApi";
 import { delayDayLabel } from "@/lib/scheduleShift";
-
-const WHY: Record<PortalScheduleUpdate["reason"], string> = { rain: " due to rain", weather: " due to weather", schedule: "" };
-
-/** "Schedule update: moved to Fri Oct 2 due to rain" (start moved) or
- * "…finish moved to Wed Oct 7 due to rain" (job extended). */
-function scheduleUpdateHeadline(u: PortalScheduleUpdate): string {
-  const why = WHY[u.reason] ?? "";
-  if (u.from_start !== u.to_start) return `Schedule update: moved to ${delayDayLabel(u.to_start)}${why}`;
-  return `Schedule update: finish moved to ${delayDayLabel(u.to_end ?? u.to_start)}${why}`;
-}
+import { scheduleUpdateHeadline } from "@/lib/hubDesktop";
 
 const range = (s: string | null, e: string | null) => (e && e !== s ? `${delayDayLabel(s)} – ${delayDayLabel(e)}` : delayDayLabel(s));
 

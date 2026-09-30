@@ -16,7 +16,10 @@ import {
 import { clientQuoteTotal, priceLabel } from "@/lib/selections";
 import { RequestSelectionChangeDialog } from "@/components/selections/RequestSelectionChangeDialog";
 import { useQuoteTracking } from "@/hooks/use-quote-tracking";
-import { getClientViewProject } from "@/lib/api";
+import { getClientViewProject, getSignedImageUrls } from "@/lib/api";
+import { getPortalSignedImageUrls } from "@/lib/portalApi";
+import { useHubLayout, useMinWidth } from "@/hooks/use-hub-layout";
+import { HubDocumentDesktop } from "@/components/client-hub/desktop/HubDocumentDesktop";
 import { versionDate, versionsOf } from "@/lib/projectHistory";
 import { effectiveInvoiceStatus } from "@/lib/financials";
 import { cn } from "@/lib/utils";
@@ -66,6 +69,11 @@ export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "pre
     quoteId: id,
     enabled: mode === "portal" && kind === "quote" && !vParam && !!detail,
   });
+  // New desktop layout (the default; ?layout=classic for the old one): md and up. The contractor's
+  // Client view sits beside the app sidebar, so it needs a wider window
+  // before going two-column.
+  const layout = useHubLayout();
+  const wide = useMinWidth(768);
 
   if (isLoading) {
     return (
@@ -100,6 +108,62 @@ export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "pre
   const statusOverride = shown ? (shown.state === "issued" ? undefined : shown.state === "sent" ? "superseded" : shown.state) : undefined;
   const docPath = `${projectBase}/documents/${kind}/${id}`;
 
+  const versionStrip = versions.length > 1 && (
+    <div className="no-print flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="font-semibold text-muted-foreground">Versions:</span>
+      {versions.map((v) => {
+        const active = (shown?.version ?? latest) === v.version;
+        return (
+          <Link
+            key={v.version}
+            to={v.version === latest ? docPath : `${docPath}?v=${v.version}`}
+            className={cn(
+              "rounded-full border px-2.5 py-1 font-semibold",
+              active ? "border-primary bg-primary/15 text-foreground" : "border-border text-muted-foreground hover:bg-muted",
+            )}
+          >
+            v{v.version}
+            {v.version === latest ? " · current" : ""}
+          </Link>
+        );
+      })}
+    </div>
+  );
+
+  if (layout === "new" && wide && (kind === "quote" || kind === "change-order" || kind === "invoice")) {
+    return (
+      <HubDocumentDesktop
+        mode={mode}
+        kind={kind}
+        detail={detail}
+        projectId={projectId}
+        projectBase={projectBase}
+        doc={doc}
+        live={live}
+        olderVersion={
+          shown && latest
+            ? { version: shown.version, latest, sentOn: dateStr(versionDate(shown, (live as { created_at?: string }).created_at)), currentPath: docPath }
+            : null
+        }
+        version={shown?.version ?? (versions.length > 1 ? latest : null)}
+        versionStrip={versionStrip || null}
+        body={
+          kind === "change-order" ? (
+            <ChangeOrderDocument changeOrder={statusOverride && statusOverride !== "superseded" ? { ...(doc as PortalChangeOrder), status: statusOverride as PortalChangeOrder["status"] } : (doc as PortalChangeOrder)} letterhead />
+          ) : kind === "invoice" ? (
+            <InvoiceDocument
+              invoice={shown ? { ...(doc as PortalInvoice), status: (live as PortalInvoice).status, amount_paid: (live as PortalInvoice).amount_paid } : (doc as PortalInvoice)}
+              letterhead
+            />
+          ) : undefined
+        }
+        signUrls={mode === "preview" ? getSignedImageUrls : getPortalSignedImageUrls}
+        trackEvent={trackEvent}
+        twoColumnMin={mode === "preview" ? 1280 : 1024}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="no-print flex items-center justify-between gap-2">
@@ -120,27 +184,7 @@ export function PortalDocumentView({ mode = "portal" }: { mode?: "portal" | "pre
         </Button>
       </div>
 
-      {versions.length > 1 && (
-        <div className="no-print flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="font-semibold text-muted-foreground">Versions:</span>
-          {versions.map((v) => {
-            const active = (shown?.version ?? latest) === v.version;
-            return (
-              <Link
-                key={v.version}
-                to={v.version === latest ? docPath : `${docPath}?v=${v.version}`}
-                className={cn(
-                  "rounded-full border px-2.5 py-1 font-semibold",
-                  active ? "border-primary bg-primary/15 text-foreground" : "border-border text-muted-foreground hover:bg-muted",
-                )}
-              >
-                v{v.version}
-                {v.version === latest ? " · current" : ""}
-              </Link>
-            );
-          })}
-        </div>
-      )}
+      {versionStrip}
 
       <div className="card-surface space-y-5 p-6">
         {shown && latest && (
@@ -290,10 +334,11 @@ function QuoteDocument({
   );
 }
 
-function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }) {
+/** `letterhead`: the desktop Hub page shows title + status in its own header. */
+function ChangeOrderDocument({ changeOrder, letterhead = false }: { changeOrder: PortalChangeOrder; letterhead?: boolean }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between border-b border-hairline pb-3">
+      <div className={cn("flex items-center justify-between border-b border-hairline pb-3", letterhead && "hidden")}>
         <h2 className="text-lg font-bold text-foreground">{portalChangeOrderLabel(changeOrder)}</h2>
         <span className="text-sm font-bold text-foreground">
           {changeOrder.status === "approved" ? "Approved" : changeOrder.status === "declined" ? "Declined" : "Sent"}
@@ -360,14 +405,15 @@ function ChangeOrderDocument({ changeOrder }: { changeOrder: PortalChangeOrder }
   );
 }
 
-function InvoiceDocument({ invoice }: { invoice: PortalInvoice }) {
+/** `letterhead`: the desktop Hub page — title/status in its header, how-to-pay in its panel. */
+function InvoiceDocument({ invoice, letterhead = false }: { invoice: PortalInvoice; letterhead?: boolean }) {
   const paidSoFar = Number(invoice.amount_paid ?? 0);
   const partial = invoice.status !== "paid" && paidSoFar > 0.004;
   // Past its due date with a balance → overdue (derived — the saved status stays "sent").
   const late = effectiveInvoiceStatus({ ...invoice, status: invoice.status as "sent" }) === "overdue";
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between border-b border-hairline pb-3">
+      <div className={cn("flex items-center justify-between border-b border-hairline pb-3", letterhead && "hidden")}>
         <h2 className="text-lg font-bold text-foreground">Invoice {invoice.invoice_number ?? ""}</h2>
         <span className="text-sm font-bold text-foreground">
           {invoice.status === "paid" ? "Paid" : late ? (partial ? "Partially paid · overdue" : "Overdue") : partial ? "Partially paid" : "Due"}
@@ -417,7 +463,7 @@ function InvoiceDocument({ invoice }: { invoice: PortalInvoice }) {
         </div>
       )}
       {invoice.notes && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{invoice.notes}</p>}
-      {invoice.status !== "paid" && (
+      {invoice.status !== "paid" && !letterhead && (
         <div id="pay" className="no-print rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
           <p className="font-semibold text-foreground">How to pay</p>
           <p className="mt-1">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getPortalSignedImageUrls } from "@/lib/portalApi";
 
@@ -22,7 +23,8 @@ interface PortalGalleryPhoto {
  * can't edit project photos (Phase 5 adds client *uploads*, a separate,
  * clearly-labeled "From client" flow, not editing this gallery).
  */
-export function PortalPhotoGrid({ photos }: { photos: PortalGalleryPhoto[] }) {
+/** `large` (desktop Hub): bigger tiles and a bigger lightbox. */
+export function PortalPhotoGrid({ photos, large = false }: { photos: PortalGalleryPhoto[]; large?: boolean }) {
   const [lightboxPhoto, setLightboxPhoto] = useState<PortalGalleryPhoto | null>(null);
   const paths = photos.map((p) => p.storage_path);
 
@@ -37,13 +39,13 @@ export function PortalPhotoGrid({ photos }: { photos: PortalGalleryPhoto[] }) {
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+      <div className={large ? "grid grid-cols-3 gap-3" : "grid grid-cols-3 gap-2.5 sm:grid-cols-4"}>
         {photos.map((photo) => (
           <button
             key={photo.id}
             type="button"
             onClick={() => setLightboxPhoto(photo)}
-            className="aspect-square overflow-hidden rounded-xl bg-muted"
+            className={cn("aspect-square overflow-hidden rounded-xl bg-muted", large && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2")}
             aria-label={photo.caption || "View photo"}
           >
             {signedUrls[photo.storage_path] ? (
@@ -62,7 +64,7 @@ export function PortalPhotoGrid({ photos }: { photos: PortalGalleryPhoto[] }) {
       </div>
 
       <Dialog open={!!lightboxPhoto} onOpenChange={(open) => !open && setLightboxPhoto(null)}>
-        <DialogContent className="max-w-lg gap-3 p-4">
+        <DialogContent className={large ? "max-w-3xl gap-3 p-4" : "max-w-lg gap-3 p-4"}>
           <DialogTitle className="text-sm font-bold text-foreground">Photo</DialogTitle>
           {lightboxPhoto && (
             <>
