@@ -13,10 +13,6 @@ import type {
  * Single source of truth for status presentation across the app — badge class,
  * a phone-card left-border colour, and a tone key. Replaces the per-view
  * `STATUS_META` / `statusStyles` maps that had drifted out of sync.
- *
- * Some keys ("declined", "expired", "scheduled", "in_progress") are
- * visual-only states the schema does not persist — they come from demoData and
- * are surfaced here so the pills render consistently.
  */
 export type Tone = "green" | "greenSolid" | "amber" | "red" | "blue" | "grey";
 
@@ -259,20 +255,6 @@ export const APPOINTMENT_STATUS_META: Record<AppointmentStatus, StatusMeta> = {
 export function appointmentStatusMeta(status: string): StatusMeta {
   return APPOINTMENT_STATUS_META[status as AppointmentStatus] ?? meta(titleCase(status), "grey");
 }
-
-// ---------------------------------------------------------------------------
-// Visual-only states (crew scheduling / job pipeline — demoData only)
-// ---------------------------------------------------------------------------
-
-export const VISUAL_STATUS_META = {
-  scheduled: meta("Scheduled", "blue"),
-  in_progress: meta("In progress", "green"),
-  complete: meta("Complete", "green"),
-  quoting: meta("Quoting", "grey"),
-  site_visit: meta("Site visit", "grey"),
-} as const;
-
-export type VisualOnlyStatus = keyof typeof VISUAL_STATUS_META;
 
 function titleCase(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Unknown";

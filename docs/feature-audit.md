@@ -3777,7 +3777,7 @@ Roles: **Owner** = the signed-in contractor (every page below is owner-only unle
 | 30.1 | Plan "Pro · $49/mo · Renews Oct 1, 2026" | Display | Hard-coded | Placeholder | | |
 | 30.2 | Change plan | Button | No handler | Placeholder | | |
 | 30.3 | "Visa ending in 4242" + Update | Display + button | Hard-coded; no handler. No Stripe | Placeholder | | |
-| 30.4 | Billing email (default billing@rossihardscape.com) | Input | Not saved | Placeholder | | |
+| 30.4 | Billing email (default was a hardcoded demo address; fixed 2026-09-30) | Input | Not saved | Placeholder | | |
 
 ---
 
@@ -3969,7 +3969,7 @@ All of these come from reading the code. None was reproduced in a running app. M
     - Global Expenses delete has no confirmation (8.12).
     - ProjectExpensesView invalidates only `["expenses",{project}]` (line 95), so the global `/expenses` list and Revenue margin (`["expenses"]`) stay stale until they refetch.
 25. **Split expenses can be saved unbalanced ("Save anyway").** An over-allocated split gives Uncategorized a negative amount (expenseSplit.ts:26-27). The Uncategorized filter then lists the expense with a negative share.
-26. **Placeholders look functional.** `/settings/invoicing` "Save changes" has no handler; payment terms, late fee and prefix are never used (SettingsInvoicingView.tsx:49-84). `/settings/billing` shows a hard-coded "Pro $49/mo, Visa 4242, billing@rossihardscape.com" (SettingsBillingView.tsx:31-60). The public invoice brands itself "ContractorPro" rather than the contractor's company name (SharedInvoice.tsx:79).
+26. **Placeholders look functional.** `/settings/invoicing` "Save changes" has no handler; payment terms, late fee and prefix are never used (SettingsInvoicingView.tsx:49-84). `/settings/billing` shows a hard-coded fake "Pro" plan, price, card and demo billing email (fixed 2026-09-30) (SettingsBillingView.tsx:31-60). The public invoice brands itself "ContractorPro" rather than the contractor's company name (SharedInvoice.tsx:79).
 27. **Mobile layout risks.**
     - The LeadSourceReport table is `min-w-[1100px]`. It's desktop-only, but the md breakpoint (768px) can still scroll wide on tablets.
     - The Revenue detail tables have no mobile card fallback. They rely on `overflow-x-auto`, and the header's range select plus two 150px date inputs wrap.
@@ -4000,7 +4000,7 @@ Roles:
 
 | # | Item | Type | What it should do | Role | Status | Note |
 |---|---|---|---|---|---|---|
-| 1 | Page subtitle | Display | Shows "Rossi Hardscape · N crews · pricebook updated Aug 30" (desktop) or "Rossi Hardscape · N crews" (mobile). **Hardcoded demo text: N is `DEMO_CREWS.length`** | Owner | | |
+| 1 | Page subtitle | Display | Showed a hardcoded demo company name, crew count and pricebook date (fixed 2026-09-30). **Hardcoded demo text: N is `DEMO_CREWS.length`** | Owner | | |
 | 2 | Business profile | List link | Goes to `/settings/business-profile` | Owner | | |
 | 3 | Overhead | List link | Goes to `/settings/overhead` (another agent) | Owner | | |
 | 4 | Estimating insights | List link | Goes to `/settings/estimating-insights` | Owner | | |
@@ -4609,7 +4609,7 @@ All of these come from reading code and migrations. None has been reproduced aga
 
 - **D1.** The Quote defaults "Sales tax %" isn't applied to quotes (tax was removed; `QuoteWorkspace.tsx:1025` comment). Only change orders use it (`ChangeOrderWorkspace.tsx:325`), on the whole subtotal, despite the "MA — materials only" note (`SettingsQuoteDefaultsView.tsx:98`). CLAUDE.md is also stale on this.
 - **D2.** Quote validity's "Auto-expires after" (`SettingsQuoteDefaultsView.tsx:90`) isn't implemented. It only feeds the "Valid until" label (`QuoteWorkspace.tsx:1106`). The portal lets a client approve a quote past that date (0075:241 checks only `status='sent'`).
-- **D3.** The Settings hub subtitle is demo data: "Rossi Hardscape", `DEMO_CREWS.length`, "pricebook updated Aug 30" (`SettingsView.tsx:40-43`). Real crews exist (Team page), so the count can disagree.
+- **D3.** The Settings hub subtitle is demo data: a hardcoded company name, `DEMO_CREWS.length` and a fixed pricebook date (fixed 2026-09-30) (`SettingsView.tsx:40-43`). Real crews exist (Team page), so the count can disagree.
 - **D4.** `/r/:token` ignores `review_settings.enabled` and dismissed requests (0122 `review_click`). A link sent earlier keeps working and counting clicks after reviews are turned off.
 
 #### Validation gaps

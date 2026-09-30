@@ -16,15 +16,15 @@ npm run test:watch   # vitest in watch mode
 Run a single test file or case:
 
 ```sh
-npx vitest run src/lib/demoData.test.ts
+npx vitest run src/lib/projectDuration.test.ts
 npx vitest run -t "sum to the real amount"
 ```
 
 Both `bun.lockb` and `package-lock.json` are checked in, but the scripts and README assume **npm**.
 
-`npm run lint` has a standing baseline of **11 problems (3 errors, 8 warnings)** — all pre-existing in
+`npm run lint` has a standing baseline of **12 problems (3 errors, 9 warnings)** — all pre-existing in
 `tailwind.config.ts` (`require()`), `src/components/ui/{command,textarea}.tsx` (empty interface), and
-react-refresh fast-refresh warnings on generated `ui/` files + `lib/auth.tsx`. A change should not
+react-refresh fast-refresh warnings on generated `ui/` files + `lib/auth.tsx` + `lib/portalAuth.tsx`. A change should not
 add to that count.
 
 ## Architecture
@@ -51,17 +51,13 @@ route-driven navigation, and a full design system.
   project status → label + pill class + left-border colour; `src/lib/projectStatus.ts` is a
   back-compat re-export).
 
-### `src/lib/demoData.ts` — presentation-only
+### No demo data
 
-Realistic **fake** data for features the schema doesn't have yet (crew scheduling, job-stage
-pipeline, per-job progress, work-type splits, quote markup/tax, org quote defaults, automations,
-invoice history). Rules, enforced by `src/lib/demoData.test.ts`:
-
-- never imported by `src/lib/api.ts`; never passed to `supabase.*`
-- helpers are pure and deterministic, seeded off real row ids, so decorating a real project/quote
-  looks stable
-- real entities and derivable metrics (contract totals, margins, aging, lifetime value, MoM) always
-  use live data — demoData only decorates
+Every screen shows the contractor's real data. The old `src/lib/demoData.ts` (fake crews, job
+stages, progress, a made-up company name, a fake billing plan) was removed on 2026-09-30. Don't bring back
+hardcoded names, counts, dates or plan/card details: when the schema has nothing to show, show an
+honest empty state instead. Business name, email, phone, logo and address always come from the
+business profile (`getBusinessProfile()`).
 
 ### Navigation & shell
 
