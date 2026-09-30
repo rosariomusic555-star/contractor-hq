@@ -13,9 +13,9 @@ import { requestPortalLink } from "@/lib/portalApi";
  * looks identical either way (see portal-request-link's own doc comment
  * for why that's a hard requirement, not an oversight).
  */
-export function PortalSignIn() {
+export function PortalSignIn({ initialEmail = "", notice }: { initialEmail?: string; notice?: string } = {}) {
   const { toast } = useToast();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [sent, setSent] = useState<string | null>(null);
 
   const requestMut = useMutation({
@@ -33,7 +33,7 @@ export function PortalSignIn() {
         <h1 className="text-xl font-bold text-foreground">Check your email</h1>
         <p className="max-w-xs text-sm text-muted-foreground">
           If <span className="font-semibold text-foreground">{sent}</span> matches an account, we've
-          sent a sign-in link. It expires in 15 minutes.
+          sent a sign-in link. Open it on any device; each link works once.
         </p>
         <button
           type="button"
@@ -50,11 +50,16 @@ export function PortalSignIn() {
     <div className="flex min-h-screen flex-col items-center justify-center px-6">
       <div className="w-full max-w-xs space-y-5 text-center">
         <div className="space-y-1.5">
-          <h1 className="text-xl font-bold text-foreground">Client sign-in</h1>
+          <h1 className="text-xl font-bold text-foreground">{notice ? "Let's get you a new link" : "Client sign-in"}</h1>
           <p className="text-sm text-muted-foreground">
             Enter your email and we'll send you a link to view your project.
           </p>
         </div>
+        {notice && (
+          <p role="alert" className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-foreground">
+            {notice}
+          </p>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -73,7 +78,7 @@ export function PortalSignIn() {
             autoComplete="email"
           />
           <Button type="submit" className="h-11 w-full font-bold" disabled={!email.trim() || requestMut.isPending}>
-            {requestMut.isPending ? "Sending…" : "Send sign-in link"}
+            {requestMut.isPending ? "Sending…" : notice ? "Send me a new link" : "Send sign-in link"}
           </Button>
         </form>
       </div>

@@ -1,4 +1,6 @@
-import { Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { PORTAL_CONFIRM_PATH, initialPortalLink } from "@/lib/portalLinks";
 import { Loader2, LogOut } from "lucide-react";
 import { usePortalAuth } from "@/lib/portalAuth";
 import { PortalSignIn } from "./PortalSignIn";
@@ -16,6 +18,13 @@ import { cn } from "@/lib/utils";
  */
 export function PortalLayout() {
   const { session, loading, signOut } = usePortalAuth();
+  const location = useLocation();
+  // Only the page load that came from an expired link shows its notice —
+  // not a later sign-out in the same visit.
+  const [landingError, setLandingError] = useState(initialPortalLink.kind === "error");
+  useEffect(() => {
+    if (session) setLandingError(false);
+  }, [session]);
   // Desktop layout (default "new"): phones keep the exact same column; md and
   // up get a wider page on a soft neutral background.
   const wideLayout = useHubLayout() === "new";
@@ -28,8 +37,24 @@ export function PortalLayout() {
     );
   }
 
+  // A sign-in link that points at /portal itself (template / redirect set
+  // up differently) — hand it to the confirm page rather than dropping it.
+  const params = new URLSearchParams(location.search);
+  if (params.has("token_hash") || params.has("code")) {
+    return <Navigate to={`${PORTAL_CONFIRM_PATH}${location.search}`} replace />;
+  }
+
   if (!session) {
-    return <PortalSignIn />;
+    // An expired / already-used link lands here as #error_code=otp_expired:
+    // say so, instead of a plain sign-in form the client would loop on.
+    return landingError && initialPortalLink.kind === "error" ? (
+      <PortalSignIn
+        initialEmail={initialPortalLink.email ?? ""}
+        notice="This sign-in link has expired or was already used. Send yourself a new one below."
+      />
+    ) : (
+      <PortalSignIn />
+    );
   }
 
   return (

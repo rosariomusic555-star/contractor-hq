@@ -1,6 +1,7 @@
 import { portalSupabase } from "./portalSupabase";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
 import { clientSafeProjectDetail } from "./clientSafe";
+import { normalizeEmail, portalCallbackUrl } from "./portalLinks";
 
 const IMAGES_BUCKET = "images";
 
@@ -25,9 +26,8 @@ export interface PortalClientContext {
  * deliberately no "email not found" error to surface here.
  */
 export async function requestPortalLink(email: string): Promise<void> {
-  const redirectTo = `${window.location.origin}/portal`;
   const { error } = await portalSupabase.functions.invoke("portal-request-link", {
-    body: { email, redirectTo },
+    body: { email: normalizeEmail(email), redirectTo: portalCallbackUrl() },
   });
   if (error) throw error;
 }
@@ -66,10 +66,15 @@ export async function recordPortalSignIn(): Promise<void> {
  * that already knows the client is real.
  */
 export async function inviteClientToHub(email: string): Promise<void> {
-  const redirectTo = `${window.location.origin}/portal`;
+  // Same link, landing page and new-login metadata as the self-service
+  // "send me a new link" (portal-request-link) — the two must never differ.
   const { error } = await portalSupabase.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: true, emailRedirectTo: redirectTo },
+    email: normalizeEmail(email),
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: portalCallbackUrl(),
+      data: { account_type: "client" },
+    },
   });
   if (error) throw error;
 }

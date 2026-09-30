@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { isPortalPath } from "./supabase";
+// Evaluated first: snapshots the landing URL before supabase-js consumes its hash.
+import "./portalLinks";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -27,13 +29,12 @@ export const portalSupabase = createClient(supabaseUrl, supabaseKey, {
     // Only on /portal (where magic links land) — never a contractor's own
     // auth redirect elsewhere in the app. See isPortalPath() in supabase.ts.
     detectSessionInUrl: isPortalPath(),
-    // The magic-link email is requested by the portal-request-link Edge
-    // Function, not by this browser client — so there's no client-side PKCE
-    // code_verifier to redeem later (supabase-js's default flow). Implicit
-    // flow puts the session tokens directly in the redirect's URL hash
-    // instead, which any browser can consume without having been the one
-    // that requested the link. Must match the anon client's flowType inside
-    // that Edge Function.
+    // Links are requested by the portal-request-link Edge Function or the
+    // contractor's browser (invites), never by the browser that redeems them
+    // — so no PKCE (its code verifier would be missing). Current links carry
+    // a token_hash verified on /portal/auth/confirm (see portalLinks.ts);
+    // implicit only matters for older #access_token links. Must match the
+    // anon client's flowType inside that Edge Function.
     flowType: "implicit",
   },
 });
