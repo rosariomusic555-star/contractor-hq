@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SidebarUser } from "./SidebarUser";
+import { SidebarCompany } from "./SidebarCompany";
 import { navGroups } from "./navItems";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
@@ -16,15 +17,9 @@ export function Sidebar() {
 
   return (
     <aside className="hidden md:flex fixed left-0 top-0 h-screen w-[276px] flex-col bg-card border-r border-border">
-      {/* Logo */}
+      {/* Company */}
       <div className="flex items-center gap-[11px] px-[18px] py-5">
-        <div className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-foreground text-[13px] font-extrabold text-background">
-          CP
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-sm font-bold leading-tight text-foreground">ContractorPro</h1>
-          <p className="text-[11px] text-muted-subtle">Business Manager</p>
-        </div>
+        <SidebarCompany />
         <NotificationsBell />
       </div>
 
