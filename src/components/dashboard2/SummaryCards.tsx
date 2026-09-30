@@ -43,7 +43,7 @@ export function HeadlineStrip() {
   const h = useHealth();
   const c = pctChange(h.bookedCompare.thisMonth, h.bookedCompare.sameMonthLastYear);
   const cells = [
-    { label: "Collected this month", value: k(h.collectedCompare.thisMonth), sub: null as React.ReactNode, to: "/revenue/collected" },
+    { label: "Collected this month", value: k(h.collectedCompare.thisMonth), sub: null as React.ReactNode, to: "/revenue?period=this_month&basis=collected" },
     { label: "Overdue", value: k(h.overdueAR), sub: h.overdueAR > 0 ? <span className="text-destructive">needs chasing</span> : "all current", to: "/invoices" },
     {
       label: "Booked this month",
