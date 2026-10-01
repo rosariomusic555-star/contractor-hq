@@ -164,15 +164,19 @@ export interface KitchenData {
   backsplash: boolean;
   backsplash_length_ft: Num;
   backsplash_height_in: Num;
+  /** Counter depth — for the record only (no math uses it). */
+  counter_depth_in: Num;
 }
 export interface SeatingWallData {
   layout: RunLayout;
   runs: Run[];
   /** One height for the whole wall. */
   height_in: Num;
-  /** Backrest rising above the seat: length (null = the whole wall) ×
-   * height above the seat. */
+  /** Backrest rising above the seat: the whole wall (backrest_full) or
+   * backrest_length_ft × height above the seat. */
   backrest: boolean;
+  /** On = the backrest runs the wall's full length (its total LF). */
+  backrest_full: boolean;
   backrest_length_ft: Num;
   backrest_height_in: Num;
 }
@@ -246,6 +250,73 @@ export const isLengthFixture = (type: FixtureType) => type === "strip";
 export interface StepSection { id: string; label: string; step_count: Num; width_ft: Num }
 export interface StepsData { sections: StepSection[] }
 
+/** Irrigation: zones (type, heads/emitters, what they water) + system parts. */
+export type IrrigationZoneType = "spray" | "rotor" | "drip" | "bubbler";
+export type IrrigationAreaType = "lawn" | "beds" | "trees";
+export interface IrrigationZone { id: string; type: IrrigationZoneType | null; heads: Num; area_type: IrrigationAreaType | null }
+export interface IrrigationData {
+  zones: IrrigationZone[];
+  controller: "new" | "existing" | "smart" | null;
+  backflow: "new" | "existing" | "not_needed" | null;
+  water_source: "city" | "well" | null;
+  notes: string;
+}
+export const IRRIGATION_ZONE_TYPES: { value: IrrigationZoneType; label: string }[] = [
+  { value: "spray", label: "Spray" },
+  { value: "rotor", label: "Rotor" },
+  { value: "drip", label: "Drip" },
+  { value: "bubbler", label: "Bubbler" },
+];
+export const IRRIGATION_AREA_TYPES: { value: IrrigationAreaType; label: string }[] = [
+  { value: "lawn", label: "Lawn" },
+  { value: "beds", label: "Beds" },
+  { value: "trees", label: "Trees" },
+];
+
+/** Pergola: dimensions + what it's made of and how it stands. */
+export type PergolaMaterial = "wood" | "aluminum" | "vinyl" | "steel" | "other";
+export type PergolaWood = "cedar" | "pressure_treated" | "other";
+export interface PergolaData {
+  length_ft: Num;
+  width_ft: Num;
+  height_ft: Num;
+  material: PergolaMaterial | null;
+  wood: PergolaWood | null;
+  /** Free text when material or wood is "other". */
+  material_other: string;
+  mounting: "attached" | "freestanding" | null;
+  roof: "open_slats" | "louvered" | "solid" | null;
+  post_count: Num;
+}
+export const PERGOLA_MATERIALS: { value: PergolaMaterial; label: string }[] = [
+  { value: "wood", label: "Wood" },
+  { value: "aluminum", label: "Aluminum" },
+  { value: "vinyl", label: "Vinyl" },
+  { value: "steel", label: "Steel" },
+  { value: "other", label: "Other" },
+];
+export const PERGOLA_WOODS: { value: PergolaWood; label: string }[] = [
+  { value: "cedar", label: "Cedar" },
+  { value: "pressure_treated", label: "Pressure-treated" },
+  { value: "other", label: "Other wood" },
+];
+export const PERGOLA_ROOFS: { value: "open_slats" | "louvered" | "solid"; label: string }[] = [
+  { value: "open_slats", label: "Open slats" },
+  { value: "louvered", label: "Louvered" },
+  { value: "solid", label: "Solid" },
+];
+
+/** "Aluminum", "Cedar", "Composite" (other) — the pergola summary's material. */
+export function pergolaMaterialLabel(d: Pick<PergolaData, "material" | "wood" | "material_other">): string | null {
+  if (!d.material) return null;
+  if (d.material === "other") return d.material_other.trim() || "Other";
+  if (d.material === "wood") {
+    if (d.wood === "other") return d.material_other.trim() || "Wood";
+    return PERGOLA_WOODS.find((w) => w.value === d.wood)?.label ?? "Wood";
+  }
+  return PERGOLA_MATERIALS.find((m) => m.value === d.material)?.label ?? null;
+}
+
 export type FeatureKind =
   | "patio"
   | "flatwork"
@@ -255,7 +326,9 @@ export type FeatureKind =
   | "fire_pit"
   | "fireplace"
   | "lighting"
-  | "steps";
+  | "steps"
+  | "irrigation"
+  | "pergola";
 
 export interface FeatureDataByKind {
   patio: PatioData;
@@ -267,6 +340,8 @@ export interface FeatureDataByKind {
   fireplace: FireplaceData;
   lighting: LightingData;
   steps: StepsData;
+  irrigation: IrrigationData;
+  pergola: PergolaData;
 }
 export type FeatureData = FeatureDataByKind[FeatureKind];
 
@@ -284,10 +359,11 @@ export const FEATURE_KIND: Record<string, FeatureKind> = {
   outdoor_lighting: "lighting",
   steps: "steps",
   // Area card (L×W / L-shape / irregular → sq ft): footprint / coverage.
-  pergola: "patio",
   water_feature: "patio",
   sod: "patio",
-  irrigation: "patio",
+  // Their own cards (2026-10-01; were the area card — see migration 0158).
+  pergola: "pergola",
+  irrigation: "irrigation",
 };
 
 export const featureKindOf = (buildType: string | null): FeatureKind | null =>
@@ -308,7 +384,7 @@ export const INSTANCE_NOUN: Record<string, string> = {
   pergola: "pergola",
   water_feature: "water feature",
   sod: "lawn area",
-  irrigation: "irrigated area",
+  irrigation: "irrigation system",
 };
 
 export const FIXTURE_TYPES: { id: FixtureType; label: string }[] = [
@@ -353,8 +429,24 @@ export function blankData<K extends FeatureKind>(kind: K): FeatureDataByKind[K] 
   const data: { [P in FeatureKind]: () => FeatureDataByKind[P] } = {
     patio: blankArea,
     flatwork: blankArea,
-    kitchen: () => ({ layout: "straight", runs: blankRuns(), height_in: null, backsplash: false, backsplash_length_ft: null, backsplash_height_in: null }),
-    seating_wall: () => ({ layout: "straight", runs: blankRuns(), height_in: null, backrest: false, backrest_length_ft: null, backrest_height_in: null }),
+    kitchen: () => ({
+      layout: "straight",
+      runs: blankRuns(),
+      height_in: null,
+      backsplash: false,
+      backsplash_length_ft: null,
+      backsplash_height_in: null,
+      counter_depth_in: null,
+    }),
+    seating_wall: () => ({
+      layout: "straight",
+      runs: blankRuns(),
+      height_in: null,
+      backrest: false,
+      backrest_full: true,
+      backrest_length_ft: null,
+      backrest_height_in: null,
+    }),
     retaining_wall: () => ({ method: "lf_height", layout: "straight", runs: blankRuns(), height_ft: null, wall_sqft: null }),
     fire_pit: () => ({
       shape: "round",
@@ -368,6 +460,24 @@ export function blankData<K extends FeatureKind>(kind: K): FeatureDataByKind[K] 
     fireplace: () => ({ width_ft: null, depth_ft: null, height_ft: null, veneer_sides: "four" }),
     lighting: () => ({ fixtures: [{ id: newId(), type: "path", name: "", qty: null }] }),
     steps: () => ({ sections: [{ id: newId(), label: "", step_count: null, width_ft: null }] }),
+    irrigation: () => ({
+      zones: [{ id: newId(), type: null, heads: null, area_type: null }],
+      controller: null,
+      backflow: null,
+      water_source: null,
+      notes: "",
+    }),
+    pergola: () => ({
+      length_ft: null,
+      width_ft: null,
+      height_ft: null,
+      material: null,
+      wood: null,
+      material_other: "",
+      mounting: null,
+      roof: null,
+      post_count: null,
+    }),
   };
   return data[kind]() as FeatureDataByKind[K];
 }
@@ -423,6 +533,20 @@ function upgradeLegacy(kind: FeatureKind, src: Record<string, unknown>): Record<
     const rows = Array.isArray(rest.fixtures) ? (rest.fixtures as OldRow[]) : [];
     const kept = rows.filter((f) => (f.qty ?? 0) > 0 || !!f.name?.trim());
     return { ...rest, fixtures: [...kept, { id: newId(), type: "strip", name: "", qty: lf }] };
+  }
+  // Seating wall backrest: before the full-length toggle, a blank length
+  // meant "the whole wall".
+  if (kind === "seating_wall" && !("backrest_full" in src)) {
+    const len = src.backrest_length_ft;
+    return { ...src, backrest_full: !(typeof len === "number" && len > 0) };
+  }
+  // Pergola / Irrigation used the area card until 2026-10-01. Migration 0158
+  // converts stored rows; this covers anything it didn't (a rectangle's
+  // L × W carries over, the rest of the area-card keys are dropped).
+  if ((kind === "pergola" || kind === "irrigation") && ("rect" in src || "method" in src || "areas" in src)) {
+    if (kind === "irrigation") return {};
+    const r = (src.rect ?? {}) as { length_ft?: Num; width_ft?: Num };
+    return src.shape === "rectangle" || src.shape == null ? { length_ft: r.length_ft ?? null, width_ft: r.width_ft ?? null } : {};
   }
   if (kind === "flatwork" && !src.rect && ("length_ft" in src || "width_ft" in src)) {
     const { length_ft, width_ft, ...rest } = src;
@@ -490,6 +614,9 @@ export interface FeatureTotals {
   backrest_height_in?: number;
   /** Lighting: LED strip linear feet. */
   strip_lf?: number;
+  /** Irrigation. */
+  zone_count?: number;
+  head_count?: number;
 }
 
 const n = (v: Num | undefined): number => (typeof v === "number" && isFinite(v) ? v : 0);
@@ -596,7 +723,7 @@ export function computeTotals(kind: FeatureKind, data: FeatureData, defaults: Me
     case "seating_wall": {
       const d = data as SeatingWallData;
       const linear = activeRuns(d).reduce((s, r) => s + n(r.length_ft), 0);
-      const backLen = has(d.backrest_length_ft) ? n(d.backrest_length_ft) : linear;
+      const backLen = d.backrest_full ? linear : n(d.backrest_length_ft);
       const backOn = d.backrest && n(d.backrest_height_in) > 0;
       return clean({
         linear_ft: linear,
@@ -655,6 +782,18 @@ export function computeTotals(kind: FeatureKind, data: FeatureData, defaults: Me
         tread_lf: d.sections.reduce((s, x) => s + n(x.step_count) * n(x.width_ft), 0),
       });
     }
+    case "irrigation": {
+      const zones = (data as IrrigationData).zones;
+      return clean({ zone_count: zones.length, head_count: zones.reduce((s, z) => s + n(z.heads), 0) });
+    }
+    case "pergola": {
+      const d = data as PergolaData;
+      return clean({
+        footprint_sqft: n(d.length_ft) * n(d.width_ft),
+        perimeter_ft: has(d.length_ft) && has(d.width_ft) ? 2 * (n(d.length_ft) + n(d.width_ft)) : 0,
+        height_in: n(d.height_ft) * 12,
+      });
+    }
   }
 }
 
@@ -675,6 +814,8 @@ export function sumTotals(list: FeatureTotals[]): FeatureTotals {
     "backsplash_sqft",
     "backrest_lf",
     "strip_lf",
+    "zone_count",
+    "head_count",
   ];
   for (const k of additive) {
     const s = list.reduce((acc, t) => acc + (t[k] ?? 0), 0);
@@ -730,6 +871,13 @@ export function totalsHeadline(kind: FeatureKind, t: FeatureTotals): string | nu
     case "steps":
       if (t.step_count) parts.push(`${fmt(t.step_count)} ${t.step_count === 1 ? "step" : "steps"}`);
       break;
+    case "irrigation":
+      if (t.zone_count) parts.push(`${fmt(t.zone_count)} ${t.zone_count === 1 ? "zone" : "zones"}`);
+      if (t.head_count) parts.push(`${fmt(t.head_count)} ${t.head_count === 1 ? "head" : "heads"}`);
+      break;
+    case "pergola":
+      if (t.footprint_sqft) parts.push(`${fmt(t.footprint_sqft)} sq ft footprint`);
+      break;
   }
   return parts.length ? parts.join(" · ") : null;
 }
@@ -743,7 +891,8 @@ export function instanceHasData(kind: FeatureKind, data: FeatureData, label?: st
   const anyValue = (v: unknown, key = ""): boolean => {
     if (typeof v === "number") return v > 0;
     // Skip enum-ish strings (method, shape, type…) and ids.
-    if (typeof v === "string") return (key === "description" || key === "label" || key === "name") && !!v.trim();
+    if (typeof v === "string")
+      return (key === "description" || key === "label" || key === "name" || key === "notes" || key === "material_other") && !!v.trim();
     if (Array.isArray(v)) return v.some((x) => anyValue(x));
     if (v && typeof v === "object") return Object.entries(v).some(([k, x]) => anyValue(x, k));
     return false;
@@ -999,8 +1148,13 @@ export function smartSectionPrefill(
       };
     case "water_feature":
     case "sod":
-    case "irrigation":
       return t.area_sqft ? { area: { areaSqft: t.area_sqft, perimeterFt: t.perimeter_ft ?? null } } : {};
+    // The irrigation card counts zones and heads directly (no area).
+    case "irrigation":
+      return {
+        ...(t.zone_count ? { zones: t.zone_count } : {}),
+        ...(t.head_count ? { heads: t.head_count } : {}),
+      };
     default:
       return {};
   }
@@ -1021,11 +1175,15 @@ export function quickQuotePrefill(buildType: string, t: FeatureTotals): Record<s
       return t.footprint_sqft ? { fireplace_count: 1 } : {};
     case "outdoor_lighting":
       return t.fixture_count ? { fixture_count: t.fixture_count } : {};
+    // Pergola is priced per sq ft of footprint (its card is L × W now).
     case "pergola":
+      return t.footprint_sqft ? { area_sqft: t.footprint_sqft } : {};
     case "water_feature":
     case "sod":
-    case "irrigation":
       return t.area_sqft ? { area_sqft: t.area_sqft } : {};
+    // Irrigation Quick Quote is per sq ft; the zone card has no area.
+    case "irrigation":
+      return {};
     default:
       return {};
   }
@@ -1056,9 +1214,12 @@ function instanceSummary(kind: FeatureKind, buildType: string | null, data: Feat
       const shape = areaShapesFor(kind, buildType).find((s) => s.value === d.shape)?.label;
       return shape ? `${shape} · ${headline}` : headline;
     }
-    case "kitchen":
+    case "kitchen": {
+      const depth = (data as KitchenData).counter_depth_in;
+      return `${layoutLabel((data as KitchenData).layout)} · ${headline}${depth ? ` · ${fmt(depth)} in deep` : ""}`;
+    }
     case "seating_wall":
-      return `${layoutLabel((data as KitchenData | SeatingWallData).layout)} · ${headline}`;
+      return `${layoutLabel((data as SeatingWallData).layout)} · ${headline}`;
     case "retaining_wall": {
       const d = data as RetainingWallData;
       if (d.method === "lf_height" && t.linear_ft && t.wall_sqft && d.height_ft)
@@ -1080,9 +1241,21 @@ function instanceSummary(kind: FeatureKind, buildType: string | null, data: Feat
       const sections = (data as StepsData).sections.filter((x) => (x.step_count ?? 0) > 0).length;
       return sections > 1 ? `${sections} sections · ${headline}` : headline;
     }
+    case "pergola":
+      return pergolaSummary(data as PergolaData) ?? headline;
     default:
       return headline;
   }
+}
+
+/** "16 × 12 ft · Aluminum · Freestanding" — whatever's filled in. */
+export function pergolaSummary(d: PergolaData): string | null {
+  const parts = [
+    has(d.length_ft) && has(d.width_ft) ? `${fmt(d.length_ft)} × ${fmt(d.width_ft)} ft` : null,
+    pergolaMaterialLabel(d),
+    d.mounting === "attached" ? "Attached" : d.mounting === "freestanding" ? "Freestanding" : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 /**

@@ -10,7 +10,7 @@
  * ========================================================================== */
 
 export const CREW_FIELDS = {
-  root: ["project", "site", "permits", "locate_rules", "client", "crew_notes", "features", "general_scope", "materials", "deliveries", "photos", "delays", "attachments", "updated_at", "version", "viewer", "last_open", "reviews"],
+  root: ["project", "site", "permits", "locate_rules", "client", "crew_notes", "features", "general_scope", "materials", "deliveries", "photos", "delays", "attachments", "updated_at", "version", "viewer", "last_open", "reviews", "possible_subs"],
   project: ["id", "name", "status", "address", "scheduled_start_date", "scheduled_end_date", "actual_start_date", "crew_name"],
   site: ["conditions", "slope", "access", "soil", "demo"],
   permit: ["kind", "label", "status", "ticket", "submitted", "permit_status", "number", "date"],
@@ -36,6 +36,8 @@ export const CREW_FIELDS = {
   viewer: ["is_owner", "employee_id", "is_lead", "can_log_usage"],
   lastOpen: ["version", "snapshot", "opened_at"],
   review: ["name", "version", "reviewed_at"],
+  // 0157 — possible subcontracted work from the opportunity (info only).
+  possibleSub: ["label", "note", "type"],
 } as const;
 
 /** Must never reach a crew. */
@@ -106,6 +108,7 @@ export function crewSafeWorkOrder(raw: unknown): CrewWorkOrder | null {
     viewer: (v) => pick(v, CREW_FIELDS.viewer),
     last_open: (v) => pick(v, CREW_FIELDS.lastOpen, { snapshot: (s) => crewSafeWorkOrder(s) }),
     reviews: list((v) => pick(v, CREW_FIELDS.review)),
+    possible_subs: list((v) => pick(v, CREW_FIELDS.possibleSub)),
   }) as unknown as CrewWorkOrder;
 }
 
@@ -217,6 +220,8 @@ export interface CrewWorkOrder {
   viewer: { is_owner: boolean; employee_id: string | null; is_lead: boolean; can_log_usage: boolean };
   last_open: { version: string; snapshot: CrewWorkOrder | null; opened_at: string } | null;
   reviews: { name: string; version: string; reviewed_at: string }[];
+  /** 0157; absent before it. Info only — never a price. */
+  possible_subs?: { label: string; note: string | null; type: string | null }[];
 }
 
 /** Every key anywhere in a value — the test's leak detector. */

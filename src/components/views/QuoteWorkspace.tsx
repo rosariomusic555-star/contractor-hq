@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
+import { draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { costPlanHasEntries, costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -405,6 +406,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     collapseAll,
     expandAll,
   } = useSectionCollapse();
+  // Just the line items (header + toolbar stay) — its own remembered state.
+  const itemsCollapse = useSectionCollapse({ storageKey: "chq_items_collapse_v1", defaultCollapsed: () => false });
   // Tracked only so a collapsed section's header knows to auto-expand on
   // hover while a line item is being dragged over it — collapsing hides the
   // item Droppable's visible content but keeps it mounted (see SectionCard).
@@ -1141,6 +1144,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       : null;
 
   const isDirty = dirty.current;
+  // "3 unsaved changes" + the accent edge on edited sections.
+  const savedDraft = useMemo(() => seed(quote), [quote]);
+  const changes = useMemo(() => (isDirty ? draftChanges(draft, savedDraft) : null), [isDirty, draft, savedDraft]);
 
   const handleSaveClick = () => {
     createProjectAfterSave.current = false;
@@ -1339,7 +1345,15 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           )}
 
           {draft.sections.length > 0 && (
-            <CollapseAllLinks onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))} onExpandAll={() => expandAll(draft.sections.map((s) => s.id))} />
+            <CollapseAllLinks
+              onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))}
+              onExpandAll={() => expandAll(draft.sections.map((s) => s.id))}
+              items={{
+                allCollapsed: draft.sections.length > 0 && draft.sections.every((s) => itemsCollapse.isCollapsed(s.id)),
+                onCollapseAll: () => itemsCollapse.collapseAll(draft.sections.map((s) => s.id)),
+                onExpandAll: () => itemsCollapse.expandAll(draft.sections.map((s) => s.id)),
+              }}
+            />
           )}
 
           <DragDropContext
@@ -1355,7 +1369,11 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                   {draft.sections.map((section, index) => (
                     <Draggable key={section.id} draggableId={section.id} index={index}>
                       {(dragProvided, dragSnapshot) => (
-                        <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                        <div
+                          ref={dragProvided.innerRef}
+                          {...dragProvided.draggableProps}
+                          className={cn("rounded-card", changes?.changedIds.has(section.id) && EDITED_CLASS)}
+                        >
                           <LineItemSectionCard
                             section={section}
                             subtotal={sectionSubtotal(section)}
@@ -1437,6 +1455,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             onMoveDown={() => moveSection(index, 1)}
                             onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
                             collapsed={isCollapsed(section.id)}
+                            itemsCollapsed={itemsCollapse.isCollapsed(section.id)}
+                            onToggleItems={() => itemsCollapse.toggle(section.id)}
                             onToggleCollapse={() => toggleCollapse(section.id)}
                             isDraggingItem={isDraggingItem}
                             onAutoExpand={() => expandSection(section.id)}
@@ -1637,6 +1657,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         onDiscard={discard}
         onSave={handleSaveClick}
         saving={saveMut.isPending}
+        count={changes?.count}
+        // Saving a sent / approved quote reverts it — auto-save only on drafts.
+        autoSave={quote.status === "draft" ? { key: draft } : undefined}
       />
 
       <AlertDialog

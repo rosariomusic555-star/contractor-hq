@@ -49,6 +49,7 @@ import { RevenueView } from "@/components/views/RevenueView";
 import { ClientsView } from "@/components/views/ClientsView";
 import { ClientDetailView } from "@/components/views/ClientDetailView";
 import { PipelineView } from "@/components/views/PipelineView";
+import { OpportunitiesView } from "@/components/views/OpportunitiesView";
 import { OpportunityDetailView } from "@/components/views/OpportunityDetailView";
 import { TasksView } from "@/components/views/TasksView";
 import { AppointmentsView } from "@/components/views/AppointmentsView";
@@ -58,7 +59,7 @@ import { SettingsView } from "@/components/views/SettingsView";
 import { SettingsOverheadView } from "@/components/views/SettingsOverheadView";
 import { SettingsBusinessProfileView } from "@/components/views/SettingsBusinessProfileView";
 import { SettingsQuoteDefaultsView } from "@/components/views/SettingsQuoteDefaultsView";
-import { SettingsCategoriesView } from "@/components/views/SettingsCategoriesView";
+import { SettingsProjectTypesView } from "@/components/views/SettingsProjectTypesView";
 import { SettingsLeadSourcesView } from "@/components/views/SettingsLeadSourcesView";
 import { SettingsExpenseCategoriesView } from "@/components/views/SettingsExpenseCategoriesView";
 import { SettingsMaterialCategoriesView } from "@/components/views/SettingsMaterialCategoriesView";
@@ -229,6 +230,7 @@ const router = createBrowserRouter(
         <Route path="/clients/:clientId" element={<ClientDetailView />} />
         <Route path="/clients/:clientId/edit" element={<ClientFormView />} />
         <Route path="/pipeline" element={<PipelineView />} />
+        <Route path="/opportunities" element={<OpportunitiesView />} />
         <Route path="/pipeline/:id" element={<OpportunityDetailView />} />
         <Route path="/tasks" element={<TasksView />} />
         <Route path="/appointments" element={<AppointmentsView />} />
@@ -239,7 +241,9 @@ const router = createBrowserRouter(
         <Route path="/settings/estimating-insights" element={<SettingsEstimatingInsightsView />} />
         <Route path="/settings/selection-templates" element={<SettingsSelectionTemplatesView />} />
         <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
-        <Route path="/settings/categories" element={<SettingsCategoriesView />} />
+        <Route path="/settings/project-types" element={<SettingsProjectTypesView />} />
+        {/* Categories and Project types were the same list — one page now. */}
+        <Route path="/settings/categories" element={<Navigate to="/settings/project-types" replace />} />
         <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
         <Route path="/settings/material-categories" element={<SettingsMaterialCategoriesView />} />
         <Route

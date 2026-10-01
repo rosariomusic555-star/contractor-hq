@@ -44,6 +44,7 @@ import { groupByType } from "@/lib/sectionGrouping";
 import { remapDraftIds } from "@/lib/draftRemap";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
+import { ItemsCollapseToggle, ItemsCollapsedSummary } from "@/components/common/ItemsCollapse";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -112,9 +113,12 @@ import {
   type PriceBookItem,
   type ProductCatalogItem,
   type CatalogPriceOverride,
+  getOpportunityByProjectId,
 } from "@/lib/api";
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
 import { countsTowardTotals, featureName, liveFeatures, type FeatureStatus } from "@/lib/features";
+import { subsForSection } from "@/lib/possibleSubs";
+import { draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { addonQuoteNumbers, changeOrderNumbers, featurePrice, featureReports } from "@/lib/featureFinancials";
 import { FeatureReportStrip } from "@/components/projects/FeatureReport";
 import { PlannedVsActualCard } from "@/components/planned-actual/PlannedVsActualCard";
@@ -709,6 +713,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     collapseAll,
     expandAll,
   } = useSectionCollapse();
+  // Just the line items (header + toolbar stay) — its own remembered state.
+  const itemsCollapse = useSectionCollapse({ storageKey: "chq_items_collapse_v1", defaultCollapsed: () => false });
   // Tracked only so a collapsed section's header knows to auto-expand on
   // hover while a line item is being dragged over it — collapsing hides the
   // item Droppable's visible content but keeps it mounted (see SectionCard).
@@ -815,6 +821,12 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   };
   // Features (0105): the project's things being built. Before 0105 the
   // list is empty and the picker falls back to project types.
+  // Possible subcontracted work spotted at the site visit (0155) — offered
+  // as one-tap Subcontractor lines on the matching section.
+  const { data: opportunity } = useQuery({
+    queryKey: ["opportunity-by-project", projectId],
+    queryFn: () => getOpportunityByProjectId(projectId),
+  });
   const { data: features = [], isSuccess: featuresLoaded } = useQuery({
     queryKey: ["project-features", projectId],
     queryFn: () => listProjectFeatures(projectId),
@@ -1292,13 +1304,61 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const setAllTracked = (tracked: boolean) =>
     edit((d) => d.map((s) => ({ ...s, items: s.items.map((i) => (i.cost_type === "material" ? { ...i, tracked } : i)) })));
 
+  const possibleSubs = opportunity?.possible_subs ?? [];
+  const jobCategoryIdsLive = liveFeatures(features)
+    .map((f) => f.category_id)
+    .filter((c): c is string => !!c);
+  const subSuggestionsFor = (section: DraftSection) => {
+    if (possibleSubs.length === 0) return undefined;
+    const feature = section.feature_id ? features.find((f) => f.id === section.feature_id) : undefined;
+    const list = subsForSection(
+      possibleSubs,
+      {
+        categoryId: feature?.category_id ?? section.job_category_id ?? null,
+        isGeneral: section.is_general,
+        lineNames: section.items.map((i) => i.name.split(" — ")[0]),
+      },
+      jobCategoryIdsLive,
+    );
+    if (list.length === 0) return undefined;
+    return (
+      <div className="mx-4 mb-3 flex flex-wrap gap-2 rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2">
+        {list.map((sub) => (
+          <div key={sub.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="text-muted-foreground">
+              Possible sub: <span className="font-semibold text-foreground">{sub.label}</span>
+              {sub.note ? <span className="text-muted-foreground"> — {sub.note}</span> : null}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                edit((d) =>
+                  d.map((s) =>
+                    s.id === section.id
+                      ? { ...s, items: [...s.items, blankDraftItem("subcontractor", sub.note ? `${sub.label} — ${sub.note}` : sub.label)] }
+                      : s,
+                  ),
+                )
+              }
+              className="text-xs font-bold text-primary hover:underline"
+            >
+              Add as subcontractor line
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
   const isDirty = dirty.current;
+  // "3 unsaved changes" + the accent edge on edited sections.
+  const savedDraft = useMemo(() => seed(sections), [sections]);
+  const changes = useMemo(() => (isDirty ? draftChanges(draft, savedDraft) : null), [isDirty, draft, savedDraft]);
   const renderSectionCard = (
     section: DraftSection,
     index: number,
     drag: { handle: DraggableProvidedDragHandleProps | null | undefined; dragging: boolean } | null,
   ) => (
-    <div id={`section-${section.id}`} className="scroll-mt-24 rounded-card">
+    <div id={`section-${section.id}`} className={cn("scroll-mt-24 rounded-card", changes?.changedIds.has(section.id) && EDITED_CLASS)}>
                       <MaterialsSectionCard
                         section={section}
                         materialCategories={materialCategories}
@@ -1348,6 +1408,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
                         collapsed={isCollapsed(section.id)}
                         onToggleCollapse={() => toggleCollapse(section.id)}
+                        itemsCollapsed={itemsCollapse.isCollapsed(section.id)}
+                        onToggleItems={() => itemsCollapse.toggle(section.id)}
                         isDraggingItem={isDraggingItem}
                         onAutoExpand={() => expandSection(section.id)}
                         proposedLabel={
@@ -1363,6 +1425,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                           ) : undefined
                         }
                         onViewHistory={section.feature_id ? () => setHistoryFeatureId(section.feature_id) : undefined}
+                        subSuggestions={subSuggestionsFor(section)}
                       />
     </div>
   );
@@ -1490,7 +1553,15 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       )}
 
       {draft.length > 0 && (
-        <CollapseAllLinks onCollapseAll={() => collapseAll(draft.map((s) => s.id))} onExpandAll={() => expandAll(draft.map((s) => s.id))} />
+        <CollapseAllLinks
+          onCollapseAll={() => collapseAll(draft.map((s) => s.id))}
+          onExpandAll={() => expandAll(draft.map((s) => s.id))}
+          items={{
+            allCollapsed: draft.length > 0 && draft.every((s) => itemsCollapse.isCollapsed(s.id)),
+            onCollapseAll: () => itemsCollapse.collapseAll(draft.map((s) => s.id)),
+            onExpandAll: () => itemsCollapse.expandAll(draft.map((s) => s.id)),
+          }}
+        />
       )}
 
       <DragDropContext
@@ -1596,6 +1667,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         onDiscard={discard}
         onSave={() => saveMut.mutate()}
         saving={saveMut.isPending}
+        count={changes?.count}
+        autoSave={{ key: draft }}
       />
 
       <SmartSectionDialog
@@ -1772,6 +1845,8 @@ interface SectionCardProps {
   onViewHistory?: () => void;
   /** Planned vs actual for the feature, once the job is Won (Phase E). */
   report?: ReactNode;
+  /** Possible subcontracted work from the opportunity (0155) for this section. */
+  subSuggestions?: ReactNode;
   materialCategories: MaterialCategory[];
   /** Only for the Price Book picker's labels — no longer a line field. */
   expenseCategories: ExpenseCategory[];
@@ -1812,6 +1887,9 @@ interface SectionCardProps {
   onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** Just the line items hidden behind "7 items · $4,200" (header + toolbar stay). */
+  itemsCollapsed?: boolean;
+  onToggleItems?: () => void;
   isDraggingItem: boolean;
   onAutoExpand: () => void;
 }
@@ -1850,12 +1928,15 @@ function MaterialsSectionCard({
   onMoveItem,
   collapsed,
   onToggleCollapse,
+  itemsCollapsed = false,
+  onToggleItems,
   isDraggingItem,
   onAutoExpand,
   proposedLabel,
   pendingChanges = [],
   onViewHistory,
   report,
+  subSuggestions,
 }: SectionCardProps) {
   // Every cost type + labor — the header total and the collapsed breakdown.
   const totals = sectionTotals(section);
@@ -1931,6 +2012,7 @@ function MaterialsSectionCard({
       secondRow={
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {onToggleItems && <ItemsCollapseToggle collapsed={itemsCollapsed} onToggle={onToggleItems} count={section.items.length} />}
             {buildType && <SectionToolbarAction icon={Calculator} label="Calculate quantities" onClick={() => setCalculatorOpen(true)} />}
             {onViewHistory && <SectionToolbarAction icon={History} label="View history" onClick={onViewHistory} />}
             {offerFillFromMeasurements && (
@@ -1985,9 +2067,17 @@ function MaterialsSectionCard({
         </div>
       }
     >
+      {itemsCollapsed && section.items.length > 0 && onToggleItems && (
+        <ItemsCollapsedSummary count={section.items.length} total={totals.total - totals.labor} onExpand={onToggleItems} />
+      )}
+      {/* Kept mounted while items are hidden — the sort still applies on expand. */}
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
-          <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={cn("flex flex-col gap-3", itemsCollapsed && section.items.length > 0 && "hidden")}
+          >
             {displayItems.map((item, index) => (
               <Fragment key={item.id}>
               {showGroupHeadings && item.cost_type !== displayItems[index - 1]?.cost_type && (
@@ -2049,7 +2139,13 @@ function MaterialsSectionCard({
       </Droppable>
       {/* The section's primary action — "+ Material", with Subcontractor /
           Equipment / Other behind the ▾. */}
-      <AddLineSplitButton onAdd={onAddItem} />
+      <AddLineSplitButton
+        onAdd={(type) => {
+          // A new line shows the items again so it's visible.
+          if (itemsCollapsed) onToggleItems?.();
+          onAddItem(type);
+        }}
+      />
 
       {/* Labor — below the lines; collapsed to "+ Add labor" while empty. */}
       <SectionLaborBlock value={section} defaultRate={laborRate} onChange={onEditLabor} />
@@ -2075,6 +2171,8 @@ function MaterialsSectionCard({
           </ul>
         </div>
       ))}
+
+      {subSuggestions}
 
       {report}
 

@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   FIXTURE_TYPES,
@@ -29,6 +31,14 @@ import {
   type RunLayout,
   type SeatingWallData,
   type StepsData,
+  type IrrigationData,
+  type IrrigationZone,
+  type PergolaData,
+  IRRIGATION_AREA_TYPES,
+  IRRIGATION_ZONE_TYPES,
+  PERGOLA_MATERIALS,
+  PERGOLA_ROOFS,
+  PERGOLA_WOODS,
 } from "@/lib/measurements";
 import { AddLink, Computed, DefaultableHeightField, NumField, RemoveButton, Segmented, SubRow, TextField, ToggleSection, Warning } from "./fields";
 import { ArrowLeftRight } from "lucide-react";
@@ -85,6 +95,10 @@ export function FeatureEditor({
       return <LightingEditor data={data as LightingData} {...props} />;
     case "steps":
       return <StepsEditor data={data as StepsData} {...props} />;
+    case "irrigation":
+      return <IrrigationEditor data={data as IrrigationData} {...props} />;
+    case "pergola":
+      return <PergolaEditor data={data as PergolaData} {...props} />;
   }
 }
 
@@ -397,6 +411,14 @@ function KitchenEditor({ data, onChange, idPrefix, defaultHeightIn }: EditorProp
         after={height ? ` · ${fmt(height)} in high` : ""}
       />
       <DefaultableHeightField label="Counter height" value={data.height_in} defaultValue={defaultHeightIn} onChange={(height_in) => onChange({ ...data, height_in })} />
+      {/* For the record only — no calculation uses it. */}
+      <NumField
+        label="Counter depth (optional)"
+        suffix="in"
+        placeholder="e.g. 24–30"
+        value={data.counter_depth_in}
+        onChange={(counter_depth_in) => onChange({ ...data, counter_depth_in })}
+      />
       <ToggleSection label="Backsplash" checked={data.backsplash} onCheckedChange={(backsplash) => onChange({ ...data, backsplash })}>
         <NumField
           label="Length"
@@ -427,15 +449,25 @@ function SeatingWallEditor({ data, onChange, idPrefix }: EditorProps<SeatingWall
         after={data.height_in ? ` · ${fmt(data.height_in)} in high` : ""}
       />
       <ToggleSection label="Backrest" checked={data.backrest} onCheckedChange={(backrest) => onChange({ ...data, backrest })}>
-        <NumField
-          label="Length"
-          suffix="ft"
-          placeholder={totals.linear_ft ? fmt(totals.linear_ft) : "wall"}
-          value={data.backrest_length_ft}
-          onChange={(backrest_length_ft) => onChange({ ...data, backrest_length_ft })}
-        />
+        <label className="flex w-full min-h-10 cursor-pointer items-center justify-between gap-3">
+          <span className="text-sm text-foreground">
+            Backrest runs the full wall length{totals.linear_ft ? <span className="text-muted-foreground"> ({fmt(totals.linear_ft)} LF)</span> : null}
+          </span>
+          <Switch
+            checked={data.backrest_full}
+            onCheckedChange={(backrest_full) => onChange({ ...data, backrest_full })}
+            aria-label="Backrest runs the full wall length"
+          />
+        </label>
+        {!data.backrest_full && (
+          <NumField
+            label="Backrest length"
+            suffix="ft"
+            value={data.backrest_length_ft}
+            onChange={(backrest_length_ft) => onChange({ ...data, backrest_length_ft })}
+          />
+        )}
         <NumField label="Height above seat" suffix="in" placeholder="e.g. 18" value={data.backrest_height_in} onChange={(backrest_height_in) => onChange({ ...data, backrest_height_in })} />
-        <p className="w-full text-xs text-muted-foreground">Blank length = the whole wall.</p>
         {totals.backrest_lf ? (
           <Computed>
             {fmt(totals.backrest_lf)} LF backrest · {fmt(totals.backrest_height_in)} in above the seat
@@ -678,6 +710,172 @@ function StepsEditor({ data, onChange }: EditorProps<StepsData>) {
           {t.tread_lf ? ` · ${fmt(t.tread_lf)} LF of tread` : ""}
         </Computed>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Irrigation (zones, not area)
+// ---------------------------------------------------------------------------
+
+/** A pill choice that can be left unset (null). */
+function Choice<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: T | null;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+  ariaLabel: string;
+}) {
+  return <Segmented ariaLabel={ariaLabel} value={(value ?? "") as T} options={options} onChange={onChange} />;
+}
+
+const FieldLabel = ({ children }: { children: ReactNode }) => (
+  <p className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{children}</p>
+);
+
+function IrrigationEditor({ data, onChange }: EditorProps<IrrigationData>) {
+  const set = (patch: Partial<IrrigationData>) => onChange({ ...data, ...patch });
+  const setZone = (id: string, patch: Partial<IrrigationZone>) => set({ zones: data.zones.map((z) => (z.id === id ? { ...z, ...patch } : z)) });
+  const blankZone = (): IrrigationZone => ({ id: newId(), type: null, heads: null, area_type: null });
+  // "Number of zones" grows / shrinks the zone list (empty ones go first).
+  const setZoneCount = (count: number | null) => {
+    const want = Math.max(1, Math.min(48, Math.round(count ?? 1)));
+    if (want === data.zones.length) return;
+    if (want > data.zones.length) set({ zones: [...data.zones, ...Array.from({ length: want - data.zones.length }, blankZone)] });
+    else set({ zones: data.zones.slice(0, want) });
+  };
+  const t = computeTotals("irrigation", data);
+
+  return (
+    <div className="space-y-3">
+      <NumField label="Number of zones" value={data.zones.length} onChange={setZoneCount} className="max-w-[10rem]" />
+      {data.zones.map((z, i) => (
+        <SubRow key={z.id}>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-bold text-foreground">Zone {i + 1}</p>
+            {data.zones.length > 1 && (
+              <RemoveButton label={`Remove zone ${i + 1}`} onClick={() => set({ zones: data.zones.filter((x) => x.id !== z.id) })} />
+            )}
+          </div>
+          <Choice ariaLabel={`Zone ${i + 1} type`} value={z.type} options={IRRIGATION_ZONE_TYPES} onChange={(type) => setZone(z.id, { type })} />
+          <div className="flex flex-wrap items-end gap-3">
+            <NumField
+              label={z.type === "drip" ? "Emitters (approx.)" : "Heads (approx.)"}
+              value={z.heads}
+              onChange={(heads) => setZone(z.id, { heads })}
+            />
+            <div className="min-w-[12rem] flex-1">
+              <Choice ariaLabel={`Zone ${i + 1} waters`} value={z.area_type} options={IRRIGATION_AREA_TYPES} onChange={(area_type) => setZone(z.id, { area_type })} />
+            </div>
+          </div>
+        </SubRow>
+      ))}
+      <AddLink onClick={() => set({ zones: [...data.zones, blankZone()] })}>Add zone</AddLink>
+
+      <div className="space-y-1.5">
+        <FieldLabel>Controller</FieldLabel>
+        <Choice
+          ariaLabel="Controller"
+          value={data.controller}
+          options={[
+            { value: "new", label: "New" },
+            { value: "existing", label: "Existing" },
+            { value: "smart", label: "Smart" },
+          ]}
+          onChange={(controller) => set({ controller })}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <FieldLabel>Backflow</FieldLabel>
+        <Choice
+          ariaLabel="Backflow"
+          value={data.backflow}
+          options={[
+            { value: "new", label: "New" },
+            { value: "existing", label: "Existing" },
+            { value: "not_needed", label: "Not needed" },
+          ]}
+          onChange={(backflow) => set({ backflow })}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <FieldLabel>Water source</FieldLabel>
+        <Choice
+          ariaLabel="Water source"
+          value={data.water_source}
+          options={[
+            { value: "city", label: "City" },
+            { value: "well", label: "Well" },
+          ]}
+          onChange={(water_source) => set({ water_source })}
+        />
+      </div>
+      <Textarea
+        value={data.notes}
+        onChange={(e) => set({ notes: e.target.value })}
+        placeholder="Notes (optional) — e.g. tie into existing valve box by the AC unit"
+        aria-label="Irrigation notes"
+        rows={2}
+        className="text-sm"
+      />
+      {(t.zone_count ?? 0) > 0 && (
+        <Computed>
+          {fmt(t.zone_count)} {t.zone_count === 1 ? "zone" : "zones"}
+          {t.head_count ? ` · ${fmt(t.head_count)} heads / emitters` : ""}
+        </Computed>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pergola (dimensions + build, no area card)
+// ---------------------------------------------------------------------------
+
+function PergolaEditor({ data, onChange, idPrefix }: EditorProps<PergolaData>) {
+  const set = (patch: Partial<PergolaData>) => onChange({ ...data, ...patch });
+  const needsText = data.material === "other" || (data.material === "wood" && data.wood === "other");
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <NumField id={`${idPrefix}-l`} label="Length" suffix="ft" value={data.length_ft} onChange={(length_ft) => set({ length_ft })} />
+        <NumField id={`${idPrefix}-w`} label="Width" suffix="ft" value={data.width_ft} onChange={(width_ft) => set({ width_ft })} />
+        <NumField id={`${idPrefix}-h`} label="Height" suffix="ft" value={data.height_ft} onChange={(height_ft) => set({ height_ft })} />
+      </div>
+      <div className="space-y-1.5">
+        <FieldLabel>Material</FieldLabel>
+        <Choice ariaLabel="Material" value={data.material} options={PERGOLA_MATERIALS} onChange={(material) => set({ material })} />
+        {data.material === "wood" && <Choice ariaLabel="Wood" value={data.wood} options={PERGOLA_WOODS} onChange={(wood) => set({ wood })} />}
+        {needsText && (
+          <TextField
+            value={data.material_other}
+            onChange={(material_other) => set({ material_other })}
+            placeholder="e.g. Composite, Redwood"
+            ariaLabel="Other material"
+          />
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <FieldLabel>Mounting</FieldLabel>
+        <Choice
+          ariaLabel="Mounting"
+          value={data.mounting}
+          options={[
+            { value: "freestanding", label: "Freestanding" },
+            { value: "attached", label: "Attached to the house" },
+          ]}
+          onChange={(mounting) => set({ mounting })}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <FieldLabel>Roof (optional)</FieldLabel>
+        <Choice ariaLabel="Roof type" value={data.roof} options={PERGOLA_ROOFS} onChange={(roof) => set({ roof })} />
+      </div>
+      <NumField label="Posts (optional)" value={data.post_count} onChange={(post_count) => set({ post_count })} className="max-w-[10rem]" />
     </div>
   );
 }

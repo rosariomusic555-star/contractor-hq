@@ -305,7 +305,7 @@ function QuestionField({
               step="any"
               inputMode="decimal"
               value={value === undefined || value === null ? "" : String(value)}
-              onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+              onChange={(e) => onChange(e.target.value === "" ? undefined : parseFloat(e.target.value))}
               className="pr-14"
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">

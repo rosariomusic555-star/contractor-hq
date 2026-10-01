@@ -20,6 +20,7 @@ import {
   Bell,
   LogOut,
   Kanban,
+  Rows3,
   ListChecks,
   CalendarClock,
   MessagesSquare,
@@ -214,6 +215,7 @@ export function BottomTabBar() {
               onClick={() => go("/notifications", () => setMoreOpen(false))}
             />
             <ActionRow icon={Kanban} label="Pipeline" onClick={() => go("/pipeline", () => setMoreOpen(false))} />
+            <ActionRow icon={Rows3} label="Opportunities" onClick={() => go("/opportunities", () => setMoreOpen(false))} />
             <ActionRow icon={ListChecks} label="Tasks" onClick={() => go("/tasks", () => setMoreOpen(false))} />
             <ActionRow icon={CalendarClock} label="Appointments" onClick={() => go("/appointments", () => setMoreOpen(false))} />
             <ActionRow icon={MessagesSquare} label="Communications" onClick={() => go("/communications", () => setMoreOpen(false))} />

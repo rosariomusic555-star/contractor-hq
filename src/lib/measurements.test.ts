@@ -252,7 +252,7 @@ describe("downstream", () => {
   });
 
   it("prefill keys match real Smart Section and Quick Quote question keys", () => {
-    const totals = { area_sqft: 1, perimeter_ft: 1, linear_ft: 1, footprint_sqft: 1, fixture_count: 1, height_in: 24, backsplash_sqft: 1, backrest_lf: 1, backrest_height_in: 18, strip_lf: 1 };
+    const totals = { area_sqft: 1, perimeter_ft: 1, linear_ft: 1, footprint_sqft: 1, fixture_count: 1, height_in: 24, backsplash_sqft: 1, backrest_lf: 1, backrest_height_in: 18, strip_lf: 1, zone_count: 3, head_count: 30 };
     for (const t of smartSectionTemplates) {
       const keys = new Set([...t.questions.map((q) => q.key)]);
       for (const k of Object.keys(smartSectionPrefill(t.id, totals, { courseHeightIn: 8 }))) expect(keys, `${t.id}.${k}`).toContain(k);
@@ -263,7 +263,8 @@ describe("downstream", () => {
     for (const t of quickQuoteTemplates) {
       const keys = new Set(t.questions.map((q) => q.key));
       for (const k of Object.keys(quickQuotePrefill(t.id, totals))) expect(keys, `${t.id}.${k}`).toContain(k);
-      if (t.id !== "plants") expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
+      // Irrigation's Quick Quote is per sq ft and its card counts zones — no prefill.
+      if (t.id !== "plants" && t.id !== "irrigation") expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
     }
   });
 
@@ -474,3 +475,49 @@ describe("a feature's section prefills its own measurement", () => {
   });
 });
 
+
+describe("2026-10-01 card changes", () => {
+  it("seating wall backrest: full-length toggle, old blank length → full", () => {
+    const old = normalizeData("seating_wall", { layout: "straight", runs: [{ id: "a", length_ft: 20, label: "" }], height_in: 20, backrest: true, backrest_length_ft: null, backrest_height_in: 18 });
+    expect(old.backrest_full).toBe(true);
+    expect(computeTotals("seating_wall", old).backrest_lf).toBe(20);
+    const partial = normalizeData("seating_wall", { layout: "straight", runs: [{ id: "a", length_ft: 20, label: "" }], backrest: true, backrest_length_ft: 8, backrest_height_in: 18 });
+    expect(partial.backrest_full).toBe(false);
+    expect(computeTotals("seating_wall", partial).backrest_lf).toBe(8);
+  });
+
+  it("kitchen counter depth is record-only and shows in the summary", () => {
+    const d = { ...normalizeData("kitchen", { layout: "straight", runs: [{ id: "a", length_ft: 12, label: "" }] }), counter_depth_in: 28 };
+    expect(computeTotals("kitchen", d, { kitchenHeightIn: 36 })).toEqual({ linear_ft: 12, height_in: 36 });
+    expect(featureSummary({ kind: "kitchen", build_type: "outdoor_kitchen" }, [{ data: d, label: null }], [], { kitchenHeightIn: 36 })).toContain("28 in deep");
+  });
+
+  it("irrigation counts zones and heads", () => {
+    const d = normalizeData("irrigation", {
+      zones: [
+        { id: "1", type: "spray", heads: 12, area_type: "lawn" },
+        { id: "2", type: "drip", heads: 30, area_type: "beds" },
+        { id: "3", type: "rotor", heads: null, area_type: null },
+      ],
+    });
+    expect(computeTotals("irrigation", d)).toEqual({ zone_count: 3, head_count: 42 });
+    expect(featureSummary({ kind: "irrigation", build_type: "irrigation" }, [{ data: d, label: null }], [])).toBe("3 zones · 42 heads");
+    expect(smartSectionPrefill("irrigation", { zone_count: 3, head_count: 42 })).toEqual({ zones: 3, heads: 42 });
+  });
+
+  it("an old area-card irrigation row becomes a blank zone card", () => {
+    const d = normalizeData("irrigation", { method: "dimensions", shape: "rectangle", rect: { length_ft: 30, width_ft: 40 }, areas: [] });
+    expect(d).not.toHaveProperty("rect");
+    expect(d.zones).toHaveLength(1);
+  });
+
+  it("pergola: L × W footprint, summary, old rectangle carries over", () => {
+    const d = normalizeData("pergola", { length_ft: 16, width_ft: 12, height_ft: 9, material: "aluminum", mounting: "freestanding" });
+    expect(computeTotals("pergola", d)).toEqual({ footprint_sqft: 192, perimeter_ft: 56, height_in: 108 });
+    expect(featureSummary({ kind: "pergola", build_type: "pergola" }, [{ data: d, label: null }], [])).toBe("16 × 12 ft · Aluminum · Freestanding");
+    expect(quickQuotePrefill("pergola", computeTotals("pergola", d))).toEqual({ area_sqft: 192 });
+    const old = normalizeData("pergola", { method: "dimensions", shape: "rectangle", rect: { length_ft: 16, width_ft: 13 }, areas: [] });
+    expect(old).toMatchObject({ length_ft: 16, width_ft: 13 });
+    expect(old).not.toHaveProperty("rect");
+  });
+});

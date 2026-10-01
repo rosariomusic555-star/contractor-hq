@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
+import { ReorderControls } from "@/components/common/ReorderControls";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,14 +63,18 @@ export function SmartSectionTemplateEditorDialog({
   });
   const settings = template ? findSmartSectionSettings(allSettings, template.id) : null;
 
-  const [lineItems, setLineItems] = useState<SmartSectionLineItemSetting[]>([]);
-  const [tunables, setTunables] = useState<Record<string, number>>({});
+  // _k: a stable key per row for drag-and-drop (never saved).
+  type Row = SmartSectionLineItemSetting & { _k: string };
+  const rowKey = () => crypto.randomUUID();
+  const [lineItems, setLineItems] = useState<Row[]>([]);
+  // undefined = blank field = use the template default (no override saved).
+  const [tunables, setTunables] = useState<Record<string, number | undefined>>({});
   const [laborCrew, setLaborCrew] = useState("");
   const [laborDays, setLaborDays] = useState("");
 
   useEffect(() => {
     if (!open || !template) return;
-    setLineItems(resolveEffectiveLineItems(template, settings));
+    setLineItems(resolveEffectiveLineItems(template, settings).map((li) => ({ ...li, _k: rowKey() })));
     const seeded: Record<string, number> = {};
     for (const t of template.tunables) seeded[t.key] = resolveTunableValue(template, settings, t.key);
     setTunables(seeded);
@@ -83,8 +90,11 @@ export function SmartSectionTemplateEditorDialog({
   const saveMut = useMutation({
     mutationFn: () =>
       saveSmartSectionSettings(buildTypeId, {
-        line_items: lineItems.filter((li) => li.name.trim() !== ""),
-        tunables,
+        line_items: lineItems.filter((li) => li.name.trim() !== "").map(({ _k, ...li }) => li),
+        // Only real numbers are saved; a cleared field goes back to the default.
+        tunables: Object.fromEntries(
+          Object.entries(tunables).filter((e): e is [string, number] => typeof e[1] === "number" && Number.isFinite(e[1])),
+        ),
         labor_default:
           laborCrew || laborDays
             ? { crew_size: laborCrew ? Number(laborCrew) : null, days: laborDays ? Number(laborDays) : null }
@@ -122,10 +132,19 @@ export function SmartSectionTemplateEditorDialog({
     setLineItems((items) => items.map((li, i) => (i === index ? { ...li, name } : li)));
   const setLineItemType = (index: number, cost_type: LineCostType) =>
     setLineItems((items) =>
-      items.map((li, i) => (i === index ? (cost_type === "material" ? { slot_key: li.slot_key, name: li.name } : { ...li, cost_type }) : li)),
+      items.map((li, i) => (i === index ? (cost_type === "material" ? { _k: li._k, slot_key: li.slot_key, name: li.name } : { ...li, cost_type }) : li)),
     );
   const removeLineItem = (index: number) => setLineItems((items) => items.filter((_, i) => i !== index));
-  const addLineItem = () => setLineItems((items) => [...items, { slot_key: null, name: "" }]);
+  const addLineItem = () => setLineItems((items) => [...items, { _k: rowKey(), slot_key: null, name: "" }]);
+  const onDragEnd = (r: DropResult) => {
+    if (!r.destination || r.destination.index === r.source.index) return;
+    setLineItems((items) => {
+      const next = [...items];
+      const [moved] = next.splice(r.source.index, 1);
+      next.splice(r.destination!.index, 0, moved);
+      return next;
+    });
+  };
 
   const nameForSlot = (slotKey: string) =>
     lineItems.find((li) => li.slot_key === slotKey)?.name ??
@@ -149,9 +168,18 @@ export function SmartSectionTemplateEditorDialog({
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto">
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wide text-muted-subtle">Line items</h3>
-            <div className="space-y-2">
-              {lineItems.map((li, i) => (
-                <div key={i} className="flex items-center gap-1.5">
+            <DragDropContext onDragEnd={onDragEnd}>
+              <Droppable droppableId="template-line-items">
+                {(drop) => (
+                  <div ref={drop.innerRef} {...drop.droppableProps} className="space-y-2">
+                    {lineItems.map((li, i) => (
+                      <Draggable key={li._k} draggableId={li._k} index={i}>
+                        {(drag, snap) => (
+                          <div
+                            ref={drag.innerRef}
+                            {...drag.draggableProps}
+                            className={cn("flex items-center gap-1.5 rounded-lg bg-background", snap.isDragging && "shadow-lg")}
+                          >
                   <Input
                     value={li.name}
                     onChange={(e) => renameLineItem(i, e.target.value)}
@@ -177,24 +205,14 @@ export function SmartSectionTemplateEditorDialog({
                       </SelectContent>
                     </Select>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => moveLineItem(i, -1)}
-                    disabled={i === 0}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-muted disabled:opacity-30"
-                    aria-label="Move up"
-                  >
-                    <ChevronUp className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveLineItem(i, 1)}
-                    disabled={i === lineItems.length - 1}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-colors hover:bg-muted disabled:opacity-30"
-                    aria-label="Move down"
-                  >
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
+                  <ReorderControls
+                    dragHandleProps={drag.dragHandleProps}
+                    onMoveUp={() => moveLineItem(i, -1)}
+                    onMoveDown={() => moveLineItem(i, 1)}
+                    canMoveUp={i > 0}
+                    canMoveDown={i < lineItems.length - 1}
+                    label={li.name || "line item"}
+                  />
                   <button
                     type="button"
                     onClick={() => removeLineItem(i)}
@@ -203,9 +221,15 @@ export function SmartSectionTemplateEditorDialog({
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
-                </div>
-              ))}
-            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {drop.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
             <button
               type="button"
               onClick={addLineItem}
@@ -265,22 +289,29 @@ export function SmartSectionTemplateEditorDialog({
               {tunablesBySlot.map(({ slot, tunables: group }) => (
                 <div key={slot.key} className="space-y-2 rounded-xl border border-hairline p-3">
                   <div className="text-xs font-bold text-foreground">{nameForSlot(slot.key)}</div>
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="divide-y divide-hairline">
                     {group.map((t) => (
-                      <div key={t.key} className="space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">{t.label}</Label>
-                        <div className="relative">
+                      // One aligned row: label · value + unit (right).
+                      <div key={t.key} className="flex items-center justify-between gap-3 py-1.5">
+                        <Label htmlFor={`tunable-${t.key}`} className="min-w-0 flex-1 text-[13px] font-normal text-foreground">
+                          {t.label}
+                        </Label>
+                        <div className="relative w-36 shrink-0">
                           <Input
+                            id={`tunable-${t.key}`}
                             type="number"
                             step="any"
                             inputMode="decimal"
-                            value={tunables[t.key] ?? t.defaultValue}
+                            // Blank shows the default as a hint; clearing never snaps to 0.
+                            value={tunables[t.key] ?? ""}
+                            placeholder={`${t.defaultValue} (default)`}
                             onChange={(e) =>
-                              setTunables((v) => ({ ...v, [t.key]: parseFloat(e.target.value) || 0 }))
+                              setTunables((v) => ({ ...v, [t.key]: e.target.value === "" ? undefined : parseFloat(e.target.value) }))
                             }
-                            className="h-9 pr-16"
+                            // No browser spinner arrows — they collided with the unit label.
+                            className="h-9 pr-[4.5rem] text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
-                          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">
+                          <span className="pointer-events-none absolute right-2.5 top-1/2 max-w-[4rem] -translate-y-1/2 truncate text-[11px] text-muted-foreground">
                             {t.unit}
                           </span>
                         </div>

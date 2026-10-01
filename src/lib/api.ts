@@ -1452,6 +1452,42 @@ export async function deleteCategory(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Where a project type is used (0156) — the delete warning's counts. */
+export type CategoryUsage = Record<
+  | "opportunities"
+  | "projects"
+  | "features"
+  | "quote_lines"
+  | "quote_sections"
+  | "cost_plan_sections"
+  | "change_order_lines"
+  | "labor_entries"
+  | "measurements",
+  number
+>;
+
+export async function getCategoryUsage(id: string): Promise<CategoryUsage | null> {
+  const { data, error } = await supabase.rpc("category_usage", { p_category_id: id });
+  // Before 0156: no counts — the dialog falls back to a plain warning.
+  if (error) return null;
+  return data as CategoryUsage;
+}
+
+/** Moves every reference from one project type to another (0156), so the
+ * old one can be deleted without losing anything. */
+export async function reassignCategory(fromId: string, toId: string): Promise<void> {
+  const { error } = await supabase.rpc("reassign_category", { p_from: fromId, p_to: toId });
+  if (error) {
+    if (error.code === "PGRST202" || error.code === "42883") throw new Error("Run migration 0156 to move a project type's records to another type.");
+    throw error;
+  }
+}
+
+/** Saves a new project type order (0..n-1), only the rows that moved. */
+export async function reorderCategories(ordered: Pick<Category, "id" | "sort_order">[]): Promise<void> {
+  await Promise.all(ordered.map((c, i) => (c.sort_order === i ? null : updateCategory(c.id, { sort_order: i }))));
+}
+
 // ---------------------------------------------------------------------------
 // Lead sources (Settings > Lead sources, 0077)
 // ---------------------------------------------------------------------------
@@ -5680,7 +5716,11 @@ export type ActivityKind =
   | "appointment_scheduled"
   | "appointment_completed"
   | "task_completed"
-  | "task_created";
+  | "task_created"
+  // 0155 — opportunity archive / restore / delete (the delete is logged by the DB).
+  | "opportunity_archived"
+  | "opportunity_restored"
+  | "opportunity_deleted";
 
 export interface Activity {
   id: string;
@@ -5826,6 +5866,11 @@ export interface Opportunity {
   project_id: string | null;
   /** 0127 — a maintenance lead: the original job it came from. */
   source_project_id?: string | null;
+  /** 0155 — archived: hidden from the pipeline and lists, restorable from
+   * the Opportunities page's Archived filter. Undefined before 0155. */
+  archived_at?: string | null;
+  /** 0155 — subcontracted work spotted at the site visit. */
+  possible_subs?: PossibleSub[] | null;
   created_at: string;
   updated_at: string;
   client?: { name: string } | null;
@@ -5853,7 +5898,9 @@ export function opportunityCategoryIds(o: Opportunity): string[] {
 const OPPORTUNITY_SELECT =
   "*, client:clients(name), opportunity_categories(category_id), project:projects!opportunities_project_id_fkey(project_categories(category_id))";
 
-export async function listOpportunities(): Promise<Opportunity[]> {
+/** Live opportunities — archived ones (0155) are left out unless asked
+ * for. Filtered here rather than in SQL so it works before 0155 too. */
+async function fetchOpportunities(archived: boolean): Promise<Opportunity[]> {
   const { data, error } = await supabase
     .from("opportunities")
     .select(OPPORTUNITY_SELECT)
@@ -5862,7 +5909,16 @@ export async function listOpportunities(): Promise<Opportunity[]> {
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return data ?? [];
+  return ((data ?? []) as Opportunity[]).filter((o) => !!o.archived_at === archived);
+}
+
+export async function listOpportunities(): Promise<Opportunity[]> {
+  return fetchOpportunities(false);
+}
+
+/** Archived opportunities (0155) — the Opportunities page's Archived filter. */
+export async function listArchivedOpportunities(): Promise<Opportunity[]> {
+  return fetchOpportunities(true);
 }
 
 /** An opportunity's own client (0048/0049, Customer 360 page). */
@@ -5876,13 +5932,102 @@ export async function listOpportunitiesForClient(clientId: string): Promise<Oppo
     if (error.code === "PGRST205") return [];
     throw error;
   }
-  return data ?? [];
+  return ((data ?? []) as Opportunity[]).filter((o) => !o.archived_at);
 }
 
 export async function getOpportunity(id: string): Promise<Opportunity> {
   const { data, error } = await supabase.from("opportunities").select(OPPORTUNITY_SELECT).eq("id", id).single();
   if (error) throw error;
   return data;
+}
+
+/** A possible subcontracted item spotted at the site visit (0155). */
+export interface PossibleSub {
+  id: string;
+  /** Preset key ("gas_line"…) or "custom". */
+  kind: string;
+  label: string;
+  note: string | null;
+  /** The project type it relates to (Outdoor Kitchen…); null = General. */
+  category_id: string | null;
+}
+
+export async function savePossibleSubs(opportunityId: string, subs: PossibleSub[]): Promise<void> {
+  const { error } = await supabase.from("opportunities").update({ possible_subs: subs }).eq("id", opportunityId);
+  if (error) {
+    if (error.code === "42703" || error.code === "PGRST204") throw new Error("Run migration 0155 to save possible subcontracted work.");
+    throw error;
+  }
+}
+
+/** What's attached to an opportunity and what (if anything) blocks
+ * deleting it — 0155's opportunity_delete_check. */
+export interface OpportunityDeleteCheck {
+  can_delete: boolean;
+  blockers: string[];
+  counts: {
+    project: boolean;
+    cost_plans: number;
+    quotes: number;
+    measurements: number;
+    photos: number;
+    appointments: number;
+    tasks: number;
+  };
+}
+
+const NEEDS_0155 = "Run migration 0155 to archive or delete opportunities.";
+const missing0155 = (code?: string) => code === "PGRST202" || code === "42883" || code === "42703" || code === "PGRST204";
+
+export async function checkOpportunityDelete(id: string): Promise<OpportunityDeleteCheck> {
+  const { data, error } = await supabase.rpc("opportunity_delete_check", { p_opportunity_id: id });
+  if (error) throw missing0155(error.code) ? new Error(NEEDS_0155) : error;
+  return data as OpportunityDeleteCheck;
+}
+
+/** Deletes an opportunity and its never-Won background project (the DB
+ * re-checks every blocker). Photo files are removed from Storage first,
+ * best-effort — the rows go with the delete. */
+export async function deleteOpportunity(id: string): Promise<void> {
+  const opp = await getOpportunity(id);
+  const paths: string[] = [];
+  const { data: oppPhotos } = await supabase.from("opportunity_photos").select("storage_path").eq("opportunity_id", id);
+  paths.push(...(oppPhotos ?? []).map((r) => r.storage_path));
+  if (opp.project_id) {
+    const { data: projectPhotos } = await supabase.from("project_images").select("storage_path").eq("project_id", opp.project_id);
+    paths.push(...(projectPhotos ?? []).map((r) => r.storage_path));
+  }
+  const { error } = await supabase.rpc("delete_opportunity", { p_opportunity_id: id });
+  if (error) throw missing0155(error.code) ? new Error(NEEDS_0155) : error;
+  if (paths.length > 0) await supabase.storage.from(IMAGES_BUCKET).remove(paths).catch(() => undefined);
+}
+
+export async function archiveOpportunity(id: string): Promise<void> {
+  const opp = await getOpportunity(id);
+  const { error } = await supabase.from("opportunities").update({ archived_at: new Date().toISOString() }).eq("id", id);
+  if (error) throw missing0155(error.code) ? new Error(NEEDS_0155) : error;
+  await logActivity(opp.client_id, "opportunity_archived", `Archived opportunity "${opp.title}"`, { opportunity_id: id }).catch(() => undefined);
+}
+
+export async function restoreOpportunity(id: string): Promise<void> {
+  const opp = await getOpportunity(id);
+  const { error } = await supabase.from("opportunities").update({ archived_at: null }).eq("id", id);
+  if (error) throw missing0155(error.code) ? new Error(NEEDS_0155) : error;
+  await logActivity(opp.client_id, "opportunity_restored", `Restored opportunity "${opp.title}"`, { opportunity_id: id }).catch(() => undefined);
+}
+
+/** Latest activity per opportunity (the Opportunities list's "Last activity"). */
+export async function listOpportunityLastActivity(): Promise<Map<string, string>> {
+  const { data, error } = await supabase
+    .from("activities")
+    .select("opportunity_id, created_at")
+    .not("opportunity_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  const latest = new Map<string, string>();
+  if (error) return latest;
+  for (const r of data ?? []) if (!latest.has(r.opportunity_id)) latest.set(r.opportunity_id, r.created_at);
+  return latest;
 }
 
 /** Reverse lookup for CRM Phase 5 (Quote/Proposal Integration) — lets a
@@ -6009,11 +6154,6 @@ export async function updateOpportunity(
       await updateProject(before.project_id, { address: patch.address ?? null });
     }
   }
-}
-
-export async function deleteOpportunity(id: string): Promise<void> {
-  const { error } = await supabase.from("opportunities").delete().eq("id", id);
-  if (error) throw error;
 }
 
 /**

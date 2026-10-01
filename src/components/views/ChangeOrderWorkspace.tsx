@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -227,6 +228,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     edit((d) => ({ ...d, sections: fn(d.sections) }));
   const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftLineItem, CoDraftSection>(setSections);
   const { isCollapsed, toggle: toggleCollapse, expand: expandSection, collapseAll, expandAll } = useSectionCollapse();
+  // Just the line items (header + toolbar stay) — its own remembered state.
+  const itemsCollapse = useSectionCollapse({ storageKey: "chq_items_collapse_v1", defaultCollapsed: () => false });
   const [isDraggingItem, setIsDraggingItem] = useState(false);
 
   const discard = () => {
@@ -365,6 +368,9 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     : null;
 
   const isDirty = dirty.current;
+  // "3 unsaved changes" + the accent edge on edited sections.
+  const savedDraft = useMemo(() => seed(changeOrder, serverCostChanges), [changeOrder, serverCostChanges]);
+  const changes = useMemo(() => (isDirty ? draftChanges(draft, savedDraft) : null), [isDirty, draft, savedDraft]);
   const locked = changeOrder.status === "approved" || changeOrder.status === "declined";
   const meta = changeOrderStatusMeta(changeOrder.status);
   const clientName = changeOrder.project?.client?.name ?? "No client";
@@ -787,7 +793,15 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           )}
 
           {draft.sections.length > 0 && (
-            <CollapseAllLinks onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))} onExpandAll={() => expandAll(draft.sections.map((s) => s.id))} />
+            <CollapseAllLinks
+              onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))}
+              onExpandAll={() => expandAll(draft.sections.map((s) => s.id))}
+              items={{
+                allCollapsed: draft.sections.length > 0 && draft.sections.every((s) => itemsCollapse.isCollapsed(s.id)),
+                onCollapseAll: () => itemsCollapse.collapseAll(draft.sections.map((s) => s.id)),
+                onExpandAll: () => itemsCollapse.expandAll(draft.sections.map((s) => s.id)),
+              }}
+            />
           )}
 
           {/* Once approved/declined, a change order is a permanent record —
@@ -810,7 +824,11 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                     {draft.sections.map((section, index) => (
                       <Draggable key={section.id} draggableId={section.id} index={index}>
                         {(dragProvided, dragSnapshot) => (
-                          <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                          <div
+                            ref={dragProvided.innerRef}
+                            {...dragProvided.draggableProps}
+                            className={cn("rounded-card", changes?.changedIds.has(section.id) && EDITED_CLASS)}
+                          >
                             <LineItemSectionCard
                               section={section}
                               subtotal={sectionSubtotal(section)}
@@ -828,6 +846,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                               onMoveDown={() => moveSection(index, 1)}
                               onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
                               collapsed={isCollapsed(section.id)}
+                            itemsCollapsed={itemsCollapse.isCollapsed(section.id)}
+                            onToggleItems={() => itemsCollapse.toggle(section.id)}
                               onToggleCollapse={() => toggleCollapse(section.id)}
                               isDraggingItem={isDraggingItem}
                               onAutoExpand={() => expandSection(section.id)}
@@ -1041,7 +1061,15 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         </div>
       </div>
 
-      <DraftSaveBar visible={isDirty} onDiscard={discard} onSave={() => saveMut.mutate()} saving={saveMut.isPending} />
+      <DraftSaveBar
+        visible={isDirty}
+        onDiscard={discard}
+        onSave={() => saveMut.mutate()}
+        saving={saveMut.isPending}
+        count={changes?.count}
+        // A sent / approved change order isn't auto-saved.
+        autoSave={changeOrder.status === "draft" ? { key: draft } : undefined}
+      />
 
       <ShareLinkDialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)} url={shareUrl ?? ""} kind="change order" />
       <ManualApprovalDialog

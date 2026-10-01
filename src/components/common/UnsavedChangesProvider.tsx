@@ -94,6 +94,13 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
 
   const open = blocker.state === "blocked";
 
+  // A "●" on the browser tab while anything on the page is unsaved.
+  const anyDirty = all().some((e) => e.dirty);
+  useEffect(() => {
+    const base = document.title.replace(/^● /, "");
+    document.title = anyDirty ? `● ${base}` : base;
+  }, [anyDirty, version]);
+
   return (
     <UnsavedChangesContext.Provider value={registry}>
       {children}
