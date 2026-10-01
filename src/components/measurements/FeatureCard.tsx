@@ -1,6 +1,14 @@
 import { useId } from "react";
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react";
+import type { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { CollapsibleBody } from "@/components/common/CollapsibleBody";
+import { ReorderControls } from "@/components/common/ReorderControls";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -21,6 +29,15 @@ import {
 import { cn } from "@/lib/utils";
 import { AddLink, NumField, RemoveButton, TextField } from "./fields";
 import { FeatureEditor } from "./editors";
+
+/** Reordering a card among the Measurements cards (see ProjectMeasurementsCard). */
+export interface FeatureCardReorder {
+  dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+}
 
 /**
  * One Project type's card: its instances (each with an optional label and
@@ -45,6 +62,7 @@ export function FeatureCard({
   onRemoveCustom,
   collapsed,
   onToggleCollapse,
+  reorder,
 }: {
   group: MeasurementGroup;
   /** Never empty for a kind group — the parent supplies a blank one. */
@@ -61,6 +79,9 @@ export function FeatureCard({
   onRemoveCustom: (id: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** Drag handle + up/down (desktop) / a "⋯" menu (phones). Sits beside the
+   * header's toggle, never inside it, so moving a card never collapses it. */
+  reorder?: FeatureCardReorder;
 }) {
   const bodyId = useId();
   const kind = group.kind;
@@ -72,12 +93,13 @@ export function FeatureCard({
 
   return (
     <section className="rounded-card border border-border bg-card" aria-label={`${group.title} measurements`}>
+      <div className="flex items-center">
       <button
         type="button"
         onClick={onToggleCollapse}
         aria-expanded={!collapsed}
         aria-controls={bodyId}
-        className="flex min-h-14 w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-card px-4 py-3 text-left transition-colors hover:bg-muted/40"
+        className="flex min-h-14 min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-card px-4 py-3 text-left transition-colors hover:bg-muted/40"
       >
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", collapsed && "-rotate-90")} />
         <h4 className="shrink-0 text-[15px] font-bold text-foreground">{group.title}</h4>
@@ -102,6 +124,42 @@ export function FeatureCard({
           )
         )}
       </button>
+      {reorder && (
+        <>
+          <ReorderControls
+            dragHandleProps={reorder.dragHandleProps}
+            onMoveUp={reorder.onMoveUp}
+            onMoveDown={reorder.onMoveDown}
+            canMoveUp={reorder.canMoveUp}
+            canMoveDown={reorder.canMoveDown}
+            label={group.title}
+            className="mr-2 hidden md:flex"
+          />
+          {/* Phones: moving lives in the "⋯" menu (the grip above is hidden). */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${group.title} options`}
+                className="mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted md:hidden"
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem disabled={!reorder.canMoveUp} onSelect={reorder.onMoveUp}>
+                <ArrowUp className="mr-2 h-4 w-4" />
+                Move up
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!reorder.canMoveDown} onSelect={reorder.onMoveDown}>
+                <ArrowDown className="mr-2 h-4 w-4" />
+                Move down
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      )}
+      </div>
 
       <CollapsibleBody collapsed={collapsed} id={bodyId}>
         <div className="space-y-3 px-4 pb-4">

@@ -1,14 +1,13 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { Popover, PopoverContent } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { listCategories, type Category } from "@/lib/api";
-import { isCatchAllCategoryName } from "@/lib/features";
+import type { Category } from "@/lib/api";
+import { ProjectTypeList } from "@/components/common/ProjectTypeList";
+import { useProjectTypeOptions } from "@/hooks/use-project-type-options";
 
 const MAX_ROWS = 3;
 const CHIP =
@@ -39,8 +38,7 @@ export function FeatureTypeChips({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const { data: allCategories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  const options = allCategories.filter((c) => !isCatchAllCategoryName(c.name));
+  const { options } = useProjectTypeOptions();
   const byId = new Map(options.map((c) => [c.id, c]));
   const selected = value.map((id) => byId.get(id)).filter((c): c is Category => !!c);
 
@@ -75,21 +73,7 @@ export function FeatureTypeChips({
   const shown = expanded ? selected : selected.slice(0, fit);
   const hiddenCount = selected.length - shown.length;
 
-  const list = (
-    <Command>
-      <CommandList className={isMobile ? "max-h-[60vh]" : undefined}>
-        {options.length === 0 && <CommandEmpty>No categories yet — add some in Settings.</CommandEmpty>}
-        <CommandGroup>
-          {options.map((c) => (
-            <CommandItem key={c.id} value={c.name} onSelect={() => toggle(c.id)} className={isMobile ? "min-h-12 text-base" : undefined}>
-              <Check className={cn("mr-2 h-4 w-4", value.includes(c.id) ? "opacity-100" : "opacity-0")} />
-              {c.name}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </Command>
-  );
+  const list = <ProjectTypeList value={value} onToggle={toggle} large={isMobile} />;
 
   const row = (
     <div className={cn("flex items-start gap-2", className)}>
@@ -158,7 +142,7 @@ export function FeatureTypeChips({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Anchor asChild>{row}</PopoverPrimitive.Anchor>
-      <PopoverContent className="w-72 p-0" align="start">
+      <PopoverContent className="w-72 p-0" align="start" collisionPadding={8}>
         {list}
       </PopoverContent>
     </Popover>

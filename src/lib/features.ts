@@ -63,3 +63,52 @@ export function isCatchAllCategoryName(name: string): boolean {
   const n = name.toLowerCase().replace(/[^a-z]+/g, " ").trim();
   return /^(other|uncategori[sz]ed|general|misc|miscellaneous)( |$)/.test(n) || n === "other uncategorized";
 }
+
+/**
+ * Project types in the job's feature order (project_features.sort_order) —
+ * the order of the Measurements cards on the opportunity and project pages.
+ * A type with no live feature yet keeps its place in `categoryIds` (the
+ * order it was added), after the ordered ones.
+ */
+export function orderCategoryIdsByFeatures(categoryIds: string[], features: ProjectFeature[]): string[] {
+  const rank = new Map<string, number>();
+  for (const [i, f] of liveFeatures(features).entries()) {
+    if (f.category_id && !rank.has(f.category_id)) rank.set(f.category_id, i);
+  }
+  const ranked = categoryIds.filter((id) => rank.has(id)).sort((a, b) => rank.get(a)! - rank.get(b)!);
+  return [...ranked, ...categoryIds.filter((id) => !rank.has(id))];
+}
+
+/**
+ * The sort_order writes that put a job's features in `orderedCategoryIds`
+ * order (all of a type's features move together, keeping their own order).
+ * Live features not in the list follow, then removed ones — so a type that's
+ * unchecked and checked again comes back at the end. Only changed rows.
+ */
+export function featureSortUpdates(
+  features: ProjectFeature[],
+  orderedCategoryIds: string[],
+): { id: string; sort_order: number }[] {
+  const live = liveFeatures(features);
+  const pos = new Map(orderedCategoryIds.map((id, i) => [id, i]));
+  const inList = live
+    .filter((f) => f.category_id != null && pos.has(f.category_id))
+    .sort((a, b) => pos.get(a.category_id!)! - pos.get(b.category_id!)!);
+  const rest = live.filter((f) => !inList.includes(f));
+  const removed = features
+    .filter((f) => f.status === "removed")
+    .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
+  return [...inList, ...rest, ...removed]
+    .map((f, i) => ({ id: f.id, sort_order: i, before: f.sort_order }))
+    .filter((u) => u.sort_order !== u.before)
+    .map(({ id, sort_order }) => ({ id, sort_order }));
+}
+
+/** `ids` with the item at `from` moved to `to`. */
+export function moveId(ids: string[], from: number, to: number): string[] {
+  if (from === to || from < 0 || to < 0 || from >= ids.length || to >= ids.length) return ids;
+  const next = [...ids];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
