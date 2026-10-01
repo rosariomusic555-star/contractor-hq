@@ -5,7 +5,6 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SmartSectionTemplateEditorDialog } from "@/components/materials/SmartSectionTemplateEditorDialog";
 import { SMART_SECTION_TEMPLATES } from "@/lib/smartSections";
 import { BackLink } from "@/components/common/BackLink";
-import { ProjectTypesPanel } from "@/components/materials/ProjectTypesPanel";
 
 /**
  * The discoverable home for managing Smart Section templates, outside the
@@ -30,8 +29,13 @@ export function SettingsSmartSectionsView() {
         </h1>
       </div>
 
-      {/* Project types — the same per-contractor list the opportunity dropdown uses. */}
-      <ProjectTypesPanel />
+      <p className="text-sm text-muted-foreground">
+        Add, rename or reorder project types in{" "}
+        <Link to="/settings/project-types" className="font-semibold text-primary hover:underline">
+          Settings › Project types
+        </Link>
+        .
+      </p>
 
       <div className="overflow-hidden rounded-card border-2 border-primary shadow-card">
         <div className="flex items-center gap-3 bg-sidebar px-5 py-4">

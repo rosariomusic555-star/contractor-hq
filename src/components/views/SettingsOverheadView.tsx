@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { draftChanges } from "@/lib/draftChanges";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -248,7 +249,14 @@ export function SettingsOverheadView() {
         </div>
       </section>
 
-      <DraftSaveBar visible={isDirty} onDiscard={discard} onSave={() => saveMut.mutate()} saving={saveMut.isPending} />
+      <DraftSaveBar
+        visible={isDirty}
+        onDiscard={discard}
+        onSave={() => saveMut.mutate()}
+        saving={saveMut.isPending}
+        count={isDirty ? draftChanges(draft, seed()).count : 0}
+        autoSave={{ key: draft }}
+      />
     </div>
   );
 }

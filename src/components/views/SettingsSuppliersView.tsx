@@ -26,7 +26,7 @@ const FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-s
 /**
  * Real, persisted CRUD list (suppliers table, 0062) — feeds the Supplier
  * combobox on Material orders (src/components/common/SupplierCombobox.tsx).
- * Saves each action immediately, same as SettingsCategoriesView — not the
+ * Saves each action immediately, same as the Project types editor — not the
  * draft+Save pattern. Deleting a supplier here never touches existing
  * delivery records: material_orders.supplier is plain denormalized text,
  * not a foreign key into this table.

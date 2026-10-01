@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { draftChanges } from "@/lib/draftChanges";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Briefcase, Check, Copy, ExternalLink, FileText, Plus, Share2, Trash2 } from "lucide-react";
@@ -710,7 +711,15 @@ export function InvoiceWorkspace({ invoice, projectId, backHref, backLabel }: In
         </div>
       </div>
 
-      <DraftSaveBar visible={isDirty} onDiscard={discard} onSave={() => saveMut.mutate()} saving={saveMut.isPending} />
+      <DraftSaveBar
+        visible={isDirty}
+        onDiscard={discard}
+        onSave={() => saveMut.mutate()}
+        saving={saveMut.isPending}
+        count={isDirty ? draftChanges(draft, seedDraft()).count : 0}
+        // A sent invoice snapshots a client-visible version on every save — drafts only.
+        autoSave={invoice.status === "draft" ? { key: draft } : undefined}
+      />
 
       <ShareLinkDialog open={!!shareUrl} onOpenChange={(open) => !open && setShareUrl(null)} url={shareUrl ?? ""} kind="invoice" />
 

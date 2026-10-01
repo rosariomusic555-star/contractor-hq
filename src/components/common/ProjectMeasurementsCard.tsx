@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EDITED_CLASS } from "@/lib/draftChanges";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { ChevronDown } from "lucide-react";
@@ -482,8 +483,38 @@ export function ProjectMeasurementsCard({
     .filter(Boolean)
     .join(" · ");
 
+  // Which cards have unsaved edits — the save bar's count and the accent edge.
+  const changedGroups = useMemo(() => {
+    const keys = new Set<string>();
+    if (!isDirty) return keys;
+    const savedInst = new Map(
+      serverInstances
+        .filter((i) => featureKindOf(i.build_type))
+        .map((i) => [i.id, { ...i, data: normalizeData(featureKindOf(i.build_type)!, i.data) }]),
+    );
+    const savedCustom = new Map(serverCustom.map((r) => [r.id, r]));
+    // Row ids inside the data (runs, zones…) are internal and a blank row
+    // gets a fresh one on every read — compare without them.
+    const noIds = (_k: string, v: unknown) => (_k === "id" ? undefined : v);
+    const changed = (a: unknown, b: unknown) => JSON.stringify(a, noIds) !== JSON.stringify(b, noIds);
+    for (const i of instances) {
+      const b = savedInst.get(i.id);
+      if (!b || changed(i.data, b.data) || (i.label ?? "") !== (b.label ?? "")) keys.add(groupKeyOf(i));
+    }
+    for (const id of savedInst.keys()) if (!instances.some((i) => i.id === id)) keys.add(groupKeyOf(savedInst.get(id)!));
+    for (const r of custom) {
+      const b = savedCustom.get(r.id);
+      if (!b || changed({ ...r, project_id: null }, { ...b, project_id: null })) keys.add(groupKeyOf(r));
+    }
+    for (const r of serverCustom) if (!custom.some((c) => c.id === r.id)) keys.add(groupKeyOf(r));
+    return keys;
+  }, [isDirty, instances, custom, serverInstances, serverCustom]);
+
   const renderGroup = (g: MeasurementGroup, dragging: boolean, reorder: FeatureCardReorder | undefined) => (
-    <div id={`measure-group-${g.key}`} className={cn("scroll-mt-4 rounded-card transition-shadow", dragging && "shadow-lg")}>
+    <div
+      id={`measure-group-${g.key}`}
+      className={cn("scroll-mt-4 rounded-card transition-shadow", dragging && "shadow-lg", changedGroups.has(g.key) && EDITED_CLASS)}
+    >
       <FeatureCard
         collapsed={collapse.isCollapsed(featureId(g))}
         onToggleCollapse={() => collapse.toggle(featureId(g))}
@@ -575,6 +606,8 @@ export function ProjectMeasurementsCard({
         onSave={() => saveMut.mutate()}
         saving={saveMut.isPending}
         label="Unsaved measurements"
+        count={changedGroups.size}
+        autoSave={{ key: [instances, custom] }}
       />
     </section>
   );

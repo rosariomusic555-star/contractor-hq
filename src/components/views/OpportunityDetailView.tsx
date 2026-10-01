@@ -17,7 +17,19 @@ import {
   Link2,
   Calculator,
   Phone,
+  Archive,
+  ArchiveRestore,
+  MoreHorizontal,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { DeleteOpportunitiesDialog } from "@/components/opportunities/DeleteOpportunitiesDialog";
+import { PossibleSubsSection } from "@/components/opportunities/PossibleSubsSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -72,6 +84,8 @@ import {
   listAppointmentsForOpportunity,
   opportunityCategoryIds,
   setOpportunityCategories,
+  archiveOpportunity,
+  restoreOpportunity,
   setProjectFeatureTypes,
   type Opportunity,
   type OpportunityStage,
@@ -151,6 +165,17 @@ export function OpportunityDetailView() {
       return !!kind && instanceHasData(kind, normalizeData(kind, i.data), i.label);
     }) || customMeasurements.some((r) => r.value != null || !!r.value_text?.trim());
   const [measurementsFocus, setMeasurementsFocus] = useState(0);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const archiveMut = useMutation({
+    mutationFn: (restore: boolean) => (restore ? restoreOpportunity(id) : archiveOpportunity(id)),
+    onSuccess: (_d, restore) => {
+      qc.invalidateQueries({ queryKey: ["opportunity", id] });
+      qc.invalidateQueries({ queryKey: ["opportunities"] });
+      qc.invalidateQueries({ queryKey: ["opportunities-archived"] });
+      toast({ title: restore ? "Opportunity restored" : "Opportunity archived", description: restore ? undefined : "Hidden from the pipeline — restore it from Opportunities › Archived." });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
 
   const { data: appointments = [] } = useQuery({
     queryKey: ["opportunity-appointments", id],
@@ -380,6 +405,8 @@ export function OpportunityDetailView() {
   if (isError || !opportunity)
     return <p className="text-destructive">Failed to load opportunity: {(error as Error)?.message}</p>;
 
+  const archived = !!opportunity.archived_at;
+
   const meta = opportunityStageMeta(opportunity.stage);
   const categoryIds = opportunityCategoryIds(opportunity);
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
@@ -428,6 +455,7 @@ export function OpportunityDetailView() {
             </button>
           )}
         </div>
+        <div className="flex items-center gap-2">
         <Select
           value={opportunity.stage}
           onValueChange={(v) => moveStageMut.mutate(v as OpportunityStage)}
@@ -443,7 +471,46 @@ export function OpportunityDetailView() {
             ))}
           </SelectContent>
         </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="icon" aria-label="Opportunity actions" className="h-10 w-10 shrink-0">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onSelect={() => archiveMut.mutate(archived)} disabled={archiveMut.isPending}>
+              {archived ? <ArchiveRestore className="mr-2 h-4 w-4" /> : <Archive className="mr-2 h-4 w-4" />}
+              {archived ? "Restore" : "Archive"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setDeleteOpen(true)} className="text-destructive focus:text-destructive">
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete opportunity
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        </div>
       </div>
+
+      {archived && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-border bg-muted px-4 py-3 text-sm">
+          <span className="flex items-center gap-2 font-semibold text-foreground">
+            <Archive className="h-4 w-4 text-muted-foreground" /> Archived — hidden from the pipeline and lists.
+          </span>
+          <Button size="sm" variant="outline" onClick={() => archiveMut.mutate(true)} disabled={archiveMut.isPending}>
+            <ArchiveRestore className="mr-2 h-4 w-4" /> Restore
+          </Button>
+        </div>
+      )}
+
+      <DeleteOpportunitiesDialog
+        opportunities={[opportunity]}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onDone={({ deleted }) => {
+          if (deleted.length) navigate("/opportunities");
+        }}
+      />
 
       {opportunity.stage !== "lost" && (
         <StageBanner
@@ -535,6 +602,11 @@ export function OpportunityDetailView() {
                 className="py-2 text-sm leading-relaxed"
               />
             </div>
+            <PossibleSubsSection
+              opportunity={opportunity}
+              jobTypes={categoryIds.map((cid) => ({ id: cid, name: categoryNameById.get(cid) ?? "" })).filter((c) => c.name)}
+              labelClassName={FIELD_LABEL}
+            />
             {/* Structured job context (0114) — same fields as the project
                 page, stored on the linked project. */}
             {project && (

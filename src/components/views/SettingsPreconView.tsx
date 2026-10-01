@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
+import { ReorderControls } from "@/components/common/ReorderControls";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -51,16 +54,29 @@ export function SettingsPreconView() {
     onError,
   });
 
-  const active = items.filter((i) => i.active).sort((a, b) => a.sort_order - b.sort_order);
+  const savedActive = items.filter((i) => i.active).sort((a, b) => a.sort_order - b.sort_order);
+  // Optimistic order while a drag / arrow move saves.
+  const [order, setOrder] = useState<string[] | null>(null);
+  useEffect(() => setOrder(null), [items]);
+  const active = order ? order.map((id) => savedActive.find((x) => x.id === id)).filter((x): x is PreconTemplateItem => !!x) : savedActive;
   const inactive = items.filter((i) => !i.active);
-  const move = async (i: number, dir: -1 | 1) => {
-    const a = active[i];
-    const b = active[i + dir];
-    if (!a || !b) return;
-    await savePreconTemplateItem({ id: a.id, label: a.label, sort_order: b.sort_order });
-    await savePreconTemplateItem({ id: b.id, label: b.label, sort_order: a.sort_order });
+  const moveTo = async (from: number, to: number) => {
+    if (to < 0 || to >= active.length || from === to) return;
+    const next = [...active];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setOrder(next.map((x) => x.id));
+    try {
+      // Renumber 10, 20, 30… — only the rows that moved are written.
+      await Promise.all(
+        next.map((it, i) => ((i + 1) * 10 === it.sort_order ? null : savePreconTemplateItem({ id: it.id, label: it.label, sort_order: (i + 1) * 10 }))),
+      );
+    } catch (e) {
+      onError(e as Error);
+    }
     refresh();
   };
+  const onDragEnd = (r: DropResult) => r.destination && void moveTo(r.source.index, r.destination.index);
   const valid = !!draft && [draft.warn_days, draft.locate_wait_days, draft.locate_valid_days].every((v) => Number.isInteger(v) && v >= 0) && draft.warn_days >= 1 && draft.locate_valid_days >= 1;
 
   return (
@@ -80,19 +96,38 @@ export function SettingsPreconView() {
           Changes here apply to new jobs — a job that already has its checklist keeps its own list (edit it from the job's
           Pre-construction card).
         </p>
-        <ul className="mt-3 divide-y divide-hairline">
-          {active.map((it, i) => (
-            <TemplateRow
-              key={it.id}
-              item={it}
-              first={i === 0}
-              last={i === active.length - 1}
-              onMove={(d) => void move(i, d)}
-              onSave={(patch) => saveItem.mutate({ id: it.id, label: patch.label ?? it.label, ...patch })}
-              onRemove={() => removeItem.mutate(it)}
-            />
-          ))}
-        </ul>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="precon-template">
+            {(drop) => (
+              <ul ref={drop.innerRef} {...drop.droppableProps} className="mt-3 divide-y divide-hairline">
+                {active.map((it, i) => (
+                  <Draggable key={it.id} draggableId={it.id} index={i}>
+                    {(drag, snap) => (
+                      <li ref={drag.innerRef} {...drag.draggableProps} className={cn("bg-card", snap.isDragging && "rounded-lg shadow-lg")}>
+                        <TemplateRow
+                          item={it}
+                          reorder={
+                            <ReorderControls
+                              dragHandleProps={drag.dragHandleProps}
+                              onMoveUp={() => void moveTo(i, i - 1)}
+                              onMoveDown={() => void moveTo(i, i + 1)}
+                              canMoveUp={i > 0}
+                              canMoveDown={i < active.length - 1}
+                              label={it.label}
+                            />
+                          }
+                          onSave={(patch) => saveItem.mutate({ id: it.id, label: patch.label ?? it.label, ...patch })}
+                          onRemove={() => removeItem.mutate(it)}
+                        />
+                      </li>
+                    )}
+                  </Draggable>
+                ))}
+                {drop.placeholder}
+              </ul>
+            )}
+          </Droppable>
+        </DragDropContext>
         <div className="mt-3 flex gap-2">
           <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Add an item, e.g. Dumpster ordered" className="h-10" />
           <Button
@@ -163,31 +198,20 @@ function NumberField({ label, value, onChange, hint }: { label: string; value: n
 
 function TemplateRow({
   item,
-  first,
-  last,
-  onMove,
+  reorder,
   onSave,
   onRemove,
 }: {
   item: PreconTemplateItem;
-  first: boolean;
-  last: boolean;
-  onMove: (d: -1 | 1) => void;
+  /** Drag handle + up/down — far right, before delete (same as the builders). */
+  reorder: ReactNode;
   onSave: (patch: Partial<PreconTemplateItem>) => void;
   onRemove: () => void;
 }) {
   const [label, setLabel] = useState(item.label);
   useEffect(() => setLabel(item.label), [item.label]);
   return (
-    <li className="flex flex-wrap items-center gap-2 py-2.5">
-      <div className="flex flex-col">
-        <button type="button" disabled={first} onClick={() => onMove(-1)} className="text-muted-foreground disabled:opacity-30" aria-label="Move up">
-          <ArrowUp className="h-3.5 w-3.5" />
-        </button>
-        <button type="button" disabled={last} onClick={() => onMove(1)} className="text-muted-foreground disabled:opacity-30" aria-label="Move down">
-          <ArrowDown className="h-3.5 w-3.5" />
-        </button>
-      </div>
+    <div className="flex flex-wrap items-center gap-2 py-2.5">
       <Input
         value={label}
         onChange={(e) => setLabel(e.target.value)}
@@ -199,9 +223,10 @@ function TemplateRow({
         <Switch checked={item.required} onCheckedChange={(v) => onSave({ required: v })} />
         Required
       </label>
+      {reorder}
       <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive" aria-label={`Remove ${item.label}`}>
         <Trash2 className="h-4 w-4" />
       </button>
-    </li>
+    </div>
   );
 }

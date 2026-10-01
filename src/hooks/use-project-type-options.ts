@@ -12,5 +12,5 @@ import { isCatchAllCategoryName } from "@/lib/features";
  */
 export function useProjectTypeOptions() {
   const { data: categories = [], ...rest } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  return { options: categories.filter((c) => !isCatchAllCategoryName(c.name)), ...rest };
+  return { options: categories.filter((c) => !isCatchAllCategoryName(c.name)), all: categories, ...rest };
 }

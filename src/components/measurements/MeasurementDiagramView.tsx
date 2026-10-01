@@ -6,6 +6,7 @@ import {
   normalizeData,
   totalsHeadline,
   type FeatureDataByKind,
+  pergolaSummary,
 } from "@/lib/measurements";
 import { CircleDiagram, LShapeDiagram, PathUDiagram, RectDiagram, RunDiagram, UShapeDiagram } from "./diagrams";
 
@@ -19,7 +20,10 @@ export function MeasurementDiagramView({ buildType, data, idPrefix }: { buildTyp
   const kind = featureKindOf(buildType);
   if (!kind) return null;
   const d = normalizeData(kind, data);
-  const headline = totalsHeadline(kind, computeTotals(kind, d));
+  const headline =
+    kind === "pergola"
+      ? pergolaSummary(d as FeatureDataByKind["pergola"]) ?? totalsHeadline(kind, computeTotals(kind, d))
+      : totalsHeadline(kind, computeTotals(kind, d));
   let diagram: JSX.Element | null = null;
 
   if (kind === "patio" || kind === "flatwork") {
@@ -43,6 +47,9 @@ export function MeasurementDiagramView({ buildType, data, idPrefix }: { buildTyp
   } else if (kind === "fireplace") {
     const f = d as FeatureDataByKind["fireplace"];
     diagram = <RectDiagram length={f.width_ft} width={f.depth_ft} idPrefix={idPrefix} />;
+  } else if (kind === "pergola") {
+    const p = d as FeatureDataByKind["pergola"];
+    diagram = <RectDiagram length={p.length_ft} width={p.width_ft} idPrefix={idPrefix} />;
   }
 
   if (!diagram && !headline) return null;

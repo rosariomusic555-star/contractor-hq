@@ -133,7 +133,13 @@ export const irrigationTemplate: SmartSectionTemplate = {
     { key: "backflow", defaultName: "Backflow Preventer" },
     { key: "fittings", defaultName: "Fittings & Swing Joints" },
   ],
-  questions: [{ key: "area", label: "Area covered", type: "area_or_dimensions" }],
+  // Zones / heads come straight from the Irrigation measurement card; area
+  // is the fallback estimate when they're blank.
+  questions: [
+    { key: "zones", label: "Zones", type: "number", unit: "zones" },
+    { key: "heads", label: "Heads / emitters", type: "number", unit: "ea" },
+    { key: "area", label: "Area covered (if zones/heads unknown)", type: "area_or_dimensions" },
+  ],
   tunables: [
     { key: "sqft_per_zone", label: "Sq ft per zone", unit: "sq ft", defaultValue: 1500, relatedSlotKey: "valves" }, // ASSUMPTION
     { key: "sqft_per_head", label: "Sq ft per head", unit: "sq ft", defaultValue: 200, relatedSlotKey: "heads" }, // ASSUMPTION
@@ -141,8 +147,8 @@ export const irrigationTemplate: SmartSectionTemplate = {
   ],
   calculate: (a) => {
     const area = areaOf(a.area);
-    const heads = area > 0 ? Math.ceil(area / (Number(a.sqft_per_head) || 200)) : 0;
-    const zones = area > 0 ? Math.ceil(area / (Number(a.sqft_per_zone) || 1500)) : 0;
+    const heads = Number(a.heads) > 0 ? Math.ceil(Number(a.heads)) : area > 0 ? Math.ceil(area / (Number(a.sqft_per_head) || 200)) : 0;
+    const zones = Number(a.zones) > 0 ? Math.ceil(Number(a.zones)) : area > 0 ? Math.ceil(area / (Number(a.sqft_per_zone) || 1500)) : 0;
     return [
       { slotKey: "heads", quantity: heads, unit: "ea" },
       { slotKey: "pipe", quantity: heads * (Number(a.pipe_ft_per_head) || 15), unit: "ft" },

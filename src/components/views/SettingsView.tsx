@@ -43,11 +43,11 @@ const GROUPS: readonly SettingsGroup[] = [
   {
     title: "Estimating & quotes",
     items: [
+      { label: "Project types", to: "/settings/project-types" },
       { label: "Quote defaults", to: "/settings/quote-defaults" },
       { label: "Quick Quote rates", to: "/settings/quick-quote-rates" },
       { label: "Smart Section templates", to: "/settings/smart-sections" },
       { label: "Selection templates", to: "/settings/selection-templates" },
-      { label: "Line item categories", to: "/settings/categories" },
       { label: "Estimating insights", to: "/settings/estimating-insights" },
     ],
   },

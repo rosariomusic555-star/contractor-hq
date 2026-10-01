@@ -14,6 +14,7 @@ import {
   Wallet,
   Clock,
   Activity,
+  Rows3,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/pipeline", label: "Pipeline", icon: Kanban },
+  { to: "/opportunities", label: "Opportunities", icon: Rows3 },
   { to: "/tasks", label: "Tasks", icon: ListChecks },
   { to: "/appointments", label: "Appointments", icon: CalendarClock },
   { to: "/communications", label: "Communications", icon: MessagesSquare },
@@ -53,7 +55,7 @@ const byTo = (to: string) => navItems.find((item) => item.to === to)!;
 export const navGroups: NavGroup[] = [
   { label: "Overview", items: ["/dashboard"].map(byTo) },
   { label: "Work", items: ["/projects", "/materials", "/quotes", "/invoices", "/expenses", "/timesheets"].map(byTo) },
-  { label: "Pipeline", items: ["/pipeline", "/tasks", "/appointments", "/communications"].map(byTo) },
+  { label: "Pipeline", items: ["/pipeline", "/opportunities", "/tasks", "/appointments", "/communications"].map(byTo) },
   { label: "Money", items: ["/revenue", "/business-health"].map(byTo) },
   { label: "Business", items: ["/clients", "/settings"].map(byTo) },
 ];

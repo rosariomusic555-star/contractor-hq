@@ -163,6 +163,7 @@ export function FeatureCard({
 
       <CollapsibleBody collapsed={collapsed} id={bodyId}>
         <div className="space-y-3 px-4 pb-4">
+          <p className="text-xs text-muted-foreground">Enter exact measurements. Waste and extra material are added in the Cost plan.</p>
           {kind &&
             instances.map((inst, i) => {
               const headline = totalsHeadline(kind, perInstance[i]);

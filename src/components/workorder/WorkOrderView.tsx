@@ -378,6 +378,23 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
           ))}
       </Section>
 
+      {/* Possible subcontracted work spotted at the site visit (0157) — info only. */}
+      {(wo.possible_subs?.length ?? 0) > 0 && (
+        <Section title="Possible subcontracted work">
+          <ul className="space-y-2">
+            {wo.possible_subs!.map((s, i) => (
+              <li key={i} className="rounded-xl bg-muted/60 px-3 py-2">
+                <p className="text-base font-bold text-foreground">
+                  {s.label}
+                  {s.type && <span className="font-semibold text-muted-foreground"> · {s.type}</span>}
+                </p>
+                {s.note && <p className="text-sm text-foreground/80">{s.note}</p>}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       {/* Client contact */}
       <Section title="Client">
         <p className="text-lg font-bold text-foreground">{wo.client.name ?? "—"}</p>

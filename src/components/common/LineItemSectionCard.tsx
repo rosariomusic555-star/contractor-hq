@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ItemsCollapseToggle, ItemsCollapsedSummary } from "@/components/common/ItemsCollapse";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import { Droppable, Draggable, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { Plus, Trash2 } from "lucide-react";
@@ -16,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { SectionCard } from "@/components/common/SectionCard";
 import { LineItemRow } from "@/components/common/LineItemRow";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import type { Category } from "@/lib/api";
 import type { DraftLineItem, DraftLineSection } from "@/lib/draftLineItem";
 
@@ -39,6 +40,9 @@ interface LineItemSectionCardProps {
   onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** Just the line items hidden behind "7 items · $4,200" (header + toolbar stay). */
+  itemsCollapsed?: boolean;
+  onToggleItems?: () => void;
   isDraggingItem?: boolean;
   onAutoExpand?: () => void;
   /** Row label passed through to each item (see LineItemRow). */
@@ -96,6 +100,8 @@ export function LineItemSectionCard({
   onMoveItem,
   collapsed,
   onToggleCollapse,
+  itemsCollapsed = false,
+  onToggleItems,
   isDraggingItem,
   onAutoExpand,
   priceLabel,
@@ -130,6 +136,7 @@ export function LineItemSectionCard({
       secondRow={
         <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {onToggleItems && <ItemsCollapseToggle collapsed={itemsCollapsed} onToggle={onToggleItems} count={items.length} />}
             {toolbarActions}
             {optionalSection && (
               <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -176,9 +183,17 @@ export function LineItemSectionCard({
       }
     >
       {beforeItems}
+      {itemsCollapsed && items.length > 0 && onToggleItems && (
+        <ItemsCollapsedSummary count={items.length} total={subtotal} onExpand={onToggleItems} />
+      )}
+      {/* Kept mounted while items are hidden — the order (and a sort) still applies on expand. */}
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
-          <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-3">
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={cn("flex flex-col gap-3", itemsCollapsed && items.length > 0 && "hidden")}
+          >
             {items.map((item, index) => (
               <Draggable key={item.id} draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
@@ -215,7 +230,11 @@ export function LineItemSectionCard({
       </Droppable>
       <button
         type="button"
-        onClick={onAddItem}
+        onClick={() => {
+          // Adding a line shows the items again so the new row is visible.
+          if (itemsCollapsed) onToggleItems?.();
+          onAddItem();
+        }}
         className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
       >
         <Plus className="h-4 w-4" />
