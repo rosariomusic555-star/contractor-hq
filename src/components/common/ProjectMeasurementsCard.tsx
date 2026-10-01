@@ -28,6 +28,8 @@ import {
   DEFAULT_FIRE_PIT_HEIGHT_IN,
   DEFAULT_KITCHEN_HEIGHT_IN,
   buildTypeForCategoryName,
+  customMeasurementPayload,
+  featureMeasurementPayload,
   FIRE_PIT_HEIGHT_TUNABLE,
   KITCHEN_HEIGHT_TUNABLE,
   GENERAL_GROUP,
@@ -297,14 +299,14 @@ export function ProjectMeasurementsCard({
           claimed.add(feature.id);
           inst.feature_id = feature.id;
         }
-        for (const removedId of deleteInstanceIds) {
-          const f = features.find((x) => x.id === serverInstById.get(removedId)?.feature_id);
-          const othersOfType = live.some((o) => o.id !== f?.id && o.category_id === f?.category_id);
-          if (f && f.status !== "removed" && othersOfType) await updateProjectFeature(f.id, { status: "removed" });
-        }
       }
 
-      const changedInstances = keepInstances.filter((i) => JSON.stringify(i) !== JSON.stringify(serverInstById.get(i.id)));
+      // Compare the writable columns only (a loaded row also has created_at…).
+      const same = <T,>(a: T | undefined, b: T | undefined, pick: (r: T) => unknown) =>
+        !!a && !!b && JSON.stringify(pick(a)) === JSON.stringify(pick(b));
+      const changedInstances = keepInstances.filter(
+        (i) => !same(i, serverInstById.get(i.id), (r) => featureMeasurementPayload(r, id)),
+      );
 
       // Custom rows: empty = neither a label nor a value.
       const keepCustom = custom
@@ -312,7 +314,7 @@ export function ProjectMeasurementsCard({
         .map((r) => ({ ...r, project_id: id, label: r.label?.trim() || null }));
       const serverCustomById = new Map(serverCustom.map((r) => [r.id, r]));
       const keepCustomIds = new Set(keepCustom.map((r) => r.id));
-      const changedCustom = keepCustom.filter((r) => JSON.stringify(r) !== JSON.stringify(serverCustomById.get(r.id)));
+      const changedCustom = keepCustom.filter((r) => !same(r, serverCustomById.get(r.id), (x) => customMeasurementPayload(x, id)));
       const deleteCustomIds = serverCustom.filter((r) => !keepCustomIds.has(r.id)).map((r) => r.id);
 
       const visibleKeys = new Set(typeGroups.map((g) => g.key));
@@ -321,6 +323,16 @@ export function ProjectMeasurementsCard({
         { instances: changedInstances, deleteInstanceIds, customRows: changedCustom, deleteCustomIds },
         totalSurfaceSqft(keepInstances, visibleKeys),
       );
+      // Only once the measurements are safely written: a removed extra
+      // instance removes its feature.
+      if (features.length > 0) {
+        const live = liveFeatures(features);
+        for (const removedId of deleteInstanceIds) {
+          const f = features.find((x) => x.id === serverInstById.get(removedId)?.feature_id);
+          const othersOfType = live.some((o) => o.id !== f?.id && o.category_id === f?.category_id);
+          if (f && f.status !== "removed" && othersOfType) await updateProjectFeature(f.id, { status: "removed" });
+        }
+      }
       if (featuresAdded) await ensureFeatureSections(id);
       return id;
     },

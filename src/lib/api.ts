@@ -2,7 +2,7 @@ import { depositAmount as depositAmountOf } from "./projectMoney";
 import { supabase } from "./supabase";
 import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
-import type { FeatureInstance, MeasurementRow } from "./measurements";
+import { customMeasurementPayload, featureMeasurementPayload, type FeatureInstance, type MeasurementRow } from "./measurements";
 import type { FeatureSectionSeed } from "./sectionFeatures";
 import type { CostBucket, LaborMode, LineCostType } from "./costPlanMath";
 import type { FeatureStatus, ProjectFeature } from "./features";
@@ -487,13 +487,26 @@ export async function saveInvoiceItems(
   items: { description: string; quantity: number; unit_price: number }[],
   fallbackAmount: number,
 ): Promise<void> {
-  const { error: delError } = await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
-  if (delError && delError.code !== "PGRST205") throw delError;
+  // New lines first, then remove the old ones — a failed insert leaves the
+  // invoice's existing lines untouched instead of deleting them.
+  const { data: old, error: listError } = await supabase.from("invoice_items").select("id").eq("invoice_id", invoiceId);
+  if (listError && listError.code !== "PGRST205") throw listError;
   if (items.length > 0) {
-    const { error } = await supabase
-      .from("invoice_items")
-      .insert(items.map((it, i) => ({ invoice_id: invoiceId, ...it, sort_order: i })));
+    const { error } = await supabase.from("invoice_items").insert(
+      items.map((it, i) => ({
+        invoice_id: invoiceId,
+        description: it.description,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        sort_order: i,
+      })),
+    );
     if (error) throw error;
+  }
+  const oldIds = (old ?? []).map((r) => r.id);
+  if (oldIds.length > 0) {
+    const { error: delError } = await supabase.from("invoice_items").delete().in("id", oldIds);
+    if (delError) throw delError;
   }
   const amount = items.length > 0 ? invoiceItemsTotal(items) : fallbackAmount;
   await updateInvoice(invoiceId, { amount: Math.round(amount * 100) / 100 });
@@ -2299,8 +2312,12 @@ async function insertSeededSection(
         sort_order: j,
         waste_percent: 0,
         tracked: item.cost_type === "material",
-        ...(item.cost_type !== "material" ? { cost_type: item.cost_type, unit: LUMP_SUM_UNIT } : {}),
+        // Every row carries every column: in a batch insert a key missing
+        // from some rows is sent as NULL for them (cost_type is NOT NULL).
+        cost_type: item.cost_type,
+        unit: item.cost_type !== "material" ? LUMP_SUM_UNIT : null,
       })),
+      { defaultToNull: false },
     );
     if (error) throw error;
   }
@@ -6688,24 +6705,27 @@ export async function saveProjectMeasurements(
   },
   sizeSqft: number | null,
 ): Promise<void> {
-  if (changes.deleteInstanceIds.length > 0) {
-    const { error } = await supabase.from("project_feature_measurements").delete().in("id", changes.deleteInstanceIds);
-    if (error) throw error;
-  }
+  // Whitelisted payloads (never a loaded row spread — see
+  // featureMeasurementPayload), and writes before deletes: if anything
+  // fails, nothing has been deleted yet.
   if (changes.instances.length > 0) {
     const { error } = await supabase
       .from("project_feature_measurements")
-      .upsert(changes.instances.map((r) => ({ ...r, project_id: projectId })));
-    if (error) throw error;
-  }
-  if (changes.deleteCustomIds.length > 0) {
-    const { error } = await supabase.from("project_measurements").delete().in("id", changes.deleteCustomIds);
+      .upsert(changes.instances.map((r) => featureMeasurementPayload(r, projectId)), { defaultToNull: false });
     if (error) throw error;
   }
   if (changes.customRows.length > 0) {
     const { error } = await supabase
       .from("project_measurements")
-      .upsert(changes.customRows.map((r) => ({ ...r, project_id: projectId })));
+      .upsert(changes.customRows.map((r) => customMeasurementPayload(r, projectId)), { defaultToNull: false });
+    if (error) throw error;
+  }
+  if (changes.deleteInstanceIds.length > 0) {
+    const { error } = await supabase.from("project_feature_measurements").delete().in("id", changes.deleteInstanceIds);
+    if (error) throw error;
+  }
+  if (changes.deleteCustomIds.length > 0) {
+    const { error } = await supabase.from("project_measurements").delete().in("id", changes.deleteCustomIds);
     if (error) throw error;
   }
   await updateProject(projectId, { size_sqft: sizeSqft });
