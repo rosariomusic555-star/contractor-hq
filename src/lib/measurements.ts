@@ -1115,3 +1115,40 @@ export function featureSummary(
   if (customCount) parts.push(`${customCount} custom`);
   return parts.length ? parts.join(" · ") : null;
 }
+
+// ---------------------------------------------------------------------------
+// Write payloads — an explicit whitelist of writable columns, never a spread
+// of a loaded row. A batch upsert sends the union of every row's keys, so a
+// loaded row's created_at would make supabase-js send created_at = NULL for
+// the new rows in the same batch (NOT NULL violation). Every column is always
+// present (null when empty): with defaultToNull:false a missing column would
+// fall back to its DEFAULT, and on an update that would overwrite real data.
+// ---------------------------------------------------------------------------
+
+export function featureMeasurementPayload(r: FeatureInstance, projectId: string) {
+  return {
+    id: r.id,
+    project_id: projectId,
+    build_type: r.build_type,
+    feature_id: r.feature_id ?? null,
+    label: r.label ?? null,
+    data: r.data ?? {},
+    totals: r.totals ?? {},
+    sort_order: r.sort_order ?? 0,
+  };
+}
+
+export function customMeasurementPayload(r: MeasurementRow, projectId: string) {
+  return {
+    id: r.id,
+    project_id: projectId,
+    build_type: r.build_type ?? null,
+    category_id: r.category_id ?? null,
+    field_key: r.field_key,
+    label: r.label ?? null,
+    value: r.value ?? null,
+    value_text: r.value_text ?? null,
+    unit: r.unit ?? null,
+    sort_order: r.sort_order ?? 0,
+  };
+}
