@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
@@ -8,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { CollapsibleBody } from "@/components/common/CollapsibleBody";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
-import { FeatureCard } from "@/components/measurements/FeatureCard";
+import { FeatureCard, type FeatureCardReorder } from "@/components/measurements/FeatureCard";
 import {
   createProjectFeature,
   ensureFeatureSections,
@@ -18,9 +19,10 @@ import {
   updateProjectFeature,
   listProjectMeasurements,
   listSmartSectionSettings,
+  reorderProjectFeatures,
   saveProjectMeasurements,
 } from "@/lib/api";
-import { liveFeatures } from "@/lib/features";
+import { featureSortUpdates, liveFeatures, moveId, orderCategoryIdsByFeatures } from "@/lib/features";
 import { findSmartSectionSettings, findSmartSectionTemplate, resolveTunableValue } from "@/lib/smartSections";
 import {
   DEFAULT_FIRE_PIT_HEIGHT_IN,
@@ -144,7 +146,23 @@ export function ProjectMeasurementsCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverInstances, serverCustom]);
 
-  const typeGroups = useMemo(() => measurementGroupsFor(categoryIds, categories), [categoryIds, categories]);
+  // Card order = the job's feature order (project_features.sort_order), the
+  // same order the Cost plan / quote sections are seeded in. A reorder shows
+  // at once (pendingOrder) and is saved straight away — it's not measurement
+  // data, so it doesn't wait for the draft's Save.
+  const { data: features = [] } = useQuery({
+    queryKey: ["project-features", projectId],
+    queryFn: () => listProjectFeatures(projectId!),
+    enabled: !!projectId,
+  });
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
+  const orderedCategoryIds = useMemo(() => {
+    const stored = orderCategoryIdsByFeatures(categoryIds, features);
+    if (!pendingOrder) return stored;
+    // Types added or removed since the move keep their stored place.
+    return [...pendingOrder.filter((id) => categoryIds.includes(id)), ...stored.filter((id) => !pendingOrder.includes(id))];
+  }, [categoryIds, features, pendingOrder]);
+  const typeGroups = useMemo(() => measurementGroupsFor(orderedCategoryIds, categories), [orderedCategoryIds, categories]);
   const hasGeneralRows = custom.some((r) => groupKeyOf(r) === GENERAL_GROUP_KEY);
   const groups: MeasurementGroup[] =
     hasGeneralRows || typeGroups.length === 0 ? [...typeGroups, GENERAL_GROUP] : typeGroups;
@@ -322,6 +340,46 @@ export function ProjectMeasurementsCard({
       toast({ title: "Couldn't save measurements", description: err.message, variant: "destructive" }),
   });
 
+  const reorderMut = useMutation({
+    mutationFn: async (order: string[]) => {
+      // The opportunity page before its project exists: create it (same as
+      // the first save) so the order has somewhere to live.
+      const id = projectId ?? (await ensureProjectId?.());
+      if (!id) return null;
+      await reorderProjectFeatures(featureSortUpdates(await listProjectFeatures(id), order));
+      return id;
+    },
+    onSuccess: (id) => {
+      if (!id) return;
+      qc.invalidateQueries({ queryKey: ["project-features", id] });
+      if (!projectId) onSaved?.();
+    },
+    onError: (err: Error) => {
+      setPendingOrder(null);
+      toast({ title: "Couldn't save the new order", description: err.message, variant: "destructive" });
+    },
+  });
+  // Drop the optimistic order once the saved one matches it.
+  useEffect(() => {
+    if (pendingOrder && !reorderMut.isPending && orderCategoryIdsByFeatures(categoryIds, features).join() === orderedCategoryIds.join()) {
+      setPendingOrder(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [features, reorderMut.isPending]);
+
+  /** Moves a type's card (and all of that type's features) from one place to another. */
+  const moveGroup = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= typeGroups.length) return;
+    const keys = moveId(typeGroups.map((g) => g.key), from, to);
+    const groupOf = (cid: string) => measurementGroupsFor([cid], categories)[0]?.key;
+    const order = keys.flatMap((k) => orderedCategoryIds.filter((cid) => groupOf(cid) === k));
+    setPendingOrder(order);
+    reorderMut.mutate(order);
+  };
+  const onDragEnd = (r: DropResult) => {
+    if (r.destination) moveGroup(r.source.index, r.destination.index);
+  };
+
   // --- Collapse state (pure UI, localStorage, per signed-in user) ---------
   // The whole card is "card"; each feature is scoped to this project so two
   // jobs' patios don't share a state.
@@ -412,6 +470,26 @@ export function ProjectMeasurementsCard({
     .filter(Boolean)
     .join(" · ");
 
+  const renderGroup = (g: MeasurementGroup, dragging: boolean, reorder: FeatureCardReorder | undefined) => (
+    <div id={`measure-group-${g.key}`} className={cn("scroll-mt-4 rounded-card transition-shadow", dragging && "shadow-lg")}>
+      <FeatureCard
+        collapsed={collapse.isCollapsed(featureId(g))}
+        onToggleCollapse={() => collapse.toggle(featureId(g))}
+        group={g}
+        instances={instancesOf(g)}
+        customRows={custom.filter((r) => groupKeyOf(r) === g.key)}
+        defaults={defaults}
+        onInstanceChange={(id, patch) => updateInstance(g, id, patch)}
+        onAddInstance={() => addInstance(g)}
+        onRemoveInstance={(id) => removeInstance(g, id)}
+        onCustomChange={updateCustom}
+        onAddCustom={(patch) => addCustom(g, patch)}
+        onRemoveCustom={removeCustom}
+        reorder={typeGroups.length > 1 ? reorder : undefined}
+      />
+    </div>
+  );
+
   return (
     <section ref={sectionRef} className="card-surface scroll-mt-4 p-4 sm:p-5">
       <button
@@ -443,26 +521,36 @@ export function ProjectMeasurementsCard({
           </div>
         )}
 
-        <div className="mt-3 space-y-3">
-          {groups.map((g) => (
-            <div key={g.key} id={`measure-group-${g.key}`} className="scroll-mt-4 rounded-card transition-shadow">
-              <FeatureCard
-                collapsed={collapse.isCollapsed(featureId(g))}
-                onToggleCollapse={() => collapse.toggle(featureId(g))}
-                group={g}
-                instances={instancesOf(g)}
-                customRows={custom.filter((r) => groupKeyOf(r) === g.key)}
-                defaults={defaults}
-                onInstanceChange={(id, patch) => updateInstance(g, id, patch)}
-                onAddInstance={() => addInstance(g)}
-                onRemoveInstance={(id) => removeInstance(g, id)}
-                onCustomChange={updateCustom}
-                onAddCustom={(patch) => addCustom(g, patch)}
-                onRemoveCustom={removeCustom}
-              />
-            </div>
-          ))}
-        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="measurement-cards" type="measurement-card">
+            {(drop) => (
+              <div ref={drop.innerRef} {...drop.droppableProps} className="mt-3">
+                {typeGroups.map((g, index) => (
+                  <Draggable key={g.key} draggableId={g.key} index={index} isDragDisabled={typeGroups.length < 2}>
+                    {(drag, snapshot) => (
+                      <div ref={drag.innerRef} {...drag.draggableProps} className="pb-3">
+                        {renderGroup(g, snapshot.isDragging, {
+                          dragHandleProps: drag.dragHandleProps,
+                          onMoveUp: () => moveGroup(index, index - 1),
+                          onMoveDown: () => moveGroup(index, index + 1),
+                          canMoveUp: index > 0,
+                          canMoveDown: index < typeGroups.length - 1,
+                        })}
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {drop.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+        {/* General isn't a project type — it stays last and doesn't move. */}
+        {groups.slice(typeGroups.length).map((g) => (
+          <div key={g.key} className="pb-3">
+            {renderGroup(g, false, undefined)}
+          </div>
+        ))}
 
         <p className="mt-3 text-[11px] text-muted-subtle">
           Patio, walkway and driveway sq ft add up to the job size used by the Labor log (hours/100sf, cost/sf).

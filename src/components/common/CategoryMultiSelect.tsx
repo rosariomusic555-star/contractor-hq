@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { ChevronsUpDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { listCategories, type Category } from "@/lib/api";
+import type { Category } from "@/lib/api";
+import { ProjectTypeList } from "@/components/common/ProjectTypeList";
+import { useProjectTypeOptions } from "@/hooks/use-project-type-options";
 
 interface CategoryMultiSelectProps {
   value: string[];
@@ -21,12 +21,13 @@ interface CategoryMultiSelectProps {
  * kitchen + Fire pit + Steps), so this is a checkbox list in a popover, not
  * a single <Select>. The trigger itself renders the current selection as
  * chips — clicking an item toggles it without closing the popover, so
- * picking several is one continuous interaction.
+ * picking several is one continuous interaction. The list itself is the
+ * shared ProjectTypeList (same types, order and search as FeatureTypeChips).
  */
 export function CategoryMultiSelect({ value, onChange, placeholder, className }: CategoryMultiSelectProps) {
   const [open, setOpen] = useState(false);
-  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
-  const byId = new Map(categories.map((c) => [c.id, c]));
+  const { options } = useProjectTypeOptions();
+  const byId = new Map(options.map((c) => [c.id, c]));
   const selected = value.map((id) => byId.get(id)).filter((c): c is Category => !!c);
 
   const toggle = (id: string) => {
@@ -34,7 +35,9 @@ export function CategoryMultiSelect({ value, onChange, placeholder, className }:
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // modal: its own focus scope, so a surrounding Dialog (the New
+    // Opportunity modal) doesn't pull focus out of the search box.
+    <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -57,20 +60,8 @@ export function CategoryMultiSelect({ value, onChange, placeholder, className }:
           <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <Command>
-          <CommandList>
-            {categories.length === 0 && <CommandEmpty>No categories yet — add some in Settings.</CommandEmpty>}
-            <CommandGroup>
-              {categories.map((c) => (
-                <CommandItem key={c.id} value={c.name} onSelect={() => toggle(c.id)}>
-                  <Check className={cn("mr-2 h-4 w-4", value.includes(c.id) ? "opacity-100" : "opacity-0")} />
-                  {c.name}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start" collisionPadding={8}>
+        <ProjectTypeList value={value} onToggle={toggle} />
       </PopoverContent>
     </Popover>
   );

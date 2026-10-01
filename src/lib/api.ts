@@ -2475,6 +2475,12 @@ export async function updateProjectFeature(
   if (error) throw error;
 }
 
+/** Writes a new feature order (featureSortUpdates' output) — the
+ * Measurements cards' drag / up-down reorder. */
+export async function reorderProjectFeatures(updates: { id: string; sort_order: number }[]): Promise<void> {
+  await Promise.all(updates.map((u) => updateProjectFeature(u.id, { sort_order: u.sort_order })));
+}
+
 /** Crew "Post update" milestones (0138): the contractor's presets + this
  * job's own lists, keyed by feature id. Empty before 0138. */
 export async function getCrewMilestones(projectId: string): Promise<{ presets: Record<string, string[]>; features: Record<string, string[]> }> {
