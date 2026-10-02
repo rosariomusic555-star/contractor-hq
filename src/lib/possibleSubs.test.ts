@@ -5,7 +5,6 @@ import {
   placeSubSuggestions,
   sectionForCategory,
   suggestedCategoryFor,
-  toggleSubCategory,
   type SubPlanSection,
 } from "./possibleSubs";
 import type { PossibleSub } from "./api";
@@ -45,15 +44,7 @@ describe("suggestedCategoryFor", () => {
   });
 });
 
-describe("the feature picker", () => {
-  it("General clears every feature; a feature replaces General", () => {
-    expect(toggleSubCategory(["fp", "ok"], null)).toEqual([]);
-    expect(toggleSubCategory([], "fp")).toEqual(["fp"]);
-    expect(toggleSubCategory(["fp"], "ok")).toEqual(["fp", "ok"]);
-  });
-  it("unchecking the last feature is General again", () => {
-    expect(toggleSubCategory(["fp"], "fp")).toEqual([]);
-  });
+describe("live features", () => {
   it("only features still on the job count, in the item's order", () => {
     expect(liveCategoryIds(sub("1", "Gas line", ["ok", "gone", "fp"]), ["fp", "ok"])).toEqual(["ok", "fp"]);
   });

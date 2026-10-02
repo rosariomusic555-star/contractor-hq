@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AlertCircle, Check, Lock } from "lucide-react";
+import { AlertCircle, Lock } from "lucide-react";
+import { ChoiceMark } from "@/components/common/ChoiceMark";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { priceLabel } from "@/lib/selections";
@@ -49,7 +50,7 @@ export function ClientSelectionGroups({
               {g.name}
               <span className="ml-1.5 text-[11px] font-semibold text-muted-subtle">
                 {g.required ? "Required" : "Optional"}
-                {g.multi ? " · choose any" : ""}
+                {g.multi ? " · select all that apply" : ""}
               </span>
             </legend>
             {g.help_text && <p className="mb-2 text-xs text-muted-foreground">{g.help_text}</p>}
@@ -92,15 +93,7 @@ export function ClientSelectionGroups({
                       onClick={() => toggle(o.id)}
                       className="flex min-w-0 flex-1 items-start gap-2 p-3 text-left disabled:cursor-default"
                     >
-                      <span
-                        className={cn(
-                          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border-2",
-                          g.multi ? "rounded-md" : "rounded-full",
-                          on ? "border-primary bg-primary text-primary-foreground" : "border-border",
-                        )}
-                      >
-                        {on && <Check className="h-3 w-3" />}
-                      </span>
+                      <ChoiceMark multi={g.multi} checked={on} className="mt-0.5" />
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline justify-between gap-2">
                           <span className="text-sm font-semibold text-foreground [overflow-wrap:anywhere]">{o.name}</span>

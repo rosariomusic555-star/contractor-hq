@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Lock, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ChoiceMark } from "@/components/common/ChoiceMark";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
@@ -103,7 +104,7 @@ export function QuoteSectionSelections({
                     <span className="text-sm font-bold text-foreground">{g.name}</span>
                     <span className="ml-1.5 text-[11px] text-muted-subtle">
                       {g.required ? "Required" : "Optional"}
-                      {g.multi ? " · multiple" : ""}
+                      {g.multi ? " · select all that apply" : " · pick one"}
                     </span>
                     <div className="text-[11px] text-muted-foreground">
                       {approved ? (
@@ -129,7 +130,7 @@ export function QuoteSectionSelections({
                     </div>
                   )}
                 </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
+                <div className="mt-2 flex flex-wrap gap-1.5" role={g.multi ? "group" : "radiogroup"} aria-label={g.name}>
                   {(g.quote_selection_options ?? []).map((o) => {
                     const on = chosen.includes(o.id);
                     const impact = optionMarginImpact({ ...o, price_delta: Number(o.price_delta), cost_delta: Number(o.cost_delta) } as never);
@@ -139,14 +140,16 @@ export function QuoteSectionSelections({
                         type="button"
                         disabled={approved || busy === g.id}
                         onClick={() => toggle(o.id)}
-                        aria-pressed={on}
+                        role={g.multi ? "checkbox" : "radio"}
+                        aria-checked={on}
                         className={cn(
-                          "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-left text-xs",
+                          "flex min-h-9 items-center gap-1.5 rounded-lg border px-2 py-1 text-left text-xs",
                           on ? "border-primary bg-primary/10" : "border-border",
                           approved && !on && "opacity-50",
                         )}
                         title={o.link_item_id ? "Changes a Cost plan line on approval" : undefined}
                       >
+                        <ChoiceMark multi={g.multi} checked={on} />
                         {o.image_path && urls[o.image_path] && <img src={urls[o.image_path]} alt="" className="h-6 w-6 rounded object-cover" />}
                         <span className="font-semibold text-foreground">{o.name}</span>
                         <span className="text-muted-foreground">{priceLabel(Number(o.price_delta))}</span>

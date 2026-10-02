@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Checkbox } from "@/components/ui/checkbox";
+import { MultiSelectList } from "@/components/common/MultiSelectList";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { Category } from "@/lib/api";
@@ -26,9 +26,10 @@ export interface SectionMaterialsLink {
  *   "Outdoor Kitchen · No materials ▾"       (quote, nothing linked — muted)
  *   "Outdoor Kitchen ▾"                      (materials sheet)
  *   "Add project type ▾"                     (no type yet)
- * One dropdown with the section's project type (single select) and, for a
- * quote, its linked materials ("Auto (match by project type)" by default,
- * or specific sheet sections, or none). On Auto, changing the type relinks
+ * One dropdown with the section's project type (single select: a
+ * checkmark, never a checkbox) and, for a quote, its linked materials — the
+ * shared multi-select (checkbox rows; "Auto (match by project type)" by
+ * default, or specific sheet sections, or None). On Auto, changing the type relinks
  * by itself — the auto match follows the type live.
  *
  * A type that's no longer one of the project's types stays visible and
@@ -81,12 +82,6 @@ export function SectionTypeChip({
     </>
   );
 
-  const toggleSection = (id: string, checked: boolean) => {
-    if (!materials) return;
-    const base = materials.mode === "auto" ? materials.autoMatchedIds : materials.manualIds;
-    const ids = checked ? [...new Set([...base, id])] : base.filter((x) => x !== id);
-    materials.onChange({ mode: "manual", ids });
-  };
 
   const body = (
     <div className="space-y-1">
@@ -107,28 +102,30 @@ export function SectionTypeChip({
         <>
           <div className="my-1 border-t border-hairline" />
           <Group title="Linked cost plan sections">
-            <Row selected={materials.mode === "auto"} onClick={() => materials.onChange({ mode: "auto", ids: [] })}>
-              Auto <span className="ml-1 text-[11px] text-muted-foreground">(match by project type)</span>
-            </Row>
-            {materials.sheetSections.length === 0 ? (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">This quote's cost plan has no sections yet.</p>
-            ) : (
-              materials.sheetSections.map((s) => (
-                <label
-                  key={s.id}
-                  className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-2 text-sm hover:bg-muted md:min-h-8"
-                >
-                  <Checkbox checked={linkedIds.includes(s.id)} onCheckedChange={(v) => toggleSection(s.id, v === true)} />
-                  <span className="truncate">{s.name || "Untitled section"}</span>
-                </label>
-              ))
-            )}
-            <Row
-              selected={materials.mode === "manual" && linkedIds.length === 0}
-              onClick={() => materials.onChange({ mode: "manual", ids: [] })}
-            >
-              None
-            </Row>
+            {/* Multi-select (checkbox rows); Auto and None each stand alone. */}
+            <MultiSelectList
+              options={materials.sheetSections.map((sec) => ({ id: sec.id, label: sec.name || "Untitled section" }))}
+              value={linkedIds}
+              onChange={(ids) => materials.onChange({ mode: "manual", ids })}
+              exclusive={[
+                {
+                  id: "auto",
+                  label: "Auto",
+                  hint: "match by project type",
+                  checked: materials.mode === "auto",
+                  onSelect: () => materials.onChange({ mode: "auto", ids: [] }),
+                },
+                {
+                  id: "none",
+                  label: "None",
+                  checked: materials.mode === "manual" && linkedIds.length === 0,
+                  onSelect: () => materials.onChange({ mode: "manual", ids: [] }),
+                },
+              ]}
+              emptyText="This quote's cost plan has no sections yet."
+              large={isMobile}
+              onDone={() => setOpen(false)}
+            />
           </Group>
         </>
       )}

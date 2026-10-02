@@ -1,10 +1,8 @@
 import { useState } from "react";
-import { ChevronsUpDown } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import type { Category } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { ProjectTypeList } from "@/components/common/ProjectTypeList";
+import { ChipsTrigger, MultiSelectPopover } from "@/components/common/MultiSelectPopover";
 import { useProjectTypeOptions } from "@/hooks/use-project-type-options";
 
 interface CategoryMultiSelectProps {
@@ -15,14 +13,13 @@ interface CategoryMultiSelectProps {
 }
 
 /**
- * Job type multi-select (migration 0079) — drawn from Settings > Categories
- * ("Job Categories"), the same list quote line items tag for Revenue by
- * category. A job can be several types at once (Paver patio + Outdoor
- * kitchen + Fire pit + Steps), so this is a checkbox list in a popover, not
- * a single <Select>. The trigger itself renders the current selection as
- * chips — clicking an item toggles it without closing the popover, so
- * picking several is one continuous interaction. The list itself is the
- * shared ProjectTypeList (same types, order and search as FeatureTypeChips).
+ * Job type multi-select (migration 0079) — drawn from Settings › Project
+ * types, the same list quote line items tag for Revenue by category. A job
+ * can be several types at once (Paver patio + Outdoor kitchen + Fire pit +
+ * Steps): the shared multi-select (checkbox rows, Done) in a popover, or a
+ * bottom sheet on phones. The trigger shows the selection as chips with
+ * "+N" overflow. The list itself is ProjectTypeList (same types, order and
+ * search as FeatureTypeChips).
  */
 export function CategoryMultiSelect({ value, onChange, placeholder, className }: CategoryMultiSelectProps) {
   const [open, setOpen] = useState(false);
@@ -35,34 +32,23 @@ export function CategoryMultiSelect({ value, onChange, placeholder, className }:
   };
 
   return (
-    // modal: its own focus scope, so a surrounding Dialog (the New
-    // Opportunity modal) doesn't pull focus out of the search box.
-    <Popover open={open} onOpenChange={setOpen} modal>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          role="combobox"
-          aria-expanded={open}
-          className={cn(
-            "flex min-h-10 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-3 py-2 text-left text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-            className,
-          )}
-        >
-          {selected.length === 0 ? (
-            <span className="text-muted-foreground">{placeholder ?? "Select types…"}</span>
-          ) : (
-            selected.map((c) => (
-              <Badge key={c.id} variant="secondary" className="font-semibold">
-                {c.name}
-              </Badge>
-            ))
-          )}
-          <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start" collisionPadding={8}>
-        <ProjectTypeList value={value} onToggle={toggle} />
-      </PopoverContent>
-    </Popover>
+    <MultiSelectPopover
+      open={open}
+      onOpenChange={setOpen}
+      title="Project types"
+      // modal: its own focus scope, so a surrounding Dialog (the New
+      // Opportunity modal) doesn't pull focus out of the search box.
+      modal
+      contentClassName="w-[max(var(--radix-popover-trigger-width),18rem)]"
+      trigger={
+        <ChipsTrigger
+          open={open}
+          chips={selected.map((c) => ({ id: c.id, label: c.name }))}
+          placeholder={placeholder ?? "Select types…"}
+          className={cn("h-10 w-full text-sm", className)}
+        />
+      }
+      list={({ large, close }) => <ProjectTypeList value={value} onToggle={toggle} large={large} onDone={close} />}
+    />
   );
 }
