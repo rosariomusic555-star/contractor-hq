@@ -1,23 +1,31 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { savePossibleSubs, type Opportunity, type PossibleSub } from "@/lib/api";
-import { SUB_PRESETS, suggestedCategoryFor } from "@/lib/possibleSubs";
+import {
+  createPossibleSub,
+  deletePossibleSub,
+  listPossibleSubs,
+  setPossibleSubCategories,
+  updatePossibleSub,
+  type Opportunity,
+  type PossibleSub,
+} from "@/lib/api";
+import { SUB_PRESETS, possibleSubsKey, suggestedCategoryFor } from "@/lib/possibleSubs";
+import { SubFeaturePicker } from "./SubFeaturePicker";
 
-const GENERAL = "__general__";
-const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+const TMP = "tmp-";
+const tmpId = () => `${TMP}${Math.random().toString(36).slice(2)}`;
 
 /**
  * "Possible subcontracted work" — what the contractor spots at the site
  * visit that someone else will likely do (gas line, electrical…). Preset
- * chips + free text, each with an optional note and the project type it
- * belongs to. Saves as you go (opportunities.possible_subs, 0155), like the
- * notes above it. Shows up as one-tap Subcontractor lines in the Cost plan
- * and (info only) on the crew work order.
+ * chips + free text, each with an optional note and the features it serves
+ * (several allowed, none = General). Saves as you go (possible_subs rows,
+ * 0160), like the notes above it. Shows up as one-tap Subcontractor lines
+ * in the Cost plan and (info only) on the crew work order.
  */
 export function PossibleSubsSection({
   opportunity,
@@ -31,40 +39,78 @@ export function PossibleSubsSection({
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [subs, setSubs] = useState<PossibleSub[]>(opportunity.possible_subs ?? []);
+  const key = possibleSubsKey(opportunity.id);
+  const { data } = useQuery({ queryKey: key, queryFn: () => listPossibleSubs(opportunity.id) });
+  const [subs, setSubs] = useState<PossibleSub[]>([]);
   const [custom, setCustom] = useState("");
-  // Server copy changed (another tab, a refetch) and nothing pending here.
-  useEffect(() => setSubs(opportunity.possible_subs ?? []), [opportunity.possible_subs]);
+  const pending = useRef(0);
+  // Server copy changed (saves finished, another tab) — it wins, but never
+  // mid-save, so a half-done sequence doesn't flicker back.
+  useEffect(() => {
+    if (data && pending.current === 0) setSubs(data);
+  }, [data]);
 
-  const save = useMutation({
-    mutationFn: (next: PossibleSub[]) => savePossibleSubs(opportunity.id, next),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["opportunity", opportunity.id] }),
+  // One save at a time, in click order — quick toggles never race.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const run = useMutation({
+    mutationFn: (op: () => Promise<unknown>) => {
+      pending.current += 1;
+      const next = queue.current.catch(() => undefined).then(op);
+      queue.current = next;
+      return next;
+    },
+    onSettled: async () => {
+      pending.current -= 1;
+      if (pending.current > 0) return;
+      qc.invalidateQueries({ queryKey: ["work-order"] });
+      await qc.refetchQueries({ queryKey: key });
+      // Re-sync even when the refetch is unchanged (a failed save).
+      const fresh = qc.getQueryData<PossibleSub[]>(key);
+      if (fresh && pending.current === 0) setSubs(fresh);
+    },
     onError: (e: Error) => {
-      setSubs(opportunity.possible_subs ?? []);
       toast({ title: "Couldn't save", description: e.message, variant: "destructive" });
     },
   });
-  const commit = (next: PossibleSub[]) => {
-    setSubs(next);
-    save.mutate(next);
+
+  const add = (kind: string, label: string, category_ids: string[]) => {
+    setSubs((list) => [...list, { id: tmpId(), kind, label, note: null, category_ids, lines: [] }]);
+    run.mutate(() => createPossibleSub(opportunity.id, { kind, label, category_ids, sort_order: subs.length }));
+  };
+  const remove = (s: PossibleSub) => {
+    setSubs((list) => list.filter((x) => x.id !== s.id));
+    run.mutate(() => deletePossibleSub(s.id));
+  };
+  const setFeatures = (s: PossibleSub, next: string[]) => {
+    setSubs((list) => list.map((x) => (x.id === s.id ? { ...x, category_ids: next } : x)));
+    run.mutate(() => setPossibleSubCategories(s.id, s.category_ids, next));
   };
 
   const presetOn = (kind: string) => subs.some((s) => s.kind === kind);
   const togglePreset = (kind: string, label: string) => {
     if (kind === "other") return; // free text below
-    if (presetOn(kind)) commit(subs.filter((s) => s.kind !== kind));
-    else commit([...subs, { id: newId(), kind, label, note: null, category_id: suggestedCategoryFor(kind, jobTypes) }]);
+    const existing = subs.find((s) => s.kind === kind);
+    if (existing) {
+      if (!existing.id.startsWith(TMP)) remove(existing);
+      return;
+    }
+    const suggested = suggestedCategoryFor(kind, jobTypes);
+    add(kind, label, suggested ? [suggested] : []);
   };
   const addCustom = () => {
     const label = custom.trim();
     if (!label) return;
     setCustom("");
-    commit([...subs, { id: newId(), kind: "custom", label, note: null, category_id: null }]);
+    add("custom", label, []);
   };
   const patch = (id: string, p: Partial<PossibleSub>) => setSubs((list) => list.map((s) => (s.id === id ? { ...s, ...p } : s)));
-  const persist = () => {
-    const server = JSON.stringify(opportunity.possible_subs ?? []);
-    if (JSON.stringify(subs) !== server) save.mutate(subs);
+  /** Label / note edits save on blur, only when they changed. */
+  const persist = (s: PossibleSub) => {
+    const server = data?.find((x) => x.id === s.id);
+    if (!server) return;
+    const label = s.label.trim() || server.label;
+    if (label === server.label && (s.note ?? null) === (server.note ?? null)) return;
+    run.mutate(() => updatePossibleSub(s.id, { label, note: s.note ?? null }));
   };
 
   return (
@@ -98,58 +144,58 @@ export function PossibleSubsSection({
 
       {subs.length > 0 && (
         <ul className="space-y-2">
-          {subs.map((s) => (
-            <li key={s.id} className="rounded-xl border border-hairline p-2.5">
-              <div className="flex items-center gap-2">
-                {s.kind === "custom" ? (
-                  <Input
-                    value={s.label}
-                    onChange={(e) => patch(s.id, { label: e.target.value })}
-                    onBlur={persist}
-                    aria-label="Subcontracted item"
-                    className="h-9 flex-1 font-semibold"
+          {subs.map((s) => {
+            const pending = s.id.startsWith(TMP);
+            return (
+              <li key={s.id} className="rounded-xl border border-hairline p-2.5">
+                {/* Phones: name + remove on one line, the picker full width below. */}
+                <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                  {s.kind === "custom" ? (
+                    <Input
+                      value={s.label}
+                      disabled={pending}
+                      onChange={(e) => patch(s.id, { label: e.target.value })}
+                      onBlur={() => persist(s)}
+                      aria-label="Subcontracted item"
+                      className="h-9 w-0 min-w-0 flex-1 font-semibold"
+                    />
+                  ) : (
+                    <span className="w-0 min-w-0 flex-1 truncate text-sm font-bold text-foreground">{s.label}</span>
+                  )}
+                  <SubFeaturePicker
+                    label={s.label}
+                    value={s.category_ids}
+                    features={jobTypes}
+                    onChange={(next) => !pending && setFeatures(s, next)}
+                    className="order-last w-full sm:order-none sm:w-64"
                   />
-                ) : (
-                  <span className="flex-1 text-sm font-bold text-foreground">{s.label}</span>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => remove(s)}
+                    aria-label={`Remove ${s.label}`}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-subtle hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <Input
+                  value={s.note ?? ""}
+                  disabled={pending}
+                  onChange={(e) => patch(s.id, { note: e.target.value || null })}
+                  onBlur={() => persist(s)}
+                  placeholder="Note (optional) — e.g. 40 ft run from meter on the east side"
+                  aria-label={`${s.label} note`}
+                  className="mt-2 h-9 text-sm"
+                />
+                {s.lines.length > 0 && (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-success">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Added to cost plan
+                  </p>
                 )}
-                <Select
-                  value={s.category_id ?? GENERAL}
-                  onValueChange={(v) => commit(subs.map((x) => (x.id === s.id ? { ...x, category_id: v === GENERAL ? null : v } : x)))}
-                >
-                  <SelectTrigger className="h-9 w-40 text-xs sm:w-48" aria-label={`${s.label} goes with`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={GENERAL}>General</SelectItem>
-                    {jobTypes.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                    {s.category_id && !jobTypes.some((c) => c.id === s.category_id) && (
-                      <SelectItem value={s.category_id}>Type no longer on the job</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-                <button
-                  type="button"
-                  onClick={() => commit(subs.filter((x) => x.id !== s.id))}
-                  aria-label={`Remove ${s.label}`}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-subtle hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <Input
-                value={s.note ?? ""}
-                onChange={(e) => patch(s.id, { note: e.target.value || null })}
-                onBlur={persist}
-                placeholder="Note (optional) — e.g. 40 ft run from meter on the east side"
-                aria-label={`${s.label} note`}
-                className="mt-2 h-9 text-sm"
-              />
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
 

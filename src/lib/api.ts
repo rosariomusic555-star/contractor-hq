@@ -743,6 +743,8 @@ export interface MaterialsItem {
   tracked: boolean;
   /** "Looks like overhead" dismissed for this line (0110). */
   overhead_warning_dismissed?: boolean;
+  /** 0160 — added from this possible sub ("Add as subcontractor line"). */
+  possible_sub_id?: string | null;
   /** Only populated where the select asks for it (tracked-sheet reads) —
    * every baseline ever snapshotted for this line, newest first. The
    * CURRENT baseline is materials_item_baselines[0]; empty = never
@@ -1656,14 +1658,22 @@ export async function updateProject(
 /** Replaces this project's full set of job-type tags (migration 0079) —
  * delete-then-insert rather than a diff, since the caller always has the
  * complete desired set from a multi-select, not an incremental add/remove. */
+/** Only the removed types are deleted (never delete-all + re-insert): a
+ * delete drops that type from the job's possible subs (0160 trigger). */
 export async function setProjectCategories(projectId: string, categoryIds: string[]): Promise<void> {
-  const { error: delError } = await supabase.from("project_categories").delete().eq("project_id", projectId);
+  if (categoryIds.length) {
+    const { error: insError } = await supabase
+      .from("project_categories")
+      .upsert(categoryIds.map((category_id) => ({ project_id: projectId, category_id })), {
+        onConflict: "project_id,category_id",
+        ignoreDuplicates: true,
+      });
+    if (insError) throw insError;
+  }
+  let del = supabase.from("project_categories").delete().eq("project_id", projectId);
+  if (categoryIds.length) del = del.not("category_id", "in", `(${categoryIds.join(",")})`);
+  const { error: delError } = await del;
   if (delError) throw delError;
-  if (categoryIds.length === 0) return;
-  const { error: insError } = await supabase
-    .from("project_categories")
-    .insert(categoryIds.map((category_id) => ({ project_id: projectId, category_id })));
-  if (insError) throw insError;
 }
 
 /**
@@ -2729,6 +2739,8 @@ export async function addMaterialsItem(
     material_category_id?: string | null;
     cost_type?: LineCostType;
     vendor?: string | null;
+    /** 0160 — added from this possible sub. */
+    possible_sub_id?: string | null;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -2754,6 +2766,7 @@ export async function addMaterialsItem(
       ...(input.material_category_id ? { material_category_id: input.material_category_id } : {}),
       ...(input.cost_type && input.cost_type !== "material" ? { cost_type: input.cost_type } : {}),
       ...(input.vendor ? { vendor: input.vendor } : {}),
+      ...(input.possible_sub_id ? { possible_sub_id: input.possible_sub_id } : {}),
     })
     .select()
     .single();
@@ -5907,8 +5920,9 @@ export interface Opportunity {
   /** 0155 — archived: hidden from the pipeline and lists, restorable from
    * the Opportunities page's Archived filter. Undefined before 0155. */
   archived_at?: string | null;
-  /** 0155 — subcontracted work spotted at the site visit. */
-  possible_subs?: PossibleSub[] | null;
+  /** 0155 — the old jsonb list; superseded by the possible_subs table
+   * (0160, listPossibleSubs). Never read or written now. */
+  possible_subs?: unknown;
   created_at: string;
   updated_at: string;
   client?: { name: string } | null;
@@ -5979,22 +5993,97 @@ export async function getOpportunity(id: string): Promise<Opportunity> {
   return data;
 }
 
-/** A possible subcontracted item spotted at the site visit (0155). */
+/** A possible subcontracted item spotted at the site visit (0155; rows +
+ * many features since 0160). */
 export interface PossibleSub {
   id: string;
   /** Preset key ("gas_line"…) or "custom". */
   kind: string;
   label: string;
   note: string | null;
-  /** The project type it relates to (Outdoor Kitchen…); null = General. */
-  category_id: string | null;
+  /** The project types it serves, in the job's order; empty = General. */
+  category_ids: string[];
+  /** Cost plan lines added from it (materials_items.possible_sub_id) — any
+   * = "Added to cost plan". */
+  lines: { id: string; section_id: string }[];
 }
 
-export async function savePossibleSubs(opportunityId: string, subs: PossibleSub[]): Promise<void> {
-  const { error } = await supabase.from("opportunities").update({ possible_subs: subs }).eq("id", opportunityId);
+const MIGRATION_0160 = "Run migration 0160 to save possible subcontracted work.";
+const is0160Missing = (e: { code?: string } | null) => !!e && (e.code === "PGRST205" || e.code === "42P01" || e.code === "42703" || e.code === "PGRST200");
+
+type PossibleSubRow = {
+  id: string;
+  kind: string;
+  label: string;
+  note: string | null;
+  sort_order: number;
+  possible_sub_categories: { category_id: string; sort_order: number }[] | null;
+  materials_items: { id: string; section_id: string }[] | null;
+};
+
+/** An opportunity's possible subcontracted work, in order (0160). Empty
+ * before 0160. */
+export async function listPossibleSubs(opportunityId: string): Promise<PossibleSub[]> {
+  const { data, error } = await supabase
+    .from("possible_subs")
+    .select("id, kind, label, note, sort_order, possible_sub_categories(category_id, sort_order), materials_items(id, section_id)")
+    .eq("opportunity_id", opportunityId)
+    .order("sort_order")
+    .order("created_at");
   if (error) {
-    if (error.code === "42703" || error.code === "PGRST204") throw new Error("Run migration 0155 to save possible subcontracted work.");
+    if (is0160Missing(error)) return [];
     throw error;
+  }
+  return ((data ?? []) as PossibleSubRow[]).map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    label: r.label,
+    note: r.note,
+    category_ids: [...(r.possible_sub_categories ?? [])].sort((a, b) => a.sort_order - b.sort_order).map((c) => c.category_id),
+    lines: r.materials_items ?? [],
+  }));
+}
+
+export async function createPossibleSub(
+  opportunityId: string,
+  input: { kind: string; label: string; note?: string | null; category_ids: string[]; sort_order: number },
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("possible_subs")
+    .insert({ opportunity_id: opportunityId, kind: input.kind, label: input.label, note: input.note ?? null, sort_order: input.sort_order })
+    .select("id")
+    .single();
+  if (error) throw is0160Missing(error) ? new Error(MIGRATION_0160) : error;
+  if (input.category_ids.length) await setPossibleSubCategories(data.id, [], input.category_ids);
+  return data.id;
+}
+
+export async function updatePossibleSub(id: string, patch: { label?: string; note?: string | null }): Promise<void> {
+  const row: { label?: string; note?: string | null } = {};
+  if (patch.label !== undefined) row.label = patch.label;
+  if (patch.note !== undefined) row.note = patch.note;
+  const { error } = await supabase.from("possible_subs").update(row).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deletePossibleSub(id: string): Promise<void> {
+  const { error } = await supabase.from("possible_subs").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Replace an item's features: adds / reorders first, then removes only
+ * what's gone (never delete-all + re-insert). */
+export async function setPossibleSubCategories(subId: string, prev: string[], next: string[]): Promise<void> {
+  if (next.length) {
+    const { error } = await supabase
+      .from("possible_sub_categories")
+      .upsert(next.map((category_id, i) => ({ possible_sub_id: subId, category_id, sort_order: i })), { onConflict: "possible_sub_id,category_id" });
+    if (error) throw error;
+  }
+  const removed = prev.filter((c) => !next.includes(c));
+  if (removed.length) {
+    const { error } = await supabase.from("possible_sub_categories").delete().eq("possible_sub_id", subId).in("category_id", removed);
+    if (error) throw error;
   }
 }
 
@@ -6132,17 +6221,21 @@ export async function createOpportunity(input: {
  * project's tags directly via setProjectCategories instead (see
  * opportunityCategoryIds' doc comment). Same delete-then-insert shape as
  * setProjectCategories. */
+/** Same diff rule as setProjectCategories (0160 prune trigger). */
 export async function setOpportunityCategories(opportunityId: string, categoryIds: string[]): Promise<void> {
-  const { error: delError } = await supabase
-    .from("opportunity_categories")
-    .delete()
-    .eq("opportunity_id", opportunityId);
+  if (categoryIds.length) {
+    const { error: insError } = await supabase
+      .from("opportunity_categories")
+      .upsert(categoryIds.map((category_id) => ({ opportunity_id: opportunityId, category_id })), {
+        onConflict: "opportunity_id,category_id",
+        ignoreDuplicates: true,
+      });
+    if (insError) throw insError;
+  }
+  let del = supabase.from("opportunity_categories").delete().eq("opportunity_id", opportunityId);
+  if (categoryIds.length) del = del.not("category_id", "in", `(${categoryIds.join(",")})`);
+  const { error: delError } = await del;
   if (delError) throw delError;
-  if (categoryIds.length === 0) return;
-  const { error: insError } = await supabase
-    .from("opportunity_categories")
-    .insert(categoryIds.map((category_id) => ({ opportunity_id: opportunityId, category_id })));
-  if (insError) throw insError;
 }
 
 /**
