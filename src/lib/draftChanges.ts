@@ -59,3 +59,16 @@ export function draftChanges(draft: unknown, base: unknown): DraftChanges {
 
 /** The thin accent edge on an edited-but-unsaved section or card. */
 export const EDITED_CLASS = "ring-2 ring-warning/70 ring-offset-2 ring-offset-background";
+
+/** Line items that are new or edited since the last save (by id, wherever
+ * they sit) — a collapsed item shows a dot so an unsaved edit is never
+ * hidden. Pure. */
+export function changedItemIds(draft: { items: { id: string }[] }[], saved: { items: { id: string }[] }[]): Set<string> {
+  const savedById = new Map(saved.flatMap((s) => s.items).map((i) => [i.id, JSON.stringify(i)]));
+  return new Set(
+    draft
+      .flatMap((s) => s.items)
+      .filter((i) => savedById.get(i.id) !== JSON.stringify(i))
+      .map((i) => i.id),
+  );
+}

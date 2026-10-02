@@ -1,6 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ItemsCollapseToggle } from "@/components/common/ItemsCollapse";
 import { CompactLineRow } from "@/components/common/CompactLineRow";
+import { CollapsibleLine } from "@/components/common/CollapsibleLine";
+import type { useItemCollapse } from "@/hooks/use-item-collapse";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import { Droppable, Draggable, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { Plus, Trash2 } from "lucide-react";
@@ -41,9 +43,10 @@ interface LineItemSectionCardProps {
   onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  /** Just the line items hidden behind "7 items · $4,200" (header + toolbar stay). */
-  itemsCollapsed?: boolean;
-  onToggleItems?: () => void;
+  /** Per-item collapse (compact row ↔ full item) — see useItemCollapse. */
+  itemCollapse?: ReturnType<typeof useItemCollapse>;
+  /** New / edited lines — a dot on their compact row. */
+  dirtyItemIds?: Set<string>;
   isDraggingItem?: boolean;
   onAutoExpand?: () => void;
   /** Row label passed through to each item (see LineItemRow). */
@@ -101,8 +104,8 @@ export function LineItemSectionCard({
   onMoveItem,
   collapsed,
   onToggleCollapse,
-  itemsCollapsed = false,
-  onToggleItems,
+  itemCollapse,
+  dirtyItemIds,
   isDraggingItem,
   onAutoExpand,
   priceLabel,
@@ -115,13 +118,11 @@ export function LineItemSectionCard({
   toolbarActions,
 }: LineItemSectionCardProps) {
   const items = section.items;
-  // Collapsed line items are compact rows (still draggable / movable);
-  // tapping one opens just that item. Showing the items again resets.
-  const [openItemIds, setOpenItemIds] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (!itemsCollapsed) setOpenItemIds(new Set());
-  }, [itemsCollapsed]);
-  const isCompact = (id: string) => itemsCollapsed && !openItemIds.has(id);
+  // Each item collapses on its own; the toolbar control sets them all and
+  // offers what applies to most of them.
+  const itemIds = items.map((i) => i.id);
+  const itemsCollapsed = !!itemCollapse?.mostlyCollapsed(itemIds);
+  const toggleAllItems = () => (itemsCollapsed ? itemCollapse?.expand(itemIds) : itemCollapse?.collapse(itemIds));
 
   return (
     <SectionCard
@@ -144,7 +145,7 @@ export function LineItemSectionCard({
       secondRow={
         <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onToggleItems && <ItemsCollapseToggle collapsed={itemsCollapsed} onToggle={onToggleItems} count={items.length} />}
+            {itemCollapse && <ItemsCollapseToggle collapsed={itemsCollapsed} onToggle={toggleAllItems} count={items.length} />}
             {toolbarActions}
             {optionalSection && (
               <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -194,31 +195,13 @@ export function LineItemSectionCard({
       {/* Collapsed = compact rows, same order and drag / arrows as expanded. */}
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
-          <div ref={provided.innerRef} {...provided.droppableProps} className={cn("flex flex-col", itemsCollapsed ? "gap-1.5" : "gap-3")}>
+          <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-2">
             {items.map((item, index) => (
               <Draggable key={item.id} draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
                   <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
-                    {isCompact(item.id) ? (
-                      <CompactLineRow
-                        name={item.name}
-                        quantity={item.quantity}
-                        unit={item.unit}
-                        total={quoteLineTotal(item)}
-                        tag={
-                          optionalSection?.isItemOptional(item.id) ? (
-                            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">Optional</span>
-                          ) : undefined
-                        }
-                        onExpand={() => setOpenItemIds((prev) => new Set(prev).add(item.id))}
-                        dragHandleProps={dragProvided.dragHandleProps}
-                        dragging={dragSnapshot.isDragging}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < items.length - 1}
-                        onMoveUp={() => onMoveItem(index, -1)}
-                        onMoveDown={() => onMoveItem(index, 1)}
-                      />
-                    ) : (
+                    {(() => {
+                      const row = (
                     <LineItemRow
                       item={item}
                       categories={categories}
@@ -241,7 +224,42 @@ export function LineItemSectionCard({
                           : undefined
                       }
                     />
-                    )}
+                      );
+                      if (!itemCollapse) return row;
+                      // Compact: name, price and the description's first line.
+                      const firstLine = item.description?.split("\n").find((l) => l.trim())?.trim() ?? null;
+                      return (
+                        <CollapsibleLine
+                          collapsed={itemCollapse.isCollapsed(item.id)}
+                          onToggle={() => itemCollapse.toggle(item.id)}
+                          label={item.name}
+                          compact={
+                            <CompactLineRow
+                              name={item.name}
+                              detail={firstLine}
+                              quantity={item.quantity}
+                              unit={item.unit}
+                              total={quoteLineTotal(item)}
+                              dirty={!!dirtyItemIds?.has(item.id)}
+                              tag={
+                                optionalSection?.isItemOptional(item.id) ? (
+                                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">Optional</span>
+                                ) : undefined
+                              }
+                              onExpand={() => itemCollapse.toggle(item.id)}
+                              dragHandleProps={dragProvided.dragHandleProps}
+                              dragging={dragSnapshot.isDragging}
+                              canMoveUp={index > 0}
+                              canMoveDown={index < items.length - 1}
+                              onMoveUp={() => onMoveItem(index, -1)}
+                              onMoveDown={() => onMoveItem(index, 1)}
+                            />
+                          }
+                        >
+                          {row}
+                        </CollapsibleLine>
+                      );
+                    })()}
                   </div>
                 )}
               </Draggable>
@@ -252,11 +270,8 @@ export function LineItemSectionCard({
       </Droppable>
       <button
         type="button"
-        onClick={() => {
-          // Adding a line shows the items again so the new row is visible.
-          if (itemsCollapsed) onToggleItems?.();
-          onAddItem();
-        }}
+        // A new line opens expanded (a new id is never collapsed).
+        onClick={onAddItem}
         className="mt-3 flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-border text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
       >
         <Plus className="h-4 w-4" />

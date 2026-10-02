@@ -13,7 +13,7 @@ export function ItemsCollapseToggle({ collapsed, onToggle, count }: { collapsed:
       className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
     >
       <Icon className="h-3.5 w-3.5" />
-      {collapsed ? "Expand items" : "Collapse items"}
+      {collapsed ? "Expand line items" : "Collapse line items"}
     </button>
   );
 }

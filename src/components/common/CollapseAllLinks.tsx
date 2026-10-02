@@ -16,7 +16,7 @@ export function CollapseAllLinks({
       {items && (
         <>
           <button type="button" onClick={items.allCollapsed ? items.onExpandAll : items.onCollapseAll} className="hover:underline">
-            {items.allCollapsed ? "Show all line items" : "Collapse all line items"}
+            {items.allCollapsed ? "Expand all line items" : "Collapse all line items"}
           </button>
           <span className="text-border">|</span>
         </>

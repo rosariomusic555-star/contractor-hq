@@ -121,7 +121,7 @@ import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
 import { countsTowardTotals, featureName, liveFeatures, type FeatureStatus } from "@/lib/features";
 import { combinedLineName, possibleSubsKey, placeSubSuggestions, sectionForCategory, type SubPlanSection, type SubSuggestion } from "@/lib/possibleSubs";
 import { AddPossibleSubDialog, type AddSubChoice } from "@/components/materials/AddPossibleSubDialog";
-import { draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
+import { changedItemIds, draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { addonQuoteNumbers, changeOrderNumbers, featurePrice, featureReports } from "@/lib/featureFinancials";
 import { FeatureReportStrip } from "@/components/projects/FeatureReport";
 import { PlannedVsActualCard } from "@/components/planned-actual/PlannedVsActualCard";
@@ -157,6 +157,8 @@ import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
 import { CostLineRow } from "@/components/materials/CostLineRow";
 import { CompactLineRow } from "@/components/common/CompactLineRow";
+import { CollapsibleLine } from "@/components/common/CollapsibleLine";
+import { useItemCollapse } from "@/hooks/use-item-collapse";
 import { SectionLaborBlock, type LaborDraft } from "@/components/materials/SectionLaborBlock";
 import { AddLineSplitButton } from "@/components/materials/AddLineSplitButton";
 import {
@@ -722,8 +724,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     collapseAll,
     expandAll,
   } = useSectionCollapse();
-  // Just the line items (header + toolbar stay) — its own remembered state.
-  const itemsCollapse = useSectionCollapse({ storageKey: "chq_items_collapse_v1", defaultCollapsed: () => false });
+  // Each line item collapses on its own (compact row ↔ full item);
+  // remembered per user per cost plan, never saved with it.
+  const itemCollapse = useItemCollapse(`cost-plan:${sheetId ?? projectId}`);
   // Tracked only so a collapsed section's header knows to auto-expand on
   // hover while a line item is being dragged over it — collapsing hides the
   // item Droppable's visible content but keeps it mounted (see SectionCard).
@@ -1405,6 +1408,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // "3 unsaved changes" + the accent edge on edited sections.
   const savedDraft = useMemo(() => seed(sections), [sections]);
   const changes = useMemo(() => (isDirty ? draftChanges(draft, savedDraft) : null), [isDirty, draft, savedDraft]);
+  // Edited / new lines — a collapsed one shows a dot.
+  const dirtyItemIds = useMemo(() => (isDirty ? changedItemIds(draft, savedDraft) : new Set<string>()), [isDirty, draft, savedDraft]);
   const renderSectionCard = (
     section: DraftSection,
     index: number,
@@ -1460,8 +1465,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
                         collapsed={isCollapsed(section.id)}
                         onToggleCollapse={() => toggleCollapse(section.id)}
-                        itemsCollapsed={itemsCollapse.isCollapsed(section.id)}
-                        onToggleItems={() => itemsCollapse.toggle(section.id)}
+                        itemCollapse={itemCollapse}
+                        dirtyItemIds={dirtyItemIds}
                         isDraggingItem={isDraggingItem}
                         onAutoExpand={() => expandSection(section.id)}
                         proposedLabel={
@@ -1609,9 +1614,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           onCollapseAll={() => collapseAll(draft.map((s) => s.id))}
           onExpandAll={() => expandAll(draft.map((s) => s.id))}
           items={{
-            allCollapsed: draft.length > 0 && draft.every((s) => itemsCollapse.isCollapsed(s.id)),
-            onCollapseAll: () => itemsCollapse.collapseAll(draft.map((s) => s.id)),
-            onExpandAll: () => itemsCollapse.expandAll(draft.map((s) => s.id)),
+            allCollapsed: itemCollapse.allCollapsed(draft.flatMap((s) => s.items.map((i) => i.id))),
+            onCollapseAll: () => itemCollapse.collapse(draft.flatMap((s) => s.items.map((i) => i.id))),
+            onExpandAll: () => itemCollapse.expand(draft.flatMap((s) => s.items.map((i) => i.id))),
           }}
         />
       )}
@@ -1945,9 +1950,10 @@ interface SectionCardProps {
   onMoveItem: (itemIndex: number, direction: -1 | 1) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  /** Just the line items hidden behind "7 items · $4,200" (header + toolbar stay). */
-  itemsCollapsed?: boolean;
-  onToggleItems?: () => void;
+  /** Per-item collapse (compact row ↔ full item) — see useItemCollapse. */
+  itemCollapse: ReturnType<typeof useItemCollapse>;
+  /** New / edited lines — a dot on their compact row. */
+  dirtyItemIds: Set<string>;
   isDraggingItem: boolean;
   onAutoExpand: () => void;
 }
@@ -1986,8 +1992,8 @@ function MaterialsSectionCard({
   onMoveItem,
   collapsed,
   onToggleCollapse,
-  itemsCollapsed = false,
-  onToggleItems,
+  itemCollapse,
+  dirtyItemIds,
   isDraggingItem,
   onAutoExpand,
   proposedLabel,
@@ -2012,14 +2018,12 @@ function MaterialsSectionCard({
   // Lines stay grouped by type; the sort applies within each group.
   const displayItems = sortWithinTypeGroups(section.items, sortMode);
   const showGroupHeadings = new Set(displayItems.map((i) => i.cost_type)).size > 1;
-  // Collapsed line items are compact rows (still sortable / draggable);
-  // tapping one opens just that item. Showing the items again resets.
-  const [openItemIds, setOpenItemIds] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (!itemsCollapsed) setOpenItemIds(new Set());
-  }, [itemsCollapsed]);
-  const isCompact = (id: string) => itemsCollapsed && !openItemIds.has(id);
-  const openItem = (id: string) => setOpenItemIds((prev) => new Set(prev).add(id));
+  // Each item collapses on its own; the toolbar control sets them all and
+  // offers what applies to most of them.
+  const itemIds = section.items.map((i) => i.id);
+  const itemsCollapsed = itemCollapse.mostlyCollapsed(itemIds);
+  const allItemsCollapsed = itemCollapse.allCollapsed(itemIds);
+  const toggleAllItems = () => (itemsCollapsed ? itemCollapse.expand(itemIds) : itemCollapse.collapse(itemIds));
   const groupSubtotal = (type: LineCostType) => displayItems.filter((i) => i.cost_type === type).reduce((sum, i) => sum + lineCost(i), 0);
 
   return (
@@ -2079,7 +2083,7 @@ function MaterialsSectionCard({
       secondRow={
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-5 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {onToggleItems && <ItemsCollapseToggle collapsed={itemsCollapsed} onToggle={onToggleItems} count={section.items.length} />}
+            <ItemsCollapseToggle collapsed={itemsCollapsed} onToggle={toggleAllItems} count={section.items.length} />
             {buildType && <SectionToolbarAction icon={Calculator} label="Calculate quantities" onClick={() => setCalculatorOpen(true)} />}
             {onViewHistory && <SectionToolbarAction icon={History} label="View history" onClick={onViewHistory} />}
             {offerFillFromMeasurements && (
@@ -2137,34 +2141,41 @@ function MaterialsSectionCard({
       {/* Collapsed = compact rows, same order / sort / drag as expanded. */}
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
-          <div ref={provided.innerRef} {...provided.droppableProps} className={cn("flex flex-col", itemsCollapsed ? "gap-1.5" : "gap-3")}>
+          <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-2">
             {displayItems.map((item, index) => (
               <Fragment key={item.id}>
               {showGroupHeadings && item.cost_type !== displayItems[index - 1]?.cost_type && (
                 <div className={cn("flex items-baseline justify-between text-[11px] font-bold uppercase tracking-wider text-muted-subtle", index > 0 && "mt-2")}>
                   <span>{COST_TYPE_GROUP_LABEL[item.cost_type]}</span>
-                  {itemsCollapsed && <span className="tabular-nums normal-case tracking-normal">{formatCurrency(groupSubtotal(item.cost_type))}</span>}
+                  <span className="tabular-nums normal-case tracking-normal">{formatCurrency(groupSubtotal(item.cost_type))}</span>
                 </div>
               )}
               <Draggable draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
                   <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} id={`line-${item.id}`} className="scroll-mt-24 rounded-2xl transition-shadow">
-                    {isCompact(item.id) ? (
-                      <CompactLineRow
-                        name={item.name}
-                        detail={item.cost_type === "material" ? item.color : item.vendor}
-                        quantity={item.quantity}
-                        unit={item.unit}
-                        total={lineCost(item)}
-                        onExpand={() => openItem(item.id)}
-                        dragHandleProps={dragProvided.dragHandleProps}
-                        dragging={dragSnapshot.isDragging}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < section.items.length - 1}
-                        onMoveUp={() => onMoveItem(index, -1)}
-                        onMoveDown={() => onMoveItem(index, 1)}
-                      />
-                    ) : item.cost_type !== "material" ? (
+                    <CollapsibleLine
+                      collapsed={itemCollapse.isCollapsed(item.id)}
+                      onToggle={() => itemCollapse.toggle(item.id)}
+                      label={item.name}
+                      compact={
+                        <CompactLineRow
+                          name={item.name}
+                          detail={item.cost_type === "material" ? item.color : item.vendor}
+                          quantity={item.quantity}
+                          unit={item.unit}
+                          total={lineCost(item)}
+                          dirty={dirtyItemIds.has(item.id)}
+                          onExpand={() => itemCollapse.toggle(item.id)}
+                          dragHandleProps={dragProvided.dragHandleProps}
+                          dragging={dragSnapshot.isDragging}
+                          canMoveUp={index > 0}
+                          canMoveDown={index < section.items.length - 1}
+                          onMoveUp={() => onMoveItem(index, -1)}
+                          onMoveDown={() => onMoveItem(index, 1)}
+                        />
+                      }
+                    >
+                    {item.cost_type !== "material" ? (
                       <CostLineRow
                         item={item}
                         onEdit={(patch) => onEditItem(item.id, patch)}
@@ -2195,7 +2206,7 @@ function MaterialsSectionCard({
                       onMoveDown={() => onMoveItem(index, 1)}
                     />
                     )}
-                    {!isCompact(item.id) && overheadConfigured && !item.overhead_warning_dismissed && looksLikeOverhead(item.name) && (
+                    {overheadConfigured && !item.overhead_warning_dismissed && looksLikeOverhead(item.name) && (
                       <div className="mt-1.5 flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-foreground">
                         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-strong" />
                         <span className="min-w-0 flex-1">This looks like overhead that's already covered by your overhead rate.</span>
@@ -2204,6 +2215,7 @@ function MaterialsSectionCard({
                         </button>
                       </div>
                     )}
+                    </CollapsibleLine>
                   </div>
                 )}
               </Draggable>
@@ -2216,20 +2228,17 @@ function MaterialsSectionCard({
       {/* The section's primary action — "+ Material", with Subcontractor /
           Equipment / Other behind the ▾. */}
       <AddLineSplitButton
-        onAdd={(type) => {
-          // A new line shows the items again so it's visible.
-          if (itemsCollapsed) onToggleItems?.();
-          onAddItem(type);
-        }}
+        // A new line opens expanded (a new id is never collapsed).
+        onAdd={(type) => onAddItem(type)}
       />
 
       {/* Labor — below the lines; collapsed to "+ Add labor" while empty,
           one compact line while the items are collapsed. */}
-      {itemsCollapsed && section.labor_mode ? (
+      {allItemsCollapsed && section.labor_mode ? (
         <button
           type="button"
-          onClick={onToggleItems}
-          title="Expand items"
+          onClick={() => itemCollapse.expand(itemIds)}
+          title="Expand line items"
           className="mt-3 flex min-h-11 w-full items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 text-left text-sm sm:min-h-10"
         >
           <HardHat className="h-4 w-4 shrink-0 text-primary" />

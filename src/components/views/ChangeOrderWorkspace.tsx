@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
+import { changedItemIds, draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -39,6 +39,7 @@ import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
+import { useItemCollapse } from "@/hooks/use-item-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { revokeLocalImageUrls, type DraftLineItem, type DraftLineSection } from "@/lib/draftLineItem";
 import { changeOrderStatusMeta } from "@/lib/statusMeta";
@@ -229,7 +230,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const { moveSection, moveItem, onDragEnd } = useSectionReorder<DraftLineItem, CoDraftSection>(setSections);
   const { isCollapsed, toggle: toggleCollapse, expand: expandSection, collapseAll, expandAll } = useSectionCollapse();
   // Just the line items (header + toolbar stay) — its own remembered state.
-  const itemsCollapse = useSectionCollapse({ storageKey: "chq_items_collapse_v1", defaultCollapsed: () => false });
+  // Each line item collapses on its own; remembered per user per document.
+  const itemCollapse = useItemCollapse(`change-order:${changeOrder.id}`);
   const [isDraggingItem, setIsDraggingItem] = useState(false);
 
   const discard = () => {
@@ -371,6 +373,10 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   // "3 unsaved changes" + the accent edge on edited sections.
   const savedDraft = useMemo(() => seed(changeOrder, serverCostChanges), [changeOrder, serverCostChanges]);
   const changes = useMemo(() => (isDirty ? draftChanges(draft, savedDraft) : null), [isDirty, draft, savedDraft]);
+  const dirtyItemIds = useMemo(
+    () => (isDirty ? changedItemIds(draft.sections, savedDraft.sections) : new Set<string>()),
+    [isDirty, draft, savedDraft],
+  );
   const locked = changeOrder.status === "approved" || changeOrder.status === "declined";
   const meta = changeOrderStatusMeta(changeOrder.status);
   const clientName = changeOrder.project?.client?.name ?? "No client";
@@ -797,9 +803,9 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
               onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))}
               onExpandAll={() => expandAll(draft.sections.map((s) => s.id))}
               items={{
-                allCollapsed: draft.sections.length > 0 && draft.sections.every((s) => itemsCollapse.isCollapsed(s.id)),
-                onCollapseAll: () => itemsCollapse.collapseAll(draft.sections.map((s) => s.id)),
-                onExpandAll: () => itemsCollapse.expandAll(draft.sections.map((s) => s.id)),
+                allCollapsed: itemCollapse.allCollapsed(draft.sections.flatMap((s) => s.items.map((i) => i.id))),
+                onCollapseAll: () => itemCollapse.collapse(draft.sections.flatMap((s) => s.items.map((i) => i.id))),
+                onExpandAll: () => itemCollapse.expand(draft.sections.flatMap((s) => s.items.map((i) => i.id))),
               }}
             />
           )}
@@ -846,8 +852,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                               onMoveDown={() => moveSection(index, 1)}
                               onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
                               collapsed={isCollapsed(section.id)}
-                            itemsCollapsed={itemsCollapse.isCollapsed(section.id)}
-                            onToggleItems={() => itemsCollapse.toggle(section.id)}
+                            itemCollapse={itemCollapse}
+                            dirtyItemIds={dirtyItemIds}
                               onToggleCollapse={() => toggleCollapse(section.id)}
                               isDraggingItem={isDraggingItem}
                               onAutoExpand={() => expandSection(section.id)}

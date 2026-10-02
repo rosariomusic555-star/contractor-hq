@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
-import { draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
+import { changedItemIds, draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { costPlanHasEntries, costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -99,6 +99,7 @@ import { revokeLocalImageUrls, type DraftLineImage } from "@/lib/draftLineItem";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
+import { useItemCollapse } from "@/hooks/use-item-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
 import { quoteStatusMeta } from "@/lib/statusMeta";
 import { compressImageFile } from "@/lib/imageUpload";
@@ -407,7 +408,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     expandAll,
   } = useSectionCollapse();
   // Just the line items (header + toolbar stay) — its own remembered state.
-  const itemsCollapse = useSectionCollapse({ storageKey: "chq_items_collapse_v1", defaultCollapsed: () => false });
+  // Each line item collapses on its own; remembered per user per document.
+  const itemCollapse = useItemCollapse(`quote:${quote.id}`);
   // Tracked only so a collapsed section's header knows to auto-expand on
   // hover while a line item is being dragged over it — collapsing hides the
   // item Droppable's visible content but keeps it mounted (see SectionCard).
@@ -1147,6 +1149,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // "3 unsaved changes" + the accent edge on edited sections.
   const savedDraft = useMemo(() => seed(quote), [quote]);
   const changes = useMemo(() => (isDirty ? draftChanges(draft, savedDraft) : null), [isDirty, draft, savedDraft]);
+  const dirtyItemIds = useMemo(
+    () => (isDirty ? changedItemIds(draft.sections, savedDraft.sections) : new Set<string>()),
+    [isDirty, draft, savedDraft],
+  );
 
   const handleSaveClick = () => {
     createProjectAfterSave.current = false;
@@ -1349,9 +1355,9 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               onCollapseAll={() => collapseAll(draft.sections.map((s) => s.id))}
               onExpandAll={() => expandAll(draft.sections.map((s) => s.id))}
               items={{
-                allCollapsed: draft.sections.length > 0 && draft.sections.every((s) => itemsCollapse.isCollapsed(s.id)),
-                onCollapseAll: () => itemsCollapse.collapseAll(draft.sections.map((s) => s.id)),
-                onExpandAll: () => itemsCollapse.expandAll(draft.sections.map((s) => s.id)),
+                allCollapsed: itemCollapse.allCollapsed(draft.sections.flatMap((s) => s.items.map((i) => i.id))),
+                onCollapseAll: () => itemCollapse.collapse(draft.sections.flatMap((s) => s.items.map((i) => i.id))),
+                onExpandAll: () => itemCollapse.expand(draft.sections.flatMap((s) => s.items.map((i) => i.id))),
               }}
             />
           )}
@@ -1455,8 +1461,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             onMoveDown={() => moveSection(index, 1)}
                             onMoveItem={(itemIndex, direction) => moveItem(section.id, itemIndex, direction)}
                             collapsed={isCollapsed(section.id)}
-                            itemsCollapsed={itemsCollapse.isCollapsed(section.id)}
-                            onToggleItems={() => itemsCollapse.toggle(section.id)}
+                            itemCollapse={itemCollapse}
+                            dirtyItemIds={dirtyItemIds}
                             onToggleCollapse={() => toggleCollapse(section.id)}
                             isDraggingItem={isDraggingItem}
                             onAutoExpand={() => expandSection(section.id)}

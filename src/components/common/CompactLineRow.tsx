@@ -20,6 +20,7 @@ export function CompactLineRow({
   unit,
   total,
   tag,
+  dirty = false,
   onExpand,
   dragHandleProps,
   dragging,
@@ -37,6 +38,8 @@ export function CompactLineRow({
   total: number;
   /** A small badge before the total (e.g. "Optional"). */
   tag?: ReactNode;
+  /** Unsaved edits on this item — a dot, so collapsing never hides them. */
+  dirty?: boolean;
   onExpand: () => void;
   dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
   dragging: boolean;
@@ -63,7 +66,10 @@ export function CompactLineRow({
         title="Open this item"
         className="flex min-w-0 flex-1 flex-col text-left text-sm hover:text-primary sm:flex-row sm:items-baseline sm:gap-1.5"
       >
-        <span className={cn("truncate font-semibold", !name.trim() && "text-muted-foreground")}>{label}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className={cn("truncate font-semibold", !name.trim() && "text-muted-foreground")}>{label}</span>
+          {dirty && <span className="h-2 w-2 shrink-0 rounded-full bg-warning" title="Unsaved changes" aria-label="Unsaved changes" />}
+        </span>
         {detail && <span className="hidden truncate text-xs text-muted-foreground sm:inline">{detail}</span>}
         {/* Phones: the quantity sits under the name so the name gets the width. */}
         <span className="text-xs tabular-nums text-muted-foreground sm:hidden">{qty}</span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftChanges } from "./draftChanges";
+import { changedItemIds, draftChanges } from "./draftChanges";
 
 const sections = [
   { id: "a", name: "Patio", items: [{ id: "1", qty: 1 }] },
@@ -28,5 +28,23 @@ describe("draftChanges", () => {
     const r = draftChanges(draft, base);
     expect(r.count).toBe(2);
     expect([...r.changedIds]).toEqual(["b"]);
+  });
+});
+
+describe("changedItemIds", () => {
+  const saved = [
+    { id: "a", items: [{ id: "1", qty: 1 }, { id: "2", qty: 2 }] },
+    { id: "b", items: [{ id: "3", qty: 3 }] },
+  ];
+  it("new and edited lines, wherever they sit", () => {
+    const draft = [
+      { id: "a", items: [{ id: "1", qty: 5 }] },
+      { id: "b", items: [{ id: "3", qty: 3 }, { id: "2", qty: 2 }, { id: "tmp-x", qty: 0 }] },
+    ];
+    expect([...changedItemIds(draft, saved)].sort()).toEqual(["1", "tmp-x"]);
+  });
+  it("nothing when only the order changed", () => {
+    const draft = [{ id: "a", items: [{ id: "2", qty: 2 }, { id: "1", qty: 1 }] }, saved[1]];
+    expect(changedItemIds(draft, saved).size).toBe(0);
   });
 });
