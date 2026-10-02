@@ -19,6 +19,9 @@ interface ReorderControlsProps {
    * it's the header's only icon-button and needs to read clearly against
    * the dark background. */
   tone?: "light" | "dark";
+  /** Slim rows (collapsed line items): arrows side by side, and on phones
+   * only the grip (long-press drag) — the row's own menu moves it. */
+  compact?: boolean;
   className?: string;
 }
 
@@ -52,6 +55,7 @@ export function ReorderControls({
   canMoveDown,
   label,
   tone = "light",
+  compact = false,
   className,
 }: ReorderControlsProps) {
   const isDark = tone === "dark";
@@ -102,7 +106,7 @@ export function ReorderControls({
       >
         <GripVertical className={gripIconClass} />
       </button>
-      <div className="flex flex-col gap-1.5">
+      <div className={compact ? "hidden gap-0.5 sm:flex" : "flex flex-col gap-1.5"}>
         <button
           type="button"
           onClick={onMoveUp}

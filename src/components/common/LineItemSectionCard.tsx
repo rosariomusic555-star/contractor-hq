@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
-import { ItemsCollapseToggle, ItemsCollapsedSummary } from "@/components/common/ItemsCollapse";
+import { useEffect, useState, type ReactNode } from "react";
+import { ItemsCollapseToggle } from "@/components/common/ItemsCollapse";
+import { CompactLineRow } from "@/components/common/CompactLineRow";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import { Droppable, Draggable, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { Plus, Trash2 } from "lucide-react";
@@ -18,7 +19,7 @@ import {
 import { SectionCard } from "@/components/common/SectionCard";
 import { LineItemRow } from "@/components/common/LineItemRow";
 import { cn, formatCurrency } from "@/lib/utils";
-import type { Category } from "@/lib/api";
+import { quoteLineTotal, type Category } from "@/lib/api";
 import type { DraftLineItem, DraftLineSection } from "@/lib/draftLineItem";
 
 interface LineItemSectionCardProps {
@@ -114,6 +115,13 @@ export function LineItemSectionCard({
   toolbarActions,
 }: LineItemSectionCardProps) {
   const items = section.items;
+  // Collapsed line items are compact rows (still draggable / movable);
+  // tapping one opens just that item. Showing the items again resets.
+  const [openItemIds, setOpenItemIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!itemsCollapsed) setOpenItemIds(new Set());
+  }, [itemsCollapsed]);
+  const isCompact = (id: string) => itemsCollapsed && !openItemIds.has(id);
 
   return (
     <SectionCard
@@ -183,21 +191,34 @@ export function LineItemSectionCard({
       }
     >
       {beforeItems}
-      {itemsCollapsed && items.length > 0 && onToggleItems && (
-        <ItemsCollapsedSummary count={items.length} total={subtotal} onExpand={onToggleItems} />
-      )}
-      {/* Kept mounted while items are hidden — the order (and a sort) still applies on expand. */}
+      {/* Collapsed = compact rows, same order and drag / arrows as expanded. */}
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.droppableProps}
-            className={cn("flex flex-col gap-3", itemsCollapsed && items.length > 0 && "hidden")}
-          >
+          <div ref={provided.innerRef} {...provided.droppableProps} className={cn("flex flex-col", itemsCollapsed ? "gap-1.5" : "gap-3")}>
             {items.map((item, index) => (
               <Draggable key={item.id} draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
                   <div ref={dragProvided.innerRef} {...dragProvided.draggableProps}>
+                    {isCompact(item.id) ? (
+                      <CompactLineRow
+                        name={item.name}
+                        quantity={item.quantity}
+                        unit={item.unit}
+                        total={quoteLineTotal(item)}
+                        tag={
+                          optionalSection?.isItemOptional(item.id) ? (
+                            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">Optional</span>
+                          ) : undefined
+                        }
+                        onExpand={() => setOpenItemIds((prev) => new Set(prev).add(item.id))}
+                        dragHandleProps={dragProvided.dragHandleProps}
+                        dragging={dragSnapshot.isDragging}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < items.length - 1}
+                        onMoveUp={() => onMoveItem(index, -1)}
+                        onMoveDown={() => onMoveItem(index, 1)}
+                      />
+                    ) : (
                     <LineItemRow
                       item={item}
                       categories={categories}
@@ -220,6 +241,7 @@ export function LineItemSectionCard({
                           : undefined
                       }
                     />
+                    )}
                   </div>
                 )}
               </Draggable>
