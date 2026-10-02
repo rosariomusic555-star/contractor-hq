@@ -263,8 +263,8 @@ describe("downstream", () => {
     for (const t of quickQuoteTemplates) {
       const keys = new Set(t.questions.map((q) => q.key));
       for (const k of Object.keys(quickQuotePrefill(t.id, totals))) expect(keys, `${t.id}.${k}`).toContain(k);
-      // Irrigation's Quick Quote is per sq ft and its card counts zones — no prefill.
-      if (t.id !== "plants" && t.id !== "irrigation") expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
+      // Plants is counted, not measured — no Quick Quote prefill.
+      if (t.id !== "plants") expect(Object.keys(quickQuotePrefill(t.id, totals)).length, t.id).toBeGreaterThan(0);
     }
   });
 
@@ -503,6 +503,7 @@ describe("2026-10-01 card changes", () => {
     expect(computeTotals("irrigation", d)).toEqual({ zone_count: 3, head_count: 42 });
     expect(featureSummary({ kind: "irrigation", build_type: "irrigation" }, [{ data: d, label: null }], [])).toBe("3 zones · 42 heads");
     expect(smartSectionPrefill("irrigation", { zone_count: 3, head_count: 42 })).toEqual({ zones: 3, heads: 42 });
+    expect(quickQuotePrefill("irrigation", { zone_count: 3, head_count: 42 })).toEqual({ zone_count: 3 });
   });
 
   it("an old area-card irrigation row becomes a blank zone card", () => {

@@ -41,12 +41,16 @@ export const sodQuickQuote: QuickQuoteTemplate = {
 export const irrigationQuickQuote: QuickQuoteTemplate = {
   id: "irrigation",
   label: "Irrigation",
-  pricingUnit: "$ / sq ft",
-  lineItemUnit: "sf",
-  defaultRate: 1.25,
-  questions: [{ key: "area_sqft", label: "Area covered", type: "area" }],
-  quantity: sq,
-  fallbackDescription: (a) => `Install an irrigation system covering ${sq(a).toLocaleString()} sq ft, including heads, zone valves, controller and backflow preventer.`,
+  // Priced per zone, the way the irrigation measurement card counts it.
+  pricingUnit: "$ / zone",
+  lineItemUnit: "zone",
+  defaultRate: 900,
+  questions: [{ key: "zone_count", label: "Number of zones", type: "number", unit: "zones" }],
+  quantity: (a) => Number(a.zone_count) || 0,
+  fallbackDescription: (a) => {
+    const z = Number(a.zone_count) || 0;
+    return `Install a ${z}-zone irrigation system, including heads, zone valves, controller and backflow preventer.`;
+  },
 };
 
 export const plantsQuickQuote: QuickQuoteTemplate = {

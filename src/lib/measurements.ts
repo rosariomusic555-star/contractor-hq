@@ -1253,9 +1253,9 @@ export function quickQuotePrefill(buildType: string, t: FeatureTotals): Record<s
     case "water_feature":
     case "sod":
       return t.area_sqft ? { area_sqft: t.area_sqft } : {};
-    // Irrigation Quick Quote is per sq ft; the zone card has no area.
+    // Irrigation Quick Quote is priced per zone, straight from the card.
     case "irrigation":
-      return {};
+      return t.zone_count ? { zone_count: t.zone_count } : {};
     default:
       return {};
   }
