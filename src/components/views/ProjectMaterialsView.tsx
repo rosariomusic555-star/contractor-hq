@@ -67,6 +67,7 @@ import {
   listSmartSectionSettings,
   listProjectFeatures,
   listPendingCostChanges,
+  listPossibleSubs,
   getOverheadSettings,
   pendingSelectionsCost,
   pickHeadlineQuote,
@@ -117,7 +118,8 @@ import {
 } from "@/lib/api";
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
 import { countsTowardTotals, featureName, liveFeatures, type FeatureStatus } from "@/lib/features";
-import { subsForSection } from "@/lib/possibleSubs";
+import { combinedLineName, possibleSubsKey, placeSubSuggestions, sectionForCategory, type SubPlanSection, type SubSuggestion } from "@/lib/possibleSubs";
+import { AddPossibleSubDialog, type AddSubChoice } from "@/components/materials/AddPossibleSubDialog";
 import { draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { addonQuoteNumbers, changeOrderNumbers, featurePrice, featureReports } from "@/lib/featureFinancials";
 import { FeatureReportStrip } from "@/components/projects/FeatureReport";
@@ -252,6 +254,8 @@ interface DraftItem {
   /** "Looks like overhead" dismissed (0110) — written straight away, never
    * part of Save's diff. */
   overhead_warning_dismissed?: boolean;
+  /** 0160 — added from this possible sub. Written on create only. */
+  possible_sub_id?: string | null;
 }
 interface DraftSection extends LaborDraft {
   id: string;
@@ -418,6 +422,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       cost_type: i.cost_type ?? "material",
       vendor: i.vendor ?? "",
       overhead_warning_dismissed: i.overhead_warning_dismissed ?? false,
+      possible_sub_id: i.possible_sub_id ?? null,
     })),
   })));
 
@@ -1221,6 +1226,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               tracked: di.tracked,
               cost_type: di.cost_type,
               vendor: di.vendor.trim() || null,
+              possible_sub_id: di.possible_sub_id ?? null,
             });
             createdIds.current.set(di.id, createdItem.id);
           } else if (
@@ -1304,44 +1310,86 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const setAllTracked = (tracked: boolean) =>
     edit((d) => d.map((s) => ({ ...s, items: s.items.map((i) => (i.cost_type === "material" ? { ...i, tracked } : i)) })));
 
-  const possibleSubs = opportunity?.possible_subs ?? [];
+  const { data: possibleSubs = [] } = useQuery({
+    queryKey: possibleSubsKey(opportunity?.id ?? ""),
+    queryFn: () => listPossibleSubs(opportunity!.id),
+    enabled: !!opportunity?.id,
+  });
   const jobCategoryIdsLive = liveFeatures(features)
     .map((f) => f.category_id)
     .filter((c): c is string => !!c);
-  const subSuggestionsFor = (section: DraftSection) => {
-    if (possibleSubs.length === 0) return undefined;
+  const categoryName = (id: string) => jobCategories.find((c) => c.id === id)?.name ?? "";
+  // Each sub is suggested once (placeSubSuggestions): its first linked
+  // section in plan order, else General; gone once any line comes from it.
+  const subPlanSections: SubPlanSection[] = draft.map((section) => {
     const feature = section.feature_id ? features.find((f) => f.id === section.feature_id) : undefined;
-    const list = subsForSection(
-      possibleSubs,
-      {
-        categoryId: feature?.category_id ?? section.job_category_id ?? null,
-        isGeneral: section.is_general,
-        lineNames: section.items.map((i) => i.name.split(" — ")[0]),
-      },
-      jobCategoryIdsLive,
+    return {
+      id: section.id,
+      categoryId: feature?.category_id ?? section.job_category_id ?? null,
+      isGeneral: section.is_general,
+      lineNames: section.items.map((i) => i.name.split(" — ")[0]),
+      subIds: section.items.map((i) => i.possible_sub_id ?? null),
+    };
+  });
+  const subSuggestions = placeSubSuggestions(possibleSubs, subPlanSections, jobCategoryIdsLive);
+  const [addingSub, setAddingSub] = useState<SubSuggestion | null>(null);
+  const subLineName = (name: string, note: string | null) => (note ? `${name} — ${note}` : name);
+  /** Appends subcontractor lines (section id → lines) to the draft. */
+  const addSubLines = (lines: { sectionId: string; name: string; amount: number; subId: string }[]) =>
+    edit((d) =>
+      d.map((s) => {
+        const mine = lines.filter((l) => l.sectionId === s.id);
+        if (!mine.length) return s;
+        return {
+          ...s,
+          items: [...s.items, ...mine.map((l) => ({ ...blankDraftItem("subcontractor", l.name), unit_cost: l.amount, possible_sub_id: l.subId }))],
+        };
+      }),
     );
-    if (list.length === 0) return undefined;
+  const addSuggestedSub = (sectionId: string, sg: SubSuggestion) => {
+    if (sg.categoryIds.length > 1) return setAddingSub(sg);
+    addSubLines([{ sectionId, name: subLineName(sg.sub.label, sg.sub.note), amount: 0, subId: sg.sub.id }]);
+  };
+  const finishAddingSub = (choice: AddSubChoice) => {
+    const sg = addingSub;
+    setAddingSub(null);
+    if (!sg) return;
+    const { sub } = sg;
+    const general = subPlanSections.find((s) => s.isGeneral);
+    if (choice.mode === "one") {
+      if (!general) return;
+      const name = combinedLineName(sub.label, sg.categoryIds.map(categoryName).filter(Boolean));
+      addSubLines([{ sectionId: general.id, name: subLineName(name, sub.note), amount: choice.amount, subId: sub.id }]);
+      return;
+    }
+    addSubLines(
+      sg.categoryIds.flatMap((cid) => {
+        const target = sectionForCategory(subPlanSections, cid);
+        if (!target) return [];
+        // In General (the feature has no section) the line says which feature.
+        const name = target.isGeneral ? combinedLineName(sub.label, [categoryName(cid)]) : sub.label;
+        return [{ sectionId: target.id, name: subLineName(name, sub.note), amount: choice.amounts[cid] ?? 0, subId: sub.id }];
+      }),
+    );
+  };
+  const subSuggestionsFor = (section: DraftSection) => {
+    const list = subSuggestions.get(section.id);
+    if (!list?.length) return undefined;
     return (
       <div className="mx-4 mb-3 flex flex-wrap gap-2 rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2">
-        {list.map((sub) => (
-          <div key={sub.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        {list.map((sg) => (
+          <div key={sg.sub.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span className="text-muted-foreground">
-              Possible sub: <span className="font-semibold text-foreground">{sub.label}</span>
-              {sub.note ? <span className="text-muted-foreground"> — {sub.note}</span> : null}
+              Possible sub: <span className="font-semibold text-foreground">{sg.sub.label}</span>
+              {sg.sub.note ? <span className="text-muted-foreground"> — {sg.sub.note}</span> : null}
+              {sg.alsoCategoryIds.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {" "}
+                  · {section.is_general ? "For" : "Also for"}: {sg.alsoCategoryIds.map(categoryName).filter(Boolean).join(", ")}
+                </span>
+              )}
             </span>
-            <button
-              type="button"
-              onClick={() =>
-                edit((d) =>
-                  d.map((s) =>
-                    s.id === section.id
-                      ? { ...s, items: [...s.items, blankDraftItem("subcontractor", sub.note ? `${sub.label} — ${sub.note}` : sub.label)] }
-                      : s,
-                  ),
-                )
-              }
-              className="text-xs font-bold text-primary hover:underline"
-            >
+            <button type="button" onClick={() => addSuggestedSub(section.id, sg)} className="text-xs font-bold text-primary hover:underline">
               Add as subcontractor line
             </button>
           </div>
@@ -1712,6 +1760,12 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         />
       )}
 
+      <AddPossibleSubDialog
+        sub={addingSub?.sub ?? null}
+        features={(addingSub?.categoryIds ?? []).map((id) => ({ id, name: categoryName(id) }))}
+        onOpenChange={(open) => !open && setAddingSub(null)}
+        onAdd={finishAddingSub}
+      />
       <Dialog open={!!reviseTarget} onOpenChange={(open) => !open && setReviseTarget(null)}>
         <DialogContent className="max-w-sm gap-4">
           <DialogHeader>
