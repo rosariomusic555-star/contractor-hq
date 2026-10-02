@@ -4,11 +4,11 @@ import type { LineCostType } from "@/lib/costPlanMath";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Settings2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { listSmartSectionSettings } from "@/lib/api";
+import { listMaterialCategories, listSmartSectionSettings } from "@/lib/api";
 import {
   SMART_SECTION_TEMPLATES,
   findSmartSectionSettings,
-  startingLineItems,
+  templateStartingLines,
 } from "@/lib/smartSections";
 import { SmartSectionTemplateEditorDialog } from "./SmartSectionTemplateEditorDialog";
 
@@ -27,12 +27,12 @@ export function SmartSectionDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The template's lines (names + cost types, this contractor's version)
-   * and its labor default, if any. */
+  /** The template's lines (names, cost types, categories and descriptions,
+   * this contractor's version) and its labor default, if any. */
   onCreate: (
     buildTypeId: string,
     label: string,
-    lineItems: { name: string; cost_type: LineCostType }[],
+    lineItems: { name: string; cost_type: LineCostType; material_category_id: string | null; internal_description: string | null }[],
     labor: SmartSectionLaborDefault | null,
   ) => void;
 }) {
@@ -42,6 +42,7 @@ export function SmartSectionDialog({
     queryFn: listSmartSectionSettings,
     enabled: open,
   });
+  const { data: materialCategories = [] } = useQuery({ queryKey: ["material-categories"], queryFn: listMaterialCategories, enabled: open });
 
   return (
     <>
@@ -56,10 +57,7 @@ export function SmartSectionDialog({
               const settings = findSmartSectionSettings(allSettings, template.id);
               // Add-on lines (backsplash, backrest caps, strip lighting) are
               // added by the calculator only when they're measured.
-              const lineItems = startingLineItems(template, settings).map((li) => ({
-                name: li.name,
-                cost_type: li.cost_type ?? ("material" as const),
-              }));
+              const lineItems = templateStartingLines(template, settings, materialCategories);
               return (
                 <div
                   key={template.id}

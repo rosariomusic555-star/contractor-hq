@@ -160,12 +160,35 @@ describe("combineOrderLines", () => {
   });
 });
 
+describe("descriptions and missing colors (0162)", () => {
+  const item = (over: Record<string, unknown>) => ({
+    id: "i1", name: "Pavers", quantity: 10, unit: "sq ft", waste_percent: 0, category: null,
+    catalog_product_id: null, price_book_item_id: null, color: null, material_category_id: "m-pavers", ...over,
+  });
+  const colored = new Set(["m-pavers"]);
+  it("carries the description and flags a colored line with no color", () => {
+    const line = resolveOrderLine(item({ internal_description: " Running bond " }) as never, new Map(), new Map(), undefined, colored);
+    expect(line.description).toBe("Running bond");
+    expect(line.missingColor).toBe(true);
+    expect(resolveOrderLine(item({ color: "Charcoal" }) as never, new Map(), new Map(), undefined, colored).missingColor).toBe(false);
+    expect(resolveOrderLine(item({ material_category_id: "m-sand" }) as never, new Map(), new Map(), undefined, colored).missingColor).toBe(false);
+  });
+  it("combined lines keep each distinct description once", () => {
+    const a = resolveOrderLine(item({ id: "a", internal_description: "Pallet 1" }) as never, new Map(), new Map());
+    const b = resolveOrderLine(item({ id: "b", internal_description: "Pallet 1" }) as never, new Map(), new Map());
+    const c = resolveOrderLine(item({ id: "c", internal_description: "Pick up Tuesday" }) as never, new Map(), new Map());
+    const [combined] = combineOrderLines([a, b, c]);
+    expect(combined.quantity).toBe(30);
+    expect(combined.description).toBe("Pallet 1\nPick up Tuesday");
+  });
+});
+
 describe("groupByCategory", () => {
   it("sorts categories alphabetically with Other / Uncategorized always last", () => {
     const lines = [
-      { category: "Pavers", title: "A", detail: null, quantity: 1, unit: "ea" },
-      { category: UNCATEGORIZED_LABEL, title: "B", detail: null, quantity: 1, unit: "ea" },
-      { category: "Base Gravel", title: "C", detail: null, quantity: 1, unit: "ea" },
+      { category: "Pavers", title: "A", detail: null, quantity: 1, unit: "ea", description: null },
+      { category: UNCATEGORIZED_LABEL, title: "B", detail: null, quantity: 1, unit: "ea", description: null },
+      { category: "Base Gravel", title: "C", detail: null, quantity: 1, unit: "ea", description: null },
     ];
     expect(groupByCategory(lines).map((g) => g.category)).toEqual(["Base Gravel", "Pavers", UNCATEGORIZED_LABEL]);
   });

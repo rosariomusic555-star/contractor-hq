@@ -15,10 +15,12 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { listSmartSectionSettings, type ProductCatalogItem } from "@/lib/api";
+import { listMaterialCategories, listSmartSectionSettings, type ProductCatalogItem } from "@/lib/api";
 import {
   findSmartSectionSettings,
   resolveEffectiveLineItems,
+  resolveLineCategoryId,
+  resolveLineDescription,
   resolveTunableValue,
   type SmartSectionTemplate,
   type SmartSectionQuestion,
@@ -104,6 +106,7 @@ export function SmartSectionCalculatorDialog({
     enabled: open,
   });
   const settings = findSmartSectionSettings(allSettings, template.id);
+  const { data: materialCategories = [] } = useQuery({ queryKey: ["material-categories"], queryFn: listMaterialCategories, enabled: open });
 
   useEffect(() => {
     if (!open) return;
@@ -160,6 +163,9 @@ export function SmartSectionCalculatorDialog({
         name: lineItem.name,
         quantity: qty,
         unit: raw.unit,
+        // The template line's category / description (0162).
+        materialCategoryId: resolveLineCategoryId(template, { slot_key: raw.slotKey, ...lineItem }, materialCategories),
+        description: resolveLineDescription(template, { slot_key: raw.slotKey, ...lineItem }),
         ...(raw.wastePercent != null ? { wastePercent: raw.wastePercent } : {}),
         catalogProduct: raw.catalogProduct,
         ...(addOnSlot && qty > 0 ? { addIfMissing: true } : {}),

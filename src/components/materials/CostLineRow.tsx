@@ -16,6 +16,8 @@ export interface CostLineDraft {
   unit: string;
   vendor: string;
   cost_type: LineCostType;
+  /** 0162 — optional description (specs, notes). Internal. */
+  internal_description: string;
 }
 
 const LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
@@ -95,7 +97,7 @@ export function CostLineRow({
 
       <div className="grid gap-3 sm:grid-cols-[1fr_14rem]">
         <label className="block">
-          <div className={LABEL}>Description</div>
+          <div className={LABEL}>Item</div>
           <AutoGrowTextarea
             value={item.name}
             onChange={(e) => onEdit({ name: e.target.value })}
@@ -108,6 +110,15 @@ export function CostLineRow({
           <SupplierCombobox value={item.vendor} onChange={(vendor) => onEdit({ vendor })} placeholder="Pick or add…" className="mt-1" />
         </div>
       </div>
+
+      {/* Description (0162) — optional specs / notes; internal. */}
+      <AutoGrowTextarea
+        value={item.internal_description}
+        onChange={(e) => onEdit({ internal_description: e.target.value })}
+        placeholder="Description (optional) — scope, notes for the sub"
+        aria-label="Description"
+        className="-mt-1 min-h-[38px] rounded-xl bg-muted/60 px-3 py-2 text-sm text-foreground"
+      />
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex rounded-lg bg-muted p-0.5 text-xs font-semibold" role="radiogroup" aria-label="Pricing">

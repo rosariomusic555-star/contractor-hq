@@ -41,6 +41,10 @@ export interface ConfigLine {
   name: string;
   cost_type: LineCostType;
   formula?: LineFormula | null;
+  /** 0162 — a material line's default category (null/absent = none). */
+  material_category_id?: string | null;
+  /** 0162 — the line's default description. */
+  description?: string | null;
 }
 
 export interface ConfigTunable {
@@ -257,7 +261,12 @@ export function smartTemplateFromConfig(config: TypeConfig, label: string): Smar
   return {
     id: configBuildType(config.category_id),
     label,
-    lineItemSlots: config.line_items.map((l) => ({ key: l.id, defaultName: l.name })),
+    lineItemSlots: config.line_items.map((l) => ({
+      key: l.id,
+      defaultName: l.name,
+      defaultCategoryId: l.cost_type === "material" ? (l.material_category_id ?? null) : null,
+      defaultDescription: l.description ?? null,
+    })),
     slotCostTypes: Object.fromEntries(
       config.line_items.filter((l) => l.cost_type !== "material").map((l) => [l.id, l.cost_type]),
     ) as SmartSectionTemplate["slotCostTypes"],

@@ -112,6 +112,8 @@ export function OrderSheetDialog({
   const [supplier, setSupplier] = useState("");
   const [dateNeeded, setDateNeeded] = useState("");
   const [notes, setNotes] = useState("");
+  // 0162 — print line descriptions (on by default).
+  const [includeDescriptions, setIncludeDescriptions] = useState(true);
   const [pendingLines, setPendingLines] = useState<ResolvedOrderLine[]>([]);
 
   const catalogById = useMemo(() => new Map(catalogItems.map((c) => [c.id, c])), [catalogItems]);
@@ -120,6 +122,8 @@ export function OrderSheetDialog({
     () => new Map(materialCategories.map((c) => [c.id, c.name])),
     [materialCategories],
   );
+  // Categories that ask for a color (0162).
+  const colorCategoryIds = useMemo(() => new Set(materialCategories.filter((c) => c.needs_color).map((c) => c.id)), [materialCategories]);
   const priceBookById = useMemo(() => new Map(priceBookItems.map((p) => [p.id, p])), [priceBookItems]);
 
   const flatItems: FlatItem[] = useMemo(
@@ -210,8 +214,13 @@ export function OrderSheetDialog({
   };
 
   const selectedLines = () =>
-    flatItems.filter((f) => selectedIds.has(f.item.id)).map((f) => resolveOrderLine(f.item, catalogById, priceBookById, materialCategoryNameById));
+    flatItems
+      .filter((f) => selectedIds.has(f.item.id))
+      .map((f) => resolveOrderLine(f.item, catalogById, priceBookById, materialCategoryNameById, colorCategoryIds));
+  const missingColorCount = selectedLines().filter((l) => l.missingColor).length;
   const sheetHeader = () => ({
+    includeDescriptions,
+    missingColorCount,
     companyName: businessProfile?.company_name ?? null,
     projectName: jobName.trim() || projectName,
     deliveryAddress: address.trim() || null,
@@ -406,6 +415,15 @@ export function OrderSheetDialog({
                     placeholder="e.g. Call before delivery, drop in driveway"
                   />
                 </div>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox checked={includeDescriptions} onCheckedChange={(v) => setIncludeDescriptions(v === true)} />
+                  Include descriptions
+                </label>
+                {missingColorCount > 0 && (
+                  <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs font-semibold text-warning-strong">
+                    {pluralize(missingColorCount, "item")} missing a color — the sheet will flag it. Add colors in the Cost plan first if you can.
+                  </p>
+                )}
               </div>
             </div>
 

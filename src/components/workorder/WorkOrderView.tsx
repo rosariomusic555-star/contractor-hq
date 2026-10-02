@@ -611,8 +611,14 @@ function MaterialsList({ wo, canLog }: { wo: CrewWorkOrder; canLog: boolean }) {
   // A 0-quantity line (a calculator slot that didn't apply) is nothing to bring.
   for (const m of wo.materials.filter((x) => Number(x.planned_quantity ?? x.quantity) > 0)) groups.set(label(m), [...(groups.get(label(m)) ?? []), m]);
   const [logging, setLogging] = useState<CrewMaterial | null>(null);
+  const missingColors = wo.materials.filter((x) => x.missing_color && Number(x.planned_quantity ?? x.quantity) > 0).length;
   return (
     <div className="space-y-4">
+      {missingColors > 0 && (
+        <p className="rounded-xl bg-warning/10 px-3 py-2 text-sm font-semibold text-warning-strong">
+          {missingColors} {missingColors === 1 ? "material is" : "materials are"} missing a color — check with the office before ordering or laying.
+        </p>
+      )}
       {[...groups.entries()].map(([g, lines]) => (
         <div key={g}>
           <p className="mb-1 text-sm font-bold text-foreground">{g}</p>
@@ -624,6 +630,9 @@ function MaterialsList({ wo, canLog }: { wo: CrewWorkOrder; canLog: boolean }) {
                   <span className="min-w-0">
                     <span className="block text-base font-semibold text-foreground">{m.name}</span>
                     {(m.color || m.product) && <span className="block text-sm text-muted-foreground">{[m.color, m.product].filter(Boolean).join(" · ")}</span>}
+                    {/* 0162: the line's description, and a missing color. */}
+                    {m.description && <span className="block whitespace-pre-line text-sm text-foreground/80">{m.description}</span>}
+                    {m.missing_color && <span className="block text-sm font-semibold text-warning-strong">Color not set — check with the office</span>}
                     <span className="block text-sm text-foreground">
                       {fmtQty(s.planned)} {m.unit ?? ""}
                       {m.waste_percent ? <span className="text-muted-subtle"> (incl. {fmtQty(Number(m.waste_percent))}% waste)</span> : null}

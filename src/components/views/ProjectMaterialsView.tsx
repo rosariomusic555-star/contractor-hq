@@ -69,6 +69,7 @@ import {
   listProjectFeatures,
   listPendingCostChanges,
   listPossibleSubs,
+  listUsedColors,
   getOverheadSettings,
   pendingSelectionsCost,
   pickHeadlineQuote,
@@ -139,7 +140,7 @@ import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
 import { OrderSheetDialog } from "@/components/materials/OrderSheetDialog";
 import { MaterialsLinePicker } from "@/components/common/MaterialsLinePicker";
-import { findSmartSectionTemplate, type CalculatedLine } from "@/lib/smartSections";
+import { findSmartSectionSettings, findSmartSectionTemplate, resolveEffectiveLineItems, resolveLineCategoryId, type CalculatedLine } from "@/lib/smartSections";
 import { nextOrderableQuantity } from "@/lib/catalogOrdering";
 import {
   MATERIAL_UNITS,
@@ -262,6 +263,9 @@ interface DraftItem {
   overhead_warning_dismissed?: boolean;
   /** 0160 — added from this possible sub. Written on create only. */
   possible_sub_id?: string | null;
+  /** 0162 — optional description (specs, notes). Internal: crew + order
+   * sheet, never clients. Empty string = none. */
+  internal_description: string;
 }
 interface DraftSection extends LaborDraft {
   id: string;
@@ -318,6 +322,7 @@ const blankDraftItem = (cost_type: LineCostType = "material", name = ""): DraftI
   rememberPrice: false,
   cost_type,
   vendor: "",
+  internal_description: "",
 });
 
 const blankDraftSection = (name: string, extra: Partial<DraftSection> = {}): DraftSection => ({
@@ -342,7 +347,7 @@ const draftSectionFromSeed = (
     job_category_id: string | null;
     feature_id?: string | null;
     smart_section_build_type: string | null;
-    items: { name: string; cost_type: LineCostType }[];
+    items: { name: string; cost_type: LineCostType; material_category_id?: string | null; internal_description?: string | null }[];
     labor?: { crew_size: number | null; days: number | null } | null;
   },
   laborRate: number,
@@ -351,7 +356,12 @@ const draftSectionFromSeed = (
     smart_section_build_type: seed.smart_section_build_type,
     job_category_id: seed.job_category_id,
     feature_id: seed.feature_id ?? null,
-    items: seed.items.map((i) => blankDraftItem(i.cost_type, i.name)),
+    // Template lines come in with their category and description (0162).
+    items: seed.items.map((i) => ({
+      ...blankDraftItem(i.cost_type, i.name),
+      material_category_id: i.cost_type === "material" ? (i.material_category_id ?? null) : null,
+      internal_description: i.internal_description ?? "",
+    })),
     ...(seed.labor && (seed.labor.crew_size || seed.labor.days)
       ? {
           labor_mode: "crew" as const,
@@ -429,6 +439,7 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       vendor: i.vendor ?? "",
       overhead_warning_dismissed: i.overhead_warning_dismissed ?? false,
       possible_sub_id: i.possible_sub_id ?? null,
+      internal_description: i.internal_description ?? "",
     })),
   })));
 
@@ -449,6 +460,7 @@ const itemChanged = (
     tracked: boolean;
     cost_type: LineCostType;
     vendor: string;
+    internal_description: string;
   },
 ) =>
   a.name !== b.name ||
@@ -464,7 +476,8 @@ const itemChanged = (
   a.color !== b.color ||
   a.tracked !== b.tracked ||
   a.cost_type !== b.cost_type ||
-  a.vendor !== b.vendor;
+  a.vendor !== b.vendor ||
+  a.internal_description !== b.internal_description;
 
 /**
  * Route entry for /projects/:id/materials — the project's one Cost plan
@@ -561,7 +574,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const laborRate = businessProfile?.default_labor_rate ?? 45;
   // Material categories (0094) — the line items' one category list.
-  const { data: materialCategories = [] } = useQuery({
+  const { data: materialCategories = [], isSuccess: materialCategoriesLoaded } = useQuery({
     queryKey: ["material-categories"],
     queryFn: listMaterialCategories,
   });
@@ -975,7 +988,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const addSmartSection = (
     buildTypeId: string,
     name: string,
-    lineItems: { name: string; cost_type: LineCostType }[],
+    lineItems: { name: string; cost_type: LineCostType; material_category_id?: string | null; internal_description?: string | null }[],
     labor: { crew_size: number | null; days: number | null } | null,
   ) =>
     edit((d) => [
@@ -1005,12 +1018,12 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // before 0105), once. Discard empties it; Save creates the plan.
   const prefilled = useRef(false);
   useEffect(() => {
-    if (sheetId || prefilled.current || dirty.current || !project || !smartSettingsLoaded || !featuresLoaded || jobCategories.length === 0)
+    if (sheetId || prefilled.current || dirty.current || !project || !smartSettingsLoaded || !featuresLoaded || !materialCategoriesLoaded || jobCategories.length === 0)
       return;
     prefilled.current = true;
     const seeds = hasFeatures
-      ? featureSeeds(groupByType(liveFeatures(features), (f) => f.category_id), jobCategories, smartSettings)
-      : featureSectionSeeds(projectTypeIds, jobCategories, smartSettings);
+      ? featureSeeds(groupByType(liveFeatures(features), (f) => f.category_id), jobCategories, smartSettings, materialCategories)
+      : featureSectionSeeds(projectTypeIds, jobCategories, smartSettings, materialCategories);
     if (seeds.length > 0) {
       edit(() =>
         seeds.map((sd) => ({
@@ -1020,7 +1033,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetId, project, smartSettingsLoaded, featuresLoaded, jobCategories]);
+  }, [sheetId, project, smartSettingsLoaded, featuresLoaded, materialCategoriesLoaded, jobCategories]);
 
   // One section per feature, automatically: a feature added since the plan
   // was made (Project types, "+ Add another" on measurements…) gets its
@@ -1059,7 +1072,12 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         // section doesn't have a line for yet get one.
         const missing = lines
           .filter((l) => l.addIfMissing && !s.items.some((item) => item.name === l.name))
-          .map((l) => blankDraftItem("material", l.name));
+          .map((l) => ({
+            ...blankDraftItem("material", l.name),
+            // From the template (0162).
+            material_category_id: l.materialCategoryId ?? null,
+            internal_description: l.description ?? "",
+          }));
         return {
           ...s,
           items: [...s.items, ...missing].map((item) => {
@@ -1069,6 +1087,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               quantity: line.quantity,
               unit: normalizeMaterialUnit(line.unit),
               ...(line.wastePercent != null ? { waste_percent: line.wastePercent } : {}),
+              // The template's category, only while the line has none (0162).
+              ...(item.material_category_id == null && line.materialCategoryId ? { material_category_id: line.materialCategoryId } : {}),
             };
             if (line.catalogProduct !== undefined) {
               const product = line.catalogProduct;
@@ -1090,6 +1110,32 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
             return { ...item, ...patch };
           }),
         };
+      }),
+    );
+  // Colors used before, by item name — suggestions for typed lines (0162).
+  const { data: usedColors = new Map<string, string[]>() } = useQuery({ queryKey: ["used-colors"], queryFn: listUsedColors });
+  // "Fill missing categories" on a template section made before 0162: each
+  // uncategorized material line whose name is one of the template's gets
+  // that line's category. Lines that already have one are left alone.
+  const templateCategoryFills = (section: DraftSection): Map<string, string> => {
+    const out = new Map<string, string>();
+    const template = findSmartSectionTemplate(section.smart_section_build_type);
+    if (!template) return out;
+    const lines = resolveEffectiveLineItems(template, findSmartSectionSettings(smartSettings, template.id));
+    for (const item of section.items) {
+      if (item.cost_type !== "material" || item.material_category_id) continue;
+      const li = lines.find((l) => l.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+      const id = li ? resolveLineCategoryId(template, li, materialCategories) : null;
+      if (id) out.set(item.id, id);
+    }
+    return out;
+  };
+  const fillCategoriesFromTemplate = (sid: string) =>
+    edit((d) =>
+      d.map((s) => {
+        if (s.id !== sid) return s;
+        const fills = templateCategoryFills(s);
+        return { ...s, items: s.items.map((i) => (fills.has(i.id) ? { ...i, material_category_id: fills.get(i.id)! } : i)) };
       }),
     );
   // A new line of the given type — lands at the end of its type's group.
@@ -1234,6 +1280,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               cost_type: di.cost_type,
               vendor: di.vendor.trim() || null,
               possible_sub_id: di.possible_sub_id ?? null,
+              internal_description: di.internal_description.trim() || null,
             });
             createdIds.current.set(di.id, createdItem.id);
           } else if (
@@ -1252,6 +1299,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               tracked: srv.tracked ?? true,
               cost_type: srv.cost_type ?? "material",
               vendor: srv.vendor ?? "",
+              internal_description: srv.internal_description ?? "",
             }) ||
             srv.sort_order !== ii
           ) {
@@ -1270,6 +1318,9 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               tracked: di.tracked,
               cost_type: di.cost_type,
               vendor: di.vendor.trim() || null,
+              ...(di.internal_description.trim() !== (srv.internal_description ?? "").trim()
+                ? { internal_description: di.internal_description.trim() || null }
+                : {}),
               sort_order: ii,
             });
           }
@@ -1467,6 +1518,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         onToggleCollapse={() => toggleCollapse(section.id)}
                         itemCollapse={itemCollapse}
                         dirtyItemIds={dirtyItemIds}
+                        usedColors={usedColors}
+                        onFillCategories={templateCategoryFills(section).size > 0 ? () => fillCategoriesFromTemplate(section.id) : undefined}
                         isDraggingItem={isDraggingItem}
                         onAutoExpand={() => expandSection(section.id)}
                         proposedLabel={
@@ -1954,6 +2007,10 @@ interface SectionCardProps {
   itemCollapse: ReturnType<typeof useItemCollapse>;
   /** New / edited lines — a dot on their compact row. */
   dirtyItemIds: Set<string>;
+  /** Colors used before, by lower-cased item name (0162). */
+  usedColors: Map<string, string[]>;
+  /** "Fill missing categories" from the template, when any line can be filled. */
+  onFillCategories?: () => void;
   isDraggingItem: boolean;
   onAutoExpand: () => void;
 }
@@ -1994,6 +2051,8 @@ function MaterialsSectionCard({
   onToggleCollapse,
   itemCollapse,
   dirtyItemIds,
+  usedColors,
+  onFillCategories,
   isDraggingItem,
   onAutoExpand,
   proposedLabel,
@@ -2024,6 +2083,10 @@ function MaterialsSectionCard({
   const itemsCollapsed = itemCollapse.mostlyCollapsed(itemIds);
   const allItemsCollapsed = itemCollapse.allCollapsed(itemIds);
   const toggleAllItems = () => (itemsCollapsed ? itemCollapse.expand(itemIds) : itemCollapse.collapse(itemIds));
+  // Categories that ask for a color (0162).
+  const colorCategoryIds = new Set(materialCategories.filter((c) => c.needs_color).map((c) => c.id));
+  const needsColor = (i: DraftItem) => i.cost_type === "material" && !!i.material_category_id && colorCategoryIds.has(i.material_category_id);
+  const firstLine = (t: string) => t.split("\n").find((l) => l.trim())?.trim() ?? "";
   const groupSubtotal = (type: LineCostType) => displayItems.filter((i) => i.cost_type === type).reduce((sum, i) => sum + lineCost(i), 0);
 
   return (
@@ -2086,6 +2149,7 @@ function MaterialsSectionCard({
             <ItemsCollapseToggle collapsed={itemsCollapsed} onToggle={toggleAllItems} count={section.items.length} />
             {buildType && <SectionToolbarAction icon={Calculator} label="Calculate quantities" onClick={() => setCalculatorOpen(true)} />}
             {onViewHistory && <SectionToolbarAction icon={History} label="View history" onClick={onViewHistory} />}
+            {onFillCategories && <SectionToolbarAction icon={Wand2} label="Fill missing categories" onClick={onFillCategories} />}
             {offerFillFromMeasurements && (
               <SectionToolbarAction icon={Calculator} label="Fill quantities" measurements onClick={() => setCalculatorOpen(true)} />
             )}
@@ -2160,7 +2224,12 @@ function MaterialsSectionCard({
                       compact={
                         <CompactLineRow
                           name={item.name}
-                          detail={item.cost_type === "material" ? item.color : item.vendor}
+                          detail={[item.cost_type === "material" ? item.color.trim() : item.vendor.trim(), firstLine(item.internal_description)].filter(Boolean).join(" · ") || null}
+                          tag={
+                            needsColor(item) && !item.color.trim() ? (
+                              <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold text-warning-strong">Add color</span>
+                            ) : undefined
+                          }
                           quantity={item.quantity}
                           unit={item.unit}
                           total={lineCost(item)}
@@ -2190,6 +2259,9 @@ function MaterialsSectionCard({
                     ) : (
                     <ItemRow
                       item={item}
+                      needsColor={needsColor(item)}
+                      colorSuggestions={usedColors.get(item.name.trim().toLowerCase()) ?? []}
+                      promptCategory={!!section.smart_section_build_type}
                       materialCategories={materialCategories}
                       expenseCategories={expenseCategories}
                       priceBookItems={priceBookItems}
@@ -2305,6 +2377,14 @@ const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-mu
 
 interface ItemRowProps {
   item: DraftItem;
+  /** The line's category asks for a color (0162) — the Color field shows
+   * even without a Catalog product. */
+  needsColor: boolean;
+  /** Colors used before for this item name — suggestions for a typed /
+   * Price Book line's color. */
+  colorSuggestions: string[];
+  /** A template section's line with no category — "Choose category". */
+  promptCategory: boolean;
   materialCategories: MaterialCategory[];
   /** Only for the Price Book picker's labels. */
   expenseCategories: ExpenseCategory[];
@@ -2324,6 +2404,9 @@ interface ItemRowProps {
 
 function ItemRow({
   item,
+  needsColor,
+  colorSuggestions,
+  promptCategory,
   materialCategories,
   expenseCategories,
   priceBookItems,
@@ -2436,9 +2519,10 @@ function ItemRow({
               // column layout it would pin the height and clip wrapped names.
               className="min-w-0 rounded-xl bg-muted px-3 py-2 text-[15px] font-semibold hover:border-input focus-visible:border-primary sm:flex-1"
             />
-            {/* Color — once a Catalog product is picked. Its color list, or
-                a typed custom color when there's none / it isn't listed. */}
-            {catalogLinked && (
+            {/* Color — a Catalog product's color list (or a typed custom
+                color), and on any line whose category asks for one (0162):
+                free text with the colors used before for this item name. */}
+            {catalogLinked ? (
               <OptionOrCustomField
                 value={item.color}
                 onChange={(color) => onEdit({ color })}
@@ -2447,9 +2531,27 @@ function ItemRow({
                 customPlaceholder="Type a color"
                 otherLabel="Other color…"
                 ariaLabel="Color"
-                className="sm:w-44"
+                className={cn("sm:w-44", needsColor && !item.color.trim() && "ring-1 ring-warning/60")}
               />
-            )}
+            ) : (needsColor || item.color.trim()) ? (
+              <>
+                <Input
+                  value={item.color}
+                  onChange={(e) => onEdit({ color: e.target.value })}
+                  list={colorSuggestions.length ? `colors-${item.id}` : undefined}
+                  placeholder="Color"
+                  aria-label="Color"
+                  className={cn("h-[42px] sm:w-44", needsColor && !item.color.trim() && "ring-1 ring-warning/60")}
+                />
+                {colorSuggestions.length > 0 && (
+                  <datalist id={`colors-${item.id}`}>
+                    {colorSuggestions.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                )}
+              </>
+            ) : null}
           </div>
           <button
             type="button"
@@ -2509,6 +2611,23 @@ function ItemRow({
           </div>
       </div>
 
+      {/* Description (0162) — optional specs / notes; internal (crew and
+          order sheet, never clients). */}
+      <div className="-mt-1.5 space-y-1">
+        <AutoGrowTextarea
+          value={item.internal_description}
+          onChange={(e) => onEdit({ internal_description: e.target.value })}
+          placeholder="Description (optional) — e.g. Running bond, 90° herringbone border"
+          aria-label="Description"
+          className="min-h-[38px] rounded-xl bg-muted/60 px-3 py-2 text-sm text-foreground"
+        />
+        {needsColor && !item.color.trim() && (
+          <p className="flex items-center gap-1 text-xs font-semibold text-warning-strong">
+            <span className="h-1.5 w-1.5 rounded-full bg-warning" /> Add color — this category asks for one
+          </p>
+        )}
+      </div>
+
       {/* Category (0094) — the line's one category, from Settings >
           Material categories. Prefilled from the Catalog/Price Book source
           at pick time, always editable. Groups the Order Sheet. (The old
@@ -2531,6 +2650,9 @@ function ItemRow({
             ))}
           </SelectContent>
         </Select>
+        {promptCategory && !item.material_category_id && (
+          <p className="mt-1 text-xs font-semibold text-warning-strong">Choose category</p>
+        )}
       </div>
 
       {/* Qty · Unit · Waste % · Unit cost · Total — two-up on mobile, five-up from sm. */}

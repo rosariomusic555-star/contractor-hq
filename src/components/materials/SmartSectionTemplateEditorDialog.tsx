@@ -22,6 +22,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
+  listMaterialCategories,
   listSmartSectionSettings,
   saveSmartSectionSettings,
   resetSmartSectionSettings,
@@ -31,7 +32,9 @@ import { COST_TYPE_LABEL, LINE_COST_TYPES, type LineCostType } from "@/lib/costP
 import {
   findSmartSectionTemplate,
   findSmartSectionSettings,
+  lineCategoryMissing,
   resolveEffectiveLineItems,
+  resolveLineCategoryId,
   resolveTunableValue,
 } from "@/lib/smartSections";
 
@@ -62,6 +65,7 @@ export function SmartSectionTemplateEditorDialog({
     enabled: open,
   });
   const settings = template ? findSmartSectionSettings(allSettings, template.id) : null;
+  const { data: materialCategories = [] } = useQuery({ queryKey: ["material-categories"], queryFn: listMaterialCategories, enabled: open });
 
   // _k: a stable key per row for drag-and-drop (never saved).
   type Row = SmartSectionLineItemSetting & { _k: string };
@@ -90,7 +94,9 @@ export function SmartSectionTemplateEditorDialog({
   const saveMut = useMutation({
     mutationFn: () =>
       saveSmartSectionSettings(buildTypeId, {
-        line_items: lineItems.filter((li) => li.name.trim() !== "").map(({ _k, ...li }) => li),
+        line_items: lineItems
+          .filter((li) => li.name.trim() !== "")
+          .map(({ _k, ...li }) => (li.description !== undefined ? { ...li, description: li.description.trim() || null } : li)),
         // Only real numbers are saved; a cleared field goes back to the default.
         tunables: Object.fromEntries(
           Object.entries(tunables).filter((e): e is [string, number] => typeof e[1] === "number" && Number.isFinite(e[1])),
@@ -132,8 +138,19 @@ export function SmartSectionTemplateEditorDialog({
     setLineItems((items) => items.map((li, i) => (i === index ? { ...li, name } : li)));
   const setLineItemType = (index: number, cost_type: LineCostType) =>
     setLineItems((items) =>
-      items.map((li, i) => (i === index ? (cost_type === "material" ? { _k: li._k, slot_key: li.slot_key, name: li.name } : { ...li, cost_type }) : li)),
+      items.map((li, i) => {
+        if (i !== index) return li;
+        // Material = no cost_type key; a non-material line has no category.
+        const { cost_type: _old, ...rest } = li;
+        return cost_type === "material" ? rest : { ...rest, cost_type, material_category_id: null };
+      }),
     );
+  // 0162 — the line's default category / description. Choosing one stores
+  // it; until then the row shows the template's default.
+  const setLineItemCategory = (index: number, material_category_id: string | null) =>
+    setLineItems((items) => items.map((li, i) => (i === index ? { ...li, material_category_id } : li)));
+  const setLineItemDescription = (index: number, description: string) =>
+    setLineItems((items) => items.map((li, i) => (i === index ? { ...li, description } : li)));
   const removeLineItem = (index: number) => setLineItems((items) => items.filter((_, i) => i !== index));
   const addLineItem = () => setLineItems((items) => [...items, { _k: rowKey(), slot_key: null, name: "" }]);
   const onDragEnd = (r: DropResult) => {
@@ -178,8 +195,9 @@ export function SmartSectionTemplateEditorDialog({
                           <div
                             ref={drag.innerRef}
                             {...drag.draggableProps}
-                            className={cn("flex items-center gap-1.5 rounded-lg bg-background", snap.isDragging && "shadow-lg")}
+                            className={cn("space-y-1.5 rounded-lg border border-hairline bg-background p-2", snap.isDragging && "shadow-lg")}
                           >
+                  <div className="flex items-center gap-1.5">
                   <Input
                     value={li.name}
                     onChange={(e) => renameLineItem(i, e.target.value)}
@@ -221,6 +239,40 @@ export function SmartSectionTemplateEditorDialog({
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
+                  </div>
+                  {/* 0162 — default category (materials) and description. */}
+                  <div className="flex flex-col gap-1.5 sm:flex-row">
+                    {(li.cost_type ?? "material") === "material" && (
+                      <div className="sm:w-48 sm:shrink-0">
+                        <Select
+                          value={resolveLineCategoryId(template, li, materialCategories) ?? "__none__"}
+                          onValueChange={(v) => setLineItemCategory(i, v === "__none__" ? null : v)}
+                        >
+                          <SelectTrigger aria-label="Default category" className="h-9 text-xs">
+                            <SelectValue placeholder="Uncategorized" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Uncategorized</SelectItem>
+                            {materialCategories.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {lineCategoryMissing(template, li, materialCategories) && (
+                          <p className="mt-0.5 text-[11px] font-semibold text-warning-strong">Category was deleted — choose category</p>
+                        )}
+                      </div>
+                    )}
+                    <Input
+                      value={li.description ?? ""}
+                      onChange={(e) => setLineItemDescription(i, e.target.value)}
+                      placeholder="Default description (optional)"
+                      aria-label="Default description"
+                      className="h-9 min-w-0 flex-1 text-xs"
+                    />
+                  </div>
                           </div>
                         )}
                       </Draggable>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { deleteTypeConfig, saveTypeConfig, type Category } from "@/lib/api";
+import { deleteTypeConfig, listMaterialCategories, saveTypeConfig, type Category } from "@/lib/api";
 import { COST_TYPE_LABEL, LINE_COST_TYPES, type LineCostType } from "@/lib/costPlanMath";
 import {
   FIELD_KINDS,
@@ -74,6 +74,7 @@ export function TypeSetupDialog({
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { data: materialCategories = [] } = useQuery({ queryKey: ["material-categories"], queryFn: listMaterialCategories, enabled: open });
   const [draft, setDraft] = useState<TypeConfig>(existing ?? emptyTypeConfig(category.id));
   const [tab, setTab] = useState("measurements");
   useEffect(() => {
@@ -277,9 +278,13 @@ export function TypeSetupDialog({
             <TabsContent value="lines" className={cn(SECTION, "mt-0")}>
               <p className="text-xs text-muted-foreground">The lines a new Cost plan section for this type starts with.</p>
               {draft.line_items.map((l, i) => (
-                <div key={l.id} className="flex flex-wrap items-center gap-2">
+                <div key={l.id} className="space-y-1.5 rounded-lg border border-hairline p-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Input value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} placeholder="Line name, e.g. Mulch" aria-label="Line name" className="h-9 min-w-[10rem] flex-1" />
-                  <Select value={l.cost_type} onValueChange={(v) => setLine(i, { cost_type: v as LineCostType })}>
+                  <Select
+                    value={l.cost_type}
+                    onValueChange={(v) => setLine(i, v === "material" ? { cost_type: "material" } : { cost_type: v as LineCostType, material_category_id: null })}
+                  >
                     <SelectTrigger className="h-9 w-36" aria-label="Line type">
                       <SelectValue />
                     </SelectTrigger>
@@ -300,6 +305,40 @@ export function TypeSetupDialog({
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
+                </div>
+                {/* 0162 — the line's default category (materials) and description. */}
+                <div className="flex flex-col gap-1.5 sm:flex-row">
+                  {l.cost_type === "material" && (
+                    <div className="sm:w-48 sm:shrink-0">
+                      <Select
+                        value={l.material_category_id && materialCategories.some((c) => c.id === l.material_category_id) ? l.material_category_id : "__none__"}
+                        onValueChange={(v) => setLine(i, { material_category_id: v === "__none__" ? null : v })}
+                      >
+                        <SelectTrigger className="h-9 text-xs" aria-label="Default category">
+                          <SelectValue placeholder="Uncategorized" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Uncategorized</SelectItem>
+                          {materialCategories.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {l.material_category_id && materialCategories.length > 0 && !materialCategories.some((c) => c.id === l.material_category_id) && (
+                        <p className="mt-0.5 text-[11px] font-semibold text-warning-strong">Category was deleted — choose category</p>
+                      )}
+                    </div>
+                  )}
+                  <Input
+                    value={l.description ?? ""}
+                    onChange={(e) => setLine(i, { description: e.target.value || null })}
+                    placeholder="Default description (optional)"
+                    aria-label="Default description"
+                    className="h-9 min-w-0 flex-1 text-xs"
+                  />
+                </div>
                 </div>
               ))}
               <Button variant="outline" size="sm" onClick={() => set({ line_items: [...draft.line_items, { id: newId(), name: "", cost_type: "material", formula: null }] })}>

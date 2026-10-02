@@ -77,6 +77,10 @@ export interface ResolvedOrderLine {
    * wasteAdjustedOrderQuantity() (catalogOrdering.ts). */
   quantity: number;
   unit: string;
+  /** The line's description (0162) — specs / notes for the supplier. */
+  description: string | null;
+  /** Its category asks for a color and it has none (0162). */
+  missingColor: boolean;
   /** The combining key for the PDF's display-only merge — same product +
    * same unit, never combining different colors/sizes/manual lines that
    * merely share a name. */
@@ -90,10 +94,12 @@ export function resolveOrderLine(
   item: Pick<
     MaterialsItem,
     "id" | "name" | "quantity" | "unit" | "waste_percent" | "category" | "catalog_product_id" | "price_book_item_id" | "color" | "material_category_id"
-  >,
+  > & { internal_description?: string | null },
   catalogById: Map<string, ProductCatalogItem>,
   priceBookById: Map<string, PriceBookItem>,
   materialCategoryNameById?: Map<string, string>,
+  /** Categories that ask for a color (0162). */
+  colorCategoryIds?: Set<string>,
 ): ResolvedOrderLine {
   const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
   const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
@@ -129,7 +135,10 @@ export function resolveOrderLine(
       ? `pricebook:${item.price_book_item_id}:${color ?? ""}:${unit}`
       : `name:${title.trim().toLowerCase()}:${unit}`;
 
-  return { materialsItemId: item.id, category, title, detail, quantity, unit, groupKey };
+  const description = item.internal_description?.trim() || null;
+  const missingColor = !color && !!item.material_category_id && !!colorCategoryIds?.has(item.material_category_id);
+
+  return { materialsItemId: item.id, category, title, detail, quantity, unit, description, missingColor, groupKey };
 }
 
 export interface OrderSheetPdfLine {
@@ -138,6 +147,8 @@ export interface OrderSheetPdfLine {
   detail: string | null;
   quantity: number;
   unit: string;
+  /** Descriptions of the combined lines, de-duplicated (0162). */
+  description: string | null;
 }
 
 /** Same product + same unit sums into one line for the PDF — never
@@ -147,8 +158,21 @@ export function combineOrderLines(lines: ResolvedOrderLine[]): OrderSheetPdfLine
   const byKey = new Map<string, OrderSheetPdfLine>();
   for (const line of lines) {
     const existing = byKey.get(line.groupKey);
-    if (existing) existing.quantity += line.quantity;
-    else byKey.set(line.groupKey, { category: line.category, title: line.title, detail: line.detail, quantity: line.quantity, unit: line.unit });
+    if (existing) {
+      existing.quantity += line.quantity;
+      if (line.description && !existing.description?.split("\n").includes(line.description)) {
+        existing.description = existing.description ? `${existing.description}\n${line.description}` : line.description;
+      }
+    } else {
+      byKey.set(line.groupKey, {
+        category: line.category,
+        title: line.title,
+        detail: line.detail,
+        quantity: line.quantity,
+        unit: line.unit,
+        description: line.description,
+      });
+    }
   }
   return [...byKey.values()];
 }
