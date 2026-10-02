@@ -7,6 +7,7 @@ import { fireplaceTemplate } from "./fireplace";
 import { outdoorLightingTemplate } from "./outdoorLighting";
 import { irrigationTemplate, pergolaTemplate, plantsTemplate, sodTemplate, waterFeatureTemplate } from "./landscape";
 import type { SmartSectionTemplate } from "./types";
+import { categoryIdOfBuildType, getTypeConfig, getTypeConfigLabel, isConfigBuildType, smartTemplateFromConfig } from "../typeConfig";
 
 /**
  * Registry of Smart Section build types. Adding a 6th means writing one
@@ -27,8 +28,16 @@ export const SMART_SECTION_TEMPLATES: SmartSectionTemplate[] = [
   plantsTemplate,
 ];
 
-export const findSmartSectionTemplate = (id: string | null): SmartSectionTemplate | null =>
-  SMART_SECTION_TEMPLATES.find((t) => t.id === id) ?? null;
+/** A built-in template, or a custom project type's setup (0159, id
+ * "cfg:<category id>") built into the same shape. */
+export const findSmartSectionTemplate = (id: string | null): SmartSectionTemplate | null => {
+  if (isConfigBuildType(id)) {
+    const categoryId = categoryIdOfBuildType(id);
+    const config = getTypeConfig(categoryId);
+    return config ? smartTemplateFromConfig(config, getTypeConfigLabel(categoryId)) : null;
+  }
+  return SMART_SECTION_TEMPLATES.find((t) => t.id === id) ?? null;
+};
 
 export const findSmartSectionSettings = (
   settings: SmartSectionSettings[],
@@ -41,7 +50,11 @@ export const resolveEffectiveLineItems = (
   template: SmartSectionTemplate,
   settings: SmartSectionSettings | null,
 ): SmartSectionLineItemSetting[] =>
-  settings?.line_items ?? template.lineItemSlots.map((s) => ({ slot_key: s.key, name: s.defaultName }));
+  settings?.line_items ??
+  template.lineItemSlots.map((s) => {
+    const cost_type = template.slotCostTypes?.[s.key];
+    return cost_type ? { slot_key: s.key, name: s.defaultName, cost_type } : { slot_key: s.key, name: s.defaultName };
+  });
 
 /** The lines a NEW section starts with: the effective line items minus the
  * add-on slots (backsplash, backrest caps, strip lighting) — those are added

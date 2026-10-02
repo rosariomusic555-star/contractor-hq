@@ -146,7 +146,7 @@ import {
 import { QuickQuoteDialog } from "@/components/quotes/QuickQuoteDialog";
 import { QuickQuoteFormDialog, type QuickQuoteResult } from "@/components/quotes/QuickQuoteFormDialog";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
-import { buildTypeForCategoryName } from "@/lib/measurements";
+import { buildTypeForCategoryName, buildTypeIdForCategory } from "@/lib/measurements";
 import { BackLink } from "@/components/common/BackLink";
 import { remapDraftIds } from "@/lib/draftRemap";
 import { depositAmount as depositAmountOf } from "@/lib/projectMoney";
@@ -486,8 +486,8 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   const [pendingQuickQuote, setPendingQuickQuote] = useState<{ sectionId: string; item: DraftItem } | null>(null);
   /** The Quick Quote template for a section's project type, if it has one. */
   const quickQuoteBuildTypeFor = (section: DraftSection): string | null => {
-    const name = categories.find((c) => c.id === section.job_category_id)?.name;
-    const bt = name ? buildTypeForCategoryName(name)?.id : null;
+    // Built-in by name, or the type's own setup (0159) when it has a rate.
+    const bt = buildTypeIdForCategory(categories.find((c) => c.id === section.job_category_id));
     return bt && findQuickQuoteTemplate(bt) ? bt : null;
   };
   const startSectionQuickQuote = (section: DraftSection) => {

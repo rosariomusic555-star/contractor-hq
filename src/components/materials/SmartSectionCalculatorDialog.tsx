@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { configPrefill, isConfigBuildType } from "@/lib/typeConfig";
 import { useQuery } from "@tanstack/react-query";
 import { Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,8 @@ export function SmartSectionCalculatorDialog({
    * (it owns its sq ft / L×W inputs); plain numbers are set directly. */
   const prefillAnswers = (totals: FeatureTotals | undefined): SmartSectionAnswers => {
     if (!totals) return {};
+    // A custom type's setup (0159): its questions are its measurement totals.
+    if (isConfigBuildType(template.id)) return configPrefill(totals as Record<string, unknown>);
     // Height → courses uses this contractor's course height for the template.
     const courseHeightIn = template.tunables.some((t) => t.key === "course_height_in")
       ? resolveTunableValue(template, settings, "course_height_in")

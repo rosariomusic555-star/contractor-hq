@@ -1,4 +1,6 @@
 import { ChevronRight } from "lucide-react";
+import { useTypeConfigs } from "@/hooks/use-type-configs";
+import { configBuildType, getTypeConfigLabel } from "@/lib/typeConfig";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BUILD_TYPES } from "@/lib/buildTypes";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
@@ -20,6 +22,7 @@ export function QuickQuoteDialog({
   onOpenChange: (open: boolean) => void;
   onPick: (buildTypeId: string) => void;
 }) {
+  const { configs } = useTypeConfigs();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={cn("max-w-sm gap-4", MOBILE_BOTTOM_SHEET)}>
@@ -28,7 +31,14 @@ export function QuickQuoteDialog({
         </DialogHeader>
 
         <div className="space-y-2">
-          {BUILD_TYPES.filter((b) => findQuickQuoteTemplate(b.id)).map((buildType) => (
+          {[
+            ...BUILD_TYPES.filter((b) => findQuickQuoteTemplate(b.id)),
+            // The contractor's own set-up types with a Quick Quote rate (0159).
+            ...configs
+              .filter((c) => c.quick_quote)
+              .map((c) => ({ id: configBuildType(c.category_id), label: getTypeConfigLabel(c.category_id) }))
+              .filter((b) => findQuickQuoteTemplate(b.id)),
+          ].map((buildType) => (
             <button
               key={buildType.id}
               type="button"

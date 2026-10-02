@@ -7,6 +7,7 @@ import { fireplaceQuickQuote } from "./fireplace";
 import { outdoorLightingQuickQuote } from "./outdoorLighting";
 import { irrigationQuickQuote, pergolaQuickQuote, plantsQuickQuote, sodQuickQuote, waterFeatureQuickQuote } from "./landscape";
 import type { QuickQuoteTemplate } from "./types";
+import { categoryIdOfBuildType, getTypeConfig, getTypeConfigLabel, isConfigBuildType, quickQuoteFromConfig } from "../typeConfig";
 
 /** Registry of Quick Quote build types. Adding a 6th means writing one new
  * module like paverPatio.ts and adding it here. */
@@ -24,8 +25,15 @@ export const QUICK_QUOTE_TEMPLATES: QuickQuoteTemplate[] = [
   plantsQuickQuote,
 ];
 
-export const findQuickQuoteTemplate = (id: string): QuickQuoteTemplate | null =>
-  QUICK_QUOTE_TEMPLATES.find((t) => t.id === id) ?? null;
+/** A built-in Quick Quote, or a custom project type's (0159, "cfg:<id>"). */
+export const findQuickQuoteTemplate = (id: string): QuickQuoteTemplate | null => {
+  if (isConfigBuildType(id)) {
+    const categoryId = categoryIdOfBuildType(id);
+    const config = getTypeConfig(categoryId);
+    return config ? quickQuoteFromConfig(config, getTypeConfigLabel(categoryId)) : null;
+  }
+  return QUICK_QUOTE_TEMPLATES.find((t) => t.id === id) ?? null;
+};
 
 /** This contractor's effective rate for a build type: their stored
  * override if present, else the template's shipped default. */

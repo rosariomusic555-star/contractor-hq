@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { getTypeConfig } from "@/lib/typeConfig";
 import { ArrowDown, ArrowUp, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react";
 import type { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { CollapsibleBody } from "@/components/common/CollapsibleBody";
@@ -19,6 +20,7 @@ import {
   instanceHasData,
   sumTotals,
   totalsHeadline,
+  configTotalsHeadline,
   unitSuffix,
   type FeatureData,
   type FeatureInstance,
@@ -87,7 +89,12 @@ export function FeatureCard({
   const kind = group.kind;
   const noun = (group.build_type && INSTANCE_NOUN[group.build_type]) || "item";
   const perInstance = kind ? instances.map((i) => computeTotals(kind, i.data, defaults)) : [];
-  const rollup = kind ? totalsHeadline(kind, sumTotals(perInstance)) : null;
+  const rollup =
+    kind === "config"
+      ? configTotalsHeadline(getTypeConfig(group.category_id), sumTotals(perInstance) as Record<string, number>)
+      : kind
+        ? totalsHeadline(kind, sumTotals(perInstance))
+        : null;
   const multi = instances.length > 1;
   const summary = featureSummary(group, instances, customRows, defaults);
 
@@ -166,7 +173,10 @@ export function FeatureCard({
           <p className="text-xs text-muted-foreground">Enter exact measurements. Waste and extra material are added in the Cost plan.</p>
           {kind &&
             instances.map((inst, i) => {
-              const headline = totalsHeadline(kind, perInstance[i]);
+              const headline =
+                kind === "config"
+                  ? configTotalsHeadline(getTypeConfig(group.category_id), perInstance[i] as Record<string, number>)
+                  : totalsHeadline(kind, perInstance[i]);
               const canRemove = multi || instanceHasData(kind, inst.data, inst.label);
               return (
                 <div key={inst.id} className={cn("space-y-3", multi && "rounded-xl border border-hairline p-3")}>
