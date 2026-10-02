@@ -34,16 +34,6 @@ export function suggestedCategoryFor(kind: string, jobTypes: { id: string; name:
 export const liveCategoryIds = (sub: Pick<PossibleSub, "category_ids">, jobCategoryIds: string[]): string[] =>
   sub.category_ids.filter((c) => jobCategoryIds.includes(c));
 
-/**
- * The feature picker's toggle. "General" (null) = not tied to a feature:
- * picking it clears every feature; picking a feature drops General
- * implicitly (an empty list is General).
- */
-export function toggleSubCategory(current: string[], id: string | null): string[] {
-  if (id === null) return [];
-  return current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
-}
-
 /** "Gas line (Fire Pit, Outdoor Kitchen)" — one line covering several features. */
 export const combinedLineName = (label: string, featureNames: string[]): string =>
   featureNames.length ? `${label} (${featureNames.join(", ")})` : label;

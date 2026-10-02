@@ -307,6 +307,24 @@ export function OrderSheetDialog({
             </DialogHeader>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              {flatItems.length > 0 && (
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-muted-foreground">Select all that apply</span>
+                  <span className="flex items-center gap-3">
+                    <span className="font-semibold text-muted-foreground">{selectedIds.size} selected</span>
+                    {flatItems.length > 5 && (
+                      <>
+                        <button type="button" onClick={() => setSelectedIds(new Set(flatItems.map((f) => f.item.id)))} className="font-semibold text-primary hover:underline">
+                          Select all
+                        </button>
+                        <button type="button" onClick={() => setSelectedIds(new Set())} className="font-semibold text-muted-foreground hover:text-foreground hover:underline">
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
               {categories.length > 1 && (
                 <div className="flex flex-wrap gap-2">
                   {categories.map((category) => {
@@ -338,7 +356,7 @@ export function OrderSheetDialog({
                       {(itemsByCategory.get(category) ?? []).map(({ item, sectionName, orderQuantity, orderUnit }) => (
                         <label
                           key={item.id}
-                          className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/50"
+                          className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/50 sm:min-h-0"
                         >
                           <Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() => toggleItem(item.id)} />
                           <span className="min-w-0 flex-1">

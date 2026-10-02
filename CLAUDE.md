@@ -115,4 +115,8 @@ deposit %/terms, and by `QuoteWorkspace` for the sales-tax line and "valid until
 - TypeScript is deliberately loose (`strict: false`, `noImplicitAny: false`); ESLint has
   `@typescript-eslint/no-unused-vars` off.
 - Status rendering: use `statusMeta.ts` + `<StatusPill>` — do not hand-roll `badge-status` maps.
+- Multi-select (pick several): `MultiSelectList` (checkbox rows, "Select all that apply", N selected +
+  Done, optional exclusive options / Select all) inside `MultiSelectPopover` (popover; bottom sheet on
+  phones) with a `ChipsTrigger`. Selectable cards/chips use `ChoiceMark` (checkbox when multi, radio dot
+  when single). Single-select never shows checkbox squares: checkmark + close on pick.
 - Test setup (`src/test/setup.ts`) stubs `window.matchMedia`; environment is jsdom, globals enabled.

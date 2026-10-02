@@ -1,9 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Pencil } from "lucide-react";
-import { Popover, PopoverContent } from "@/components/ui/popover";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { MultiSelectPopover } from "@/components/common/MultiSelectPopover";
 import { cn } from "@/lib/utils";
 import type { Category } from "@/lib/api";
 import { ProjectTypeList } from "@/components/common/ProjectTypeList";
@@ -16,7 +13,8 @@ const CHIP =
 /**
  * A job's features (project types) as a compact inline row: a small
  * "Features" label, the chips, and an Edit icon. Clicking a chip or Edit
- * opens the multi-select (a popover on desktop, a bottom sheet on phones) —
+ * opens the shared multi-select (a popover on desktop, a bottom sheet on
+ * phones; checkbox rows, Done) —
  * same add / remove behavior as before. Past three rows of chips it shows
  * the first ones plus "+N more". Catch-all categories ("Other /
  * Uncategorized") aren't features and are hidden — and kept as they are if
@@ -35,7 +33,6 @@ export function FeatureTypeChips({
   placeholder?: string;
   className?: string;
 }) {
-  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const { options } = useProjectTypeOptions();
@@ -72,8 +69,6 @@ export function FeatureTypeChips({
 
   const shown = expanded ? selected : selected.slice(0, fit);
   const hiddenCount = selected.length - shown.length;
-
-  const list = <ProjectTypeList value={value} onToggle={toggle} large={isMobile} />;
 
   const row = (
     <div className={cn("flex items-start gap-2", className)}>
@@ -124,27 +119,14 @@ export function FeatureTypeChips({
     </div>
   );
 
-  if (isMobile) {
-    return (
-      <>
-        {row}
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetContent side="bottom" className="rounded-t-2xl px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-5">
-            <SheetHeader className="text-left">
-              <SheetTitle>{label}</SheetTitle>
-            </SheetHeader>
-            <div className="mt-2">{list}</div>
-          </SheetContent>
-        </Sheet>
-      </>
-    );
-  }
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Anchor asChild>{row}</PopoverPrimitive.Anchor>
-      <PopoverContent className="w-72 p-0" align="start" collisionPadding={8}>
-        {list}
-      </PopoverContent>
-    </Popover>
+    <MultiSelectPopover
+      open={open}
+      onOpenChange={setOpen}
+      title={label}
+      trigger={row}
+      anchor
+      list={({ large, close }) => <ProjectTypeList value={value} onToggle={toggle} large={large} onDone={close} />}
+    />
   );
 }

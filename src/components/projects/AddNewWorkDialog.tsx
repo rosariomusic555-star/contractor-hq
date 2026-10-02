@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,20 +75,23 @@ export function AddNewWorkDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Select all that apply</span>
+          <span className="font-semibold text-muted-foreground">{picked.length} selected</span>
+        </div>
+        <div className="-mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto" role="group" aria-label="New features">
           {categories.map((c) => {
             const on = picked.includes(c.id);
             return (
               <div key={c.id} className={cn("rounded-xl border p-2.5", on ? "border-primary bg-primary/5" : "border-border")}>
-                <button type="button" onClick={() => toggle(c.id)} className="flex min-h-10 w-full items-center gap-2.5 text-left">
-                  <span
-                    className={cn(
-                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border",
-                      on ? "border-primary bg-primary text-primary-foreground" : "border-border",
-                    )}
-                  >
-                    {on && <Check className="h-3.5 w-3.5" />}
-                  </span>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  onClick={() => toggle(c.id)}
+                  className="flex min-h-11 w-full items-center gap-3 text-left"
+                >
+                  <Checkbox checked={on} tabIndex={-1} aria-hidden className="pointer-events-none" />
                   <span className="flex-1 text-sm font-semibold text-foreground">{onJob.has(c.id) ? `Another ${c.name}` : c.name}</span>
                   {onJob.has(c.id) && <span className="text-[11px] text-muted-subtle">already on this job</span>}
                 </button>
