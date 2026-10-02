@@ -1,5 +1,19 @@
 import { BUILD_TYPES, type BuildType } from "./buildTypes";
 import { fmtFeet } from "./feetInches";
+import {
+  categoryIdOfBuildType,
+  configBuildType,
+  configHasData,
+  configSummary,
+  configTotals,
+  fieldUnit,
+  getTypeConfig,
+  hasMeasurementSetup,
+  isConfigBuildType,
+  isNumericField,
+  type ConfigData,
+  type TypeConfig,
+} from "./typeConfig";
 
 /**
  * Project measurements — the one source for what each feature measures, how
@@ -328,7 +342,9 @@ export type FeatureKind =
   | "lighting"
   | "steps"
   | "irrigation"
-  | "pergola";
+  | "pergola"
+  /** A custom project type's own card (0159 setup) — build type "cfg:<id>". */
+  | "config";
 
 export interface FeatureDataByKind {
   patio: PatioData;
@@ -342,6 +358,7 @@ export interface FeatureDataByKind {
   steps: StepsData;
   irrigation: IrrigationData;
   pergola: PergolaData;
+  config: ConfigData;
 }
 export type FeatureData = FeatureDataByKind[FeatureKind];
 
@@ -367,7 +384,7 @@ export const FEATURE_KIND: Record<string, FeatureKind> = {
 };
 
 export const featureKindOf = (buildType: string | null): FeatureKind | null =>
-  (buildType && FEATURE_KIND[buildType]) || null;
+  isConfigBuildType(buildType) ? "config" : (buildType && FEATURE_KIND[buildType]) || null;
 
 /** "Paver Patio" → "+ Add another patio". */
 export const INSTANCE_NOUN: Record<string, string> = {
@@ -467,6 +484,7 @@ export function blankData<K extends FeatureKind>(kind: K): FeatureDataByKind[K] 
       water_source: null,
       notes: "",
     }),
+    config: () => ({ cfg: "", values: {} }),
     pergola: () => ({
       length_ft: null,
       width_ft: null,
@@ -786,6 +804,8 @@ export function computeTotals(kind: FeatureKind, data: FeatureData, defaults: Me
       const zones = (data as IrrigationData).zones;
       return clean({ zone_count: zones.length, head_count: zones.reduce((s, z) => s + n(z.heads), 0) });
     }
+    case "config":
+      return configTotals(getTypeConfig((data as ConfigData).cfg), data as ConfigData) as FeatureTotals;
     case "pergola": {
       const d = data as PergolaData;
       return clean({
@@ -820,6 +840,13 @@ export function sumTotals(list: FeatureTotals[]): FeatureTotals {
   for (const k of additive) {
     const s = list.reduce((acc, t) => acc + (t[k] ?? 0), 0);
     if (s > 0) out[k] = round2(s);
+  }
+  // Custom setups' totals (any other key) add up too.
+  const handled = new Set<string>([...additive, "perimeter_ft", "height_in", "backrest_height_in"]);
+  for (const k of new Set(list.flatMap((t) => Object.keys(t)))) {
+    if (handled.has(k)) continue;
+    const s = list.reduce((acc, t) => acc + ((t as Record<string, number>)[k] ?? 0), 0);
+    if (s > 0) (out as Record<string, number>)[k] = round2(s);
   }
   if (list.every((t) => t.perimeter_ft)) out.perimeter_ft = round2(list.reduce((s, t) => s + t.perimeter_ft!, 0));
   const withLen = list.filter((t) => t.height_in && t.linear_ft);
@@ -886,6 +913,7 @@ export function totalsHeadline(kind: FeatureKind, t: FeatureTotals): string | nu
  * removal). Choice fields alone (method, shape…) don't count. */
 export function instanceHasData(kind: FeatureKind, data: FeatureData, label?: string | null): boolean {
   if (label?.trim()) return true;
+  if (kind === "config") return configHasData(data as ConfigData);
   // Any typed number or text anywhere in the data — a lone dimension that
   // doesn't make a total yet (just a length) still counts.
   const anyValue = (v: unknown, key = ""): boolean => {
@@ -967,7 +995,44 @@ export interface MeasurementGroup {
 export const GENERAL_GROUP_KEY = "general";
 
 export const groupKeyOf = (r: { build_type: string | null; category_id?: string | null }): string =>
-  r.build_type ? `bt:${r.build_type}` : r.category_id ? `cat:${r.category_id}` : GENERAL_GROUP_KEY;
+  // A custom setup's instances (cfg:<id>) live in their type's cat:<id> group,
+  // next to that type's custom measurements.
+  isConfigBuildType(r.build_type)
+    ? `cat:${categoryIdOfBuildType(r.build_type)}`
+    : r.build_type
+      ? `bt:${r.build_type}`
+      : r.category_id
+        ? `cat:${r.category_id}`
+        : GENERAL_GROUP_KEY;
+
+/** The build type a measurement instance of this group is saved with
+ * (a custom setup's group has none of its own — its rows are cfg:<id>). */
+export const instanceBuildTypeOf = (g: Pick<MeasurementGroup, "kind" | "build_type" | "category_id">): string | null =>
+  g.kind === "config" && g.category_id ? configBuildType(g.category_id) : g.build_type;
+
+/** A category's build type: a built-in one by name, else its custom setup's
+ * (when it has one), else null. */
+export function buildTypeIdForCategory(cat: { id: string; name: string } | null | undefined): string | null {
+  if (!cat) return null;
+  const bt = buildTypeForCategoryName(cat.name);
+  if (bt) return bt.id;
+  return getTypeConfig(cat.id) ? configBuildType(cat.id) : null;
+}
+
+/** "300 sq ft · 40 LF" from (summed) totals of a custom setup. */
+export function configTotalsHeadline(config: TypeConfig | null, t: Record<string, number>): string | null {
+  if (!config) return null;
+  const keys = config.summary_keys.length ? config.summary_keys : config.fields.filter(isNumericField).map((f) => f.key);
+  const parts = keys
+    .map((k) => {
+      const f = config.fields.find((x) => x.key === k);
+      if (!f || !t[k]) return null;
+      const unit = fieldUnit(f);
+      return `${fmt(t[k])}${unit ? ` ${unit}` : ""}`;
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
 
 /**
  * One group per selected Project type, in the order selected. Categories
@@ -986,9 +1051,10 @@ export function measurementGroupsFor(
     const cat = byId.get(cid);
     if (!cat) continue;
     const bt = buildTypeForCategoryName(cat.name);
+    const setup = bt ? null : getTypeConfig(cat.id);
     const group: MeasurementGroup = bt
       ? { key: `bt:${bt.id}`, title: bt.label, build_type: bt.id, category_id: null, kind: featureKindOf(bt.id) }
-      : { key: `cat:${cat.id}`, title: cat.name, build_type: null, category_id: cat.id, kind: null };
+      : { key: `cat:${cat.id}`, title: cat.name, build_type: null, category_id: cat.id, kind: hasMeasurementSetup(setup) ? "config" : null };
     if (seen.has(group.key)) continue;
     seen.add(group.key);
     groups.push(group);
@@ -1040,6 +1106,10 @@ export interface PrefillSource {
 
 /** The picker's options for a build type — the sum first when there's more
  * than one instance with data. Instances with nothing useful are skipped. */
+/** totalsHeadline, plus custom setups (which need their type's setup to label totals). */
+const headlineFor = (kind: FeatureKind, buildType: string, t: FeatureTotals): string | null =>
+  kind === "config" ? configTotalsHeadline(getTypeConfig(categoryIdOfBuildType(buildType)), t as Record<string, number>) : totalsHeadline(kind, t);
+
 export function prefillSources(instances: FeatureInstance[], buildType: string): PrefillSource[] {
   const kind = featureKindOf(buildType);
   if (!kind) return [];
@@ -1057,15 +1127,15 @@ export function prefillSources(instances: FeatureInstance[], buildType: string):
         kitchenHeightIn: i.totals?.height_in,
       }),
     }))
-    .filter(({ totals }) => totalsHeadline(kind, totals));
+    .filter(({ totals }) => headlineFor(kind, buildType, totals));
   const singles = withData.map(({ i, idx, totals }) => ({
     id: i.id,
-    label: `${i.label?.trim() || `${capitalize(noun)} ${idx + 1}`} — ${totalsHeadline(kind, totals)}`,
+    label: `${i.label?.trim() || `${capitalize(noun)} ${idx + 1}`} — ${headlineFor(kind, buildType, totals)}`,
     totals,
   }));
   if (singles.length <= 1) return singles;
   const sum = sumTotals(singles.map((s) => s.totals));
-  return [{ id: "sum", label: `All ${singles.length} combined — ${totalsHeadline(kind, sum)}`, totals: sum }, ...singles];
+  return [{ id: "sum", label: `All ${singles.length} combined — ${headlineFor(kind, buildType, sum)}`, totals: sum }, ...singles];
 }
 
 /**
@@ -1087,7 +1157,7 @@ export function prefillSourcesForFeature(instances: FeatureInstance[], buildType
   if (own.length > 1) {
     const kind = featureKindOf(buildType)!;
     const sum = sumTotals(own.map((s) => s.totals));
-    first = [{ id: `feature:${featureId}`, label: `This feature — ${totalsHeadline(kind, sum)}`, totals: sum }, ...own];
+    first = [{ id: `feature:${featureId}`, label: `This feature — ${headlineFor(kind, buildType, sum)}`, totals: sum }, ...own];
   }
   return [...first, ...all.filter((s) => !own.includes(s))];
 }
@@ -1162,6 +1232,8 @@ export function smartSectionPrefill(
 
 /** Quick Quote answers a measurement fills in (src/lib/quickQuote/*). */
 export function quickQuotePrefill(buildType: string, t: FeatureTotals): Record<string, unknown> {
+  // A custom setup's Quick Quote asks for its measurement totals by key.
+  if (isConfigBuildType(buildType)) return { ...t };
   switch (buildType) {
     case "paver_patio":
       return t.area_sqft ? { area_sqft: t.area_sqft } : {};
@@ -1204,6 +1276,7 @@ const layoutLabel = (layout: RunLayout) =>
  * "40 LF × 3 ft = 120 wall sq ft", "Round · 5 ft across · 15.7 LF around".
  * null when there's no total to show yet. */
 function instanceSummary(kind: FeatureKind, buildType: string | null, data: FeatureData, t: FeatureTotals): string | null {
+  if (kind === "config") return configSummary(getTypeConfig((data as ConfigData).cfg), data as ConfigData);
   const headline = totalsHeadline(kind, t);
   if (!headline) return null;
   switch (kind) {
@@ -1282,7 +1355,11 @@ export function featureSummary(
     parts.push(instanceSummary(kind, group.build_type, only.data, computeTotals(kind, only.data, defaults)) ?? "Partly measured");
   } else if (withData.length > 1) {
     const noun = INSTANCE_NOUN[group.build_type ?? ""] ?? "item";
-    const sum = totalsHeadline(kind, sumTotals(withData.map((i) => computeTotals(kind, i.data, defaults))));
+    const summed = sumTotals(withData.map((i) => computeTotals(kind, i.data, defaults)));
+    const sum =
+      kind === "config"
+        ? configTotalsHeadline(getTypeConfig((withData[0].data as ConfigData).cfg), summed as Record<string, number>)
+        : totalsHeadline(kind, summed);
     parts.push(`${withData.length} ${pluralNoun(noun)}${sum ? ` · ${sum}` : ""}`);
   }
   if (customCount) parts.push(`${customCount} custom`);

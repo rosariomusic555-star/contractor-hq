@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { configTotals, fieldUnit, getTypeConfig, type AreaValue, type ConfigData } from "@/lib/typeConfig";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -99,6 +100,8 @@ export function FeatureEditor({
       return <IrrigationEditor data={data as IrrigationData} {...props} />;
     case "pergola":
       return <PergolaEditor data={data as PergolaData} {...props} />;
+    case "config":
+      return <ConfigEditor data={data as ConfigData} {...props} />;
   }
 }
 
@@ -876,6 +879,124 @@ function PergolaEditor({ data, onChange, idPrefix }: EditorProps<PergolaData>) {
         <Choice ariaLabel="Roof type" value={data.roof} options={PERGOLA_ROOFS} onChange={(roof) => set({ roof })} />
       </div>
       <NumField label="Posts (optional)" value={data.post_count} onChange={(post_count) => set({ post_count })} className="max-w-[10rem]" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom project type (0159 setup) — fields from the contractor's blocks
+// ---------------------------------------------------------------------------
+
+function ConfigEditor({ data, onChange, idPrefix }: EditorProps<ConfigData>) {
+  const config = getTypeConfig(data.cfg);
+  if (!config) return <p className="text-sm text-muted-foreground">This type's measurement setup isn't loaded.</p>;
+  const values = data.values ?? {};
+  const setValue = (key: string, v: unknown) => onChange({ ...data, values: { ...values, [key]: v } });
+  const totals = configTotals(config, data);
+
+  return (
+    <div className="space-y-3">
+      {config.fields.map((f) => {
+        const v = values[f.key];
+        const id = `${idPrefix}-${f.key}`;
+        switch (f.kind) {
+          case "area": {
+            const a: AreaValue = { mode: "dims", length_ft: null, width_ft: null, sqft: null, ...((v as Partial<AreaValue>) ?? {}) };
+            const set = (patch: Partial<AreaValue>) => setValue(f.key, { ...a, ...patch });
+            return (
+              <SubRow key={f.key}>
+                <FieldLabel>{f.label}</FieldLabel>
+                <Segmented
+                  ariaLabel={`${f.label} method`}
+                  value={a.mode}
+                  options={[
+                    { value: "dims", label: "Length × width" },
+                    { value: "sqft", label: "Total sq ft" },
+                  ]}
+                  onChange={(mode) => set({ mode })}
+                />
+                {a.mode === "dims" ? (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <NumField id={`${id}-l`} label="Length" suffix="ft" value={a.length_ft} onChange={(length_ft) => set({ length_ft })} />
+                    <NumField id={`${id}-w`} label="Width" suffix="ft" value={a.width_ft} onChange={(width_ft) => set({ width_ft })} />
+                  </div>
+                ) : (
+                  <NumField id={`${id}-s`} label="Area" suffix="sq ft" value={a.sqft} onChange={(sqft) => set({ sqft })} />
+                )}
+                {totals[f.key] ? <Computed>{fmt(totals[f.key])} sq ft</Computed> : null}
+              </SubRow>
+            );
+          }
+          case "runs": {
+            const runs = Array.isArray(v) && v.length ? (v as (number | null)[]) : [null];
+            return (
+              <SubRow key={f.key}>
+                <FieldLabel>{f.label}</FieldLabel>
+                <div className="flex flex-wrap items-end gap-3">
+                  {runs.map((r, i) => (
+                    <div key={i} className="flex items-end gap-1">
+                      <NumField
+                        label={`Run ${runLetter(i)}`}
+                        suffix="ft"
+                        value={r}
+                        onChange={(n) => setValue(f.key, runs.map((x, j) => (j === i ? n : x)))}
+                      />
+                      {runs.length > 1 && (
+                        <RemoveButton label={`Remove run ${runLetter(i)}`} onClick={() => setValue(f.key, runs.filter((_, j) => j !== i))} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <AddLink onClick={() => setValue(f.key, [...runs, null])}>Add run</AddLink>
+                {totals[f.key] ? <Computed>{fmt(totals[f.key])} LF total</Computed> : null}
+              </SubRow>
+            );
+          }
+          case "select": {
+            const opts = (f.options ?? []).filter((o) => o.trim());
+            return (
+              <div key={f.key} className="space-y-1.5">
+                <FieldLabel>{f.label}</FieldLabel>
+                {opts.length <= 4 ? (
+                  <Choice ariaLabel={f.label} value={(v as string) || null} options={opts.map((o) => ({ value: o, label: o }))} onChange={(o) => setValue(f.key, o)} />
+                ) : (
+                  <Select value={(v as string) || ""} onValueChange={(o) => setValue(f.key, o)}>
+                    <SelectTrigger aria-label={f.label} className="h-12">
+                      <SelectValue placeholder="Pick one" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {opts.map((o) => (
+                        <SelectItem key={o} value={o}>
+                          {o}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            );
+          }
+          case "notes":
+            return (
+              <div key={f.key} className="space-y-1.5">
+                <FieldLabel>{f.label}</FieldLabel>
+                <Textarea value={(v as string) ?? ""} onChange={(e) => setValue(f.key, e.target.value)} aria-label={f.label} rows={2} className="text-sm" />
+              </div>
+            );
+          default:
+            return (
+              <NumField
+                key={f.key}
+                id={id}
+                label={f.label}
+                suffix={fieldUnit(f) || undefined}
+                value={typeof v === "number" ? v : null}
+                onChange={(n) => setValue(f.key, n)}
+                className="max-w-[12rem]"
+              />
+            );
+        }
+      })}
     </div>
   );
 }

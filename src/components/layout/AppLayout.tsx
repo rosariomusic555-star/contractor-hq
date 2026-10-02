@@ -1,4 +1,5 @@
 import { Outlet, useLocation, Navigate } from "react-router-dom";
+import { TypeConfigsLoader } from "@/hooks/use-type-configs";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { EmployeeLayout } from "@/components/layout/EmployeeLayout";
@@ -101,6 +102,8 @@ export function AppLayout() {
     <AssistantProvider>
       <RainDelayProvider>
       <div className="min-h-screen bg-background">
+        {/* Custom project type setups (0159) for every screen below. */}
+        <TypeConfigsLoader />
         <Sidebar />
         <BottomTabBar />
         {/* Phone bottom padding clears the tab bar AND the two stacked floating

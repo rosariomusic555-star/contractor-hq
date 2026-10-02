@@ -3,7 +3,7 @@ import { featureName, liveFeatures, typeNameOf, type ProjectFeature } from "./fe
 import type { LineCostType } from "./costPlanMath";
 import { findSmartSectionSettings, findSmartSectionTemplate, startingLineItems } from "./smartSections";
 import { BUILD_TYPES } from "./buildTypes";
-import { buildTypeForCategoryName } from "./measurements";
+import { buildTypeIdForCategory, buildTypeForCategoryName } from "./measurements";
 
 /**
  * Quote / Materials Sheet section headers: the section name field doubles
@@ -179,7 +179,8 @@ export function featureSectionSeeds(
   for (const id of categoryIds) {
     const cat = byId.get(id);
     if (!cat) continue;
-    const template = findSmartSectionTemplate(buildTypeForCategoryName(cat.name)?.id ?? null);
+    // Built-in template by name, or the type's own setup (0159).
+    const template = findSmartSectionTemplate(buildTypeIdForCategory(cat));
     seeds.push({
       name: cat.name,
       job_category_id: cat.id,
@@ -204,8 +205,8 @@ export function featureSeeds(
   smartSettings: SmartSectionSettings[],
 ): FeatureSectionSeed[] {
   return features.map((f) => {
-    const typeName = typeNameOf(f, allCategories);
-    const template = findSmartSectionTemplate(buildTypeForCategoryName(typeName)?.id ?? null);
+    const cat = allCategories.find((c) => c.id === f.category_id) ?? null;
+    const template = findSmartSectionTemplate(buildTypeIdForCategory(cat));
     const settings = template ? findSmartSectionSettings(smartSettings, template.id) : null;
     return {
       name: featureName(f, allCategories),

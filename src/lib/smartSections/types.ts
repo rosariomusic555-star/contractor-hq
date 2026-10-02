@@ -136,6 +136,9 @@ export interface SmartSectionTemplate {
    * (add/remove/rename/reorder) override this per their own account —
    * see resolveEffectiveLineItems. */
   lineItemSlots: LineItemSlot[];
+  /** Custom project type setups (0159): a slot's line type when it isn't
+   * a material (subcontractor, equipment, other). Built-ins never set it. */
+  slotCostTypes?: Record<string, "subcontractor" | "equipment" | "other">;
   /** Step 2 — the calculator's question set, run on demand from the
    * section's calculator icon. */
   questions: SmartSectionQuestion[];

@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { TypeSetupDialog } from "@/components/projectTypes/TypeSetupDialog";
+import { useTypeConfigs } from "@/hooks/use-type-configs";
+import type { TypeConfig } from "@/lib/typeConfig";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
@@ -49,8 +52,17 @@ const USAGE_LABELS: [keyof CategoryUsage, string, string][] = [
 ];
 
 /** "Measurements · Smart Section · Quick Quote", or "Custom measurements only". */
-function capabilities(name: string): string {
+function capabilities(name: string, setup: TypeConfig | null): string {
   const bt = buildTypeForCategoryName(name)?.id ?? null;
+  if (!bt && setup) {
+    const tags = [
+      setup.fields.length ? "Measurements" : null,
+      setup.line_items.length ? "Cost plan lines" : null,
+      setup.line_items.some((l) => l.formula) ? "Calculator" : null,
+      setup.quick_quote ? "Quick Quote" : null,
+    ].filter(Boolean);
+    return `Your setup${tags.length ? ` · ${tags.join(" · ")}` : ""}`;
+  }
   const tags = [
     featureKindOf(bt) ? "Measurements" : null,
     bt && findSmartSectionTemplate(bt) ? "Smart Section" : null,
@@ -71,6 +83,7 @@ export function ProjectTypesEditor({ compact = false }: { compact?: boolean }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data: cats = [], isLoading } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const { configs } = useTypeConfigs();
   // Optimistic order while a reorder saves.
   const [order, setOrder] = useState<Category[] | null>(null);
   const shown = order ?? cats;
@@ -144,6 +157,7 @@ export function ProjectTypesEditor({ compact = false }: { compact?: boolean }) {
                         <TypeRow
                           cat={c}
                           compact={compact}
+                          configs={configs}
                           onRename={(name) => rename.mutate({ id: c.id, name })}
                           onRemove={() => setRemoving(c)}
                           reorder={
@@ -195,18 +209,23 @@ export function ProjectTypesEditor({ compact = false }: { compact?: boolean }) {
 function TypeRow({
   cat,
   compact,
+  configs,
   onRename,
   onRemove,
   reorder,
 }: {
   cat: Category;
   compact: boolean;
+  configs: TypeConfig[];
   onRename: (name: string) => void;
   onRemove: () => void;
   reorder: React.ReactNode;
 }) {
   const [v, setV] = useState(cat.name);
   useEffect(() => setV(cat.name), [cat.name]);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const isBuiltIn = !!buildTypeForCategoryName(cat.name);
+  const setup = configs.find((c) => c.category_id === cat.id) ?? null;
   const commit = () => (v.trim() && v.trim() !== cat.name ? onRename(v.trim()) : setV(cat.name));
   return (
     <div className="flex items-center gap-2 px-2 py-1.5">
@@ -219,7 +238,20 @@ function TypeRow({
           aria-label={`Rename ${cat.name}`}
           className="h-9 border-transparent bg-transparent px-2 font-semibold hover:border-input focus-visible:border-primary"
         />
-        {!compact && <p className="px-2 text-[11px] text-muted-foreground">{capabilities(cat.name)}</p>}
+        {!compact && (
+          <p className="px-2 text-[11px] text-muted-foreground">
+            {capabilities(cat.name, setup)}
+            {/* Built-in types keep the app's card and templates; custom ones get a setup. */}
+            {!isBuiltIn && (
+              <>
+                {" · "}
+                <button type="button" onClick={() => setSetupOpen(true)} className="font-bold text-primary hover:underline">
+                  {setup ? "Edit setup" : "Set up"}
+                </button>
+              </>
+            )}
+          </p>
+        )}
       </div>
       {reorder}
       <button
@@ -230,6 +262,7 @@ function TypeRow({
       >
         <Trash2 className="h-4 w-4" />
       </button>
+      {!isBuiltIn && <TypeSetupDialog category={cat} existing={setup} open={setupOpen} onOpenChange={setSetupOpen} />}
     </div>
   );
 }

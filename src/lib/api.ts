@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
 import { customMeasurementPayload, featureMeasurementPayload, type FeatureInstance, type MeasurementRow } from "./measurements";
+import type { TypeConfig } from "./typeConfig";
 import type { FeatureSectionSeed } from "./sectionFeatures";
 import type { CostBucket, LaborMode, LineCostType } from "./costPlanMath";
 import type { FeatureStatus, ProjectFeature } from "./features";
@@ -1449,6 +1450,43 @@ export async function updateCategory(
 
 export async function deleteCategory(id: string): Promise<void> {
   const { error } = await supabase.from("categories").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Custom project type setups (0159) — see src/lib/typeConfig.ts.
+// ---------------------------------------------------------------------------
+
+const TYPE_CONFIG_COLS = "category_id, based_on, fields, summary_keys, line_items, tunables, quick_quote";
+
+export async function listTypeConfigs(): Promise<TypeConfig[]> {
+  const { data, error } = await supabase.from("project_type_configs").select(TYPE_CONFIG_COLS);
+  // Before 0159: no setups.
+  if (error) return [];
+  return (data ?? []) as TypeConfig[];
+}
+
+export async function saveTypeConfig(config: TypeConfig): Promise<void> {
+  const { error } = await supabase.from("project_type_configs").upsert(
+    {
+      category_id: config.category_id,
+      based_on: config.based_on ?? null,
+      fields: config.fields,
+      summary_keys: config.summary_keys,
+      line_items: config.line_items,
+      tunables: config.tunables,
+      quick_quote: config.quick_quote ?? null,
+    },
+    { onConflict: "category_id", defaultToNull: false },
+  );
+  if (error) {
+    if (error.code === "PGRST205" || error.code === "42P01") throw new Error("Run migration 0159 to save project type setups.");
+    throw error;
+  }
+}
+
+export async function deleteTypeConfig(categoryId: string): Promise<void> {
+  const { error } = await supabase.from("project_type_configs").delete().eq("category_id", categoryId);
   if (error) throw error;
 }
 

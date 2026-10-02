@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTypeConfigs } from "@/hooks/use-type-configs";
+import { categoryIdOfBuildType, isConfigBuildType } from "@/lib/typeConfig";
 import { EDITED_CLASS } from "@/lib/draftChanges";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
@@ -41,6 +43,7 @@ import {
   featureSummary,
   groupHasData,
   groupKeyOf,
+  instanceBuildTypeOf,
   instanceHasData,
   measurementGroupsFor,
   newCustomFieldKey,
@@ -103,6 +106,8 @@ export function ProjectMeasurementsCard({
   const qc = useQueryClient();
 
   const { data: categories = [], isSuccess: categoriesLoaded } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  // Custom project type setups (0159) — re-render when they load/change.
+  const { version: setupsVersion } = useTypeConfigs();
   const { data: serverInstances = NO_INSTANCES, isSuccess: instancesLoaded } = useQuery({
     queryKey: ["project-feature-measurements", projectId],
     queryFn: () => listFeatureMeasurements(projectId!),
@@ -165,7 +170,11 @@ export function ProjectMeasurementsCard({
     // Types added or removed since the move keep their stored place.
     return [...pendingOrder.filter((id) => categoryIds.includes(id)), ...stored.filter((id) => !pendingOrder.includes(id))];
   }, [categoryIds, features, pendingOrder]);
-  const typeGroups = useMemo(() => measurementGroupsFor(orderedCategoryIds, categories), [orderedCategoryIds, categories]);
+  const typeGroups = useMemo(
+    () => measurementGroupsFor(orderedCategoryIds, categories),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orderedCategoryIds, categories, setupsVersion],
+  );
   const hasGeneralRows = custom.some((r) => groupKeyOf(r) === GENERAL_GROUP_KEY);
   const groups: MeasurementGroup[] =
     hasGeneralRows || typeGroups.length === 0 ? [...typeGroups, GENERAL_GROUP] : typeGroups;
@@ -177,15 +186,16 @@ export function ProjectMeasurementsCard({
   const newInstance = (g: MeasurementGroup): FeatureInstance => ({
     id: newId(),
     project_id: projectId ?? "",
-    build_type: g.build_type!,
+    build_type: instanceBuildTypeOf(g)!,
     label: null,
-    data: blankData(g.kind!),
+    // A custom setup's blank card remembers its type (data.cfg).
+    data: g.kind === "config" ? { cfg: g.category_id!, values: {} } : blankData(g.kind!),
     totals: {},
     sort_order: 0,
   });
   const instancesOf = (g: MeasurementGroup): FeatureInstance[] => {
     const own = instances.filter((i) => groupKeyOf(i) === g.key);
-    if (own.length > 0 || !g.kind || !g.build_type) return own;
+    if (own.length > 0 || !g.kind || !instanceBuildTypeOf(g)) return own;
     blanks.current[g.key] ??= newInstance(g);
     return [blanks.current[g.key]];
   };
@@ -201,7 +211,7 @@ export function ProjectMeasurementsCard({
   };
 
   const addInstance = (g: MeasurementGroup) => {
-    if (!g.kind || !g.build_type) return;
+    if (!g.kind || !instanceBuildTypeOf(g)) return;
     markDirty();
     const added = newInstance(g);
     setInstances((list) => {
@@ -284,7 +294,9 @@ export function ProjectMeasurementsCard({
       if (features.length > 0) {
         const live = liveFeatures(features);
         const categoryFor = (bt: string) =>
-          categoryIds.find((cid) => buildTypeForCategoryName(categories.find((c) => c.id === cid)?.name ?? "")?.id === bt) ?? null;
+          isConfigBuildType(bt)
+            ? categoryIdOfBuildType(bt)
+            : categoryIds.find((cid) => buildTypeForCategoryName(categories.find((c) => c.id === cid)?.name ?? "")?.id === bt) ?? null;
         const claimed = new Set(keepInstances.map((i) => i.feature_id).filter(Boolean) as string[]);
         for (const inst of keepInstances) {
           const own = inst.feature_id ? features.find((f) => f.id === inst.feature_id) : undefined;
