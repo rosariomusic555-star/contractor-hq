@@ -20,6 +20,11 @@ export interface OrderSheetHeader {
   /** "2026-09-30" */
   dateNeeded: string | null;
   notes: string | null;
+  /** Print each line's description under it (0162; default on). */
+  includeDescriptions?: boolean;
+  /** Lines whose category asks for a color but have none (0162) — a
+   * warning at the top, so the supplier / contractor catch it. */
+  missingColorCount?: number;
 }
 
 const formatDateNeeded = (iso: string) =>
@@ -71,6 +76,16 @@ function buildOrderSheetPdf(header: OrderSheetHeader, groups: OrderSheetGroup[])
     doc.text(line, marginX, y);
     y += 15;
   }
+  if (header.missingColorCount) {
+    y += 4;
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(180, 83, 9);
+    const n = header.missingColorCount;
+    doc.text(`${n} item${n === 1 ? "" : "s"} missing a color — confirm before ordering.`, marginX, y);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "normal");
+    y += 15;
+  }
   if (header.notes) {
     y += 4;
     const wrapped = doc.splitTextToSize(`Notes: ${header.notes}`, pageWidth - marginX * 2);
@@ -93,7 +108,11 @@ function buildOrderSheetPdf(header: OrderSheetHeader, groups: OrderSheetGroup[])
       startY: y,
       margin: { left: marginX, right: marginX },
       head: [["Item / Description", "Quantity", "Unit"]],
-      body: group.lines.map((l) => [l.detail ? `${l.title}\n${l.detail}` : l.title, String(l.quantity), l.unit]),
+      body: group.lines.map((l) => [
+        [l.title, l.detail, header.includeDescriptions !== false ? l.description : null].filter(Boolean).join("\n"),
+        String(l.quantity),
+        l.unit,
+      ]),
       styles: { fontSize: 10, cellPadding: 6, valign: "top" },
       headStyles: { fillColor: [60, 60, 60], textColor: 255, fontStyle: "bold" },
       columnStyles: {

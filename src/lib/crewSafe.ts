@@ -23,7 +23,7 @@ export const CREW_FIELDS = {
   scopeItem: ["name", "description", "quantity", "unit"],
   labor: ["crew_days", "crew_size", "man_hours"],
   change: ["number", "title", "approved_at", "scope_note", "items"],
-  material: ["id", "feature_id", "section", "name", "color", "product", "quantity", "unit", "waste_percent", "planned_quantity", "conversion_factor", "conversion_unit", "tracked", "orders", "used"],
+  material: ["id", "feature_id", "section", "name", "color", "product", "quantity", "unit", "waste_percent", "planned_quantity", "conversion_factor", "conversion_unit", "tracked", "orders", "used", "description", "missing_color"],
   materialOrder: ["quantity", "unit", "status", "expected_date", "issue", "issue_note", "issue_expected_date"],
   delivery: ["id", "supplier", "expected_date", "status", "delivered_on", "open_issues", "photos"],
   photo: ["id", "storage_path", "caption"],
@@ -139,6 +139,10 @@ export interface CrewMaterial {
   name: string;
   color: string | null;
   product: string | null;
+  /** 0162 — the line's description (specs / notes). Present only when set. */
+  description?: string | null;
+  /** 0162 — its category asks for a color and it has none. Present only then. */
+  missing_color?: boolean;
   quantity: number;
   unit: string | null;
   waste_percent: number | null;

@@ -1,7 +1,7 @@
 import type { Category, SmartSectionLaborDefault, SmartSectionSettings } from "./api";
 import { featureName, liveFeatures, typeNameOf, type ProjectFeature } from "./features";
 import type { LineCostType } from "./costPlanMath";
-import { findSmartSectionSettings, findSmartSectionTemplate, startingLineItems } from "./smartSections";
+import { findSmartSectionSettings, findSmartSectionTemplate, templateStartingLines } from "./smartSections";
 import { BUILD_TYPES } from "./buildTypes";
 import { buildTypeIdForCategory, buildTypeForCategoryName } from "./measurements";
 
@@ -158,7 +158,13 @@ export interface FeatureSectionSeed {
   smart_section_build_type: string | null;
   /** Template lines — names + cost type only, blank quantity/price, as
    * Smart Sections start. */
-  items: { name: string; cost_type: LineCostType }[];
+  items: {
+    name: string;
+    cost_type: LineCostType;
+    /** From the template (0162). */
+    material_category_id?: string | null;
+    internal_description?: string | null;
+  }[];
   /** The template's labor default (Settings), if any. */
   labor: SmartSectionLaborDefault | null;
 }
@@ -173,6 +179,9 @@ export function featureSectionSeeds(
   categoryIds: string[],
   allCategories: Category[],
   smartSettings: SmartSectionSettings[],
+  /** The contractor's material categories — template lines come in
+   * categorized (0162). */
+  materialCategories: { id: string; name: string }[] = [],
 ): FeatureSectionSeed[] {
   const byId = new Map(allCategories.map((c) => [c.id, c]));
   const seeds: FeatureSectionSeed[] = [];
@@ -185,12 +194,7 @@ export function featureSectionSeeds(
       name: cat.name,
       job_category_id: cat.id,
       smart_section_build_type: template?.id ?? null,
-      items: template
-        ? startingLineItems(template, findSmartSectionSettings(smartSettings, template.id)).map((li) => ({
-            name: li.name,
-            cost_type: li.cost_type ?? "material",
-          }))
-        : [],
+      items: template ? templateStartingLines(template, findSmartSectionSettings(smartSettings, template.id), materialCategories) : [],
       labor: template ? (findSmartSectionSettings(smartSettings, template.id)?.labor_default ?? null) : null,
     });
   }
@@ -203,6 +207,7 @@ export function featureSeeds(
   features: ProjectFeature[],
   allCategories: Category[],
   smartSettings: SmartSectionSettings[],
+  materialCategories: { id: string; name: string }[] = [],
 ): FeatureSectionSeed[] {
   return features.map((f) => {
     const cat = allCategories.find((c) => c.id === f.category_id) ?? null;
@@ -213,9 +218,7 @@ export function featureSeeds(
       job_category_id: f.category_id,
       feature_id: f.id,
       smart_section_build_type: template?.id ?? null,
-      items: template
-        ? startingLineItems(template, settings).map((li) => ({ name: li.name, cost_type: li.cost_type ?? "material" }))
-        : [],
+      items: template ? templateStartingLines(template, settings, materialCategories) : [],
       labor: settings?.labor_default ?? null,
     };
   });

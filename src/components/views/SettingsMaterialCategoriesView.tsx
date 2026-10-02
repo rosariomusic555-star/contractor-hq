@@ -4,6 +4,7 @@ import { ChevronLeft, Layers, ArrowUp, ArrowDown, Trash2, Plus } from "lucide-re
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,6 +57,15 @@ export function SettingsMaterialCategoriesView() {
   const renameMut = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => updateMaterialCategory(id, { name }),
     onSuccess: invalidate,
+    onError,
+  });
+
+  // "Needs color" (0162) — optimistic, so the switch flips at once.
+  const colorMut = useMutation({
+    mutationFn: ({ id, needs_color }: { id: string; needs_color: boolean }) => updateMaterialCategory(id, { needs_color }),
+    onMutate: ({ id, needs_color }) =>
+      qc.setQueryData<MaterialCategory[]>(["material-categories"], (old) => old?.map((c) => (c.id === id ? { ...c, needs_color } : c))),
+    onSettled: invalidate,
     onError,
   });
 
@@ -120,6 +130,10 @@ export function SettingsMaterialCategoriesView() {
             grouped. Renaming updates every line that uses it. Deleting one moves its line items to
             Uncategorized — nothing else changes.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">Needs color</span> — lines in that category get a Color field
+            and an "Add color" reminder until one is set (pavers, wall block, caps…).
+          </p>
 
           {isLoading ? (
             <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
@@ -136,6 +150,7 @@ export function SettingsMaterialCategoriesView() {
                   onMoveUp={() => move(i, -1)}
                   onMoveDown={() => move(i, 1)}
                   onRename={(name) => renameMut.mutate({ id: s.id, name })}
+                  onNeedsColor={(needs_color) => colorMut.mutate({ id: s.id, needs_color })}
                   onDelete={() => deleteMut.mutate(s.id)}
                 />
               ))}
@@ -172,6 +187,7 @@ function MaterialCategoryRow({
   onMoveUp,
   onMoveDown,
   onRename,
+  onNeedsColor,
   onDelete,
 }: {
   category: MaterialCategory;
@@ -180,6 +196,7 @@ function MaterialCategoryRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRename: (name: string) => void;
+  onNeedsColor: (needs: boolean) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(category.name);
@@ -217,6 +234,16 @@ function MaterialCategoryRow({
         }}
         className="h-10 flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
       />
+
+      <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-muted-foreground">
+        <span className="hidden sm:inline">Needs color</span>
+        <span className="sm:hidden">Color</span>
+        <Switch
+          checked={!!category.needs_color}
+          onCheckedChange={onNeedsColor}
+          aria-label={`${category.name} needs a color`}
+        />
+      </label>
 
       <AlertDialog>
         <AlertDialogTrigger asChild>

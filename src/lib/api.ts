@@ -613,6 +613,9 @@ export interface MaterialCategory {
   user_id: string;
   name: string;
   sort_order: number;
+  /** 0162 — lines in this category ask for a color (hardscape). Undefined
+   * before 0162 reads as false. */
+  needs_color?: boolean;
   created_at: string;
 }
 
@@ -638,7 +641,7 @@ export async function createMaterialCategory(input: { name: string; sort_order?:
 
 export async function updateMaterialCategory(
   id: string,
-  patch: Partial<Pick<MaterialCategory, "name" | "sort_order">>,
+  patch: Partial<Pick<MaterialCategory, "name" | "sort_order" | "needs_color">>,
 ): Promise<void> {
   const { error } = await supabase.from("material_categories").update(patch).eq("id", id);
   if (error) throw error;
@@ -648,6 +651,28 @@ export async function updateMaterialCategory(
 export async function deleteMaterialCategory(id: string): Promise<void> {
   const { error } = await supabase.from("material_categories").delete().eq("id", id);
   if (error) throw error;
+}
+
+/** Colors already used on this contractor's lines, by item name (lower-
+ * cased, trimmed) — suggestions for a typed / Price Book line's Color
+ * field (0162). */
+export async function listUsedColors(): Promise<Map<string, string[]>> {
+  const { data, error } = await supabase
+    .from("materials_items")
+    .select("name, color")
+    .not("color", "is", null)
+    .limit(2000);
+  const out = new Map<string, string[]>();
+  if (error) return out;
+  for (const row of (data ?? []) as { name: string; color: string | null }[]) {
+    const color = row.color?.trim();
+    const key = row.name?.trim().toLowerCase();
+    if (!color || !key) continue;
+    const list = out.get(key) ?? [];
+    if (!list.some((c) => c.toLowerCase() === color.toLowerCase())) list.push(color);
+    out.set(key, list);
+  }
+  return out;
 }
 
 /** Name → the contractor's category id (case-insensitive) — how a Catalog
@@ -745,6 +770,9 @@ export interface MaterialsItem {
   overhead_warning_dismissed?: boolean;
   /** 0160 — added from this possible sub ("Add as subcontractor line"). */
   possible_sub_id?: string | null;
+  /** 0162 — optional description (specs, notes). Internal: crew work order
+   * and order sheet, never clients. Undefined before 0162. */
+  internal_description?: string | null;
   /** Only populated where the select asks for it (tracked-sheet reads) —
    * every baseline ever snapshotted for this line, newest first. The
    * CURRENT baseline is materials_item_baselines[0]; empty = never
@@ -2387,6 +2415,9 @@ async function insertSeededSection(
       : {}),
   });
   if (seed.items.length > 0) {
+    // Only send the 0162 column when a template line has a description, so
+    // creating sections still works before 0162 has been run.
+    const hasDescriptions = seed.items.some((i) => i.internal_description?.trim());
     const { error } = await supabase.from("materials_items").insert(
       seed.items.map((item, j) => ({
         section_id: section.id,
@@ -2400,6 +2431,9 @@ async function insertSeededSection(
         // from some rows is sent as NULL for them (cost_type is NOT NULL).
         cost_type: item.cost_type,
         unit: item.cost_type !== "material" ? LUMP_SUM_UNIT : null,
+        // From the template (0162): category and default description.
+        material_category_id: item.cost_type === "material" ? (item.material_category_id ?? null) : null,
+        ...(hasDescriptions ? { internal_description: item.internal_description?.trim() || null } : {}),
       })),
       { defaultToNull: false },
     );
@@ -2479,14 +2513,15 @@ export async function ensureFeatureSections(projectId: string): Promise<number> 
   const missing = features.filter((f) => f.status !== "removed" && !covered.has(f.id));
   if (missing.length === 0) return 0;
 
-  const [{ featureSeeds }, categories, smartSettings] = await Promise.all([
+  const [{ featureSeeds }, categories, smartSettings, materialCategories] = await Promise.all([
     import("./sectionFeatures"),
     listCategories(),
     listSmartSectionSettings(),
+    listMaterialCategories().catch(() => [] as MaterialCategory[]),
   ]);
   const { groupByType, insertIndexForType } = await import("./sectionGrouping");
   const typeOfFeature = new Map(features.map((f) => [f.id, f.category_id]));
-  const seeds = featureSeeds(groupByType(missing, (f) => f.category_id), categories, smartSettings);
+  const seeds = featureSeeds(groupByType(missing, (f) => f.category_id), categories, smartSettings, materialCategories);
   const laborRate = await laborRateFor(seeds);
 
   // Work out the final order first, then insert the new sections at their
@@ -2741,6 +2776,8 @@ export async function addMaterialsItem(
     vendor?: string | null;
     /** 0160 — added from this possible sub. */
     possible_sub_id?: string | null;
+    /** 0162 */
+    internal_description?: string | null;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -2767,6 +2804,7 @@ export async function addMaterialsItem(
       ...(input.cost_type && input.cost_type !== "material" ? { cost_type: input.cost_type } : {}),
       ...(input.vendor ? { vendor: input.vendor } : {}),
       ...(input.possible_sub_id ? { possible_sub_id: input.possible_sub_id } : {}),
+      ...(input.internal_description ? { internal_description: input.internal_description } : {}),
     })
     .select()
     .single();
@@ -2878,6 +2916,12 @@ export interface SmartSectionLineItemSetting {
   /** Non-material template lines (e.g. "Skid steer rental" as equipment).
    * Absent = material. */
   cost_type?: LineCostType;
+  /** The line's material category, chosen in the template editor. Absent =
+   * the template's default (by name); null = Uncategorized on purpose. */
+  material_category_id?: string | null;
+  /** Default description for lines made from this template line. Absent =
+   * the template's default (none for built-ins). */
+  description?: string | null;
 }
 
 /** A Smart Section template's optional labor default (0103). */

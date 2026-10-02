@@ -80,6 +80,13 @@ export interface LineItemSlot {
    * existed, so the calculator adds the line when it's missing instead of
    * dropping it. */
   addOn?: boolean;
+  /** Built-ins: the material category NAME a new line gets (0162) — see
+   * defaultCategories.ts; matched to the contractor's category by name. */
+  defaultCategory?: string;
+  /** Custom types (0159): the chosen category id (null = none). */
+  defaultCategoryId?: string | null;
+  /** Custom types: the line's default description. */
+  defaultDescription?: string | null;
 }
 
 /** One tunable number a build type's formulas use — a coverage rate, a
@@ -126,6 +133,11 @@ export interface CalculatedLine {
   addIfMissing?: boolean;
   /** Sets the line's Waste % when given. */
   wastePercent?: number;
+  /** From the template (0162): set on an added line, and on an existing
+   * line only while it has no category. */
+  materialCategoryId?: string | null;
+  /** From the template (0162): set on an added line only. */
+  description?: string | null;
 }
 
 export interface SmartSectionTemplate {

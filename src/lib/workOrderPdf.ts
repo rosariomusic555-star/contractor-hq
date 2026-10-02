@@ -155,6 +155,8 @@ export function buildWorkOrderPdf(
   const materials = wo.materials.filter((m) => Number(m.planned_quantity ?? m.quantity) > 0);
   if (materials.length) {
     heading("Materials");
+    const missingColors = materials.filter((m) => m.missing_color).length;
+    if (missingColors) text(`${missingColors} item${missingColors === 1 ? "" : "s"} missing a color - check with the office.`, X);
     const featureName = new Map(wo.features.map((f) => [f.id, f.label]));
     autoTable(doc, {
       startY: y,
@@ -163,8 +165,8 @@ export function buildWorkOrderPdf(
       body: materials.map((m) => {
         const s = crewMaterialStatus(m);
         return [
-          ascii(`${m.feature_id ? `${featureName.get(m.feature_id) ?? m.section}: ` : ""}${m.name}`),
-          ascii([m.color, m.product].filter(Boolean).join(" / ") || "-"),
+          ascii(`${m.feature_id ? `${featureName.get(m.feature_id) ?? m.section}: ` : ""}${m.name}${m.description ? `\n${m.description}` : ""}`),
+          ascii([m.color, m.product].filter(Boolean).join(" / ") || (m.missing_color ? "COLOR NOT SET" : "-")),
           `${fmtQty(s.planned)} ${m.unit ?? ""}`,
           CREW_MATERIAL_STATUS_LABEL[s.status],
         ];

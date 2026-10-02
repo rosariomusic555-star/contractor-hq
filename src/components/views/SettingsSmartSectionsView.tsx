@@ -5,6 +5,10 @@ import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SmartSectionTemplateEditorDialog } from "@/components/materials/SmartSectionTemplateEditorDialog";
 import { SMART_SECTION_TEMPLATES } from "@/lib/smartSections";
 import { BackLink } from "@/components/common/BackLink";
+import { useQuery } from "@tanstack/react-query";
+import { TypeSetupDialog } from "@/components/projectTypes/TypeSetupDialog";
+import { useTypeConfigs } from "@/hooks/use-type-configs";
+import { listCategories } from "@/lib/api";
 
 /**
  * The discoverable home for managing Smart Section templates, outside the
@@ -14,6 +18,15 @@ import { BackLink } from "@/components/common/BackLink";
  */
 export function SettingsSmartSectionsView() {
   const [editingBuildType, setEditingBuildType] = useState<string | null>(null);
+  // Custom project types with a setup (0159) — edited in their own setup
+  // (lines, categories, descriptions, calculator), opened from here too.
+  const { configs } = useTypeConfigs();
+  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: listCategories });
+  const customTypes = configs
+    .map((cfg) => ({ cfg, category: categories.find((c) => c.id === cfg.category_id) }))
+    .filter((x): x is { cfg: (typeof configs)[number]; category: NonNullable<(typeof x)["category"]> } => !!x.category);
+  const [editingCustom, setEditingCustom] = useState<string | null>(null);
+  const editing = customTypes.find((x) => x.cfg.category_id === editingCustom) ?? null;
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
@@ -60,11 +73,44 @@ export function SettingsSmartSectionsView() {
         </div>
       </div>
 
+      {customTypes.length > 0 && (
+        <div className="overflow-hidden rounded-card border border-border shadow-card">
+          <div className="border-b border-hairline bg-muted/50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-muted-subtle">
+            Your custom types
+          </div>
+          <div className="divide-y divide-hairline bg-card">
+            {customTypes.map(({ cfg, category }) => (
+              <button
+                key={cfg.category_id}
+                type="button"
+                onClick={() => setEditingCustom(cfg.category_id)}
+                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-muted/50"
+              >
+                <span className="text-sm font-semibold text-foreground">{category.name}</span>
+                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {cfg.line_items.length} line{cfg.line_items.length === 1 ? "" : "s"}
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <p className="text-xs text-muted-foreground">
         Edit a build type's line items and calculator numbers for your own account — the app's standard
         templates stay available to reset back to any time. Cost plans you've already created
         aren't affected by later edits.
       </p>
+
+      {editing && (
+        <TypeSetupDialog
+          category={editing.category}
+          existing={editing.cfg}
+          open={!!editing}
+          onOpenChange={(o) => !o && setEditingCustom(null)}
+        />
+      )}
 
       {editingBuildType && (
         <SmartSectionTemplateEditorDialog

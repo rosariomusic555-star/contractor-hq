@@ -81,10 +81,42 @@ describe("new sheet: one section per project feature", () => {
     ];
     const [seed] = featureSectionSeeds(["c-patio"], all, settings);
     expect(seed.items).toEqual([
-      { name: "Techo-Bloc pavers", cost_type: "material" },
-      { name: "Skid steer rental", cost_type: "equipment" },
+      { name: "Techo-Bloc pavers", cost_type: "material", material_category_id: null, internal_description: null },
+      { name: "Skid steer rental", cost_type: "equipment", material_category_id: null, internal_description: null },
     ]);
     expect(seed.labor).toEqual({ crew_size: 3, days: 4 });
+  });
+
+  it("template lines come in categorized (0162): default by name, the contractor's choice, deleted → none", () => {
+    const mats = [
+      { id: "m-pavers", name: "Pavers" },
+      { id: "m-base", name: "base gravel" },
+      { id: "m-mine", name: "My sand" },
+    ];
+    const [plain] = featureSectionSeeds(["c-patio"], all, [], mats);
+    const cat = (name: string) => plain.items.find((i) => i.name === name)?.material_category_id;
+    expect(cat("Pavers")).toBe("m-pavers");
+    expect(cat("Border/Edge Pavers")).toBe("m-pavers");
+    expect(cat("Base Material")).toBe("m-base"); // name match ignores case
+    expect(cat("Bedding Sand")).toBeNull(); // no "Bedding Sand" category here
+
+    const settings = [
+      {
+        build_type: "paver_patio",
+        line_items: [
+          { slot_key: "bedding_sand", name: "Bedding Sand", material_category_id: "m-mine", description: "Concrete sand, 1 in." },
+          { slot_key: "pavers", name: "Pavers", material_category_id: "deleted-id" },
+          { slot_key: null, name: "Skid steer", cost_type: "equipment" as const, material_category_id: "m-mine" },
+        ],
+        tunables: {},
+      },
+    ];
+    const [custom] = featureSectionSeeds(["c-patio"], all, settings, mats);
+    expect(custom.items).toEqual([
+      { name: "Bedding Sand", cost_type: "material", material_category_id: "m-mine", internal_description: "Concrete sand, 1 in." },
+      { name: "Pavers", cost_type: "material", material_category_id: null, internal_description: null },
+      { name: "Skid steer", cost_type: "equipment", material_category_id: null, internal_description: null },
+    ]);
   });
 
   it("no project types → no sections", () => {
