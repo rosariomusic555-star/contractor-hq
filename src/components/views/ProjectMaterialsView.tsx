@@ -17,6 +17,7 @@ import {
   FileDown,
   History,
   AlertTriangle,
+  HardHat,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,7 +45,7 @@ import { groupByType } from "@/lib/sectionGrouping";
 import { remapDraftIds } from "@/lib/draftRemap";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
-import { ItemsCollapseToggle, ItemsCollapsedSummary } from "@/components/common/ItemsCollapse";
+import { ItemsCollapseToggle } from "@/components/common/ItemsCollapse";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -155,6 +156,7 @@ import { OptionOrCustomField } from "@/components/materials/OptionOrCustomField"
 import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
 import { CostLineRow } from "@/components/materials/CostLineRow";
+import { CompactLineRow } from "@/components/common/CompactLineRow";
 import { SectionLaborBlock, type LaborDraft } from "@/components/materials/SectionLaborBlock";
 import { AddLineSplitButton } from "@/components/materials/AddLineSplitButton";
 import {
@@ -166,6 +168,8 @@ import {
   costBreakdownLabel,
   costPlanTotal,
   groupLinesByType,
+  laborFormula,
+  lineCost,
   sectionTotals,
   sumSectionTotals,
   type LineCostType,
@@ -2008,6 +2012,15 @@ function MaterialsSectionCard({
   // Lines stay grouped by type; the sort applies within each group.
   const displayItems = sortWithinTypeGroups(section.items, sortMode);
   const showGroupHeadings = new Set(displayItems.map((i) => i.cost_type)).size > 1;
+  // Collapsed line items are compact rows (still sortable / draggable);
+  // tapping one opens just that item. Showing the items again resets.
+  const [openItemIds, setOpenItemIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!itemsCollapsed) setOpenItemIds(new Set());
+  }, [itemsCollapsed]);
+  const isCompact = (id: string) => itemsCollapsed && !openItemIds.has(id);
+  const openItem = (id: string) => setOpenItemIds((prev) => new Set(prev).add(id));
+  const groupSubtotal = (type: LineCostType) => displayItems.filter((i) => i.cost_type === type).reduce((sum, i) => sum + lineCost(i), 0);
 
   return (
     <SectionCard
@@ -2121,28 +2134,37 @@ function MaterialsSectionCard({
         </div>
       }
     >
-      {itemsCollapsed && section.items.length > 0 && onToggleItems && (
-        <ItemsCollapsedSummary count={section.items.length} total={totals.total - totals.labor} onExpand={onToggleItems} />
-      )}
-      {/* Kept mounted while items are hidden — the sort still applies on expand. */}
+      {/* Collapsed = compact rows, same order / sort / drag as expanded. */}
       <Droppable droppableId={section.id} type="item">
         {(provided) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.droppableProps}
-            className={cn("flex flex-col gap-3", itemsCollapsed && section.items.length > 0 && "hidden")}
-          >
+          <div ref={provided.innerRef} {...provided.droppableProps} className={cn("flex flex-col", itemsCollapsed ? "gap-1.5" : "gap-3")}>
             {displayItems.map((item, index) => (
               <Fragment key={item.id}>
               {showGroupHeadings && item.cost_type !== displayItems[index - 1]?.cost_type && (
-                <div className={cn("text-[11px] font-bold uppercase tracking-wider text-muted-subtle", index > 0 && "mt-2")}>
-                  {COST_TYPE_GROUP_LABEL[item.cost_type]}
+                <div className={cn("flex items-baseline justify-between text-[11px] font-bold uppercase tracking-wider text-muted-subtle", index > 0 && "mt-2")}>
+                  <span>{COST_TYPE_GROUP_LABEL[item.cost_type]}</span>
+                  {itemsCollapsed && <span className="tabular-nums normal-case tracking-normal">{formatCurrency(groupSubtotal(item.cost_type))}</span>}
                 </div>
               )}
               <Draggable draggableId={item.id} index={index}>
                 {(dragProvided, dragSnapshot) => (
                   <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} id={`line-${item.id}`} className="scroll-mt-24 rounded-2xl transition-shadow">
-                    {item.cost_type !== "material" ? (
+                    {isCompact(item.id) ? (
+                      <CompactLineRow
+                        name={item.name}
+                        detail={item.cost_type === "material" ? item.color : item.vendor}
+                        quantity={item.quantity}
+                        unit={item.unit}
+                        total={lineCost(item)}
+                        onExpand={() => openItem(item.id)}
+                        dragHandleProps={dragProvided.dragHandleProps}
+                        dragging={dragSnapshot.isDragging}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < section.items.length - 1}
+                        onMoveUp={() => onMoveItem(index, -1)}
+                        onMoveDown={() => onMoveItem(index, 1)}
+                      />
+                    ) : item.cost_type !== "material" ? (
                       <CostLineRow
                         item={item}
                         onEdit={(patch) => onEditItem(item.id, patch)}
@@ -2173,7 +2195,7 @@ function MaterialsSectionCard({
                       onMoveDown={() => onMoveItem(index, 1)}
                     />
                     )}
-                    {overheadConfigured && !item.overhead_warning_dismissed && looksLikeOverhead(item.name) && (
+                    {!isCompact(item.id) && overheadConfigured && !item.overhead_warning_dismissed && looksLikeOverhead(item.name) && (
                       <div className="mt-1.5 flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-foreground">
                         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning-strong" />
                         <span className="min-w-0 flex-1">This looks like overhead that's already covered by your overhead rate.</span>
@@ -2201,9 +2223,26 @@ function MaterialsSectionCard({
         }}
       />
 
-      {/* Labor — below the lines; collapsed to "+ Add labor" while empty. */}
-      <SectionLaborBlock value={section} defaultRate={laborRate} onChange={onEditLabor} />
-      <LaborInsight projectId={projectId} section={section} onEditLabor={onEditLabor} />
+      {/* Labor — below the lines; collapsed to "+ Add labor" while empty,
+          one compact line while the items are collapsed. */}
+      {itemsCollapsed && section.labor_mode ? (
+        <button
+          type="button"
+          onClick={onToggleItems}
+          title="Expand items"
+          className="mt-3 flex min-h-11 w-full items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 text-left text-sm sm:min-h-10"
+        >
+          <HardHat className="h-4 w-4 shrink-0 text-primary" />
+          <span className="font-semibold text-foreground">Labor</span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{(laborFormula(section) ?? "").replace(/\s*=\s*[^=]*$/, "")}</span>
+          <span className="shrink-0 pr-1 text-sm font-bold tabular-nums text-foreground">{formatCurrency(totals.labor)}</span>
+        </button>
+      ) : (
+        <>
+          <SectionLaborBlock value={section} defaultRate={laborRate} onChange={onEditLabor} />
+          <LaborInsight projectId={projectId} section={section} onEditLabor={onEditLabor} />
+        </>
+      )}
 
       {/* Pending change orders on this feature — shown, never in totals. */}
       {pendingChanges.map((p) => (
