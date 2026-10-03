@@ -19,6 +19,7 @@ import {
   type Opportunity,
   type OpportunityDeleteCheck,
 } from "@/lib/api";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /** "background project · 1 cost plan · 2 quotes · 3 photos" — what goes with a delete. */
 function attachedSummary(c: OpportunityDeleteCheck["counts"]): string[] {
@@ -43,7 +44,7 @@ const listOf = (parts: string[]) => (parts.length < 2 ? parts.join("") : `${part
  * sent / signed / paid / shown in the Client Hub. Anything else is archived
  * instead (hidden, restorable). The delete itself re-checks in SQL.
  */
-export function DeleteOpportunitiesDialog({
+function DeleteOpportunitiesDialogInner({
   opportunities,
   open,
   onOpenChange,
@@ -188,3 +189,6 @@ export function DeleteOpportunitiesDialog({
     </AlertDialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const DeleteOpportunitiesDialog = withErrorBoundary(DeleteOpportunitiesDialogInner, "DeleteOpportunitiesDialog");

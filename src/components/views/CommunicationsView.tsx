@@ -64,8 +64,8 @@ export function CommunicationsView() {
 
       <LogCommunicationCard />
 
-      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={setFilter} />
-      <FilterPills className="md:hidden" options={options} value={filter} onChange={setFilter} />
+      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
+      <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
 

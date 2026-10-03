@@ -14,6 +14,7 @@ import { createCloseout, updateCloseout } from "@/lib/api";
 import { unitHighlights, type Closeout } from "@/lib/closeout";
 import { contextPhrase } from "@/lib/jobContext";
 import { signedMoney, VARIANCE_TONE_CLASS, varianceTone } from "@/lib/plannedActual";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * Closeout (0114): a frozen planned-vs-actual summary of a completed job —
@@ -166,7 +167,7 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub?:
 
 /** Create (or re-run) the closeout — opened automatically when a project
  * is marked Complete, and from the Closeout summary. */
-export function CloseoutDialog({ projectId, open, onOpenChange }: { projectId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
+function CloseoutDialogInner({ projectId, open, onOpenChange }: { projectId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const data = usePlannedActual(projectId);
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -234,3 +235,6 @@ export function CloseoutDialog({ projectId, open, onOpenChange }: { projectId: s
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const CloseoutDialog = withErrorBoundary(CloseoutDialogInner, "CloseoutDialog");

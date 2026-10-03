@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { addUsageLog, uploadUsageLogPhoto, type MaterialsItem } from "@/lib/api";
 import { materialLineLabel } from "@/lib/materialsMath";
 import { allDayDateTime, localYmd } from "@/lib/appointmentTime";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 interface LogUsageDialogProps {
   open: boolean;
@@ -28,7 +29,7 @@ interface LogUsageDialogProps {
  * everything else (date defaults to today, note/photo/logged-by) is
  * optional and collapses out of the way until touched.
  */
-export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageDialogProps) {
+function LogUsageDialogInner({ open, onOpenChange, line, onLogged }: LogUsageDialogProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [quantity, setQuantity] = useState("");
@@ -174,3 +175,6 @@ export function LogUsageDialog({ open, onOpenChange, line, onLogged }: LogUsageD
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const LogUsageDialog = withErrorBoundary(LogUsageDialogInner, "LogUsageDialog");

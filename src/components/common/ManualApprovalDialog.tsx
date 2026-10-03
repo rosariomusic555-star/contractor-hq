@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 export type ApprovalMethod = "in_person" | "paper" | "other";
 export interface ManualApproval {
@@ -28,7 +29,7 @@ const todayIso = () => {
  * "The client agreed outside the app" — how, who, when, a note. Shared by
  * quotes (0133) and change orders (0139); the caller does the approving.
  */
-export function ManualApprovalDialog({
+function ManualApprovalDialogInner({
   open,
   onOpenChange,
   title,
@@ -104,3 +105,6 @@ export function ManualApprovalDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const ManualApprovalDialog = withErrorBoundary(ManualApprovalDialogInner, "ManualApprovalDialog");

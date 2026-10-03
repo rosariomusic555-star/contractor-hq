@@ -22,10 +22,15 @@ npx vitest run -t "sum to the real amount"
 
 Both `bun.lockb` and `package-lock.json` are checked in, but the scripts and README assume **npm**.
 
-`npm run lint` has a standing baseline of **12 problems (3 errors, 9 warnings)** — all pre-existing in
-`tailwind.config.ts` (`require()`), `src/components/ui/{command,textarea}.tsx` (empty interface), and
-react-refresh fast-refresh warnings on generated `ui/` files + `lib/auth.tsx` + `lib/portalAuth.tsx`. A change should not
-add to that count.
+`npm run lint` has a standing baseline of **9 warnings, 0 errors** — react-refresh fast-refresh warnings on
+generated `ui/` files + `lib/auth.tsx` + `lib/portalAuth.tsx`. A change should not add to that count.
+
+Type-check with `npx tsc --noEmit -p tsconfig.app.json` (bare `tsc --noEmit` checks nothing — the root
+tsconfig is solution-style). Baseline: **0 errors**.
+
+Crash containment: routes have `errorElement={<RouteErrorPage />}` (root + inside the app shell), and every
+`*Dialog` / `*Sheet` component is exported through `withErrorBoundary()` (`src/components/common/`) — do the same
+for new ones.
 
 ## Architecture
 

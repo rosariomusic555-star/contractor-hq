@@ -27,6 +27,7 @@ import {
   type TypeConfig,
 } from "@/lib/typeConfig";
 import { PRESET_SOURCES, configFromBuiltIn } from "@/lib/typeConfigPresets";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const newId = () => crypto.randomUUID();
 const SECTION = "space-y-3";
@@ -61,7 +62,7 @@ function moved<T>(list: T[], from: number, to: number): T[] {
  * Only for types that don't match a built-in type (those keep the app's own
  * card and templates). Saved as one row; nothing changes until Save.
  */
-export function TypeSetupDialog({
+function TypeSetupDialogInner({
   category,
   existing,
   open,
@@ -575,3 +576,6 @@ export function TypeSetupDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const TypeSetupDialog = withErrorBoundary(TypeSetupDialogInner, "TypeSetupDialog");

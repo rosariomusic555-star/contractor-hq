@@ -14,6 +14,7 @@ import { expenseBucket } from "@/lib/costPlan";
 import { CostTypeSelect, FeatureSelect } from "@/components/expenses/FeatureTypeSelects";
 import { splitAllocation } from "@/lib/expenseSplit";
 import { parseDecimal } from "@/lib/parseDecimal";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const NONE = "__none__";
 
@@ -35,7 +36,7 @@ const newKey = () => crypto.randomUUID();
  * the last line". Nothing is written until Save. Saving 0–1 lines turns it
  * back into a normal single-category expense.
  */
-export function ExpenseSplitDialog({
+function ExpenseSplitDialogInner({
   open,
   onOpenChange,
   expense,
@@ -243,3 +244,6 @@ export function ExpenseSplitDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const ExpenseSplitDialog = withErrorBoundary(ExpenseSplitDialogInner, "ExpenseSplitDialog");

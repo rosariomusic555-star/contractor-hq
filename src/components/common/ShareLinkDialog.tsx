@@ -9,13 +9,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * Shared "here's the link" dialog for quotes and invoices. Copy puts the link
  * on the clipboard; Text / Email deep-link to the device's own Messages / Mail
  * app with the link pre-filled — no server-side sending.
  */
-export function ShareLinkDialog({
+function ShareLinkDialogInner({
   open,
   onOpenChange,
   url,
@@ -82,3 +83,6 @@ export function ShareLinkDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const ShareLinkDialog = withErrorBoundary(ShareLinkDialogInner, "ShareLinkDialog");

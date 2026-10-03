@@ -41,6 +41,7 @@ import { parseDecimal } from "@/lib/parseDecimal";
 import { isoDate } from "@/lib/weatherRisk";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import type { JobCostReport } from "@/lib/jobCosts";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const NO_CATEGORY = "__none";
 
@@ -62,7 +63,7 @@ const newKey = () => `l${++seq}`;
  * total and lines fill the form for review; nothing is saved until Save.
  * The scanned photo is kept as the expense's receipt.
  */
-export function ExpenseSheet({
+function ExpenseSheetInner({
   open,
   onOpenChange,
   projectId,
@@ -442,3 +443,6 @@ export function ExpenseSheet({
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const ExpenseSheet = withErrorBoundary(ExpenseSheetInner, "ExpenseSheet");

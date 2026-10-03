@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn, formatCurrency } from "@/lib/utils";
 import { describeCostChange } from "@/lib/changeOrderCost";
 import type { FeatureHistoryEvent } from "@/lib/api";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const signed = (v: number) => (Math.abs(v) < 0.005 ? "no change" : `${v < 0 ? "âˆ’" : "+"}${formatCurrency(Math.abs(v))}`);
 
@@ -11,7 +12,7 @@ const signed = (v: number) => (Math.abs(v) < 0.005 ? "no change" : `${v < 0 ? "â
  * Current, each with planned cost and customer price. Declined change orders
  * stay in the list, marked declined and changing nothing.
  */
-export function FeatureHistoryDialog({
+function FeatureHistoryDialogInner({
   open,
   onOpenChange,
   featureName,
@@ -133,3 +134,6 @@ function TimelineItem({
     </li>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const FeatureHistoryDialog = withErrorBoundary(FeatureHistoryDialogInner, "FeatureHistoryDialog");

@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 import { saveLeadSourceSpend, type LeadSourceSpend } from "@/lib/api";
 import { addMonths, monthLabel, ym } from "@/lib/marketingRoi";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const parseAmount = (v: string): number | null => {
   const t = v.replace(/[$,\s]/g, "");
@@ -36,7 +37,7 @@ function useSaveSpend(onDone: () => void) {
  * Local draft + Save — nothing is written while typing. Clearing a cell
  * removes that month's spend.
  */
-export function SpendGridDialog({
+function SpendGridDialogInner({
   open,
   onOpenChange,
   sources,
@@ -142,7 +143,7 @@ export function SpendGridDialog({
  * amount (numeric keypad) + optional note, with that source's last 12
  * months below to tap and edit.
  */
-export function SpendFormDialog({
+function SpendFormDialogInner({
   open,
   onOpenChange,
   sources,
@@ -272,3 +273,7 @@ export function SpendFormDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const SpendGridDialog = withErrorBoundary(SpendGridDialogInner, "SpendGridDialog");
+export const SpendFormDialog = withErrorBoundary(SpendFormDialogInner, "SpendFormDialog");

@@ -20,6 +20,7 @@ import {
   type PaymentMethod,
 } from "@/lib/api";
 import { PAYMENT_METHODS, invoiceBalance, suggestAllocations } from "@/lib/projectMoney";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const todayYmd = () => {
   const d = new Date();
@@ -78,7 +79,7 @@ function ResponsiveModal({
  * amounts. Whatever isn't applied stays project credit. Default: no
  * allocation, unless opened from an invoice (`defaultInvoiceId`).
  */
-export function RecordPaymentSheet({
+function RecordPaymentSheetInner({
   open,
   onOpenChange,
   projectId,
@@ -355,3 +356,6 @@ export function RecordPaymentSheet({
     </ResponsiveModal>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const RecordPaymentSheet = withErrorBoundary(RecordPaymentSheetInner, "RecordPaymentSheet");

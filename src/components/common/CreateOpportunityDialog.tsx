@@ -11,6 +11,7 @@ import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { LeadSourceSelect } from "@/components/common/LeadSourceSelect";
 import { useToast } from "@/hooks/use-toast";
 import { createOpportunity, setOpportunityCategories } from "@/lib/api";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * "New opportunity" — the main way work enters the app, so it's a roomy
@@ -30,7 +31,7 @@ import { createOpportunity, setOpportunityCategories } from "@/lib/api";
  * Header and buttons stay put while the body scrolls; below `sm` the dialog
  * is a full-height sheet.
  */
-export function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function CreateOpportunityDialogInner({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -182,3 +183,6 @@ export function CreateOpportunityDialog({ open, onOpenChange }: { open: boolean;
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const CreateOpportunityDialog = withErrorBoundary(CreateOpportunityDialogInner, "CreateOpportunityDialog");

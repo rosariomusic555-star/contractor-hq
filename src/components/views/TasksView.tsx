@@ -32,6 +32,7 @@ import {
 import { localYmd } from "@/lib/appointmentTime";
 import { dayHeading, groupFromDate } from "@/lib/upcoming";
 import { FromDateControl } from "@/components/common/FromDateControl";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 type Filter = "upcoming" | "overdue" | "completed" | "all";
 
@@ -99,8 +100,8 @@ export function TasksView() {
         </Button>
       </div>
 
-      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={setFilter} />
-      <FilterPills className="md:hidden" options={options} value={filter} onChange={setFilter} />
+      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
+      <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
       {filter === "upcoming" && <FromDateControl value={from} onChange={setFrom} today={today} />}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
@@ -178,7 +179,7 @@ export function TaskRow({ task, onToggle }: { task: Task; onToggle: (completed: 
   );
 }
 
-export function CreateTaskDialog({
+function CreateTaskDialogInner({
   open,
   onOpenChange,
   defaultClientId,
@@ -295,3 +296,6 @@ export function CreateTaskDialog({
     </>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const CreateTaskDialog = withErrorBoundary(CreateTaskDialogInner, "CreateTaskDialog");

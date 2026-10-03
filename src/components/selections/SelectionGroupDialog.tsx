@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { CatalogPicker } from "@/components/materials/CatalogPicker";
 import { priceLabel } from "@/lib/selections";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 type PriceMode = "included" | "add" | "discount";
 const NONE = "__none__";
@@ -64,7 +65,7 @@ const toRow = (o: Partial<SelectionOptionDraft> & { id?: string }): OptionRow =>
  * adjustment and Cost plan link (never shown to the client), and the
  * default. "Add from Catalog" turns picked product colors into options.
  */
-export function SelectionGroupDialog({
+function SelectionGroupDialogInner({
   open,
   onOpenChange,
   quoteSectionId,
@@ -451,3 +452,6 @@ export function SelectionGroupDialog({
     </>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const SelectionGroupDialog = withErrorBoundary(SelectionGroupDialogInner, "SelectionGroupDialog");

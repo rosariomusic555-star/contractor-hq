@@ -22,6 +22,7 @@ import { effectiveDeliveryStatus } from "@/lib/materialTracking";
 import { matchReceiptToOrderLines } from "@/lib/materialsCenter";
 import { isoDate } from "@/lib/weatherRisk";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const NO_ISSUE = "__none";
 
@@ -44,7 +45,7 @@ interface Row {
  * the rest stays on order. Issues per line; drop-off photos go on the
  * delivery (the crew sees them in the work order).
  */
-export function LogDeliverySheet({
+function LogDeliverySheetInner({
   order,
   open,
   onOpenChange,
@@ -269,3 +270,6 @@ export function LogDeliverySheet({
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const LogDeliverySheet = withErrorBoundary(LogDeliverySheetInner, "LogDeliverySheet");

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { MOBILE_BOTTOM_SHEET } from "@/lib/dialogStyles";
 import { combinedLineName } from "@/lib/possibleSubs";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 export type AddSubChoice =
   /** One General line for one sub price covering every feature. */
@@ -22,7 +23,7 @@ const toAmount = (v: string) => {
  * features: one General line (default) or split across the features.
  * Amounts are optional — they can be filled in on the lines afterwards.
  */
-export function AddPossibleSubDialog({
+function AddPossibleSubDialogInner({
   sub,
   features,
   onOpenChange,
@@ -114,3 +115,6 @@ export function AddPossibleSubDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const AddPossibleSubDialog = withErrorBoundary(AddPossibleSubDialogInner, "AddPossibleSubDialog");

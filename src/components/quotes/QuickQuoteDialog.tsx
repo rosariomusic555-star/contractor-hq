@@ -6,6 +6,7 @@ import { BUILD_TYPES } from "@/lib/buildTypes";
 import { findQuickQuoteTemplate } from "@/lib/quickQuote";
 import { MOBILE_BOTTOM_SHEET } from "@/lib/dialogStyles";
 import { cn } from "@/lib/utils";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * A single question — "what are you building?" — same taxonomy as the
@@ -13,7 +14,7 @@ import { cn } from "@/lib/utils";
  * picking a build type opens the quick-question form, never the Smart
  * Section flow.
  */
-export function QuickQuoteDialog({
+function QuickQuoteDialogInner({
   open,
   onOpenChange,
   onPick,
@@ -54,3 +55,6 @@ export function QuickQuoteDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const QuickQuoteDialog = withErrorBoundary(QuickQuoteDialogInner, "QuickQuoteDialog");
