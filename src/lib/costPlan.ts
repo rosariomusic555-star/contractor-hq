@@ -16,7 +16,7 @@ import type { ChangeOrder, Expense, ExpenseCategory, Quote } from "./api";
 import { pendingSelectionsCost, pickHeadlineQuote, projectContractValue } from "./api";
 import { COST_BUCKETS, sumSectionTotals, type CostBucket, type CostSection, type CostTotals } from "./costPlanMath";
 
-const zero = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0 });
+const zero = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0, tax: 0, subtotal: 0 });
 
 /** Which bucket an expense category's spend counts toward. Uncategorized
  * spend (or a category from before 0103) counts as "other" — it's real

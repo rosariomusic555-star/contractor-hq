@@ -13,6 +13,11 @@ import { countsTowardTotals, type FeatureStatus } from "./features";
  *
  * Material lines keep their waste % (quantity × (1 + waste) × unit cost);
  * every other line is plain quantity × rate — a lump sum is 1 × amount.
+ *
+ * Sales tax (0163): a taxable line adds its pre-tax cost × its tax_rate %
+ * (rounded to the cent, per line). It's a real cost to the contractor, so
+ * every total here — by type, per section, the plan — is after tax;
+ * `subtotal` / `tax` split it back out. Labor is never taxed. Internal only.
  */
 
 export type LineCostType = "material" | "subcontractor" | "equipment" | "other";
@@ -63,17 +68,48 @@ export const LUMP_SUM_UNIT = "lump sum";
 
 export const costTypeOf = (line: { cost_type?: LineCostType | null }): LineCostType => line.cost_type ?? "material";
 
+export type TaxRateSource = "default" | "supplier" | "custom";
+
 export interface CostLine {
   quantity: number | string;
   unit_cost: number | string;
   waste_percent?: number | string | null;
   cost_type?: LineCostType | null;
+  /** 0163 — undefined (before 0163) reads as untaxed. */
+  taxable?: boolean | null;
+  tax_rate?: number | string | null;
 }
 
-/** One line's planned cost. */
+/** One line's planned cost, before tax. */
 export function lineCost(line: CostLine): number {
   return costTypeOf(line) === "material" ? materialsLineTotal(line) : num(line.quantity) * num(line.unit_cost);
 }
+
+/** Whether a line type is taxable by default (Material, Equipment). */
+export const taxableByDefault = (type: LineCostType) => type === "material" || type === "equipment";
+
+/** One line's sales tax — 0 when not taxable. Rounded to the cent. */
+export function lineTax(line: CostLine): number {
+  if (!line.taxable) return 0;
+  const tax = (lineCost(line) * num(line.tax_rate)) / 100;
+  return Math.round(tax * 100) / 100;
+}
+
+/** One line's cost with its tax — what it adds to every total. */
+export function lineCostWithTax(line: CostLine): number {
+  return lineCost(line) + lineTax(line);
+}
+
+const fmtPct = (v: number) => `${v.toLocaleString("en-US", { maximumFractionDigits: 3 })}%`;
+
+/** "$6,300.00 + 7.25% tax $456.75 = $6,756.75", or null when untaxed. */
+export function lineTaxFormula(line: CostLine): string | null {
+  if (!line.taxable) return null;
+  const money2 = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${money2(lineCost(line))} + ${fmtPct(num(line.tax_rate))} tax ${money2(lineTax(line))} = ${money2(lineCostWithTax(line))}`;
+}
+
+export { fmtPct as formatTaxRate };
 
 export interface LaborBlock {
   labor_mode?: LaborMode | null;
@@ -132,9 +168,17 @@ export function laborFormula(s: LaborBlock): string | null {
   return `${fmtNum(crew)} ${crew === 1 ? "person" : "guys"} × ${fmtNum(days)} ${days === 1 ? "day" : "days"} × ${fmtNum(hrs)} hrs × ${fmtMoney(rate)} = ${fmtMoney(sectionLaborCost(s))}`;
 }
 
-export type CostTotals = Record<CostBucket, number> & { total: number };
+/** By type (each after its tax), plus `total` (after tax), `tax`, and
+ * `subtotal` (before tax). */
+export type CostTotals = Record<CostBucket, number> & { total: number; tax: number; subtotal: number };
 
-const emptyTotals = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0 });
+const emptyTotals = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0, tax: 0, subtotal: 0 });
+
+const finish = (t: CostTotals): CostTotals => {
+  t.total = t.material + t.labor + t.subcontractor + t.equipment + t.other;
+  t.subtotal = t.total - t.tax;
+  return t;
+};
 
 export interface CostSection extends LaborBlock {
   /** DB rows call it materials_items; the builder draft calls it items. */
@@ -149,10 +193,13 @@ export interface CostSection extends LaborBlock {
 /** One section's planned cost, by type. */
 export function sectionTotals(section: CostSection): CostTotals {
   const t = emptyTotals();
-  for (const line of section.materials_items ?? section.items ?? []) t[costTypeOf(line)] += lineCost(line);
+  for (const line of section.materials_items ?? section.items ?? []) {
+    const tax = lineTax(line);
+    t[costTypeOf(line)] += lineCost(line) + tax;
+    t.tax += tax;
+  }
   t.labor += sectionLaborCost(section);
-  t.total = t.material + t.labor + t.subcontractor + t.equipment + t.other;
-  return t;
+  return finish(t);
 }
 
 /** Several sections (a whole cost plan, or a quote section's linked
@@ -164,13 +211,13 @@ export function sumSectionTotals(sections: CostSection[], opts: { all?: boolean 
   for (const s of opts.all ? sections : sections.filter(countsTowardTotals)) {
     const st = sectionTotals(s);
     for (const k of COST_BUCKETS) t[k] += st[k];
+    t.tax += st.tax;
   }
-  t.total = t.material + t.labor + t.subcontractor + t.equipment + t.other;
-  return t;
+  return finish(t);
 }
 
-/** The cost plan total — every type, labor included. What quote Est.
- * cost, Profit Summary, Revenue and change orders all mean by "cost". */
+/** The cost plan total — every type, labor included, after tax. What quote
+ * Est. cost, Profit Summary, Revenue and change orders all mean by "cost". */
 export function costPlanTotal(sections: CostSection[] = []): number {
   return sumSectionTotals(sections).total;
 }

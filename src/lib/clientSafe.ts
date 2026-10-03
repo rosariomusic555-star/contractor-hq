@@ -74,6 +74,8 @@ export const INTERNAL_FIELDS = [
   "void_reason", "created_by", "estimated_cost", "cogs",
   // 0162 — a Cost plan line's description (crew / order sheet only)
   "internal_description",
+  // 0163 — sales tax the contractor pays on Cost plan lines (internal cost)
+  "taxable", "tax_rate", "tax_rate_source", "tax_off", "tax_notice", "default_tax_rate",
   // Feature 5 — planned vs actual, closeouts, estimating insights
   "job_slope", "job_access", "job_soil", "job_demo", "smart_inputs", "variance", "planned", "actual",
   "closeout", "closeouts", "what_happened", "excluded", "snapshot", "report", "units", "labor_ratio",

@@ -31,7 +31,7 @@ import type {
   Project,
   Quote,
 } from "./api";
-import { COST_BUCKETS, COST_TYPE_LABEL, costTypeOf, lineCost, sectionLaborCost, sectionLaborHours, type CostBucket } from "./costPlanMath";
+import { COST_BUCKETS, COST_TYPE_LABEL, costTypeOf, lineCostWithTax, sectionLaborCost, sectionLaborHours, type CostBucket } from "./costPlanMath";
 import { costPlanSummary, expenseBucket } from "./costPlan";
 import { activeFeatures, countsTowardTotals, featureName, type ProjectFeature } from "./features";
 import {
@@ -39,6 +39,7 @@ import {
   effectiveDeliveryStatus,
   effectiveEstimate,
   lineActualCost,
+  lineTaxFactor,
   usedQuantity,
   type DeliveryLineWithOrderStatus,
 } from "./materialTracking";
@@ -234,7 +235,7 @@ export function jobCostReport(input: {
   };
   for (const s of counted) {
     const row = plannedRow(keyOf(s.feature_id));
-    for (const l of s.materials_items ?? []) row[costTypeOf(l)] += lineCost(l);
+    for (const l of s.materials_items ?? []) row[costTypeOf(l)] += lineCostWithTax(l);
     row.labor += sectionLaborCost(s);
   }
   if (summary.pendingSelections) plannedRow(GENERAL).other += summary.pendingSelections;
@@ -368,8 +369,10 @@ export function jobCostReport(input: {
   const materialLines: MaterialLineRow[] = allLines.map((l) => {
     const est = effectiveEstimate(l);
     const deliveredQty = deliveredQuantity(l, deliveries);
-    const deliveredCost = lineActualCost(l, deliveries);
-    const plannedCost = est.quantity * est.unit_cost;
+    // After tax, like the plan's totals (0163).
+    const taxFactor = lineTaxFactor(l);
+    const deliveredCost = lineActualCost(l, deliveries) * taxFactor;
+    const plannedCost = est.quantity * est.unit_cost * taxFactor;
     return {
       id: l.id,
       name: l.name,
@@ -393,7 +396,7 @@ export function jobCostReport(input: {
       if (effectiveDeliveryStatus(item, o.status) !== "delivered") continue;
       const line = item.materials_item_id ? lineById.get(item.materials_item_id) : undefined;
       if (line) {
-        const c = lineActualCost(line, [{ item, orderStatus: o.status }]);
+        const c = lineActualCost(line, [{ item, orderStatus: o.status }]) * lineTaxFactor(line);
         amount += c;
         if (input.materialsCounted) actualRow(keyOf(line.__section.feature_id)).material += c;
       } else {

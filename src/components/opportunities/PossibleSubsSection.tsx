@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Plus, X } from "lucide-react";
+import { CheckCircle2, ChevronDown, Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useSectionCollapse } from "@/hooks/use-section-collapse";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
   createPossibleSub,
@@ -26,6 +28,10 @@ const tmpId = () => `${TMP}${Math.random().toString(36).slice(2)}`;
  * (several allowed, none = General). Saves as you go (possible_subs rows,
  * 0160), like the notes above it. Shows up as one-tap Subcontractor lines
  * in the Cost plan and (info only) on the crew work order.
+ *
+ * Optional, so it starts as one slim collapsed row (with a summary once it
+ * has items). Open/closed is remembered per user, per opportunity, in
+ * localStorage only — opening it never writes anything.
  */
 export function PossibleSubsSection({
   opportunity,
@@ -44,6 +50,12 @@ export function PossibleSubsSection({
   const [subs, setSubs] = useState<PossibleSub[]>([]);
   const [custom, setCustom] = useState("");
   const pending = useRef(0);
+  const { session } = useAuth();
+  const collapse = useSectionCollapse({
+    storageKey: `chq_possible_subs_collapse_v1:${session?.user.id ?? "anon"}`,
+    defaultCollapsed: () => true,
+  });
+  const collapsed = collapse.isCollapsed(opportunity.id);
   // Server copy changed (saves finished, another tab) — it wins, but never
   // mid-save, so a half-done sequence doesn't flicker back.
   useEffect(() => {
@@ -113,10 +125,52 @@ export function PossibleSubsSection({
     run.mutate(() => updatePossibleSub(s.id, { label, note: s.note ?? null }));
   };
 
+  const summary = subs.map((s) => s.label.trim()).filter(Boolean);
+  const header = (
+    <div className="flex min-h-9 items-center gap-2">
+      <button
+        type="button"
+        onClick={() => collapse.toggle(opportunity.id)}
+        aria-expanded={!collapsed}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+      >
+        <span className={cn(labelClassName, "shrink-0")}>Possible subcontracted work</span>
+        {summary.length === 0 ? (
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">(optional)</span>
+        ) : (
+          collapsed && (
+            <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
+              · {summary.join(", ")} ({summary.length})
+            </span>
+          )
+        )}
+      </button>
+      {collapsed && (
+        <button
+          type="button"
+          onClick={() => collapse.expand(opportunity.id)}
+          className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-xs font-semibold text-primary hover:bg-muted"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => collapse.toggle(opportunity.id)}
+        aria-label={collapsed ? "Expand possible subcontracted work" : "Collapse possible subcontracted work"}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+      >
+        <ChevronDown className={cn("h-4 w-4 transition-transform", !collapsed && "rotate-180")} />
+      </button>
+    </div>
+  );
+
+  if (collapsed) return header;
+
   return (
     <div className="space-y-2">
       <div>
-        <div className={labelClassName}>Possible subcontracted work</div>
+        {header}
         <p className="text-xs text-muted-foreground">
           Anything someone else will likely handle. It shows up as a suggested Subcontractor line in the Cost plan.
         </p>

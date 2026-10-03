@@ -64,6 +64,8 @@ import { SettingsLeadSourcesView } from "@/components/views/SettingsLeadSourcesV
 import { SettingsExpenseCategoriesView } from "@/components/views/SettingsExpenseCategoriesView";
 import { SettingsMaterialCategoriesView } from "@/components/views/SettingsMaterialCategoriesView";
 import { SettingsSuppliersView } from "@/components/views/SettingsSuppliersView";
+import { SettingsCostPlanTaxView } from "@/components/views/SettingsCostPlanTaxView";
+import { RouteErrorPage } from "@/components/common/ErrorBoundary";
 import { SettingsInvoicingView } from "@/components/views/SettingsInvoicingView";
 import { SettingsPricebookView } from "@/components/views/SettingsPricebookView";
 import { SettingsSmartSectionsView } from "@/components/views/SettingsSmartSectionsView";
@@ -150,7 +152,7 @@ function RootLayout() {
 
 const router = createBrowserRouter(
   createRoutesFromElements(
-    <Route element={<RootLayout />}>
+    <Route element={<RootLayout />} errorElement={<RouteErrorPage />}>
       {/* Public, unauthenticated — no AppLayout / sidebar / auth gate */}
       <Route path="/quote/:token" element={<SharedQuotePage />} />
       {/* Tracked review link (0122) — public, logs the click and redirects. */}
@@ -188,102 +190,107 @@ const router = createBrowserRouter(
       </Route>
 
       <Route element={<AppLayout />}>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<DashboardView />} />
-        <Route path="/needs-you" element={<NeedsYouView />} />
-        <Route path="/bookings" element={<BookingsView />} />
-        <Route path="/backlog" element={<BacklogRedirect />} />
-        <Route path="/projects" element={<ProjectsView />} />
-        <Route path="/projects/new" element={<NewProjectView />} />
-        <Route path="/projects/:id" element={<ProjectDetailView />} />
-        <Route path="/projects/:id/client-view" element={<ClientViewPage />} />
-        <Route path="/projects/:projectId/client-view/documents/:kind/:id" element={<PortalDocumentView mode="preview" />} />
-        {/* The old Cost Plan hub — the Cost plan is the builder now. */}
-        <Route path="/projects/:id/cost-plan" element={<CostPlanRedirect />} />
-        <Route path="/projects/:id/labor" element={<ProjectLaborView />} />
-        <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
-        <Route
-          path="/projects/:id/materials/:sheetId"
-          element={<ProjectMaterialsSheetDetailView />}
-        />
-        <Route path="/projects/:id/quotes" element={<ProjectQuotesView />} />
-        <Route path="/projects/:id/quotes/:quoteId" element={<ProjectQuoteDetailView />} />
-        <Route path="/projects/:id/invoices" element={<ProjectInvoicesView />} />
-        <Route
-          path="/projects/:id/invoices/:invoiceId"
-          element={<ProjectInvoiceDetailView />}
-        />
-        <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
-        <Route path="/projects/:id/change-orders" element={<ProjectChangeOrdersView />} />
-        <Route path="/projects/:id/change-orders/:coId" element={<ProjectChangeOrderDetailView />} />
-        <Route path="/projects/:id/material-orders" element={<ProjectMaterialOrdersView />} />
-        <Route path="/quotes" element={<QuotesView />} />
-        <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
-        <Route path="/invoices" element={<InvoicesView />} />
-        <Route path="/invoices/:invoiceId" element={<InvoiceDetailView />} />
-        <Route path="/materials" element={<MaterialSheetsView />} />
-        <Route path="/expenses" element={<ExpensesView />} />
-        <Route path="/revenue" element={<RevenueView />} />
-        <Route path="/revenue/:detail" element={<RevenueDetailRedirect />} />
-        <Route path="/clients" element={<ClientsView />} />
-        <Route path="/clients/new" element={<ClientFormView />} />
-        <Route path="/clients/:clientId" element={<ClientDetailView />} />
-        <Route path="/clients/:clientId/edit" element={<ClientFormView />} />
-        <Route path="/pipeline" element={<PipelineView />} />
-        <Route path="/opportunities" element={<OpportunitiesView />} />
-        <Route path="/pipeline/:id" element={<OpportunityDetailView />} />
-        <Route path="/tasks" element={<TasksView />} />
-        <Route path="/appointments" element={<AppointmentsView />} />
-        <Route path="/communications" element={<CommunicationsView />} />
-        <Route path="/settings" element={<SettingsView />} />
-        <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
-        <Route path="/settings/overhead" element={<SettingsOverheadView />} />
-        <Route path="/settings/estimating-insights" element={<SettingsEstimatingInsightsView />} />
-        <Route path="/settings/selection-templates" element={<SettingsSelectionTemplatesView />} />
-        <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
-        <Route path="/settings/project-types" element={<SettingsProjectTypesView />} />
-        {/* Categories and Project types were the same list — one page now. */}
-        <Route path="/settings/categories" element={<Navigate to="/settings/project-types" replace />} />
-        <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
-        <Route path="/settings/material-categories" element={<SettingsMaterialCategoriesView />} />
-        <Route
-          path="/settings/expense-categories"
-          element={<SettingsExpenseCategoriesView />}
-        />
-        <Route path="/settings/suppliers" element={<SettingsSuppliersView />} />
-        <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
-        <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
-        <Route path="/settings/smart-sections" element={<SettingsSmartSectionsView />} />
-        <Route path="/settings/quick-quote-rates" element={<SettingsQuickQuoteRatesView />} />
-        <Route path="/settings/team" element={<SettingsTeamView />} />
-        <Route path="/settings/employees" element={<SettingsEmployeesView />} />
-        <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
-        <Route path="/settings/weather" element={<SettingsWeatherView />} />
-        <Route path="/settings/messages" element={<SettingsMessagesView />} />
-        <Route path="/settings/reviews" element={<SettingsReviewsView />} />
-        <Route path="/settings/precon" element={<SettingsPreconView />} />
-        <Route path="/settings/progress" element={<SettingsProgressView />} />
-        <Route path="/settings/maintenance" element={<SettingsMaintenanceView />} />
-        <Route path="/settings/payroll" element={<SettingsPayrollView />} />
-        <Route path="/settings/business-health" element={<SettingsBusinessHealthView />} />
-        <Route path="/business-health" element={<BusinessHealthView />} />
-        <Route path="/timesheets" element={<TimesheetsView />} />
-        <Route path="/timesheets/payroll/:start" element={<PayrollView />} />
-        <Route path="/timesheets/:id" element={<TimesheetDetailView />} />
-        <Route path="/portfolio" element={<PortfolioView />} />
-        {/* Crew work order (0125) — the owner's preview of the crew page. */}
-        <Route path="/projects/:id/work-order" element={<WorkOrderPreviewPage />} />
-        <Route path="/notifications" element={<NotificationsView />} />
-        <Route path="/settings/billing" element={<SettingsBillingView />} />
+        {/* A crashed page shows "Something went wrong" inside the shell —
+            the sidebar and tab bar stay. */}
+        <Route errorElement={<RouteErrorPage />}>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardView />} />
+          <Route path="/needs-you" element={<NeedsYouView />} />
+          <Route path="/bookings" element={<BookingsView />} />
+          <Route path="/backlog" element={<BacklogRedirect />} />
+          <Route path="/projects" element={<ProjectsView />} />
+          <Route path="/projects/new" element={<NewProjectView />} />
+          <Route path="/projects/:id" element={<ProjectDetailView />} />
+          <Route path="/projects/:id/client-view" element={<ClientViewPage />} />
+          <Route path="/projects/:projectId/client-view/documents/:kind/:id" element={<PortalDocumentView mode="preview" />} />
+          {/* The old Cost Plan hub — the Cost plan is the builder now. */}
+          <Route path="/projects/:id/cost-plan" element={<CostPlanRedirect />} />
+          <Route path="/projects/:id/labor" element={<ProjectLaborView />} />
+          <Route path="/projects/:id/materials" element={<ProjectMaterialsView />} />
+          <Route
+            path="/projects/:id/materials/:sheetId"
+            element={<ProjectMaterialsSheetDetailView />}
+          />
+          <Route path="/projects/:id/quotes" element={<ProjectQuotesView />} />
+          <Route path="/projects/:id/quotes/:quoteId" element={<ProjectQuoteDetailView />} />
+          <Route path="/projects/:id/invoices" element={<ProjectInvoicesView />} />
+          <Route
+            path="/projects/:id/invoices/:invoiceId"
+            element={<ProjectInvoiceDetailView />}
+          />
+          <Route path="/projects/:id/expenses" element={<ProjectExpensesView />} />
+          <Route path="/projects/:id/change-orders" element={<ProjectChangeOrdersView />} />
+          <Route path="/projects/:id/change-orders/:coId" element={<ProjectChangeOrderDetailView />} />
+          <Route path="/projects/:id/material-orders" element={<ProjectMaterialOrdersView />} />
+          <Route path="/quotes" element={<QuotesView />} />
+          <Route path="/quotes/:quoteId" element={<QuoteDetailView />} />
+          <Route path="/invoices" element={<InvoicesView />} />
+          <Route path="/invoices/:invoiceId" element={<InvoiceDetailView />} />
+          <Route path="/materials" element={<MaterialSheetsView />} />
+          <Route path="/expenses" element={<ExpensesView />} />
+          <Route path="/revenue" element={<RevenueView />} />
+          <Route path="/revenue/:detail" element={<RevenueDetailRedirect />} />
+          <Route path="/clients" element={<ClientsView />} />
+          <Route path="/clients/new" element={<ClientFormView />} />
+          <Route path="/clients/:clientId" element={<ClientDetailView />} />
+          <Route path="/clients/:clientId/edit" element={<ClientFormView />} />
+          <Route path="/pipeline" element={<PipelineView />} />
+          <Route path="/opportunities" element={<OpportunitiesView />} />
+          <Route path="/pipeline/:id" element={<OpportunityDetailView />} />
+          <Route path="/tasks" element={<TasksView />} />
+          <Route path="/appointments" element={<AppointmentsView />} />
+          <Route path="/communications" element={<CommunicationsView />} />
+          <Route path="/settings" element={<SettingsView />} />
+          <Route path="/settings/business-profile" element={<SettingsBusinessProfileView />} />
+          <Route path="/settings/overhead" element={<SettingsOverheadView />} />
+          <Route path="/settings/estimating-insights" element={<SettingsEstimatingInsightsView />} />
+          <Route path="/settings/selection-templates" element={<SettingsSelectionTemplatesView />} />
+          <Route path="/settings/quote-defaults" element={<SettingsQuoteDefaultsView />} />
+          <Route path="/settings/project-types" element={<SettingsProjectTypesView />} />
+          {/* Categories and Project types were the same list — one page now. */}
+          <Route path="/settings/categories" element={<Navigate to="/settings/project-types" replace />} />
+          <Route path="/settings/lead-sources" element={<SettingsLeadSourcesView />} />
+          <Route path="/settings/material-categories" element={<SettingsMaterialCategoriesView />} />
+          <Route
+            path="/settings/expense-categories"
+            element={<SettingsExpenseCategoriesView />}
+          />
+          <Route path="/settings/suppliers" element={<SettingsSuppliersView />} />
+          <Route path="/settings/cost-plan-tax" element={<SettingsCostPlanTaxView />} />
+          <Route path="/settings/invoicing" element={<SettingsInvoicingView />} />
+          <Route path="/settings/pricebook" element={<SettingsPricebookView />} />
+          <Route path="/settings/smart-sections" element={<SettingsSmartSectionsView />} />
+          <Route path="/settings/quick-quote-rates" element={<SettingsQuickQuoteRatesView />} />
+          <Route path="/settings/team" element={<SettingsTeamView />} />
+          <Route path="/settings/employees" element={<SettingsEmployeesView />} />
+          <Route path="/settings/notifications" element={<SettingsNotificationsView />} />
+          <Route path="/settings/weather" element={<SettingsWeatherView />} />
+          <Route path="/settings/messages" element={<SettingsMessagesView />} />
+          <Route path="/settings/reviews" element={<SettingsReviewsView />} />
+          <Route path="/settings/precon" element={<SettingsPreconView />} />
+          <Route path="/settings/progress" element={<SettingsProgressView />} />
+          <Route path="/settings/maintenance" element={<SettingsMaintenanceView />} />
+          <Route path="/settings/payroll" element={<SettingsPayrollView />} />
+          <Route path="/settings/business-health" element={<SettingsBusinessHealthView />} />
+          <Route path="/business-health" element={<BusinessHealthView />} />
+          <Route path="/timesheets" element={<TimesheetsView />} />
+          <Route path="/timesheets/payroll/:start" element={<PayrollView />} />
+          <Route path="/timesheets/:id" element={<TimesheetDetailView />} />
+          <Route path="/portfolio" element={<PortfolioView />} />
+          {/* Crew work order (0125) — the owner's preview of the crew page. */}
+          <Route path="/projects/:id/work-order" element={<WorkOrderPreviewPage />} />
+          <Route path="/notifications" element={<NotificationsView />} />
+          <Route path="/settings/billing" element={<SettingsBillingView />} />
 
-        {/* Employee-only mode (0043) — a completely separate, restricted
-            shell; AppLayout renders EmployeeLayout instead of Sidebar/
-            BottomTabBar for these when role === "employee". */}
-        <Route path="/employee" element={<EmployeeProjectsView />} />
-        <Route path="/employee/projects/:id" element={<EmployeeProjectDetailView />} />
-        <Route path="/employee/projects/:id/work-order" element={<EmployeeWorkOrderPage />} />
-        <Route path="/employee/account" element={<EmployeeAccountView />} />
-        <Route path="/employee/time" element={<EmployeeTimeView />} />
+          {/* Employee-only mode (0043) — a completely separate, restricted
+              shell; AppLayout renders EmployeeLayout instead of Sidebar/
+              BottomTabBar for these when role === "employee". */}
+          <Route path="/employee" element={<EmployeeProjectsView />} />
+          <Route path="/employee/projects/:id" element={<EmployeeProjectDetailView />} />
+          <Route path="/employee/projects/:id/work-order" element={<EmployeeWorkOrderPage />} />
+          <Route path="/employee/account" element={<EmployeeAccountView />} />
+          <Route path="/employee/time" element={<EmployeeTimeView />} />
+        </Route>
       </Route>
       <Route path="*" element={<NotFound />} />
     </Route>,

@@ -1,4 +1,4 @@
-import { lineCost, sectionLaborCost, laborFormula, type CostLine, type LaborBlock, type LineCostType, type LaborMode } from "./costPlanMath";
+import { lineCostWithTax, taxableByDefault, sectionLaborCost, laborFormula, type CostLine, type LaborBlock, type LineCostType, type LaborMode } from "./costPlanMath";
 
 /**
  * A change order's planned-cost side (0107): each change is an add / edit /
@@ -20,6 +20,9 @@ export interface CostChangeLine {
   waste_percent?: number;
   cost_type?: LineCostType;
   vendor?: string | null;
+  /** 0163 — the line's sales tax, so the delta is after tax like the plan. */
+  taxable?: boolean;
+  tax_rate?: number;
 }
 
 /** Labor fields as a change stores them. */
@@ -48,6 +51,10 @@ const asLine = (v: unknown): CostLine => {
     unit_cost: Number(l.unit_cost ?? 0),
     waste_percent: Number(l.waste_percent ?? 0),
     cost_type: l.cost_type ?? "material",
+    // An added line with no say yet follows its type's default, like the
+    // DB does when the change is applied.
+    taxable: l.taxable ?? taxableByDefault(l.cost_type ?? "material"),
+    tax_rate: Number(l.tax_rate ?? 0),
   };
 };
 
@@ -55,13 +62,13 @@ const asLine = (v: unknown): CostLine => {
 export function costChangeDelta(c: CostChangeLike): number {
   switch (c.kind) {
     case "add":
-      return lineCost(asLine(c.line));
+      return lineCostWithTax(asLine(c.line));
     case "remove":
-      return -lineCost(asLine(c.before));
+      return -lineCostWithTax(asLine(c.before));
     case "edit": {
       const before = asLine(c.before);
       const after = asLine({ ...(c.before ?? {}), ...(c.line ?? {}) });
-      return lineCost(after) - lineCost(before);
+      return lineCostWithTax(after) - lineCostWithTax(before);
     }
     case "labor":
       return sectionLaborCost((c.line ?? {}) as LaborBlock) - sectionLaborCost((c.before ?? {}) as LaborBlock);

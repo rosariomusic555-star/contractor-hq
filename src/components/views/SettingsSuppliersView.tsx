@@ -51,9 +51,13 @@ export function SettingsSuppliersView() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<Supplier, "name" | "phone" | "email" | "address">> }) =>
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<Supplier, "name" | "phone" | "email" | "address" | "tax_rate">> }) =>
       updateSupplier(id, patch),
-    onSuccess: invalidate,
+    onSuccess: (_d, { patch }) => {
+      invalidate();
+      // A rate (or a renamed supplier) re-figures open jobs' lines in the DB (0163).
+      if ("tax_rate" in patch || "name" in patch) qc.invalidateQueries({ queryKey: ["materials"] });
+    },
     onError,
   });
 
@@ -96,9 +100,14 @@ export function SettingsSuppliersView() {
 
         <div className="bg-card p-5">
           <p className="text-sm text-muted-foreground">
-            Feeds the Supplier field on Material orders. Separate from Product Catalog manufacturers
+            Feeds the Supplier field on Material orders and Cost plan lines. Separate from Product Catalog manufacturers
             — this is who you order from, not who makes the product. Deleting a supplier here doesn't
-            change any existing delivery records.
+            change any existing delivery records. A supplier in a different tax area can have its own sales tax rate
+            (under Details); lines with that supplier use it instead of the{" "}
+            <Link to="/settings/cost-plan-tax" className="font-semibold text-primary hover:text-primary/80">
+              default rate
+            </Link>
+            .
           </p>
 
           {isLoading ? (
@@ -150,14 +159,25 @@ function SupplierRow({
 }: {
   supplier: Supplier;
   onRename: (name: string) => void;
-  onUpdateContact: (patch: Partial<Pick<Supplier, "phone" | "email" | "address">>) => void;
+  onUpdateContact: (patch: Partial<Pick<Supplier, "phone" | "email" | "address" | "tax_rate">>) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(supplier.name);
   const [phone, setPhone] = useState(supplier.phone ?? "");
   const [email, setEmail] = useState(supplier.email ?? "");
   const [address, setAddress] = useState(supplier.address ?? "");
-  const hasContact = !!(supplier.phone || supplier.email || supplier.address);
+  const [taxRate, setTaxRate] = useState(supplier.tax_rate == null ? "" : String(supplier.tax_rate));
+  const hasContact = !!(supplier.phone || supplier.email || supplier.address || supplier.tax_rate != null);
+  /** Blank = the default rate; otherwise 0–100. */
+  const commitTaxRate = () => {
+    const t = taxRate.trim();
+    const next = t === "" ? null : Number(t);
+    if (next != null && (!isFinite(next) || next < 0 || next > 100)) {
+      setTaxRate(supplier.tax_rate == null ? "" : String(supplier.tax_rate));
+      return;
+    }
+    if (next !== (supplier.tax_rate == null ? null : Number(supplier.tax_rate))) onUpdateContact({ tax_rate: next });
+  };
   const [expanded, setExpanded] = useState(hasContact);
 
   return (
@@ -178,10 +198,11 @@ function SupplierRow({
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          aria-label={hasContact ? "Contact info" : "Add contact info"}
+          aria-label={hasContact ? "Supplier details" : "Add supplier details"}
           className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          Contact
+          Details
+          {supplier.tax_rate != null && <span className="tabular-nums text-foreground">· {Number(supplier.tax_rate)}% tax</span>}
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
         </button>
 
@@ -237,6 +258,17 @@ function SupplierRow({
               onBlur={() => onUpdateContact({ email: email.trim() || null })}
               placeholder="orders@supplier.com"
               className="h-9"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className={FIELD_LABEL}>Sales tax rate (%)</div>
+            <Input
+              inputMode="decimal"
+              value={taxRate}
+              onChange={(e) => setTaxRate(e.target.value)}
+              onBlur={commitTaxRate}
+              placeholder="Default rate"
+              className="h-9 tabular-nums"
             />
           </div>
           <div className="space-y-1 sm:col-span-2">

@@ -57,6 +57,7 @@ const GROUPS: readonly SettingsGroup[] = [
       { label: "Price Book", to: "/settings/pricebook" },
       { label: "Material categories", to: "/settings/material-categories" },
       { label: "Suppliers", to: "/settings/suppliers" },
+      { label: "Cost plan tax", to: "/settings/cost-plan-tax" },
     ],
   },
   {

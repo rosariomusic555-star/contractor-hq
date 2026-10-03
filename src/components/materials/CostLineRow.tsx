@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import type { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,7 @@ export function CostLineRow({
   canMoveDown,
   onMoveUp,
   onMoveDown,
+  children,
 }: {
   item: CostLineDraft;
   onEdit: (patch: Partial<CostLineDraft>) => void;
@@ -55,6 +56,8 @@ export function CostLineRow({
   canMoveDown: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  /** Under the amounts — the sales tax strip (0163). */
+  children?: ReactNode;
 }) {
   const lump = item.unit === LUMP_SUM_UNIT;
   const type = item.cost_type === "material" ? "other" : item.cost_type;
@@ -207,6 +210,7 @@ export function CostLineRow({
           </div>
         </div>
       </div>
+      {children}
     </div>
   );
 }

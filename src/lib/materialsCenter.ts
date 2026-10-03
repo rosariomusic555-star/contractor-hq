@@ -36,6 +36,7 @@ import {
   effectiveEstimate,
   executionTrackedLines,
   lineActualCost,
+  lineTaxFactor,
   lineStatus,
   orderedQuantity,
   usedQuantity,
@@ -168,8 +169,11 @@ export function materialsCenterReport(input: {
     const ordered = orderedQuantity(line, deliveries);
     const delivered = deliveredQuantity(line, deliveries);
     const used = usedQuantity(line, input.usageLogs);
-    const plannedCost = est.quantity * est.unit_cost;
-    const deliveredCost = lineActualCost(line, deliveries);
+    // After tax, like the plan's totals (0163); order amounts stay at the
+    // supplier's prices.
+    const taxFactor = lineTaxFactor(line);
+    const plannedCost = est.quantity * est.unit_cost * taxFactor;
+    const deliveredCost = lineActualCost(line, deliveries) * taxFactor;
     const toOrder = Math.max(0, est.quantity - ordered);
     const specs = line.catalog_product_id ? catalogById.get(line.catalog_product_id)?.specs : undefined;
     return {

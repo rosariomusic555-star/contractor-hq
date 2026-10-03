@@ -389,6 +389,15 @@ export function hasAnyOrder(line: Pick<MaterialsItem, "id">, deliveries: Deliver
 // Cost — actual vs. baseline, including Unplanned deliveries.
 // ---------------------------------------------------------------------------
 
+/** 1 + the line's sales tax rate when it's taxable (0163), else 1. Money
+ * figures that sit next to the Cost plan's after-tax totals (estimated /
+ * delivered cost, planned vs actual, job costs) multiply by this; quantities
+ * and an order's own supplier prices never do. */
+export function lineTaxFactor(line: { taxable?: boolean | null; tax_rate?: number | string | null }): number {
+  const rate = Number(line.tax_rate);
+  return line.taxable && isFinite(rate) ? 1 + rate / 100 : 1;
+}
+
 /** A tracked line's actual cost to date: each matched, delivered order
  * item's quantity (in the sheet line's own unit) x its own actual price,
  * falling back to the sheet's estimated unit_cost when no price was
@@ -457,9 +466,10 @@ export function sheetCostSummary(
 
   for (const line of trackedLines) {
     const { quantity: estQty, unit_cost: estCost } = effectiveEstimate(line);
-    estimatedCost += estQty * estCost;
+    const taxFactor = lineTaxFactor(line);
+    estimatedCost += estQty * estCost * taxFactor;
 
-    actualCost += lineActualCost(line, deliveries);
+    actualCost += lineActualCost(line, deliveries) * taxFactor;
     if (line.reconciled_at && line.disposition === "returned" && line.return_credit) {
       actualCost -= Number(line.return_credit);
     }
