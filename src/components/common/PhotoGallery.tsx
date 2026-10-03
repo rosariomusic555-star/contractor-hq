@@ -82,7 +82,7 @@ export function PhotoGallery({ owner, title, emptyText, bare = false, internalOn
   const [captionDraft, setCaptionDraft] = useState("");
 
   const queryKey = ["photo-gallery", owner.type, owner.id];
-  const list = () => (owner.type === "project" ? listProjectImages(owner.id) : listMaterialOrderImages(owner.id));
+  const list = (): Promise<GalleryPhoto[]> => (owner.type === "project" ? listProjectImages(owner.id) : listMaterialOrderImages(owner.id));
   const addOne = (file: File, sort_order: number) =>
     owner.type === "project"
       ? addProjectImage(owner.id, file, { sort_order })

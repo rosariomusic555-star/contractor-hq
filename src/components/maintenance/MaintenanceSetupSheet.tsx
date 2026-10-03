@@ -12,6 +12,7 @@ import { activeFeatures, featureBuildType, featureName } from "@/lib/features";
 import { intervalLabel, proposeItems, warrantyEnd, type ProposedItem } from "@/lib/maintenance";
 import { isoDate } from "@/lib/weatherRisk";
 import { useMaintenanceItems, useMaintenanceSettings } from "./useMaintenance";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * The completion step (0127): suggested maintenance items per feature (from
@@ -19,7 +20,7 @@ import { useMaintenanceItems, useMaintenanceSettings } from "./useMaintenance";
  * adjust, confirm. Warranty end dates per feature come from the warranty
  * years set per type. Nothing is written until "Save reminders".
  */
-export function MaintenanceSetupSheet({ project, open, onOpenChange }: { project: Project; open: boolean; onOpenChange: (o: boolean) => void }) {
+function MaintenanceSetupSheetInner({ project, open, onOpenChange }: { project: Project; open: boolean; onOpenChange: (o: boolean) => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -159,3 +160,6 @@ export function MaintenanceSetupSheet({ project, open, onOpenChange }: { project
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const MaintenanceSetupSheet = withErrorBoundary(MaintenanceSetupSheetInner, "MaintenanceSetupSheet");

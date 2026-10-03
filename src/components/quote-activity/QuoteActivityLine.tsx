@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from "@/lib/utils";
 import { getNotificationSettings, listQuoteActivity, type Quote, type QuoteActivityEvent } from "@/lib/api";
 import { activityByVersion, activityLine, coldLabel, coldState, durationText } from "@/lib/quoteActivity";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const EVENT_ICON: Record<QuoteActivityEvent["kind"], typeof Eye> = {
   opened: Eye,
@@ -51,7 +52,7 @@ export function QuoteActivityLine({ quote, className }: { quote: Pick<Quote, "id
   );
 }
 
-export function QuoteActivityDialog({ quoteId, onClose }: { quoteId: string; onClose: () => void }) {
+function QuoteActivityDialogInner({ quoteId, onClose }: { quoteId: string; onClose: () => void }) {
   const { data, isLoading } = useQuery({ queryKey: ["quote-activity", quoteId], queryFn: () => listQuoteActivity(quoteId) });
   const groups = data ? activityByVersion(data.sessions, data.events) : [];
   return (
@@ -116,3 +117,6 @@ export function QuoteActivityDialog({ quoteId, onClose }: { quoteId: string; onC
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const QuoteActivityDialog = withErrorBoundary(QuoteActivityDialogInner, "QuoteActivityDialog");

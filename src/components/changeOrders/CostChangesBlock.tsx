@@ -4,9 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SectionLaborBlock, type LaborDraft } from "@/components/materials/SectionLaborBlock";
 import { cn, formatCurrency } from "@/lib/utils";
-import { COST_TYPE_LABEL, LINE_COST_TYPES, LUMP_SUM_UNIT, laborFormula, lineCost, type LineCostType } from "@/lib/costPlanMath";
+import { COST_TYPE_LABEL, LINE_COST_TYPES, LUMP_SUM_UNIT, laborFormula, lineCostWithTax, type LineCostType } from "@/lib/costPlanMath";
 import { costChangeDelta, type CostChangeKind } from "@/lib/changeOrderCost";
-import type { MaterialsSection } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { COST_PLAN_TAX_RATE_KEY, getCostPlanTaxRate, type MaterialsSection } from "@/lib/api";
 
 /** One planned-cost change while the change order is being edited. */
 export interface DraftCostChange {
@@ -66,6 +67,9 @@ export function CostChangesBlock({
   onEdit: (id: string, patch: Partial<DraftCostChange>) => void;
   onRemove: (id: string) => void;
 }) {
+  // Added lines carry the default sales tax rate (0163), so the delta is
+  // after tax like the Cost plan it lands in.
+  const { data: defaultTaxRate = 0 } = useQuery({ queryKey: COST_PLAN_TAX_RATE_KEY, queryFn: getCostPlanTaxRate });
   const delta = changes.reduce((s, c) => s + costChangeDelta(c), 0);
   const lines = featureSection?.materials_items ?? [];
   const changedIds = new Set(changes.map((c) => c.materials_item_id).filter(Boolean));
@@ -82,6 +86,8 @@ export function CostChangesBlock({
           waste_percent: Number(i.waste_percent ?? 0),
           cost_type: i.cost_type ?? "material",
           vendor: i.vendor ?? null,
+          taxable: !!i.taxable,
+          tax_rate: Number(i.tax_rate ?? 0),
         }
       : null;
   };
@@ -189,7 +195,7 @@ export function CostChangesBlock({
                     <div className="col-span-2 self-end text-xs text-muted-foreground">
                       Now {Number(c.before?.quantity ?? 0)}
                       {c.before?.unit ? ` ${c.before.unit}` : ""} × {formatCurrency(Number(c.before?.unit_cost ?? 0))} ={" "}
-                      {formatCurrency(lineCost({ quantity: Number(c.before?.quantity ?? 0), unit_cost: Number(c.before?.unit_cost ?? 0), waste_percent: Number(c.before?.waste_percent ?? 0), cost_type: (c.before?.cost_type as LineCostType) ?? "material" }))}
+                      {formatCurrency(lineCostWithTax({ quantity: Number(c.before?.quantity ?? 0), unit_cost: Number(c.before?.unit_cost ?? 0), waste_percent: Number(c.before?.waste_percent ?? 0), cost_type: (c.before?.cost_type as LineCostType) ?? "material", taxable: !!c.before?.taxable, tax_rate: Number(c.before?.tax_rate ?? 0) }))}
                     </div>
                     <NumField label="New qty" value={c.line.quantity ?? c.before?.quantity} disabled={locked} onChange={(v) => onEdit(c.id, { line: { ...c.line, quantity: v } })} />
                     <NumField label="New unit cost" prefix="$" value={c.line.unit_cost ?? c.before?.unit_cost} disabled={locked} onChange={(v) => onEdit(c.id, { line: { ...c.line, unit_cost: v } })} />
@@ -214,7 +220,7 @@ export function CostChangesBlock({
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => onAdd({ kind: "add", materials_item_id: null, materials_section_id: featureSection.id, line: { cost_type: "material", name: "", quantity: 0, unit: "", unit_cost: 0 }, before: null })}
+                onClick={() => onAdd({ kind: "add", materials_item_id: null, materials_section_id: featureSection.id, line: { cost_type: "material", name: "", quantity: 0, unit: "", unit_cost: 0, tax_rate: defaultTaxRate }, before: null })}
                 className="flex min-h-11 items-center gap-1.5 rounded-xl border-[1.5px] border-dashed border-border bg-card px-3.5 text-sm font-bold text-primary hover:border-primary hover:bg-primary/5"
               >
                 <Plus className="h-4 w-4" />

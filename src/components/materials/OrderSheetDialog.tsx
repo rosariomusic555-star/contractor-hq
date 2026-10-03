@@ -36,6 +36,7 @@ import { downloadOrderSheetPdf, orderSheetPdfForEmail } from "@/lib/orderSheetPd
 import { defaultOrderEmail } from "@/lib/orderSheetEmail";
 import { EmailOrderSheetStep, type OrderSheetPdf } from "./EmailOrderSheetStep";
 import { materialLineLabel } from "@/lib/materialsMath";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 interface OrderSheetDialogProps {
   open: boolean;
@@ -72,7 +73,7 @@ interface FlatItem {
  * stored field on the sheet line itself). Two-step internal state, same
  * dialog: "select" -> "confirmOrdered".
  */
-export function OrderSheetDialog({
+function OrderSheetDialogInner({
   open,
   onOpenChange,
   projectId,
@@ -108,8 +109,8 @@ export function OrderSheetDialog({
   }, [open]);
   const [poNumber, setPoNumber] = useState("");
   const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: listSuppliers });
-  const supplierRow = suppliers.find((s) => s.name.trim().toLowerCase() === supplier.trim().toLowerCase());
   const [supplier, setSupplier] = useState("");
+  const supplierRow = suppliers.find((s) => s.name.trim().toLowerCase() === supplier.trim().toLowerCase());
   const [dateNeeded, setDateNeeded] = useState("");
   const [notes, setNotes] = useState("");
   // 0162 — print line descriptions (on by default).
@@ -520,3 +521,6 @@ export function OrderSheetDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const OrderSheetDialog = withErrorBoundary(OrderSheetDialogInner, "OrderSheetDialog");

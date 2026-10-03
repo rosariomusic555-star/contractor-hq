@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { dayLabel, entryProblem, fmtHours, previewHours, toIso } from "@/lib/timesheets";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 export interface EntryDraft {
   id: string | null;
@@ -21,7 +22,7 @@ export interface EntryDraft {
  * auto lunch apply there). Shared by the crew's Time screen and the owner's
  * timesheet review.
  */
-export function TimeEntryDialog({
+function TimeEntryDialogInner({
   open,
   onOpenChange,
   initial,
@@ -125,3 +126,6 @@ export function TimeEntryDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const TimeEntryDialog = withErrorBoundary(TimeEntryDialogInner, "TimeEntryDialog");

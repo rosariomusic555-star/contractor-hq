@@ -13,6 +13,7 @@ import { hasReviewLink } from "@/lib/reviews";
 import type { MessageChannel } from "@/lib/clientMessaging";
 import { ClientMessageComposer } from "@/components/messaging/ClientMessageComposer";
 import { invalidateReviews } from "./reviewQueries";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * Ask a client for a review (0122) — the same message block as Client
@@ -20,7 +21,7 @@ import { invalidateReviews } from "./reviewQueries";
  * tracked link /r/{token}. Every client asked gets the same link — no
  * satisfaction check in between (Google's no-review-gating rule).
  */
-export function ReviewRequestSheet({
+function ReviewRequestSheetInner({
   open,
   onOpenChange,
   projectId,
@@ -145,3 +146,6 @@ export function ReviewRequestSheet({
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const ReviewRequestSheet = withErrorBoundary(ReviewRequestSheetInner, "ReviewRequestSheet");

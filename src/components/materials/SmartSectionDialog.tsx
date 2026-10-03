@@ -11,6 +11,7 @@ import {
   templateStartingLines,
 } from "@/lib/smartSections";
 import { SmartSectionTemplateEditorDialog } from "./SmartSectionTemplateEditorDialog";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * A single question — "what are you building?" — not a wizard. Picking an
@@ -20,7 +21,7 @@ import { SmartSectionTemplateEditorDialog } from "./SmartSectionTemplateEditorDi
  * Section Templates, for editing this build type's line items/calculator
  * numbers without leaving the flow of building a quote.
  */
-export function SmartSectionDialog({
+function SmartSectionDialogInner({
   open,
   onOpenChange,
   onCreate,
@@ -99,3 +100,6 @@ export function SmartSectionDialog({
     </>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const SmartSectionDialog = withErrorBoundary(SmartSectionDialogInner, "SmartSectionDialog");

@@ -37,6 +37,7 @@ import {
   resolveLineCategoryId,
   resolveTunableValue,
 } from "@/lib/smartSections";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * The one editor both entry points open: Settings > Manage Smart Section
@@ -46,7 +47,7 @@ import {
  * keep whatever line items/quantities they already have (a natural
  * consequence of matching by name, not special-cased here).
  */
-export function SmartSectionTemplateEditorDialog({
+function SmartSectionTemplateEditorDialogInner({
   open,
   onOpenChange,
   buildTypeId,
@@ -418,3 +419,6 @@ export function SmartSectionTemplateEditorDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const SmartSectionTemplateEditorDialog = withErrorBoundary(SmartSectionTemplateEditorDialogInner, "SmartSectionTemplateEditorDialog");

@@ -47,6 +47,7 @@ import {
   type AppointmentType,
 } from "@/lib/api";
 import { AppointmentForecastChip } from "@/components/weather/AppointmentForecastChip";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 type Filter = "upcoming" | "past" | "all";
 
@@ -106,8 +107,8 @@ export function AppointmentsView() {
         </Button>
       </div>
 
-      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={setFilter} />
-      <FilterPills className="md:hidden" options={options} value={filter} onChange={setFilter} />
+      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
+      <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
       {filter === "upcoming" && <FromDateControl value={from} onChange={setFrom} today={today} />}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
@@ -283,7 +284,7 @@ export function AppointmentRow({
  * New appointment. A date-only appointment stays date-only; an older timed
  * one keeps its time of day when its date changes. Address isn't editable
  * here (it's filled automatically on create). */
-export function EditAppointmentDialog({
+function EditAppointmentDialogInner({
   open,
   onOpenChange,
   appointment,
@@ -360,7 +361,7 @@ export function EditAppointmentDialog({
   );
 }
 
-export function CreateAppointmentDialog({
+function CreateAppointmentDialogInner({
   open,
   onOpenChange,
   defaultClientId,
@@ -506,3 +507,7 @@ function AppointmentDateTimeFields({
     </div>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const EditAppointmentDialog = withErrorBoundary(EditAppointmentDialogInner, "EditAppointmentDialog");
+export const CreateAppointmentDialog = withErrorBoundary(CreateAppointmentDialogInner, "CreateAppointmentDialog");

@@ -18,6 +18,7 @@ import {
   History,
   AlertTriangle,
   HardHat,
+  Percent,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,6 +118,11 @@ import {
   type ProductCatalogItem,
   type CatalogPriceOverride,
   getOpportunityByProjectId,
+  COST_PLAN_TAX_RATE_KEY,
+  getCostPlanTaxRate,
+  listSuppliers,
+  setCostPlanTax,
+  updateMaterialsSheet,
 } from "@/lib/api";
 import { SmartSectionDialog } from "@/components/materials/SmartSectionDialog";
 import { countsTowardTotals, featureName, liveFeatures, type FeatureStatus } from "@/lib/features";
@@ -173,10 +179,14 @@ import {
   groupLinesByType,
   laborFormula,
   lineCost,
+  lineCostWithTax,
   sectionTotals,
+  taxableByDefault,
   sumSectionTotals,
   type LineCostType,
 } from "@/lib/costPlanMath";
+import { lineTaxView, type LineTaxView } from "@/lib/costPlanTax";
+import { LineTaxRow } from "@/components/materials/LineTaxRow";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import {
   featureSectionSeeds,
@@ -266,6 +276,16 @@ interface DraftItem {
   /** 0162 — optional description (specs, notes). Internal: crew + order
    * sheet, never clients. Empty string = none. */
   internal_description: string;
+  /** Sales tax (0163). Undefined = the type's default (Material /
+   * Equipment on, unless the plan's tax is off) — decided on Save. */
+  taxable?: boolean;
+  /** A rate typed on this line; null/undefined = its supplier's or the
+   * default rate (see lineTaxView). */
+  tax_custom_rate?: number | null;
+  /** View-only (never in the draft state): the effective tax, filled in by
+   * withTax() for display and totals. */
+  tax?: LineTaxView;
+  tax_rate?: number;
 }
 interface DraftSection extends LaborDraft {
   id: string;
@@ -440,6 +460,8 @@ const seed = (sections: MaterialsSection[]): DraftSection[] =>
       overhead_warning_dismissed: i.overhead_warning_dismissed ?? false,
       possible_sub_id: i.possible_sub_id ?? null,
       internal_description: i.internal_description ?? "",
+      taxable: i.taxable,
+      tax_custom_rate: i.tax_rate_source === "custom" ? Number(i.tax_rate ?? 0) : null,
     })),
   })));
 
@@ -573,6 +595,63 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // section's labor block starts at.
   const { data: businessProfile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const laborRate = businessProfile?.default_labor_rate ?? 45;
+  // Sales tax on lines (0163) — internal cost. The default rate, supplier
+  // rates and this plan's on/off; lineTaxView mirrors the DB trigger so the
+  // draft shows what Save stores.
+  const { data: defaultTaxRate = 0 } = useQuery({ queryKey: COST_PLAN_TAX_RATE_KEY, queryFn: getCostPlanTaxRate });
+  const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: listSuppliers });
+  const { data: projectSheets = [] } = useQuery({
+    queryKey: ["materials-sheets", { project: projectId }],
+    queryFn: () => listMaterialsSheets(projectId),
+  });
+  const planSheet = projectSheets.find((sh) => sh.id === sheetId);
+  const taxOff = !!planSheet?.tax_off;
+  const savedItemById = useMemo(() => new Map(sections.flatMap((sec) => sec.materials_items).map((i) => [i.id, i])), [sections]);
+  const taxOf = (i: DraftItem): LineTaxView =>
+    lineTaxView(i, savedItemById.get(i.id), { defaultRate: defaultTaxRate, suppliers, taxOff });
+  // "Turn off tax for this plan" / back on (0163) — every line at once. Any
+  // unsaved draft follows along, so the next Save doesn't undo it.
+  const planTaxMut = useMutation({
+    mutationFn: (on: boolean) => setCostPlanTax(sheetId!, on),
+    onSuccess: (_d, on) => {
+      if (dirty.current) {
+        setDraft((d) =>
+          d.map((sec) => ({ ...sec, items: sec.items.map((i) => ({ ...i, taxable: on ? taxableByDefault(i.cost_type) : false })) })),
+        );
+      }
+      qc.invalidateQueries({ queryKey: ["materials"] });
+      qc.invalidateQueries({ queryKey: ["materials-sheets"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      toast({ title: on ? "Tax is back on for this plan" : "Tax turned off for this plan" });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+  const dismissTaxNotice = useMutation({
+    mutationFn: () => updateMaterialsSheet(sheetId!, { tax_notice: false }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["materials-sheets"] }),
+  });
+
+  /** Sales tax fields for an update. An unchanged auto rate keeps its
+   * saved source, so the DB keeps the saved rate (see lineTaxView). */
+  const taxPatch = (di: DraftItem, srv: MaterialsItem) =>
+    di.tax_custom_rate != null
+      ? { taxable: taxOf(di).taxable, tax_rate_source: "custom" as const, tax_rate: di.tax_custom_rate }
+      : {
+          taxable: taxOf(di).taxable,
+          tax_rate_source: srv.tax_rate_source && srv.tax_rate_source !== "custom" ? srv.tax_rate_source : ("default" as const),
+        };
+  const taxChanged = (di: DraftItem, srv: MaterialsItem) =>
+    taxOf(di).taxable !== !!srv.taxable ||
+    (di.tax_custom_rate ?? null) !== (srv.tax_rate_source === "custom" ? Number(srv.tax_rate ?? 0) : null);
+  /** A section with each line's effective tax on it — what every total and
+   * row on this page reads. */
+  const withTax = (sec: DraftSection): DraftSection => ({
+    ...sec,
+    items: sec.items.map((i) => {
+      const tax = taxOf(i);
+      return { ...i, tax, taxable: tax.taxable, tax_rate: tax.rate };
+    }),
+  });
   // Material categories (0094) — the line items' one category list.
   const { data: materialCategories = [], isSuccess: materialCategoriesLoaded } = useQuery({
     queryKey: ["material-categories"],
@@ -1147,7 +1226,15 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     edit((d) =>
       d.map((s) =>
         s.id === sid
-          ? { ...s, items: s.items.map((i) => (i.id === iid ? { ...i, ...patch } : i)) }
+          ? {
+              ...s,
+              items: s.items.map((i) =>
+                i.id === iid
+                  ? // A new type starts at its own taxable default (0163).
+                    { ...i, ...(patch.cost_type && patch.cost_type !== i.cost_type && !("taxable" in patch) ? { taxable: undefined } : {}), ...patch }
+                  : i,
+              ),
+            }
           : s,
       ),
     );
@@ -1281,9 +1368,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               vendor: di.vendor.trim() || null,
               possible_sub_id: di.possible_sub_id ?? null,
               internal_description: di.internal_description.trim() || null,
+              // Sales tax (0163): the rate itself is filled in by the DB
+              // unless typed on the line.
+              taxable: taxOf(di).taxable,
+              ...(di.tax_custom_rate != null ? { tax_rate_source: "custom" as const, tax_rate: di.tax_custom_rate } : {}),
             });
             createdIds.current.set(di.id, createdItem.id);
           } else if (
+            taxChanged(di, srv) ||
             itemChanged(di, {
               name: srv.name,
               quantity: Number(srv.quantity),
@@ -1322,6 +1414,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                 ? { internal_description: di.internal_description.trim() || null }
                 : {}),
               sort_order: ii,
+              ...taxPatch(di, srv),
             });
           }
 
@@ -1358,7 +1451,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   });
 
   // The Total cost card: every section, broken down by cost type.
-  const planTotals = useMemo(() => sumSectionTotals(draft), [draft]);
+  const taxedDraft = draft.map(withTax);
+  const planTotals = sumSectionTotals(taxedDraft);
 
   // Track / Don't Track (0086) — live off the draft (not the server rows)
   // so the count updates the instant the contractor toggles an item, same
@@ -1468,7 +1562,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   ) => (
     <div id={`section-${section.id}`} className={cn("scroll-mt-24 rounded-card", changes?.changedIds.has(section.id) && EDITED_CLASS)}>
                       <MaterialsSectionCard
-                        section={section}
+                        section={withTax(section)}
                         materialCategories={materialCategories}
                         expenseCategories={expenseCategories}
                         sortMode={sortOf(section.id)}
@@ -1653,6 +1747,29 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         </div>
       )}
 
+      {/* One-time notice on plans from before sales tax (0163), once their
+          totals actually include some. */}
+      {planSheet?.tax_notice && !taxOff && planTotals.tax > 0 && (
+        <div className="flex flex-col gap-3 rounded-card border border-info/30 bg-info/5 p-4 sm:flex-row sm:items-center">
+          <Percent className="hidden h-5 w-5 shrink-0 text-info sm:block" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-semibold text-foreground">Totals now include sales tax</p>
+            <p className="text-muted-foreground">
+              {formatCurrency(planTotals.tax)} of tax on this plan&apos;s material and equipment lines — a real cost to you, so it now counts
+              toward Est. cost and profit. Internal only; clients never see it.
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" size="sm" disabled={planTaxMut.isPending} onClick={() => planTaxMut.mutate(false)}>
+              Turn off tax for this plan
+            </Button>
+            <Button size="sm" disabled={dismissTaxNotice.isPending} onClick={() => dismissTaxNotice.mutate()}>
+              Got it
+            </Button>
+          </div>
+        </div>
+      )}
+
       {isLoading && <p className="text-muted-foreground">Loading cost plan…</p>}
       {isError && <p className="text-destructive">Failed to load materials: {(error as Error).message}</p>}
 
@@ -1732,6 +1849,40 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
           </span>
           <span className="text-[26px] font-extrabold tracking-tight tabular-nums text-background">{formatCurrency(planTotals.total)}</span>
         </div>
+        {/* Before tax · tax (0163). The types below include their tax. */}
+        <div className="mt-1 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-xs tabular-nums text-background/60">
+          {planTotals.tax > 0 && (
+            <>
+              <span>
+                Before tax <span className="font-semibold text-background">{formatCurrency(planTotals.subtotal)}</span>
+              </span>
+              <span>
+                Tax <span className="font-semibold text-background">{formatCurrency(planTotals.tax)}</span>
+              </span>
+            </>
+          )}
+          {taxOff ? (
+            <span>
+              Tax off for this plan ·{" "}
+              <button type="button" className="font-semibold text-background underline underline-offset-2" onClick={() => planTaxMut.mutate(true)}>
+                Turn on
+              </button>
+            </span>
+          ) : (
+            defaultTaxRate === 0 &&
+            planTotals.tax === 0 &&
+            taxedDraft.some((sec) => sec.items.some((i) => i.taxable)) && (
+              <Link to="/settings/cost-plan-tax" className="font-semibold text-background underline underline-offset-2">
+                Set your sales tax rate
+              </Link>
+            )
+          )}
+          {planTotals.tax > 0 && sheetId && !taxOff && (
+            <button type="button" className="text-background/60 underline underline-offset-2 hover:text-background" onClick={() => planTaxMut.mutate(false)}>
+              Turn off tax
+            </button>
+          )}
+        </div>
         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-white/10 pt-3 sm:grid-cols-5">
           {COST_BUCKETS.map((k) => (
             <div key={k} className="flex items-baseline justify-between gap-2 sm:block">
@@ -1808,7 +1959,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               onOpenChange={(open) => !open && setHistoryFeatureId(null)}
               featureName={f ? featureName(f, jobCategories) : "Feature"}
               events={featureHistory.filter((e) => e.feature_id === historyFeatureId)}
-              currentCost={sumSectionTotals(ownSections, { all: true }).total}
+              currentCost={sumSectionTotals(ownSections.map(withTax), { all: true }).total}
               currentPrice={featurePrice(historyFeatureId, projectQuotes, projectChangeOrders)}
             />
           );
@@ -2087,7 +2238,21 @@ function MaterialsSectionCard({
   const colorCategoryIds = new Set(materialCategories.filter((c) => c.needs_color).map((c) => c.id));
   const needsColor = (i: DraftItem) => i.cost_type === "material" && !!i.material_category_id && colorCategoryIds.has(i.material_category_id);
   const firstLine = (t: string) => t.split("\n").find((l) => l.trim())?.trim() ?? "";
-  const groupSubtotal = (type: LineCostType) => displayItems.filter((i) => i.cost_type === type).reduce((sum, i) => sum + lineCost(i), 0);
+  // After tax, like every total (0163).
+  const groupSubtotal = (type: LineCostType) => displayItems.filter((i) => i.cost_type === type).reduce((sum, i) => sum + lineCostWithTax(i), 0);
+  /** The line's sales tax strip (0163). Material lines pick their supplier
+   * here; the others already have their vendor field. */
+  const taxRow = (item: DraftItem) =>
+    item.tax ? (
+      <LineTaxRow
+        tax={item.tax}
+        cost={lineCost(item)}
+        vendor={item.vendor}
+        onToggle={(taxable) => onEditItem(item.id, { taxable })}
+        onRate={(rate) => onEditItem(item.id, { tax_custom_rate: rate })}
+        onVendor={item.cost_type === "material" ? (vendor) => onEditItem(item.id, { vendor }) : undefined}
+      />
+    ) : null;
 
   return (
     <SectionCard
@@ -2097,7 +2262,7 @@ function MaterialsSectionCard({
       featurePicker={section.is_general ? undefined : featurePicker}
       subtotal={subtotal}
       itemNames={displayItems.map((i) => materialLineLabel(i))}
-      collapsedSummary={costBreakdownLabel(totals) || undefined}
+      collapsedSummary={[costBreakdownLabel(totals), totals.tax > 0 ? `incl. ${formatCurrency(totals.tax)} tax` : ""].filter(Boolean).join(" · ") || undefined}
       tag={
         section.is_general ? (
           <span className="text-[11px] font-semibold text-background/70">Project-wide costs — dumpster, permits, mobilization…</span>
@@ -2225,14 +2390,9 @@ function MaterialsSectionCard({
                         <CompactLineRow
                           name={item.name}
                           detail={[item.cost_type === "material" ? item.color.trim() : item.vendor.trim(), firstLine(item.internal_description)].filter(Boolean).join(" · ") || null}
-                          tag={
-                            needsColor(item) && !item.color.trim() ? (
-                              <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold text-warning-strong">Add color</span>
-                            ) : undefined
-                          }
                           quantity={item.quantity}
                           unit={item.unit}
-                          total={lineCost(item)}
+                          total={lineCostWithTax(item)}
                           dirty={dirtyItemIds.has(item.id)}
                           onExpand={() => itemCollapse.toggle(item.id)}
                           dragHandleProps={dragProvided.dragHandleProps}
@@ -2255,9 +2415,12 @@ function MaterialsSectionCard({
                         canMoveDown={index < section.items.length - 1}
                         onMoveUp={() => onMoveItem(index, -1)}
                         onMoveDown={() => onMoveItem(index, 1)}
-                      />
+                      >
+                        {taxRow(item)}
+                      </CostLineRow>
                     ) : (
                     <ItemRow
+                      taxRow={taxRow(item)}
                       item={item}
                       needsColor={needsColor(item)}
                       colorSuggestions={usedColors.get(item.name.trim().toLowerCase()) ?? []}
@@ -2325,6 +2488,21 @@ function MaterialsSectionCard({
         </>
       )}
 
+      {/* Before tax · tax · total (0163) — only once there's tax in it. */}
+      {totals.tax > 0 && (
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 border-t border-hairline pt-2.5 text-xs tabular-nums text-muted-foreground">
+          <span>
+            Subtotal <span className="font-semibold text-foreground">{formatCurrency(totals.subtotal)}</span>
+          </span>
+          <span>
+            Tax <span className="font-semibold text-foreground">{formatCurrency(totals.tax)}</span>
+          </span>
+          <span>
+            Total <span className="font-bold text-foreground">{formatCurrency(totals.total)}</span>
+          </span>
+        </div>
+      )}
+
       {/* Pending change orders on this feature — shown, never in totals. */}
       {pendingChanges.map((p) => (
         <div key={p.label} className="mt-3 rounded-2xl border-[1.5px] border-dashed border-warning/60 bg-warning/5 p-4">
@@ -2377,6 +2555,8 @@ const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-mu
 
 interface ItemRowProps {
   item: DraftItem;
+  /** The sales tax strip (0163), under the price row. */
+  taxRow?: ReactNode;
   /** The line's category asks for a color (0162) — the Color field shows
    * even without a Catalog product. */
   needsColor: boolean;
@@ -2404,6 +2584,7 @@ interface ItemRowProps {
 
 function ItemRow({
   item,
+  taxRow,
   needsColor,
   colorSuggestions,
   promptCategory,
@@ -2521,7 +2702,9 @@ function ItemRow({
             />
             {/* Color — a Catalog product's color list (or a typed custom
                 color), and on any line whose category asks for one (0162):
-                free text with the colors used before for this item name. */}
+                free text with the colors used before for this item name. No
+                warning here when it's empty — the order sheet and crew work
+                order flag missing colors, where they matter. */}
             {catalogLinked ? (
               <OptionOrCustomField
                 value={item.color}
@@ -2531,7 +2714,7 @@ function ItemRow({
                 customPlaceholder="Type a color"
                 otherLabel="Other color…"
                 ariaLabel="Color"
-                className={cn("sm:w-44", needsColor && !item.color.trim() && "ring-1 ring-warning/60")}
+                className="sm:w-44"
               />
             ) : (needsColor || item.color.trim()) ? (
               <>
@@ -2541,7 +2724,7 @@ function ItemRow({
                   list={colorSuggestions.length ? `colors-${item.id}` : undefined}
                   placeholder="Color"
                   aria-label="Color"
-                  className={cn("h-[42px] sm:w-44", needsColor && !item.color.trim() && "ring-1 ring-warning/60")}
+                  className="h-[42px] sm:w-44"
                 />
                 {colorSuggestions.length > 0 && (
                   <datalist id={`colors-${item.id}`}>
@@ -2621,11 +2804,6 @@ function ItemRow({
           aria-label="Description"
           className="min-h-[38px] rounded-xl bg-muted/60 px-3 py-2 text-sm text-foreground"
         />
-        {needsColor && !item.color.trim() && (
-          <p className="flex items-center gap-1 text-xs font-semibold text-warning-strong">
-            <span className="h-1.5 w-1.5 rounded-full bg-warning" /> Add color — this category asks for one
-          </p>
-        )}
       </div>
 
       {/* Category (0094) — the line's one category, from Settings >
@@ -2757,6 +2935,8 @@ function ItemRow({
           </span>
         )}
       </div>
+
+      {taxRow}
 
       {track && <MaterialTrackingRow itemId={item.id} itemName={materialLineLabel(item)} unit={item.unit} track={track} tracking={tracking} />}
 

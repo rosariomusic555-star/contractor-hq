@@ -163,7 +163,7 @@ export function PipelineView() {
             { label: "By source", value: "sources" } as FilterOption<PipelineTab>,
           ]}
           value={tab}
-          onChange={setTab}
+          onChange={(v) => setTab(v as PipelineTab)}
         />
         <Select
           value={typeFilter ?? "all"}

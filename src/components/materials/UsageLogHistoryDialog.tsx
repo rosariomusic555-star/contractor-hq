@@ -18,6 +18,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { listUsageLogsForItem, updateUsageLog, deleteUsageLog, type MaterialsItem, type MaterialsUsageLog } from "@/lib/api";
 import { materialLineLabel } from "@/lib/materialsMath";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 interface UsageLogHistoryDialogProps {
   open: boolean;
@@ -31,7 +32,7 @@ interface UsageLogHistoryDialogProps {
  * (materials_usage_log_events, via updateUsageLog/deleteUsageLog in
  * api.ts) that this dialog doesn't need to render itself, just guarantee
  * exists. */
-export function UsageLogHistoryDialog({ open, onOpenChange, line }: UsageLogHistoryDialogProps) {
+function UsageLogHistoryDialogInner({ open, onOpenChange, line }: UsageLogHistoryDialogProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: logs = [] } = useQuery({
@@ -167,3 +168,6 @@ function UsageLogRow({
     </div>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const UsageLogHistoryDialog = withErrorBoundary(UsageLogHistoryDialogInner, "UsageLogHistoryDialog");

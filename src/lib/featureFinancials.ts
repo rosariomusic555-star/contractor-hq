@@ -47,7 +47,7 @@ export function addonQuoteNumbers(quotes: Pick<Quote, "id" | "created_at" | "kin
 // ---------------------------------------------------------------------------
 
 
-const zero = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0 });
+const zero = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0, tax: 0, subtotal: 0 });
 
 export interface FeatureReport {
   /** Null = General: project-wide costs, untagged spend, and quote /

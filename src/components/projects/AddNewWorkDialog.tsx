@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { createAddonQuote, listCategories, listProjectFeatures } from "@/lib/api";
 import { liveFeatures } from "@/lib/features";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * "Add new work" on a Won / in-progress job (0108): pick the new feature
@@ -18,7 +19,7 @@ import { liveFeatures } from "@/lib/features";
  * until the client approves the add-on. Changes to features the job already
  * has are a change order instead — said right here, where the choice is made.
  */
-export function AddNewWorkDialog({
+function AddNewWorkDialogInner({
   open,
   onOpenChange,
   projectId,
@@ -116,3 +117,6 @@ export function AddNewWorkDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const AddNewWorkDialog = withErrorBoundary(AddNewWorkDialogInner, "AddNewWorkDialog");

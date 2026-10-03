@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { updateProjectFeature } from "@/lib/api";
 import { milestonesFor } from "@/lib/progress";
 import type { PostFeature } from "./PostUpdateSheet";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
@@ -17,7 +18,7 @@ const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, 
  * app default). A draft, saved together. A list that matches the preset is
  * stored as "use the preset" so later preset edits still reach it.
  */
-export function MilestonesDialog({
+function MilestonesDialogInner({
   open,
   onOpenChange,
   projectId,
@@ -136,3 +137,6 @@ export function MilestonesDialog({
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const MilestonesDialog = withErrorBoundary(MilestonesDialogInner, "MilestonesDialog");

@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { getSignedImageUrls, updatePreconItem, uploadPreconFile } from "@/lib/api";
 import { AUTO_KINDS, PERMIT_STATUS_LABEL, locateDates, type ItemState, type ItemView, type PreconSettingsLike } from "@/lib/precon";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const STATES: { v: ItemState; label: string }[] = [
   { v: "open", label: "Open" },
@@ -48,7 +49,7 @@ function Segmented<T extends string>({ value, onChange, options }: { value: T; o
  * dig + expiry (working days), a photo of the ticket. Any item can be
  * removed from this job; manual ones can be N/A.
  */
-export function PreconItemSheet({
+function PreconItemSheetInner({
   view,
   projectId,
   settings,
@@ -273,3 +274,6 @@ export function PreconItemSheet({
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const PreconItemSheet = withErrorBoundary(PreconItemSheetInner, "PreconItemSheet");

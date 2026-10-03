@@ -22,6 +22,7 @@ import { MeasurementPrefillPicker } from "@/components/measurements/MeasurementP
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import { quickQuotePrefill } from "@/lib/measurements";
 import { MOBILE_BOTTOM_SHEET } from "@/lib/dialogStyles";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /** How long to wait on the AI before falling back to a templated
  * description — the flow must never get stuck waiting indefinitely. */
@@ -38,7 +39,7 @@ export interface QuickQuoteResult {
   rate: number;
 }
 
-export function QuickQuoteFormDialog({
+function QuickQuoteFormDialogInner({
   open,
   onOpenChange,
   template,
@@ -488,3 +489,6 @@ function QuickQuoteInsight({
     />
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const QuickQuoteFormDialog = withErrorBoundary(QuickQuoteFormDialogInner, "QuickQuoteFormDialog");

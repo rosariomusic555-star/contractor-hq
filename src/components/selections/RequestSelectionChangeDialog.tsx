@@ -8,13 +8,14 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { priceLabel } from "@/lib/selections";
 import { requestPortalSelectionChange, type PortalSelectionGroup } from "@/lib/portalApi";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * Client Hub: "Request a change" on an approved selection (0115). Sends a
  * request to the contractor — nothing changes until they send a change
  * order and it's approved.
  */
-export function RequestSelectionChangeDialog({ group, onClose }: { group: PortalSelectionGroup | null; onClose: () => void }) {
+function RequestSelectionChangeDialogInner({ group, onClose }: { group: PortalSelectionGroup | null; onClose: () => void }) {
   const { toast } = useToast();
   const [optionId, setOptionId] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -70,3 +71,6 @@ export function RequestSelectionChangeDialog({ group, onClose }: { group: Portal
     </Dialog>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const RequestSelectionChangeDialog = withErrorBoundary(RequestSelectionChangeDialogInner, "RequestSelectionChangeDialog");

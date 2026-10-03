@@ -4,7 +4,7 @@ import {
   COST_BUCKETS,
   COST_TYPE_LABEL,
   costTypeOf,
-  lineCost,
+  lineCostWithTax,
   sectionLaborCost,
   sectionLaborHours,
   type CostBucket,
@@ -17,6 +17,7 @@ import {
   deliveredQuantity,
   effectiveEstimate,
   lineActualCost,
+  lineTaxFactor,
   usedQuantity,
   type DeliveryLineWithOrderStatus,
 } from "./materialTracking";
@@ -240,8 +241,10 @@ export function plannedActualReport(input: {
         const delivered = deliveredQuantity(l, input.deliveries);
         const actualQty = used > 0 ? used : delivered;
         const qtySource: LineRow["qtySource"] = used > 0 ? "used" : delivered > 0 ? "delivered" : "none";
-        const plannedCost = est.quantity * est.unit_cost;
-        const actualCost = lineActualCost(l, input.deliveries);
+        // After tax, like the plan's totals (0163).
+        const taxFactor = lineTaxFactor(l);
+        const plannedCost = est.quantity * est.unit_cost * taxFactor;
+        const actualCost = lineActualCost(l, input.deliveries) * taxFactor;
         return {
           id: l.id,
           name: l.name,
@@ -276,7 +279,7 @@ export function plannedActualReport(input: {
     const secs = counted.filter((s) => keyOf(s.feature_id) === fid);
     const planned: Record<CostBucket, number> = { material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0 };
     for (const s of secs) {
-      for (const l of s.materials_items ?? []) planned[costTypeOf(l)] += lineCost(l);
+      for (const l of s.materials_items ?? []) planned[costTypeOf(l)] += lineCostWithTax(l);
       planned.labor += sectionLaborCost(s);
     }
     const act = { ...(actual.get(fid) ?? { material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0 }) };

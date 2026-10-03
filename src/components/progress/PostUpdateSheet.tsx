@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { milestonesFor } from "@/lib/progress";
 import { enqueueUploads } from "@/lib/uploadQueue";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const NONE = "__none";
 
@@ -38,7 +39,7 @@ export interface PostFeature {
  * default to shared; crew posts default to internal and, when shared, wait
  * for the contractor's approval (Settings › Progress updates).
  */
-export function PostUpdateSheet({
+function PostUpdateSheetInner({
   open,
   onOpenChange,
   projectId,
@@ -220,3 +221,6 @@ export function PostUpdateSheet({
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const PostUpdateSheet = withErrorBoundary(PostUpdateSheetInner, "PostUpdateSheet");

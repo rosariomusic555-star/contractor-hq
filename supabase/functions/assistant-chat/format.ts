@@ -118,17 +118,21 @@ export function approvedChangeOrderTotal(changeOrders: ChangeOrderLike[]): numbe
 
 export type CostBucket = "material" | "labor" | "subcontractor" | "equipment" | "other";
 export const COST_BUCKETS: CostBucket[] = ["material", "labor", "subcontractor", "equipment", "other"];
-export type CostTotals = Record<CostBucket, number> & { total: number };
+export type CostTotals = Record<CostBucket, number> & { total: number; tax: number; subtotal: number };
 
 export interface CostLineLike {
   quantity: number;
   unit_cost: number;
   waste_percent?: number | null;
   cost_type?: Exclude<CostBucket, "labor"> | null;
+  /** 0163 — sales tax the contractor pays (effective %). */
+  taxable?: boolean | null;
+  tax_rate?: number | null;
 }
 export interface CostSectionLike {
   materials_items: CostLineLike[];
-  labor_mode?: "crew" | "lump_sum" | null;
+  labor_mode?: "crew" | "hours" | "lump_sum" | null;
+  labor_man_hours?: number | null;
   labor_crew_size?: number | null;
   labor_days?: number | null;
   labor_hours_per_day?: number | null;
@@ -137,11 +141,12 @@ export interface CostSectionLike {
 }
 
 const n = (v: unknown) => (isFinite(Number(v)) ? Number(v) : 0);
-const zeroTotals = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0 });
+const zeroTotals = (): CostTotals => ({ material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0, total: 0, tax: 0, subtotal: 0 });
 
 export function sectionLaborCost(s: CostSectionLike): number {
   if (s.labor_mode === "lump_sum") return n(s.labor_lump_sum);
   if (s.labor_mode === "crew") return n(s.labor_crew_size) * n(s.labor_days) * n(s.labor_hours_per_day) * n(s.labor_rate);
+  if (s.labor_mode === "hours") return n(s.labor_man_hours) * n(s.labor_rate);
   return 0;
 }
 
@@ -151,14 +156,19 @@ export function costPlanTotals(sections: CostSectionLike[] = []): CostTotals {
   for (const section of sections) {
     for (const item of section.materials_items ?? []) {
       const type = item.cost_type ?? "material";
-      t[type] +=
+      const cost =
         type === "material"
           ? n(item.quantity) * (1 + n(item.waste_percent) / 100) * n(item.unit_cost)
           : n(item.quantity) * n(item.unit_cost);
+      // Sales tax (0163): after-tax by type, rounded per line like lineTax().
+      const tax = item.taxable ? Math.round(((cost * n(item.tax_rate)) / 100) * 100) / 100 : 0;
+      t[type] += cost + tax;
+      t.tax += tax;
     }
     t.labor += sectionLaborCost(section);
   }
   t.total = COST_BUCKETS.reduce((s, k) => s + t[k], 0);
+  t.subtotal = t.total - t.tax;
   return t;
 }
 

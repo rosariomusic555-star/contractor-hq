@@ -5,7 +5,7 @@ import { compressImageFile, randomImageFilename } from "./imageUpload";
 import { customMeasurementPayload, featureMeasurementPayload, type FeatureInstance, type MeasurementRow } from "./measurements";
 import type { TypeConfig } from "./typeConfig";
 import type { FeatureSectionSeed } from "./sectionFeatures";
-import type { CostBucket, LaborMode, LineCostType } from "./costPlanMath";
+import type { CostBucket, LaborMode, LineCostType, TaxRateSource } from "./costPlanMath";
 import type { FeatureStatus, ProjectFeature } from "./features";
 import type { CostChangeKind } from "./changeOrderCost";
 import { OVERHEAD_SETTINGS_DEFAULTS, burdenPerHour, type OverheadSettings } from "./overhead";
@@ -773,6 +773,13 @@ export interface MaterialsItem {
   /** 0162 — optional description (specs, notes). Internal: crew work order
    * and order sheet, never clients. Undefined before 0162. */
   internal_description?: string | null;
+  /** 0163 — sales tax the contractor pays on this line (internal cost,
+   * never on client documents). `tax_rate` is always the effective %
+   * (filled in by the DB from the supplier / default unless `custom`).
+   * Undefined before 0163 = untaxed. */
+  taxable?: boolean;
+  tax_rate?: number;
+  tax_rate_source?: TaxRateSource;
   /** Only populated where the select asks for it (tracked-sheet reads) —
    * every baseline ever snapshotted for this line, newest first. The
    * CURRENT baseline is materials_item_baselines[0]; empty = never
@@ -870,6 +877,10 @@ export interface MaterialsSheet {
    * created (with or without a section), or added/dismissed from the "was
    * added to this project" banner since. Undefined before 0100 — no banner. */
   feature_category_ids?: string[];
+  /** 0163 — "Turn off tax for this plan": new lines start untaxed. */
+  tax_off?: boolean;
+  /** 0163 — the one-time "totals now include tax" notice (existing plans). */
+  tax_notice?: boolean;
   // Only populated where the select asks for it (the global Material
   // Sheets list) — project-scoped callers already know their own project.
   project?: ProjectRef | null;
@@ -2666,7 +2677,7 @@ export async function setProjectFeatureTypes(projectId: string, categoryIds: str
 
 export async function updateMaterialsSheet(
   id: string,
-  patch: Partial<Pick<MaterialsSheet, "name" | "sort_order" | "feature_category_ids">>,
+  patch: Partial<Pick<MaterialsSheet, "name" | "sort_order" | "feature_category_ids" | "tax_notice">>,
 ): Promise<void> {
   const { error } = await supabase.from("materials_sheets").update(patch).eq("id", id);
   if (error) throw error;
@@ -2778,6 +2789,10 @@ export async function addMaterialsItem(
     possible_sub_id?: string | null;
     /** 0162 */
     internal_description?: string | null;
+    /** 0163 — left out, the DB picks the default for the line's type. */
+    taxable?: boolean;
+    tax_rate_source?: TaxRateSource;
+    tax_rate?: number;
   },
 ): Promise<MaterialsItem> {
   const { data, error } = await supabase
@@ -2805,6 +2820,9 @@ export async function addMaterialsItem(
       ...(input.vendor ? { vendor: input.vendor } : {}),
       ...(input.possible_sub_id ? { possible_sub_id: input.possible_sub_id } : {}),
       ...(input.internal_description ? { internal_description: input.internal_description } : {}),
+      ...(input.taxable !== undefined ? { taxable: input.taxable } : {}),
+      ...(input.tax_rate_source ? { tax_rate_source: input.tax_rate_source } : {}),
+      ...(input.tax_rate_source === "custom" ? { tax_rate: input.tax_rate ?? 0 } : {}),
     })
     .select()
     .single();
@@ -2835,6 +2853,9 @@ export async function updateMaterialsItem(
       | "material_category_id"
       | "cost_type"
       | "vendor"
+      | "taxable"
+      | "tax_rate"
+      | "tax_rate_source"
     >
   >,
 ): Promise<void> {
@@ -3049,11 +3070,11 @@ export async function listQuotes(projectId?: string): Promise<Quote[]> {
     return query;
   };
   const { data, error } = await build(QUOTE_SELECT);
-  if (!error) return (data ?? []).map(sortQuote);
+  if (!error) return ((data ?? []) as unknown as Quote[]).map(sortQuote);
   if (!isMissingRelationshipError(error)) throw error;
   const { data: fallback, error: fallbackError } = await build(QUOTE_SELECT_NO_IMAGES);
   if (fallbackError) throw fallbackError;
-  return (fallback ?? []).map(sortQuote);
+  return ((fallback ?? []) as unknown as Quote[]).map(sortQuote);
 }
 
 // The builder's read — also embeds each section's manual materials links
@@ -3093,11 +3114,11 @@ export async function listQuotesForClient(clientId: string): Promise<Quote[]> {
   const build = (select: string) =>
     supabase.from("quotes").select(select).or(orParts.join(",")).order("updated_at", { ascending: false });
   const { data, error } = await build(QUOTE_SELECT);
-  if (!error) return (data ?? []).map(sortQuote);
+  if (!error) return ((data ?? []) as unknown as Quote[]).map(sortQuote);
   if (!isMissingRelationshipError(error)) throw error;
   const { data: fallback, error: fallbackError } = await build(QUOTE_SELECT_NO_IMAGES);
   if (fallbackError) throw fallbackError;
-  return (fallback ?? []).map(sortQuote);
+  return ((fallback ?? []) as unknown as Quote[]).map(sortQuote);
 }
 
 // ---------------------------------------------------------------------------
@@ -3160,6 +3181,37 @@ export async function saveQuoteDefaults(patch: Partial<QuoteDefaults>): Promise<
     sales_tax_pct: Number(data.sales_tax_pct),
     terms: data.terms ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cost plan sales tax (0163) — the default rate the contractor pays on
+// taxable purchases. Separate from quote_defaults.sales_tax_pct (tax charged
+// to the client). Changing it re-figures open jobs' lines in the DB.
+// ---------------------------------------------------------------------------
+
+export const COST_PLAN_TAX_RATE_KEY = ["cost-plan-tax-rate"] as const;
+
+export async function getCostPlanTaxRate(): Promise<number> {
+  const { data, error } = await supabase.from("cost_plan_settings").select("default_tax_rate").maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205") return 0; // before 0163
+    throw error;
+  }
+  return Number(data?.default_tax_rate ?? 0);
+}
+
+export async function saveCostPlanTaxRate(rate: number): Promise<void> {
+  const { error } = await supabase
+    .from("cost_plan_settings")
+    .upsert({ default_tax_rate: rate, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+
+/** "Turn off tax for this plan" (false) / back on with the default toggles
+ * (true) — every line at once, and the one-time notice goes away. */
+export async function setCostPlanTax(sheetId: string, on: boolean): Promise<void> {
+  const { error } = await supabase.rpc("set_cost_plan_tax", { p_sheet_id: sheetId, p_on: on });
+  if (error) throw error;
 }
 
 /**
@@ -4628,6 +4680,9 @@ export interface Supplier {
   address: string | null;
   last_used_at: string | null;
   created_at: string;
+  /** 0163 — sales tax % on purchases from this supplier (a different tax
+   * area). Null = the Cost plan default. */
+  tax_rate?: number | null;
 }
 
 /** Most-recently-used first, then alphabetical — the supplier ordered from
@@ -4680,7 +4735,7 @@ export async function createSupplier(input: {
 
 export async function updateSupplier(
   id: string,
-  patch: Partial<Pick<Supplier, "name" | "phone" | "email" | "address">>,
+  patch: Partial<Pick<Supplier, "name" | "phone" | "email" | "address" | "tax_rate">>,
 ): Promise<void> {
   const { error } = await supabase.from("suppliers").update(patch).eq("id", id);
   if (error) throw error;

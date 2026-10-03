@@ -318,7 +318,7 @@ async function getProjectFinancials(input: { project_id: string }, sb: SupabaseC
   const { data: costSections, error: mErr } = await sb
     .from("materials_sections")
     .select(
-      "labor_mode,labor_crew_size,labor_days,labor_hours_per_day,labor_rate,labor_lump_sum,materials_items(quantity,unit_cost,waste_percent,cost_type)",
+      "labor_mode,labor_crew_size,labor_days,labor_hours_per_day,labor_rate,labor_lump_sum,labor_man_hours,materials_items(quantity,unit_cost,waste_percent,cost_type,taxable,tax_rate)",
     )
     .eq("project_id", input.project_id);
   if (mErr) throw mErr;

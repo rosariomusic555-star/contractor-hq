@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { BreakdownRow, JobRow } from "@/lib/revenueReport";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { pctText, signedMoney } from "./revenueCols";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 
 /** A definition, on hover / tap. */
@@ -34,7 +35,7 @@ export interface RecordRow {
 }
 
 /** The records behind a number — every clickable figure opens this. */
-export function RecordsSheet({ open, onOpenChange, title, description, rows }: { open: boolean; onOpenChange: (v: boolean) => void; title: string; description?: string; rows: RecordRow[] }) {
+function RecordsSheetInner({ open, onOpenChange, title, description, rows }: { open: boolean; onOpenChange: (v: boolean) => void; title: string; description?: string; rows: RecordRow[] }) {
   const isMobile = useIsMobile();
   const total = rows.reduce((s, r) => s + (r.amount ?? 0), 0);
   return (
@@ -348,3 +349,6 @@ export function SeasonalityMap({ rows, onCell }: { rows: { year: number; months:
     </div>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const RecordsSheet = withErrorBoundary(RecordsSheetInner, "RecordsSheet");

@@ -36,6 +36,7 @@ import { smartSectionPrefill, type FeatureTotals } from "@/lib/measurements";
 import { useEstimatingContext } from "@/hooks/use-estimating-context";
 import { averageMetric, findSimilarJobs, similarSampleText } from "@/lib/similarJobs";
 import { SimilarJobsHint } from "@/components/planned-actual/SimilarJobsHint";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /** A prefilled patio size handed to AreaOrDimensionsField; `v` bumps on
  * every (re)apply so the field re-syncs its own inputs. */
@@ -53,7 +54,7 @@ type AreaPrefill = { areaSqft: number; perimeterFt: number | null; v: number };
  * instance or all combined, picked in the banner at the top. Everything
  * stays editable before running.
  */
-export function SmartSectionCalculatorDialog({
+function SmartSectionCalculatorDialogInner({
   open,
   onOpenChange,
   template,
@@ -510,3 +511,6 @@ function BaseInsight({
     />
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const SmartSectionCalculatorDialog = withErrorBoundary(SmartSectionCalculatorDialogInner, "SmartSectionCalculatorDialog");

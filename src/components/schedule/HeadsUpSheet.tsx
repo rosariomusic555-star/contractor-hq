@@ -3,10 +3,11 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { HeadsUpStep } from "./HeadsUpStep";
 import type { HeadsUpTarget } from "./rainDelayContext";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /** The heads-up step on its own (resumed from the Schedule card reminder, a
  * manual date change, or "Confirm start date") — a bottom sheet on phones. */
-export function HeadsUpSheet({ open, onOpenChange, target }: { open: boolean; onOpenChange: (o: boolean) => void; target: HeadsUpTarget }) {
+function HeadsUpSheetInner({ open, onOpenChange, target }: { open: boolean; onOpenChange: (o: boolean) => void; target: HeadsUpTarget }) {
   const isMobile = useIsMobile();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -23,3 +24,6 @@ export function HeadsUpSheet({ open, onOpenChange, target }: { open: boolean; on
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const HeadsUpSheet = withErrorBoundary(HeadsUpSheetInner, "HeadsUpSheet");

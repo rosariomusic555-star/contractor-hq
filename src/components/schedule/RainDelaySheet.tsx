@@ -38,6 +38,7 @@ import { isoDate } from "@/lib/weatherRisk";
 import { locateDelayWarning } from "@/lib/precon";
 import { invalidateScheduleQueries, useUndoScheduleDelay } from "./useUndoScheduleDelay";
 import { HeadsUpStep } from "./HeadsUpStep";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 const REASONS: DelayReason[] = ["rain", "weather_other", "material", "client", "other"];
 const ACTIVE = new Set(["scheduled", "in_progress"]);
@@ -58,7 +59,7 @@ function vacatedDays(from: { start: string | null; end: string | null }, to: { s
  * every date that moves, warnings, deliveries and appointments on the moved
  * days, then apply atomically. Bottom sheet on phones.
  */
-export function RainDelaySheet({
+function RainDelaySheetInner({
   open,
   onOpenChange,
   projectId,
@@ -426,3 +427,6 @@ export function RainDelaySheet({
     </Sheet>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const RainDelaySheet = withErrorBoundary(RainDelaySheetInner, "RainDelaySheet");

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { Client } from "@/lib/api";
 import { useClientField, type ClientField, type NewClientDraft } from "@/hooks/use-client-field";
+import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 /**
  * The one client picker, used everywhere a client is chosen (New
@@ -353,7 +354,7 @@ export function ClientCombobox({
  * field. Picking an existing client applies immediately; a new one is
  * created by the dialog's "Add client" button.
  */
-export function ClientPickerDialog({
+function ClientPickerDialogInner({
   open,
   onOpenChange,
   onSelect,
@@ -438,3 +439,6 @@ function ClientPickerBody({
     </>
   );
 }
+
+// A crash inside stays inside (see ErrorBoundary).
+export const ClientPickerDialog = withErrorBoundary(ClientPickerDialogInner, "ClientPickerDialog");
