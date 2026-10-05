@@ -98,6 +98,7 @@ import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { revokeLocalImageUrls, type DraftLineImage } from "@/lib/draftLineItem";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
+import { removeDraftLine, restoreDraftLine, useLineDeleteUndo } from "@/hooks/use-line-delete-undo";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { useItemCollapse } from "@/hooks/use-item-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
@@ -381,6 +382,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // --- draft state --------------------------------------------------------
   const [draft, setDraft] = useState<QuoteDraft>(() => seed(quote));
   const dirty = useRef(false);
+  const lineUndo = useLineDeleteUndo();
 
   // Re-seed from the server when the quote reloads — but never clobber unsaved
   // edits. (Changing the Client / project link refetches the quote; the draft
@@ -419,6 +421,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   // before throwing the draft away so they don't leak. Nothing was ever
   // uploaded to Storage for them, so there's no server-side cleanup to do.
   const discard = () => {
+    lineUndo.invalidate();
     for (const s of draft.sections) for (const i of s.items) revokeLocalImageUrls(i);
     dirty.current = false;
     setDraft(seed(quote));
@@ -655,6 +658,14 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
         return { ...x, items: x.items.filter((i) => i.id !== iid) };
       }),
     );
+  // A collapsed row's delete — the line stays in memory (its unsaved
+  // photos too) so "Undo" in the toast can put it back.
+  const removeItemWithUndo = (sid: string, iid: string) => {
+    const { removed } = removeDraftLine(draft.sections, sid, iid);
+    if (!removed) return;
+    setSections((s) => removeDraftLine(s, sid, iid).sections);
+    lineUndo.announce(() => setSections((s) => restoreDraftLine(s, sid, removed)));
+  };
 
   // --- server sync -------------------------------------------------------
   const invalidate = () => {
@@ -883,6 +894,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     },
     onSuccess: ({ wasApproved }) => {
       dirty.current = false;
+      lineUndo.invalidate();
       // Out with the client → a revision is a new version (0113). An
       // approved quote reverted to draft here gets its next version when
       // it's sent again.
@@ -1453,6 +1465,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
                             onAddItem={() => addItem(section.id)}
                             onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
                             onDeleteItem={(iid) => removeItem(section.id, iid)}
+                            onDeleteCollapsedItem={(iid) => removeItemWithUndo(section.id, iid)}
                             dragHandleProps={dragProvided.dragHandleProps}
                             dragging={dragSnapshot.isDragging}
                             canMoveUp={index > 0}

@@ -88,6 +88,7 @@ import {
   listProductCatalog,
   listCatalogPriceOverrides,
   upsertCatalogPriceOverride,
+  deleteCatalogPriceOverride,
   createMaterialsSection,
   updateMaterialsSection,
   deleteMaterialsSection,
@@ -163,6 +164,8 @@ import { OptionOrCustomField } from "@/components/materials/OptionOrCustomField"
 import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { SectionToolbarAction } from "@/components/common/SectionToolbarAction";
 import { CostLineRow } from "@/components/materials/CostLineRow";
+import { withCategoryUnit } from "@/lib/categoryUnits";
+import { removeDraftLine, restoreDraftLine, useLineDeleteUndo } from "@/hooks/use-line-delete-undo";
 import { CompactLineRow } from "@/components/common/CompactLineRow";
 import { CollapsibleLine } from "@/components/common/CollapsibleLine";
 import { useItemCollapse } from "@/hooks/use-item-collapse";
@@ -367,7 +370,7 @@ const draftSectionFromSeed = (
     job_category_id: string | null;
     feature_id?: string | null;
     smart_section_build_type: string | null;
-    items: { name: string; cost_type: LineCostType; material_category_id?: string | null; internal_description?: string | null }[];
+    items: { name: string; cost_type: LineCostType; material_category_id?: string | null; internal_description?: string | null; unit?: string | null }[];
     labor?: { crew_size: number | null; days: number | null } | null;
   },
   laborRate: number,
@@ -381,6 +384,7 @@ const draftSectionFromSeed = (
       ...blankDraftItem(i.cost_type, i.name),
       material_category_id: i.cost_type === "material" ? (i.material_category_id ?? null) : null,
       internal_description: i.internal_description ?? "",
+      ...(i.cost_type === "material" && i.unit ? { unit: i.unit } : {}),
     })),
     ...(seed.labor && (seed.labor.crew_size || seed.labor.days)
       ? {
@@ -409,6 +413,22 @@ const normalizeDraft = (sections: DraftSection[]): DraftSection[] => {
   const general = grouped.filter((s) => s.is_general);
   const rest = grouped.filter((s) => !s.is_general);
   return [...rest, ...(general.length ? general.slice(0, 1) : [blankDraftSection("General", { is_general: true })])];
+};
+
+/** Every line whose category this edit set (or a new line) — its unit
+ * becomes the category's default where categoryUnits.ts allows. */
+const withCategoryUnits = (before: DraftSection[], after: DraftSection[], categories: MaterialCategory[]): DraftSection[] => {
+  if (!categories.some((c) => c.default_unit)) return after;
+  const prevById = new Map(before.flatMap((s) => s.items.map((i) => [i.id, i] as const)));
+  return after.map((s) => {
+    let changed = false;
+    const items = s.items.map((i) => {
+      const next = withCategoryUnit(prevById.get(i.id), i, categories);
+      if (next !== i) changed = true;
+      return next;
+    });
+    return changed ? { ...s, items } : s;
+  });
 };
 
 const laborOf = (s: MaterialsSection): LaborDraft => ({
@@ -769,6 +789,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const [smartSectionOpen, setSmartSectionOpen] = useState(false);
   const [orderSheetOpen, setOrderSheetOpen] = useState(false);
   const dirty = useRef(false);
+  const lineUndo = useLineDeleteUndo();
 
   // Seed the draft from the server — but never clobber unsaved edits. Save
   // only deletes server sections that were in the draft when it was seeded,
@@ -784,9 +805,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     dirty.current = true;
   };
   // Every edit keeps the draft's shape: General last, lines grouped by type.
+  // A line whose category it set gets the category's default unit (0165).
   const edit = (fn: (d: DraftSection[]) => DraftSection[]) => {
     markDirty();
-    setDraft((d) => normalizeDraft(fn(d)));
+    setDraft((d) => normalizeDraft(withCategoryUnits(d, fn(d), materialCategories)));
   };
   const { moveSection, moveItem: moveItemRaw, onDragEnd: onDragEndRaw } = useSectionReorder<DraftItem, DraftSection>(edit);
   // Reordering an item while its section is sorted by cost: the sorted
@@ -825,6 +847,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   const [isDraggingItem, setIsDraggingItem] = useState(false);
 
   const discard = () => {
+    lineUndo.invalidate();
     dirty.current = false;
     setDraft(seed(sections));
     seededSectionIds.current = new Set(sections.map((s) => s.id));
@@ -1242,6 +1265,13 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     edit((d) =>
       d.map((s) => (s.id === sid ? { ...s, items: s.items.filter((i) => i.id !== iid) } : s)),
     );
+  // A collapsed row's delete — same draft edit, plus "Undo" in a toast.
+  const deleteItemWithUndo = (sid: string, iid: string) => {
+    const { removed } = removeDraftLine(draft, sid, iid);
+    if (!removed) return;
+    deleteItem(sid, iid);
+    lineUndo.announce(() => edit((d) => restoreDraftLine(d, sid, removed)));
+  };
 
   // --- save (diff draft against the server data) --------------------------
   // Rows (and the sheet) a save has created so far — so a save that fails
@@ -1429,6 +1459,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     },
     onSuccess: () => {
       dirty.current = false;
+      lineUndo.invalidate();
       qc.invalidateQueries({ queryKey: ["project-features", projectId] });
       qc.invalidateQueries({ queryKey: ["materials", { sheet: sheetId }] });
       qc.invalidateQueries({ queryKey: ["materials", { project: projectId }] });
@@ -1597,6 +1628,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         laborRate={laborRate}
                         onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
                         onDeleteItem={(iid) => deleteItem(section.id, iid)}
+                        onDeleteCollapsedItem={(iid) => deleteItemWithUndo(section.id, iid)}
                         overheadConfigured={burdenPerHour(overheadSettings) != null}
                         onDismissOverhead={dismissOverheadWarning}
                         onApplyCalculatedLines={(lines, inputs) => applyCalculatedLines(section.id, lines, inputs)}
@@ -2137,6 +2169,8 @@ interface SectionCardProps {
   laborRate: number;
   onEditItem: (itemId: string, patch: Partial<DraftItem>) => void;
   onDeleteItem: (itemId: string) => void;
+  /** A collapsed row's delete — offers Undo. */
+  onDeleteCollapsedItem: (itemId: string) => void;
   /** Overhead is set up — flag lines that look like overhead (0110). */
   overheadConfigured: boolean;
   onDismissOverhead: (itemId: string) => void;
@@ -2186,6 +2220,7 @@ function MaterialsSectionCard({
   laborRate,
   onEditItem,
   onDeleteItem,
+  onDeleteCollapsedItem,
   overheadConfigured,
   onDismissOverhead,
   onApplyCalculatedLines,
@@ -2401,6 +2436,7 @@ function MaterialsSectionCard({
                           canMoveDown={index < section.items.length - 1}
                           onMoveUp={() => onMoveItem(index, -1)}
                           onMoveDown={() => onMoveItem(index, 1)}
+                          onDelete={() => onDeleteCollapsedItem(item.id)}
                         />
                       }
                     >
@@ -2552,6 +2588,78 @@ function matchProjectTypeForBuildType(buildTypeId: string, options: Category[]):
 }
 
 const ITEM_FIELD_LABEL = "text-[10px] font-bold uppercase tracking-wider text-muted-subtle";
+
+/**
+ * "Remember this price for next time" on a Catalog line, showing what's
+ * saved: a line at its remembered price reads "✓ Saved for next time";
+ * one priced differently offers "Update saved price to $X" (unchecked =
+ * this job only). The price itself is never locked. "Forget" removes the
+ * remembered price straight away (a per-contractor setting, not part of
+ * this plan's Save).
+ */
+function SavedPriceControl({
+  item,
+  saved,
+  onEdit,
+}: {
+  item: DraftItem;
+  saved: CatalogPriceOverride | null;
+  onEdit: (patch: Partial<DraftItem>) => void;
+}) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const forget = useMutation({
+    mutationFn: () => deleteCatalogPriceOverride(item.catalog_product_id!),
+    onSuccess: () => {
+      onEdit({ rememberPrice: false });
+      qc.invalidateQueries({ queryKey: ["catalog-price-overrides"] });
+      toast({ title: "Saved price forgotten", description: "This line keeps its price." });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't forget the saved price", description: err.message, variant: "destructive" }),
+  });
+  const per = item.unit.trim() ? `/${item.unit.trim()}` : "";
+
+  if (!saved) {
+    return (
+      <label className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+        <Checkbox checked={item.rememberPrice} onCheckedChange={(v) => onEdit({ rememberPrice: v === true })} />
+        Remember this price for next time
+      </label>
+    );
+  }
+
+  const savedOn = new Date(saved.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const same = Math.abs(item.unit_cost - saved.price) < 0.005;
+  return (
+    <div className="mt-1.5 space-y-1 text-[11px] font-medium text-muted-foreground">
+      <p className="tabular-nums">
+        Saved price · {formatCurrency(saved.price)}
+        {per} (saved {savedOn})
+      </p>
+      {same ? (
+        <div className="flex items-center gap-1.5 text-foreground">
+          {/* Shown checked, not a toggle — "Forget" is the way to remove it. */}
+          <Checkbox checked tabIndex={-1} aria-hidden className="pointer-events-none" />
+          Saved for next time
+        </div>
+      ) : item.unit_cost > 0 ? (
+        <label className="flex items-center gap-1.5 tabular-nums">
+          <Checkbox checked={item.rememberPrice} onCheckedChange={(v) => onEdit({ rememberPrice: v === true })} />
+          Update saved price to {formatCurrency(item.unit_cost)}
+          {per}
+        </label>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => forget.mutate()}
+        disabled={forget.isPending}
+        className="font-semibold text-muted-subtle underline-offset-2 hover:text-destructive hover:underline disabled:opacity-50"
+      >
+        Forget saved price
+      </button>
+    </div>
+  );
+}
 
 interface ItemRowProps {
   item: DraftItem;
@@ -2877,7 +2985,8 @@ function ItemRow({
             aria-label="Waste percent"
           />
         </label>
-        <label className="block">
+        {/* A div, not a label — the saved-price controls below have their own. */}
+        <div>
           <div className={ITEM_FIELD_LABEL}>Unit cost</div>
           <Input
             type="number"
@@ -2892,15 +3001,13 @@ function ItemRow({
             aria-label="Unit cost"
           />
           {catalogLinked && (
-            <label className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-              <Checkbox
-                checked={item.rememberPrice}
-                onCheckedChange={(v) => onEdit({ rememberPrice: v === true })}
-              />
-              Remember this price for next time
-            </label>
+            <SavedPriceControl
+              item={item}
+              saved={priceOverrides.find((o) => o.catalog_product_id === item.catalog_product_id) ?? null}
+              onEdit={onEdit}
+            />
           )}
-        </label>
+        </div>
         <div>
           <div className={ITEM_FIELD_LABEL}>Total</div>
           <div className="mt-1 flex h-[42px] items-center justify-end rounded-md bg-primary/10 px-3 text-base font-extrabold tabular-nums text-success">

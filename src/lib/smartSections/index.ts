@@ -8,6 +8,7 @@ import { outdoorLightingTemplate } from "./outdoorLighting";
 import { irrigationTemplate, pergolaTemplate, plantsTemplate, sodTemplate, waterFeatureTemplate } from "./landscape";
 import type { SmartSectionTemplate } from "./types";
 import { DEFAULT_SLOT_CATEGORIES } from "./defaultCategories";
+import { categoryDefaultUnit } from "@/lib/categoryUnits";
 import { categoryIdOfBuildType, getTypeConfig, getTypeConfigLabel, isConfigBuildType, smartTemplateFromConfig } from "../typeConfig";
 
 /**
@@ -133,14 +134,20 @@ export function resolveLineDescription(
 export function templateStartingLines(
   template: SmartSectionTemplate,
   settings: SmartSectionSettings | null,
-  categories: { id: string; name: string }[],
+  categories: { id: string; name: string; default_unit?: string | null }[],
 ) {
-  return startingLineItems(template, settings).map((li) => ({
-    name: li.name,
-    cost_type: li.cost_type ?? ("material" as const),
-    material_category_id: resolveLineCategoryId(template, li, categories),
-    internal_description: resolveLineDescription(template, li),
-  }));
+  return startingLineItems(template, settings).map((li) => {
+    const material_category_id = resolveLineCategoryId(template, li, categories);
+    const cost_type = li.cost_type ?? ("material" as const);
+    return {
+      name: li.name,
+      cost_type,
+      material_category_id,
+      internal_description: resolveLineDescription(template, li),
+      // The category's default unit (0165) — the calculator sets its own later.
+      unit: cost_type === "material" ? categoryDefaultUnit(categories, material_category_id) : null,
+    };
+  });
 }
 
 export * from "./types";

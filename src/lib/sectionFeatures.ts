@@ -164,6 +164,8 @@ export interface FeatureSectionSeed {
     /** From the template (0162). */
     material_category_id?: string | null;
     internal_description?: string | null;
+    /** The category's default unit (0165). */
+    unit?: string | null;
   }[];
   /** The template's labor default (Settings), if any. */
   labor: SmartSectionLaborDefault | null;
@@ -181,7 +183,7 @@ export function featureSectionSeeds(
   smartSettings: SmartSectionSettings[],
   /** The contractor's material categories — template lines come in
    * categorized (0162). */
-  materialCategories: { id: string; name: string }[] = [],
+  materialCategories: { id: string; name: string; default_unit?: string | null }[] = [],
 ): FeatureSectionSeed[] {
   const byId = new Map(allCategories.map((c) => [c.id, c]));
   const seeds: FeatureSectionSeed[] = [];
@@ -207,7 +209,7 @@ export function featureSeeds(
   features: ProjectFeature[],
   allCategories: Category[],
   smartSettings: SmartSectionSettings[],
-  materialCategories: { id: string; name: string }[] = [],
+  materialCategories: { id: string; name: string; default_unit?: string | null }[] = [],
 ): FeatureSectionSeed[] {
   return features.map((f) => {
     const cat = allCategories.find((c) => c.id === f.category_id) ?? null;
