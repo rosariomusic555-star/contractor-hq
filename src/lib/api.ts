@@ -616,6 +616,9 @@ export interface MaterialCategory {
   /** 0162 — lines in this category ask for a color (hardscape). Undefined
    * before 0162 reads as false. */
   needs_color?: boolean;
+  /** 0165 — the category's usual unit; setting a line's category fills it
+   * in (src/lib/categoryUnits.ts). Null / undefined = none. */
+  default_unit?: string | null;
   created_at: string;
 }
 
@@ -641,7 +644,7 @@ export async function createMaterialCategory(input: { name: string; sort_order?:
 
 export async function updateMaterialCategory(
   id: string,
-  patch: Partial<Pick<MaterialCategory, "name" | "sort_order" | "needs_color">>,
+  patch: Partial<Pick<MaterialCategory, "name" | "sort_order" | "needs_color" | "default_unit">>,
 ): Promise<void> {
   const { error } = await supabase.from("material_categories").update(patch).eq("id", id);
   if (error) throw error;
@@ -2308,7 +2311,16 @@ export async function listCatalogPriceOverrides(): Promise<CatalogPriceOverride[
 export async function upsertCatalogPriceOverride(catalogProductId: string, price: number): Promise<void> {
   const { error } = await supabase
     .from("catalog_price_overrides")
-    .upsert({ catalog_product_id: catalogProductId, price }, { onConflict: "user_id,catalog_product_id" });
+    // updated_at is only defaulted on insert — set it so "saved Sep 30"
+    // shows when the price was last updated.
+    .upsert({ catalog_product_id: catalogProductId, price, updated_at: new Date().toISOString() }, { onConflict: "user_id,catalog_product_id" });
+  if (error) throw error;
+}
+
+/** "Forget saved price" — removes this contractor's remembered price for a
+ * catalog product. Lines already priced with it keep their price. */
+export async function deleteCatalogPriceOverride(catalogProductId: string): Promise<void> {
+  const { error } = await supabase.from("catalog_price_overrides").delete().eq("catalog_product_id", catalogProductId);
   if (error) throw error;
 }
 
@@ -2441,7 +2453,7 @@ async function insertSeededSection(
         // Every row carries every column: in a batch insert a key missing
         // from some rows is sent as NULL for them (cost_type is NOT NULL).
         cost_type: item.cost_type,
-        unit: item.cost_type !== "material" ? LUMP_SUM_UNIT : null,
+        unit: item.cost_type !== "material" ? LUMP_SUM_UNIT : (item.unit ?? null),
         // From the template (0162): category and default description.
         material_category_id: item.cost_type === "material" ? (item.material_category_id ?? null) : null,
         ...(hasDescriptions ? { internal_description: item.internal_description?.trim() || null } : {}),

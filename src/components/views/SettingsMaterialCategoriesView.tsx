@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MATERIAL_UNITS } from "@/lib/materialsMath";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,6 +67,15 @@ export function SettingsMaterialCategoriesView() {
     mutationFn: ({ id, needs_color }: { id: string; needs_color: boolean }) => updateMaterialCategory(id, { needs_color }),
     onMutate: ({ id, needs_color }) =>
       qc.setQueryData<MaterialCategory[]>(["material-categories"], (old) => old?.map((c) => (c.id === id ? { ...c, needs_color } : c))),
+    onSettled: invalidate,
+    onError,
+  });
+
+  // Default unit (0165) — optimistic, like Needs color.
+  const unitMut = useMutation({
+    mutationFn: ({ id, default_unit }: { id: string; default_unit: string | null }) => updateMaterialCategory(id, { default_unit }),
+    onMutate: ({ id, default_unit }) =>
+      qc.setQueryData<MaterialCategory[]>(["material-categories"], (old) => old?.map((c) => (c.id === id ? { ...c, default_unit } : c))),
     onSettled: invalidate,
     onError,
   });
@@ -134,6 +145,10 @@ export function SettingsMaterialCategoriesView() {
             <span className="font-semibold text-foreground">Needs color</span> — lines in that category get a Color field
             and an "Add color" reminder until one is set (pavers, wall block, caps…).
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">Default unit</span> — choosing the category on a line fills in
+            this unit, unless you've already picked a different one.
+          </p>
 
           {isLoading ? (
             <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
@@ -151,6 +166,7 @@ export function SettingsMaterialCategoriesView() {
                   onMoveDown={() => move(i, 1)}
                   onRename={(name) => renameMut.mutate({ id: s.id, name })}
                   onNeedsColor={(needs_color) => colorMut.mutate({ id: s.id, needs_color })}
+                  onDefaultUnit={(default_unit) => unitMut.mutate({ id: s.id, default_unit })}
                   onDelete={() => deleteMut.mutate(s.id)}
                 />
               ))}
@@ -180,6 +196,8 @@ export function SettingsMaterialCategoriesView() {
   );
 }
 
+const NO_UNIT = "__none__";
+
 function MaterialCategoryRow({
   category,
   isFirst,
@@ -188,6 +206,7 @@ function MaterialCategoryRow({
   onMoveDown,
   onRename,
   onNeedsColor,
+  onDefaultUnit,
   onDelete,
 }: {
   category: MaterialCategory;
@@ -197,9 +216,13 @@ function MaterialCategoryRow({
   onMoveDown: () => void;
   onRename: (name: string) => void;
   onNeedsColor: (needs: boolean) => void;
+  onDefaultUnit: (unit: string | null) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(category.name);
+  const unit = category.default_unit?.trim() || "";
+  // A custom unit set elsewhere stays pickable.
+  const unitOptions: string[] = unit && !(MATERIAL_UNITS as readonly string[]).includes(unit) ? [...MATERIAL_UNITS, unit] : [...MATERIAL_UNITS];
 
   return (
     <div className="flex items-center gap-2 py-2.5">
@@ -234,6 +257,20 @@ function MaterialCategoryRow({
         }}
         className="h-10 flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
       />
+
+      <Select value={unit || NO_UNIT} onValueChange={(v) => onDefaultUnit(v === NO_UNIT ? null : v)}>
+        <SelectTrigger className="h-9 w-[92px] shrink-0 text-xs sm:w-[116px]" aria-label={`${category.name} default unit`} title="Default unit">
+          <SelectValue placeholder="No unit" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_UNIT}>No default unit</SelectItem>
+          {unitOptions.map((u) => (
+            <SelectItem key={u} value={u}>
+              {u}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-muted-foreground">
         <span className="hidden sm:inline">Needs color</span>

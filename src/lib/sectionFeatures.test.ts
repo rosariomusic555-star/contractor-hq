@@ -81,8 +81,8 @@ describe("new sheet: one section per project feature", () => {
     ];
     const [seed] = featureSectionSeeds(["c-patio"], all, settings);
     expect(seed.items).toEqual([
-      { name: "Techo-Bloc pavers", cost_type: "material", material_category_id: null, internal_description: null },
-      { name: "Skid steer rental", cost_type: "equipment", material_category_id: null, internal_description: null },
+      { name: "Techo-Bloc pavers", cost_type: "material", material_category_id: null, internal_description: null, unit: null },
+      { name: "Skid steer rental", cost_type: "equipment", material_category_id: null, internal_description: null, unit: null },
     ]);
     expect(seed.labor).toEqual({ crew_size: 3, days: 4 });
   });
@@ -113,9 +113,9 @@ describe("new sheet: one section per project feature", () => {
     ];
     const [custom] = featureSectionSeeds(["c-patio"], all, settings, mats);
     expect(custom.items).toEqual([
-      { name: "Bedding Sand", cost_type: "material", material_category_id: "m-mine", internal_description: "Concrete sand, 1 in." },
-      { name: "Pavers", cost_type: "material", material_category_id: null, internal_description: null },
-      { name: "Skid steer", cost_type: "equipment", material_category_id: null, internal_description: null },
+      { name: "Bedding Sand", cost_type: "material", material_category_id: "m-mine", internal_description: "Concrete sand, 1 in.", unit: null },
+      { name: "Pavers", cost_type: "material", material_category_id: null, internal_description: null, unit: null },
+      { name: "Skid steer", cost_type: "equipment", material_category_id: null, internal_description: null, unit: null },
     ]);
   });
 

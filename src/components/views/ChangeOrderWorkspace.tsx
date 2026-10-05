@@ -38,6 +38,7 @@ import { useRecorderName } from "@/hooks/use-recorder-name";
 import { GoToProjectLink } from "@/components/common/GoToProjectLink";
 import { LineItemSectionCard } from "@/components/common/LineItemSectionCard";
 import { useSectionReorder } from "@/hooks/use-section-reorder";
+import { removeDraftLine, restoreDraftLine, useLineDeleteUndo } from "@/hooks/use-line-delete-undo";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { useItemCollapse } from "@/hooks/use-item-collapse";
 import { CollapseAllLinks } from "@/components/common/CollapseAllLinks";
@@ -212,6 +213,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   // --- draft state --------------------------------------------------------
   const [draft, setDraft] = useState<ChangeOrderDraft>(() => seed(changeOrder, serverCostChanges));
   const dirty = useRef(false);
+  const lineUndo = useLineDeleteUndo();
 
   useEffect(() => {
     if (dirty.current) return;
@@ -235,6 +237,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const [isDraggingItem, setIsDraggingItem] = useState(false);
 
   const discard = () => {
+    lineUndo.invalidate();
     for (const s of draft.sections) for (const i of s.items) revokeLocalImageUrls(i);
     dirty.current = false;
     setDraft(seed(changeOrder, serverCostChanges));
@@ -340,6 +343,14 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         return { ...x, items: x.items.filter((i) => i.id !== iid) };
       }),
     );
+  // A collapsed row's delete — the line stays in memory (its unsaved
+  // photos too) so "Undo" in the toast can put it back.
+  const removeItemWithUndo = (sid: string, iid: string) => {
+    const { removed } = removeDraftLine(draft.sections, sid, iid);
+    if (!removed) return;
+    setSections((s) => removeDraftLine(s, sid, iid).sections);
+    lineUndo.announce(() => setSections((s) => restoreDraftLine(s, sid, removed)));
+  };
 
   // --- derived amounts (from the draft) ------------------------------------
   const subtotal = changeOrderDraftTotal(draft.sections);
@@ -530,6 +541,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     },
     onSuccess: () => {
       dirty.current = false;
+      lineUndo.invalidate();
       if (changeOrder.status === "sent") void snapshotDocument("change_order", changeOrder.id);
       invalidate();
       qc.invalidateQueries({ queryKey: ["change-order-cost-changes", changeOrder.id] });
@@ -844,6 +856,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                               onAddItem={() => addItem(section.id)}
                               onEditItem={(iid, patch) => editItem(section.id, iid, patch)}
                               onDeleteItem={(iid) => removeItem(section.id, iid)}
+                            onDeleteCollapsedItem={(iid) => removeItemWithUndo(section.id, iid)}
                               dragHandleProps={dragProvided.dragHandleProps}
                               dragging={dragSnapshot.isDragging}
                               canMoveUp={index > 0}

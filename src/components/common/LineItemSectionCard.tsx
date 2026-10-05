@@ -33,6 +33,9 @@ interface LineItemSectionCardProps {
   onAddItem: () => void;
   onEditItem: (itemId: string, patch: Partial<DraftLineItem>) => void;
   onDeleteItem: (itemId: string) => void;
+  /** A collapsed row's delete (the builder offers Undo) — falls back to
+   * onDeleteItem. */
+  onDeleteCollapsedItem?: (itemId: string) => void;
   dragHandleProps: DraggableProvidedDragHandleProps | null | undefined;
   dragging: boolean;
   canMoveUp: boolean;
@@ -95,6 +98,7 @@ export function LineItemSectionCard({
   onAddItem,
   onEditItem,
   onDeleteItem,
+  onDeleteCollapsedItem,
   dragHandleProps,
   dragging,
   canMoveUp,
@@ -253,6 +257,7 @@ export function LineItemSectionCard({
                               canMoveDown={index < items.length - 1}
                               onMoveUp={() => onMoveItem(index, -1)}
                               onMoveDown={() => onMoveItem(index, 1)}
+                              onDelete={() => (onDeleteCollapsedItem ?? onDeleteItem)(item.id)}
                             />
                           }
                         >
