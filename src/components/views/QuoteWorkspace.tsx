@@ -157,6 +157,7 @@ import { buildTypeForCategoryName, buildTypeIdForCategory } from "@/lib/measurem
 import { BackLink } from "@/components/common/BackLink";
 import { remapDraftIds } from "@/lib/draftRemap";
 import { depositAmount as depositAmountOf } from "@/lib/projectMoney";
+import { projectHref } from "@/lib/projectTabs";
 
 const NONE = "__none__";
 
@@ -1370,7 +1371,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               {/* Deep links: the project page opens the new feature's
                   Measurements card and pulses it; the Cost plan scrolls to
                   and flashes its section. */}
-              <Link to={`/projects/${projectId}#measure${addonFeature?.category_id ? `-${addonFeature.category_id}` : ""}`} className="text-primary hover:underline">
+              <Link to={`${projectHref(projectId, "estimate")}#measure${addonFeature?.category_id ? `-${addonFeature.category_id}` : ""}`} className="text-primary hover:underline">
                 1 · Measure it (project page)
               </Link>
               <Link to={`/projects/${projectId}/materials${addonSection ? `#section-${addonSection.id}` : ""}`} className="text-primary hover:underline">

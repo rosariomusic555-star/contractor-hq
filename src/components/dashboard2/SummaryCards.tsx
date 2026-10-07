@@ -26,6 +26,7 @@ import { useBusinessHealth } from "@/components/health/useBusinessHealth";
 import { useMaintenanceItems } from "@/components/maintenance/useMaintenance";
 import { Card, CardSkeleton, EmptyLine } from "./CardShell";
 import { TONE_TEXT } from "./tones";
+import { projectHref } from "@/lib/projectTabs";
 
 const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? "−" : ""}$${Math.round(Math.abs(v) / 100) / 10}k` : formatCurrency(v));
 const shortDay = (d: string | null) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—");
@@ -216,7 +217,7 @@ export function PastClientsCard() {
           <ul>
             {dueRows.map((i) => (
               <li key={i.id}>
-                <Link to={`/projects/${i.project_id}?maintenance=${i.id}`} className="flex min-h-[44px] items-center gap-2 px-4 py-2 text-sm hover:bg-muted/40">
+                <Link to={projectHref(i.project_id, "aftercare", { maintenance: i.id })} className="flex min-h-[44px] items-center gap-2 px-4 py-2 text-sm hover:bg-muted/40">
                   <Wrench className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">
                     {i.project?.client?.name ?? i.project?.name} <span className="text-muted-foreground">· {i.label}</span>

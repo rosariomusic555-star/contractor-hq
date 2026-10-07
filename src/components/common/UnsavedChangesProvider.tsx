@@ -20,8 +20,8 @@ const SAVE_START_TIMEOUT_MS = 2500;
  * The app's one navigation guard (React Router only supports one blocker at
  * a time, so pages register their editors here via useUnsavedChangesGuard
  * instead of each blocking on its own). Blocks leaving the current page —
- * a different pathname; hash / query changes on the same page never count
- * — while any registered editor is dirty and not mid-save, then asks:
+ * a different pathname or tab; hash / other query changes on the same page
+ * never count — while any registered editor is dirty and not mid-save, then asks:
  * Save & leave / Discard & leave / Stay. A bottom sheet on phones.
  */
 export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
@@ -42,9 +42,13 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   );
   const all = useCallback(() => [...entries.current.values()].map((get) => get()), []);
 
+  // A tab switch (?tab=, PageTabs) counts as leaving too: the tab's editors
+  // unmount.
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      currentLocation.pathname !== nextLocation.pathname && all().some((e) => e.dirty && !e.saving),
+      (currentLocation.pathname !== nextLocation.pathname ||
+        new URLSearchParams(currentLocation.search).get("tab") !== new URLSearchParams(nextLocation.search).get("tab")) &&
+      all().some((e) => e.dirty && !e.saving),
   );
 
   // Save & leave: save every dirty editor, then go once they're all clean;

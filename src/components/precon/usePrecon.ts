@@ -4,6 +4,7 @@ import { fetchPreconBundle, type PreconBundle } from "@/lib/preconSignals";
 import { addDaysISO, isoDate, shortDayLabel } from "@/lib/weatherRisk";
 import { locateCheck, locateExpiringSoon, openSummary, preconPhase } from "@/lib/precon";
 import type { NeedsYouItem } from "@/lib/needsYou";
+import { projectHref } from "@/lib/projectTabs";
 
 const STALE = 30_000;
 
@@ -54,7 +55,7 @@ export function preconNeedsYouItems(bundles: PreconBundle[]): NeedsYouItem[] {
           : `${b.project.name} starts ${b.readiness.daysToStart === 0 ? "today" : shortDayLabel(b.project.scheduled_start_date!).split(" ")[0]}`,
       subtitle: openSummary(b.readiness.openRequired),
       action: "Review",
-      href: `/projects/${b.project.id}`,
+      href: projectHref(b.project.id, "schedule"),
       sortValue: Math.max(1, b.settings.warn_days - (b.readiness.daysToStart ?? 0) + 1),
     }));
 }

@@ -10,6 +10,7 @@
  * No review gating: nothing here decides WHO gets the link based on how
  * happy they are — every request and reminder carries the same link.
  * ========================================================================== */
+import { projectHref } from "@/lib/projectTabs";
 
 export type ReviewStatus = "not_asked" | "asked" | "clicked" | "left" | "dismissed";
 
@@ -96,7 +97,7 @@ export function reviewNeedsYouItems(rows: ReviewNeedsYouInput[], s: ReviewSettin
         title: `Ask ${name} for a review`,
         subtitle: `${r.projectName} is finished`,
         action: "Ask",
-        href: `/projects/${r.project_id}?review=ask`,
+        href: projectHref(r.project_id, "aftercare", { review: "ask" }),
         sortValue: Math.max(1, Math.floor((now.getTime() - new Date(r.eligible_at as string).getTime()) / DAY)),
       });
     } else if (stage === "remind") {
@@ -106,7 +107,7 @@ export function reviewNeedsYouItems(rows: ReviewNeedsYouInput[], s: ReviewSettin
         title: `Remind ${name.split(/\s+/)[0]} about the review`,
         subtitle: `${r.projectName} · asked ${Math.floor((now.getTime() - new Date(r.asked_at as string).getTime()) / DAY)} days ago, no click yet`,
         action: "Remind",
-        href: `/projects/${r.project_id}?review=remind`,
+        href: projectHref(r.project_id, "aftercare", { review: "remind" }),
         sortValue: Math.max(1, Math.floor((now.getTime() - new Date(r.asked_at as string).getTime()) / DAY) - (s?.reminder_days ?? 0)),
       });
     }

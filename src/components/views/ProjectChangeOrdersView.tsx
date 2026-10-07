@@ -40,6 +40,7 @@ import {
 import { changeOrderStatusMeta, invoiceStatusMeta } from "@/lib/statusMeta";
 import { featureName } from "@/lib/features";
 import { changeOrderDecisionLine, changeOrderInvoiceable, changeOrderNumbers, changeOrderSummary, invoicesByChangeOrder, signedMoney } from "@/lib/projectBilling";
+import { projectHref } from "@/lib/projectTabs";
 
 const amountColor = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "text-foreground");
 const shareUrl = (co: Pick<ChangeOrder, "share_token">) => (co.share_token ? `${window.location.origin}/change-order/${co.share_token}` : null);
@@ -244,7 +245,7 @@ export function ProjectChangeOrdersView() {
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                   {newButton()}
                   <Button variant="outline" asChild>
-                    <Link to={`/projects/${id}?add-new-work=1`}>
+                    <Link to={projectHref(id, "estimate", { "add-new-work": "1" })}>
                       <FilePlus2 className="mr-1.5 h-4 w-4" /> Add new work
                     </Link>
                   </Button>

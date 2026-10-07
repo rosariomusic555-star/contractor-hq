@@ -4,6 +4,7 @@ import { headlineDepositDue, quoteTotal, type Appointment, type Invoice, type Op
 import { coldLabel, coldState } from "./quoteActivity";
 import { invoiceDaysLate } from "./financials";
 import { overdueSiteVisitsByOpportunity, siteVisitDateLabel } from "./siteVisitCheck";
+import { projectHref } from "@/lib/projectTabs";
 
 // Thresholds — confirmed 2026-09-09. Overdue invoices flag once 3+ days
 // past due; shared quotes flag once 3+ days old with no response.
@@ -137,7 +138,7 @@ function moreItems(m: NeedsYouMore, now: Date): NeedsYouItem[] {
       title: `Change request${r.requested_by ? ` from ${r.requested_by}` : ""}`,
       subtitle: `${r.project?.name ?? "Project"}${r.note ? ` · “${r.note}”` : ""}`,
       action: "Review",
-      href: `/projects/${r.project_id}`,
+      href: projectHref(r.project_id, "estimate"),
       sortValue: Math.max(daysSince(r.created_at, now), 1) + 2,
       category: "clients",
     });
@@ -164,7 +165,7 @@ function moreItems(m: NeedsYouMore, now: Date): NeedsYouItem[] {
       title: `${formatCurrency(p.unallocated)} unapplied credit`,
       subtitle: `${p.project?.name ?? "Payment"} · received ${p.paid_on}`,
       action: "Apply",
-      href: p.project_id ? `/projects/${p.project_id}` : "/invoices",
+      href: p.project_id ? projectHref(p.project_id, "money") : "/invoices",
       sortValue: Math.max(daysSince(p.paid_on, now), 1),
       category: "money",
     });
@@ -216,7 +217,7 @@ function moreItems(m: NeedsYouMore, now: Date): NeedsYouItem[] {
       title: "Let the client know about the schedule change",
       subtitle: h.project?.name ?? "Schedule change",
       action: "Send",
-      href: `/projects/${h.project_id}`,
+      href: projectHref(h.project_id, "schedule"),
       sortValue: Math.max(daysSince(h.created_at, now), 1) + 1,
       category: "jobs",
     });

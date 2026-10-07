@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { jobRisks, useScheduleForecasts } from "@/lib/forecast";
 import { RISK_TEXT } from "@/components/weather/riskStyles";
 import { useCardLink } from "@/hooks/use-card-link";
+import { projectHref } from "@/lib/projectTabs";
 
 const DAYS = 7;
 
@@ -33,7 +34,7 @@ export function WeatherRisksCard({ className }: { className?: string }) {
           const d = new Date(`${r.date}T00:00:00`);
           return (
             <li key={`${r.project.id}-${r.date}`} className="flex items-start gap-2">
-              <Link to={`/projects/${r.project.id}`} className="-mx-1 flex min-w-0 flex-1 items-start gap-2 rounded-lg px-1 py-2 text-sm transition-colors hover:bg-muted/50">
+              <Link to={projectHref(r.project.id, "schedule")} className="-mx-1 flex min-w-0 flex-1 items-start gap-2 rounded-lg px-1 py-2 text-sm transition-colors hover:bg-muted/50">
                 <AlertTriangle className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", RISK_TEXT[r.level])} />
                 <span className="min-w-0">
                   <span className="font-bold text-foreground">{r.project.name}</span>

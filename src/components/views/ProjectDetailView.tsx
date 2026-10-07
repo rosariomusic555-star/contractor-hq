@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ExpensesHubCard } from "@/components/job-costs/ExpensesHubCard";
 import { MaterialsHubCard } from "@/components/materials-center/MaterialsHubCard";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
@@ -100,6 +100,7 @@ import {
   isPreSaleProject,
   createProjectInvoice,
   DEPOSIT_INVOICE_NOTE,
+  listProgressUpdates,
   type ProjectStatus,
   type MaterialsItem,
   type MaterialsSection,
@@ -119,7 +120,7 @@ import {
   type TrueCost,
 } from "@/lib/overhead";
 import { inviteClientToHub } from "@/lib/portalApi";
-import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost, projectBillingBadge } from "@/lib/financials";
+import { ALL_TIME_RANGE, invoicedTotal, collectedTotal, resolveCost, projectBillingBadge, invoiceDaysLate } from "@/lib/financials";
 import {
   PROJECT_STATUS_META,
   PROJECT_STATUSES,
@@ -170,7 +171,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useProjectDelays } from "@/components/schedule/useUndoScheduleDelay";
+import { PageTabs, type PageTab } from "@/components/common/PageTabs";
+import { PreconSummaryLine } from "@/components/precon/PreconSummaryLine";
+import { usePreconBundle } from "@/components/precon/usePrecon";
+import { preconPhase } from "@/lib/precon";
+import { useUrlTab } from "@/hooks/use-url-tab";
+import { PROJECT_TABS, projectHref, type ProjectTab } from "@/lib/projectTabs";
 import { delayDays } from "@/lib/scheduleShift";
+
+const shortDate = (iso: string) =>
+  new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -199,7 +209,9 @@ export function ProjectDetailView() {
   useEffect(() => {
     if (searchParams.get("add-new-work")) {
       setAddWorkOpen(true);
-      setSearchParams({}, { replace: true });
+      const next = new URLSearchParams(searchParams);
+      next.delete("add-new-work");
+      setSearchParams(next, { replace: true });
     }
   }, [searchParams, setSearchParams]);
   const [logUsageLine, setLogUsageLine] = useState<MaterialsItem | null>(null);
@@ -220,12 +232,19 @@ export function ProjectDetailView() {
   useEffect(() => {
     if (!project || !thenAction) return;
     if (thenAction === "record-payment") setRecordPaymentOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("then");
+    // The Schedule card is on the Schedule tab.
+    if (thenAction === "schedule") next.set("tab", "schedule");
+    setSearchParams(next, { replace: true });
     if (thenAction === "schedule") {
-      const card = document.getElementById("schedule-card");
-      card?.scrollIntoView({ behavior: "smooth", block: "start" });
-      card?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+      window.setTimeout(() => {
+        const card = document.getElementById("schedule-card");
+        card?.scrollIntoView({ behavior: "smooth", block: "start" });
+        card?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+      }, 50);
     }
-    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, thenAction, setSearchParams]);
   // Pre-construction (0124): starting with required items open is a
   // warning ("Start anyway"), never a block.
@@ -404,6 +423,24 @@ export function ProjectDetailView() {
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
+
+  // The page is tabbed — the tab lives in ?tab=.
+  const { active: tab, setActive: setTab, anchorRef: tabsAnchorRef } = useUrlTab(PROJECT_TABS, "overview");
+  const headerScrolledAway = useScrolledPast(tabsAnchorRef, !isLoading);
+  const { data: progressUpdates = [] } = useQuery({
+    queryKey: ["progress-updates", id],
+    queryFn: () => listProgressUpdates(id),
+  });
+  const { data: precon } = usePreconBundle(id);
+  // #measure… opens Measurements, which is on Estimate.
+  useEffect(() => {
+    if (/^#measure/.test(location.hash) && tab !== "estimate") {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", "estimate");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.hash, location.key]);
 
   if (isLoading) return <p className="text-muted-foreground">Loading project…</p>;
   if (isError || !project)
@@ -603,33 +640,21 @@ export function ProjectDetailView() {
     </Select>
   );
 
-  return (
-    <div className="animate-fade-in space-y-5">
+
+  const mobileHeader = (
+    <>
       <MobilePageHeader
         title={project.name}
         subtitle={`${project.client?.name ?? "No client"}${crewName ? ` · ${crewName}` : ""}`}
         back={{ to: "/projects", label: "Projects" }}
         pills={<StatusPill meta={meta} className="!bg-white/20 !text-sidebar-foreground" />}
       />
+    </>
+  );
 
-      {/* Desktop header */}
-      <div className="hidden md:block">
-        <BackLink to="/projects" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Projects</BackLink>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground">{project.name}</h1>
-              <StatusPill meta={meta} />
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {project.client?.name ?? "No client"}
-              {crewName ? ` · ${crewName}` : ""}
-            </p>
-          </div>
-          {statusSelect}
-        </div>
-      </div>
 
+  const preSaleNotice = (
+    <>
       {/* Pre-sale: this project only holds an unwon opportunity's estimate,
           and is hidden from every job list until it's Won (isPreSaleProject). */}
       {isPreSaleProject(project) && (
@@ -644,9 +669,11 @@ export function ProjectDetailView() {
           </Link>
         </div>
       )}
+    </>
+  );
 
-      <div className="md:hidden">{statusSelect}</div>
-
+  const featureChips = (
+    <>
       {/* Features — compact inline chips, about half the header width on
           desktop / tablet, full width on phones. */}
       <div className="w-full md:w-1/2">
@@ -657,7 +684,11 @@ export function ProjectDetailView() {
           variant="compact"
         />
       </div>
+    </>
+  );
 
+  const linkedOpportunityLine = (
+    <>
       {linkedOpportunity && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -668,7 +699,11 @@ export function ProjectDetailView() {
           <StatusPill meta={opportunityStageMeta(linkedOpportunity.stage)} />
         </div>
       )}
+    </>
+  );
 
+  const wonBanner = (
+    <>
       {showWonBanner && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-success/30 bg-success/10 p-4">
           <div className="flex items-center gap-2.5">
@@ -701,14 +736,714 @@ export function ProjectDetailView() {
           </div>
         </div>
       )}
+    </>
+  );
 
+  const preconCard = (
+    <>
       {/* Pre-construction checklist (0124) — from Won until the job starts. */}
       <PreconCard
         projectId={id}
         onRecordPayment={() => setRecordPaymentOpen(true)}
         onAssignCrew={() => document.getElementById("schedule-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}
       />
+    </>
+  );
 
+  const alertsBar = (
+    <>
+      {/* Material alerts — one slim line; Review opens them grouped by feature. */}
+      <MaterialAlertsBar
+        projectId={id}
+        alerts={materialAlertList}
+        sectionNames={sectionNames}
+        context={startContext(project.scheduled_start_date)}
+        onMarkOrdered={(ids) => markOrderedMut.mutate(ids)}
+        onNotNeeded={(lineId) => notNeededMut.mutate(lineId)}
+        busy={markOrderedMut.isPending || notNeededMut.isPending}
+      />
+    </>
+  );
+
+  const reconcileBanner = (
+    <>
+      {project.status === "complete" && unreconciledLines.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-warning-strong/30 bg-warning/10 p-4">
+          <p className="text-sm font-bold text-foreground">
+            Reconcile materials — {pluralize(unreconciledLines.length, "line")} still need a leftover disposition.
+          </p>
+          <Button size="sm" className="font-bold" onClick={() => setReconcileOpen(true)}>
+            Reconcile materials
+          </Button>
+        </div>
+      )}
+    </>
+  );
+
+  const trackingCard = (
+    <>
+      {/* Tracking only once the job is Won / in progress — same rule as the
+          cost plan (isProjectActive). */}
+      {isProjectActive(project) && (
+        <MaterialsTrackingCard
+          summary={materialCostSummary}
+          trackedLines={trackedLines}
+          sections={materials.filter(countsTowardTotals)}
+          usageLogs={usageLogs}
+          onOpen={() => navigate(`/projects/${id}/materials`)}
+          onLogUsage={(line) => setLogUsageLine(line)}
+          onShowHistory={(line) => setHistoryLine(line)}
+        />
+      )}
+    </>
+  );
+
+  const changeJobCard = (
+    <>
+      {/* Changing a Won job: an existing feature changes → change order;
+          a completely new feature → add-on quote. */}
+      {isProjectActive(project) && (
+        <div className="card-surface p-5">
+          <h3 className="text-base font-bold text-foreground">Change the job</h3>
+          <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${id}/change-orders`)}
+              className="flex min-h-14 flex-col items-start justify-center rounded-xl border border-border px-4 py-2.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
+            >
+              <span className="text-sm font-bold text-foreground">Change order</span>
+              <span className="text-xs text-muted-foreground">Change an existing feature — bigger, upgraded, removed or credited</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddWorkOpen(true)}
+              className="flex min-h-14 flex-col items-start justify-center rounded-xl border border-border px-4 py-2.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
+            >
+              <span className="text-sm font-bold text-foreground">Add new work</span>
+              <span className="text-xs text-muted-foreground">A completely new feature — priced on an add-on quote</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const hubCostPlan = (
+    <>
+      <HubCard title="Cost plan" summary={costPlanSummaryLine} onOpen={() => navigate(`/projects/${id}/materials`)} />
+    </>
+  );
+
+  const hubLabor = (
+    <>
+      <HubCard title="Labor log" summary={laborSummary} onOpen={() => navigate(`/projects/${id}/labor`)} />
+    </>
+  );
+
+  const hubQuotes = (
+    <>
+      <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
+    </>
+  );
+
+  const hubInvoices = (
+    <>
+      <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
+    </>
+  );
+
+  const hubExpenses = (
+    <>
+      <ExpensesHubCard projectId={id} onOpen={() => navigate(`/projects/${id}/expenses`)} />
+    </>
+  );
+
+  const hubChangeOrders = (
+    <>
+      <HubCard
+        title="Change orders"
+        summary={changeOrdersSummary}
+        onOpen={() => navigate(`/projects/${id}/change-orders`)}
+      />
+    </>
+  );
+
+  const hubMaterials = (
+    <>
+      <MaterialsHubCard projectId={id} onOpen={() => navigate(`/projects/${id}/material-orders`)} />
+    </>
+  );
+
+  const profitCard = (
+    <>
+      {/* Profit summary (real) — predicted cost is now the Cost Plan's
+          full total (materials + labor + subs + equipment + other), not
+          materials alone; actual cost folds in actual labor the moment
+          any is logged. See the Cost Plan/Labor pages for the breakdown. */}
+      <ProfitSummaryCard
+        jobOpen={project.status !== "complete"}
+        quoted={contract || null}
+        predictedCost={predictedCost}
+        pendingSelections={costPlan.pendingSelections}
+        actualCost={actualCost}
+        planned={costPlan.planned}
+        actual={hasActualCostData ? actualByType : null}
+        featureRows={featureRows}
+        overhead={{
+          rate: projectOverheadRate,
+          plannedManHours: plannedManHours(materials),
+          actualManHours: laborActualHours,
+          targetMarginPct: project.target_margin_pct ?? overheadSettings?.target_margin_pct ?? null,
+          settings: overheadSettings ?? null,
+          source:
+            project.overhead_rate != null
+              ? "the rate this job was sold with"
+              : headlineQuote?.overhead_rate != null
+                ? "the rate stored on its quote"
+                : "your current overhead (this job has no stored rate)",
+        }}
+      />
+    </>
+  );
+
+  const laborPendingNote = (
+    <>
+      {/* Timesheets (0131): labor from timesheets not yet approved is
+          already in the actual cost above (same rate / overtime / burden
+          math) — say how much of it is still pending. */}
+      {laborPending > 0 && (
+        <p className="-mt-3 px-1 text-xs text-warning-strong">
+          Includes {formatCurrency(laborPending)} of labor from timesheets not approved yet.{" "}
+          <Link to="/timesheets" className="font-semibold underline">
+            Review timesheets
+          </Link>
+        </p>
+      )}
+    </>
+  );
+
+
+  const plannedVsActualCard = (
+    <>
+      {(isProjectActive(project) || project.status === "complete") && <PlannedVsActualCard projectId={id} />}
+    </>
+  );
+
+  const jobContextCard = (
+    <>
+      {!(isProjectActive(project) || project.status === "complete") && (
+        <section className="card-surface p-5">
+          <h3 className="text-base font-bold text-foreground">Job context</h3>
+          <p className="mb-3 mt-0.5 text-xs text-muted-foreground">Quick site facts used to compare this job with similar ones. All optional.</p>
+          <JobContextChips project={project} />
+        </section>
+      )}
+    </>
+  );
+
+  const selectionsCard = (
+    <>
+      {/* Client selections (0115) — approved choices per feature, locked;
+          change requests; changes only via change orders. */}
+      <ProjectSelectionsCard projectId={id} />
+    </>
+  );
+
+  const costsToDateCard = (
+    <>
+      {/* Costs to date — real logged expenses only */}
+      <section className="card-surface p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-bold text-foreground">Costs to date</h3>
+          <Link
+            to={`/projects/${id}/expenses`}
+            className="text-[13px] font-semibold text-primary"
+          >
+            {expenses.length ? "Manage" : "Add expense"}
+          </Link>
+        </div>
+        <p className="mt-1 text-[28px] font-extrabold tracking-tight tabular-nums text-foreground">
+          {formatCurrency(expensesTotal)}
+        </p>
+        {expenses.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">No expenses logged yet.</p>
+        ) : (
+          <div className="mt-3">
+            {recentExpenses.map((e) => (
+              <div
+                key={e.id}
+                className="flex items-center justify-between gap-3 border-b border-hairline py-2 last:border-0"
+              >
+                <span className="min-w-0 truncate text-[13px] text-foreground">
+                  {e.name || "Expense"}
+                  {e.date && <span className="text-muted-subtle"> · {expenseDate(e.date)}</span>}
+                </span>
+                <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
+                  {formatCurrency(Number(e.amount))}
+                </span>
+              </div>
+            ))}
+            {expenses.length > recentExpenses.length && (
+              <p className="pt-2 text-xs font-semibold text-muted-foreground">
+                +{expenses.length - recentExpenses.length} more
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+    </>
+  );
+
+  const hubActions = (
+    <>
+      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-hairline pt-4">
+        <Button variant="ghost" size="sm" className="justify-center" asChild>
+          <Link to={`/projects/${id}/client-view`}>
+            <Eye className="mr-1.5 h-4 w-4" />
+            Client view
+          </Link>
+        </Button>
+        <DownloadSummaryButton
+          variant="ghost"
+          label="Project summary"
+          className="h-9 justify-center px-3 text-sm"
+          loadDetail={() => getClientViewProject(id)}
+          getLogoUrl={async (path) => (await getSignedImageUrls([path]))[path] ?? null}
+        />
+        <CopyHubLinkButton url={clientHubLink(id)} variant="ghost" size="sm" className="col-span-2 justify-center" />
+      </div>
+    </>
+  );
+
+  const moneyCard = (
+    <>
+      <section className="card-surface p-5">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-base font-bold text-foreground">Money</h3>
+          {billing && <span className={projectBillingStatusMeta(billing).badge}>{projectBillingStatusMeta(billing).label}</span>}
+        </div>
+        <div className="mt-2">
+          <MoneyRow label="Contract value" value={contract > 0 ? formatCurrency(contract) : "—"} />
+          <MoneyRow label="Invoiced" value={formatCurrency(money.invoiced)} />
+          <MoneyRow label="Payments received" value={formatCurrency(money.received)} />
+          <MoneyRow label="Unpaid invoice balance" value={formatCurrency(money.unpaidInvoiceBalance)} />
+          {money.unallocatedCredit > 0.004 && (
+            <MoneyRow label="Unallocated credit" value={<span className="text-success">{formatCurrency(money.unallocatedCredit)}</span>} />
+          )}
+          <MoneyRow
+            label={money.overpaid > 0.004 ? "Credit balance (overpaid)" : "Remaining project balance"}
+            value={money.overpaid > 0.004 ? <span className="text-success">{formatCurrency(money.overpaid)}</span> : formatCurrency(money.remaining)}
+            strong
+          />
+        </div>
+        <Button className="mt-3 w-full" variant="outline" onClick={() => setRecordPaymentOpen(true)}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          Record payment
+        </Button>
+        <div className="mt-4">
+          <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-subtle">Payments</div>
+          <PaymentsList payments={payments} invoices={invoices} projectId={id} />
+        </div>
+        {hubActions}
+        {depositOverdue && (
+          <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            Deposit not received
+          </div>
+        )}
+        {marginProfit != null && (
+          <div className="mt-3 rounded-xl bg-primary/10 p-3">
+            <div className="text-xs font-semibold text-success">
+              {showActualMargin ? "Actual" : "Projected"} margin
+            </div>
+            <div className="mt-0.5 text-2xl font-extrabold tracking-tight text-foreground">
+              {marginPct}% <span className="text-sm font-bold text-muted-foreground">· {formatCurrency(marginProfit)}</span>
+            </div>
+          </div>
+        )}
+      </section>
+    </>
+  );
+
+  const crewWorkOrderCard = (
+    <>
+      {/* Crew work order (0125) — once the job is won. */}
+      {project.status !== "estimating" && project.status !== "lost" && <CrewWorkOrderCard project={project} />}
+    </>
+  );
+
+  const reviewCard = (
+    <>
+      {/* Google review request (0122) — completed jobs with a client. */}
+      {project.status === "complete" && project.client_id && <ProjectReviewCard projectId={project.id} />}
+    </>
+  );
+
+  const maintenanceCard = (
+    <>
+      {/* Care & maintenance (0127) — reminders to bring past clients back. */}
+      {project.status === "complete" && project.client_id && <MaintenanceCard project={project} />}
+    </>
+  );
+
+  const scheduleCard = (
+    <>
+      <section id="schedule-card" className="card-surface scroll-mt-4 p-5">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-base font-bold text-foreground">Schedule</h3>
+          <ScheduleMenu projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="scheduled-start" className="text-xs font-semibold text-muted-foreground">
+              Start date
+            </Label>
+            <Input
+              id="scheduled-start"
+              type="date"
+              value={project.scheduled_start_date ?? ""}
+              onChange={(e) => setScheduledStart(e.target.value)}
+              className="h-10"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="scheduled-end" className="text-xs font-semibold text-muted-foreground">
+              End date
+            </Label>
+            <Input
+              id="scheduled-end"
+              type="date"
+              min={project.scheduled_start_date ?? undefined}
+              value={project.scheduled_end_date ?? ""}
+              onChange={(e) => setScheduledEnd(e.target.value)}
+              className="h-10"
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] text-muted-subtle">
+          Feeds the Dashboard Bookings card and the Bookings calendar once this job is
+          scheduled.
+        </p>
+        {/* Client heads-up (0121) — until the change is sent or dismissed. */}
+        <HeadsUpReminder projectId={project.id} />
+        <div className="mt-3 space-y-1.5">
+          <Label className="text-xs font-semibold text-muted-foreground">Crew</Label>
+          <CrewSelect
+            value={project.crew_id}
+            onChange={(crewId) => scheduleMutation.mutate({ crew_id: crewId })}
+            className="h-10"
+          />
+        </div>
+
+        {/* Forecast on the schedule (0119) — upcoming work days within
+            the forecast range; tap a day for why it's flagged. */}
+        {project.scheduled_start_date && project.status !== "complete" && project.status !== "lost" && (
+          <div className="mt-4 border-t border-hairline pt-4">
+            <h4 className="mb-2 text-sm font-bold text-foreground">Forecast</h4>
+            <ProjectForecastStrip
+              projectId={project.id}
+              start={project.scheduled_start_date}
+              end={project.scheduled_end_date}
+            />
+          </div>
+        )}
+
+        {/* Rain delay action (0120) — this job's delays, with Undo. */}
+        {scheduleDelays.length > 0 && (
+          <div className="mt-4 border-t border-hairline pt-4">
+            <h4 className="mb-2 text-sm font-bold text-foreground">Delays</h4>
+            <ScheduleDelaysList projectId={project.id} canUndo />
+          </div>
+        )}
+
+        {/* Estimated duration — part of the job's schedule, so it lives in
+            this card (it used to be its own card below). Same behavior:
+            estimate in crew days, actual start/end, elapsed vs estimate,
+            flagged red once it runs over. */}
+        <div className="mt-4 border-t border-hairline pt-4">
+          <h4 className="text-sm font-bold text-foreground">Estimated duration</h4>
+
+          {project.estimated_duration_days == null ? (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">No estimate set</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Days"
+                  value={estimateDraft}
+                  onChange={(e) => setEstimateDraft(e.target.value)}
+                  className="h-9 w-20"
+                  aria-label="Estimated crew days"
+                />
+                <Button
+                  size="sm"
+                  disabled={!estimateDraft || Number(estimateDraft) <= 0 || durationMutation.isPending}
+                  onClick={() => {
+                    const days = parseInt(estimateDraft, 10);
+                    if (days > 0) {
+                      durationMutation.mutate({ estimated_duration_days: days });
+                      setEstimateDraft("");
+                    }
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="mt-2 flex items-baseline gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={project.estimated_duration_days}
+                  onChange={(e) => {
+                    const days = e.target.value ? parseInt(e.target.value, 10) : null;
+                    durationMutation.mutate({ estimated_duration_days: days && days > 0 ? days : null });
+                  }}
+                  className="h-10 w-20"
+                  aria-label="Estimated crew days"
+                />
+                <span className="text-sm text-muted-foreground">crew days estimated</span>
+              </div>
+              {weatherDelayDays > 0 && (
+                <p className="mt-1 text-xs font-semibold text-info">
+                  {pluralize(project.estimated_duration_days, "working day")} · +{pluralize(weatherDelayDays, "weather day")} (not counted as running over)
+                </p>
+              )}
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="actual-start" className="text-xs font-semibold text-muted-foreground">
+                    Actual start
+                  </Label>
+                  <Input
+                    id="actual-start"
+                    type="date"
+                    value={project.actual_start_date ?? ""}
+                    onChange={(e) =>
+                      e.target.value && !project.actual_start_date
+                        ? guardStart(() => durationMutation.mutate({ actual_start_date: e.target.value }))
+                        : durationMutation.mutate({ actual_start_date: e.target.value || null })
+                    }
+                    className="h-10"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="actual-end" className="text-xs font-semibold text-muted-foreground">
+                    Actual end
+                  </Label>
+                  <Input
+                    id="actual-end"
+                    type="date"
+                    min={project.actual_start_date ?? undefined}
+                    value={project.actual_end_date ?? ""}
+                    onChange={(e) =>
+                      durationMutation.mutate({ actual_end_date: e.target.value || null })
+                    }
+                    className="h-10"
+                  />
+                </div>
+              </div>
+
+              {(durationStatus.state === "in_progress" || durationStatus.state === "complete") && (
+                <div className="mt-3">
+                  {(() => {
+                    const isOver =
+                      (durationStatus.state === "in_progress" && durationStatus.overDays > 0) ||
+                      (durationStatus.state === "complete" && durationStatus.diffDays > 0);
+                    const label =
+                      durationStatus.state === "in_progress"
+                        ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}${
+                            durationStatus.weatherDays > 0 ? ` +${durationStatus.weatherDays} weather` : ""
+                          }${
+                            durationStatus.overDays > 0
+                              ? ` · ${pluralize(durationStatus.overDays, "day")} over`
+                              : ""
+                          }`
+                        : `Took ${pluralize(durationStatus.totalDays, "day")}${
+                            durationStatus.weatherDays > 0 ? ` (${durationStatus.weatherDays} weather)` : ""
+                          } · ${
+                            durationStatus.diffDays > 0
+                              ? `${pluralize(durationStatus.diffDays, "day")} over estimate`
+                              : durationStatus.diffDays < 0
+                                ? `finished ${pluralize(-durationStatus.diffDays, "day")} early`
+                                : "right on estimate"
+                          }`;
+                    const progressPct = Math.min(
+                      100,
+                      ((Math.max(0, (durationStatus.state === "in_progress"
+                        ? durationStatus.elapsedDays
+                        : durationStatus.totalDays) - durationStatus.weatherDays)) /
+                        durationStatus.estimateDays) *
+                        100,
+                    );
+                    return (
+                      <>
+                        <p className={cn("text-sm font-semibold", isOver ? "text-destructive" : "text-foreground")}>
+                          {label}
+                        </p>
+                        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-all",
+                              isOver ? "bg-destructive" : "bg-primary",
+                            )}
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {windowNote && <p className="mt-3 text-[11px] text-warning">{windowNote}</p>}
+            </>
+          )}
+        </div>
+      </section>
+    </>
+  );
+
+  const measurementsCard = (
+    <>
+      <div id="measurements" className="scroll-mt-4">
+        <ProjectMeasurementsCard
+          projectId={id}
+          categoryIds={projectCategoryIds(project)}
+          focusRequest={measureFocus.n}
+          focusCategoryId={measureFocus.categoryId}
+        />
+      </div>
+    </>
+  );
+
+  const clientCard = (
+    <>
+      {project.client && (
+        <section
+          role="button"
+          tabIndex={0}
+          onClick={() => project.client_id && navigate(`/clients/${project.client_id}/edit`)}
+          onKeyDown={(e) => {
+            if ((e.key === "Enter" || e.key === " ") && project.client_id) {
+              e.preventDefault();
+              navigate(`/clients/${project.client_id}/edit`);
+            }
+          }}
+          className="card-surface group w-full cursor-pointer p-5 text-left transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-foreground">Client</h3>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
+          </div>
+          <p className="mt-2 text-sm font-bold text-foreground">{project.client.name}</p>
+          <div className="mt-2 space-y-1.5 text-[13px] text-muted-foreground">
+            {project.client.address && (
+              <p className="flex items-start gap-2">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{project.client.address}</span>
+              </p>
+            )}
+            {project.client.phone && (
+              <p className="flex items-center gap-2">
+                <Phone className="h-3.5 w-3.5 shrink-0" />
+                <a
+                  href={`tel:${project.client.phone}`}
+                  className="hover:text-foreground"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {project.client.phone}
+                </a>
+              </p>
+            )}
+            {project.client.email && (
+              <p className="flex items-center gap-2">
+                <Mail className="h-3.5 w-3.5 shrink-0" />
+                <a
+                  href={`mailto:${project.client.email}`}
+                  className="hover:text-foreground"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {project.client.email}
+                </a>
+              </p>
+            )}
+          </div>
+          {project.client.email && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-3"
+              disabled={inviteToHubMut.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+                inviteToHubMut.mutate();
+              }}
+            >
+              <Send className="h-3.5 w-3.5" />
+              {inviteToHubMut.isPending ? "Sending…" : "Invite to client hub"}
+            </Button>
+          )}
+        </section>
+      )}
+    </>
+  );
+
+  const activityCard = (
+    <>
+      <section className="card-surface p-5">
+        <h3 className="text-base font-bold text-foreground">Activity</h3>
+        {events.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
+        ) : (
+          <ul className="mt-3 space-y-3">
+            {events.map((e) => (
+              <li key={e.id}>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+                  {timeAgo(e.created_at)}
+                </div>
+                <div className="mt-0.5 text-[13px] text-foreground/80">{e.summary}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
+
+  const progressCard = (
+    <>
+      {/* Progress updates (0126) — post, review crew posts, share to the Hub.
+          Below the working sections (measurements, cost plan, quotes, schedule),
+          above the photo gallery it draws from. */}
+      {project.status !== "estimating" && project.status !== "lost" && <ProgressUpdatesCard project={project} />}
+    </>
+  );
+
+  const photosCard = (
+    <>
+      <PhotoGallery
+        owner={{ type: "project", id }}
+        title="Project Images"
+        emptyText="No photos yet — add progress photos, before/after, or site conditions."
+      />
+    </>
+  );
+
+  const messagesCard = (
+    <>
+      <ProjectMessagesCard projectId={id} clientId={project.client_id} />
+      <FieldUpdatesCard projectId={id} />
+    </>
+  );
+
+  const dialogs = (
+    <>
       <AlertDialog open={!!startGuard} onOpenChange={(o) => !o && setStartGuard(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -737,588 +1472,9 @@ export function ProjectDetailView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-
-      {/* Material alerts — one slim line; Review opens them grouped by feature. */}
-      <MaterialAlertsBar
-        projectId={id}
-        alerts={materialAlertList}
-        sectionNames={sectionNames}
-        context={startContext(project.scheduled_start_date)}
-        onMarkOrdered={(ids) => markOrderedMut.mutate(ids)}
-        onNotNeeded={(lineId) => notNeededMut.mutate(lineId)}
-        busy={markOrderedMut.isPending || notNeededMut.isPending}
-      />
-
-      {project.status === "complete" && unreconciledLines.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-warning-strong/30 bg-warning/10 p-4">
-          <p className="text-sm font-bold text-foreground">
-            Reconcile materials — {pluralize(unreconciledLines.length, "line")} still need a leftover disposition.
-          </p>
-          <Button size="sm" className="font-bold" onClick={() => setReconcileOpen(true)}>
-            Reconcile materials
-          </Button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* Main column */}
-        <div className="space-y-5 lg:col-span-2">
-          {/* Tracking only once the job is Won / in progress — same rule as the
-              cost plan (isProjectActive). */}
-          {isProjectActive(project) && (
-            <MaterialsTrackingCard
-              summary={materialCostSummary}
-              trackedLines={trackedLines}
-              sections={materials.filter(countsTowardTotals)}
-              usageLogs={usageLogs}
-              onOpen={() => navigate(`/projects/${id}/materials`)}
-              onLogUsage={(line) => setLogUsageLine(line)}
-              onShowHistory={(line) => setHistoryLine(line)}
-            />
-          )}
-
-          {/* Changing a Won job: an existing feature changes → change order;
-              a completely new feature → add-on quote. */}
-          {isProjectActive(project) && (
-            <div className="card-surface p-5">
-              <h3 className="text-base font-bold text-foreground">Change the job</h3>
-              <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => navigate(`/projects/${id}/change-orders`)}
-                  className="flex min-h-14 flex-col items-start justify-center rounded-xl border border-border px-4 py-2.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
-                >
-                  <span className="text-sm font-bold text-foreground">Change order</span>
-                  <span className="text-xs text-muted-foreground">Change an existing feature — bigger, upgraded, removed or credited</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAddWorkOpen(true)}
-                  className="flex min-h-14 flex-col items-start justify-center rounded-xl border border-border px-4 py-2.5 text-left transition-colors hover:border-primary hover:bg-primary/5"
-                >
-                  <span className="text-sm font-bold text-foreground">Add new work</span>
-                  <span className="text-xs text-muted-foreground">A completely new feature — priced on an add-on quote</span>
-                </button>
-              </div>
-            </div>
-          )}
           <AddNewWorkDialog open={addWorkOpen} onOpenChange={setAddWorkOpen} projectId={id} clientId={project.client_id ?? null} />
-
-          {/* Section nav */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <HubCard title="Cost plan" summary={costPlanSummaryLine} onOpen={() => navigate(`/projects/${id}/materials`)} />
-            <HubCard title="Labor log" summary={laborSummary} onOpen={() => navigate(`/projects/${id}/labor`)} />
-            <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
-            <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
-            <ExpensesHubCard projectId={id} onOpen={() => navigate(`/projects/${id}/expenses`)} />
-            <HubCard
-              title="Change orders"
-              summary={changeOrdersSummary}
-              onOpen={() => navigate(`/projects/${id}/change-orders`)}
-            />
-            <MaterialsHubCard projectId={id} onOpen={() => navigate(`/projects/${id}/material-orders`)} />
-          </div>
-
-          {/* Profit summary (real) — predicted cost is now the Cost Plan's
-              full total (materials + labor + subs + equipment + other), not
-              materials alone; actual cost folds in actual labor the moment
-              any is logged. See the Cost Plan/Labor pages for the breakdown. */}
-          <ProfitSummaryCard
-            jobOpen={project.status !== "complete"}
-            quoted={contract || null}
-            predictedCost={predictedCost}
-            pendingSelections={costPlan.pendingSelections}
-            actualCost={actualCost}
-            planned={costPlan.planned}
-            actual={hasActualCostData ? actualByType : null}
-            featureRows={featureRows}
-            overhead={{
-              rate: projectOverheadRate,
-              plannedManHours: plannedManHours(materials),
-              actualManHours: laborActualHours,
-              targetMarginPct: project.target_margin_pct ?? overheadSettings?.target_margin_pct ?? null,
-              settings: overheadSettings ?? null,
-              source:
-                project.overhead_rate != null
-                  ? "the rate this job was sold with"
-                  : headlineQuote?.overhead_rate != null
-                    ? "the rate stored on its quote"
-                    : "your current overhead (this job has no stored rate)",
-            }}
-          />
-          {/* Timesheets (0131): labor from timesheets not yet approved is
-              already in the actual cost above (same rate / overtime / burden
-              math) — say how much of it is still pending. */}
-          {laborPending > 0 && (
-            <p className="-mt-3 px-1 text-xs text-warning-strong">
-              Includes {formatCurrency(laborPending)} of labor from timesheets not approved yet.{" "}
-              <Link to="/timesheets" className="font-semibold underline">
-                Review timesheets
-              </Link>
-            </p>
-          )}
-
-          {/* Planned vs actual + job context + closeout (Feature 5) — after
-              Won; before that just the job context chips. Internal only. */}
-          {isProjectActive(project) || project.status === "complete" ? (
-            <PlannedVsActualCard projectId={id} />
-          ) : (
-            <section className="card-surface p-5">
-              <h3 className="text-base font-bold text-foreground">Job context</h3>
-              <p className="mb-3 mt-0.5 text-xs text-muted-foreground">Quick site facts used to compare this job with similar ones. All optional.</p>
-              <JobContextChips project={project} />
-            </section>
-          )}
           <CloseoutDialog projectId={id} open={closeoutOpen} onOpenChange={setCloseoutOpen} />
-
-          {/* Client selections (0115) — approved choices per feature, locked;
-              change requests; changes only via change orders. */}
-          <ProjectSelectionsCard projectId={id} />
-
-          {/* Costs to date — real logged expenses only */}
-          <section className="card-surface p-5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-foreground">Costs to date</h3>
-              <Link
-                to={`/projects/${id}/expenses`}
-                className="text-[13px] font-semibold text-primary"
-              >
-                {expenses.length ? "Manage" : "Add expense"}
-              </Link>
-            </div>
-            <p className="mt-1 text-[28px] font-extrabold tracking-tight tabular-nums text-foreground">
-              {formatCurrency(expensesTotal)}
-            </p>
-            {expenses.length === 0 ? (
-              <p className="mt-1 text-sm text-muted-foreground">No expenses logged yet.</p>
-            ) : (
-              <div className="mt-3">
-                {recentExpenses.map((e) => (
-                  <div
-                    key={e.id}
-                    className="flex items-center justify-between gap-3 border-b border-hairline py-2 last:border-0"
-                  >
-                    <span className="min-w-0 truncate text-[13px] text-foreground">
-                      {e.name || "Expense"}
-                      {e.date && <span className="text-muted-subtle"> · {expenseDate(e.date)}</span>}
-                    </span>
-                    <span className="shrink-0 text-[13px] font-bold tabular-nums text-foreground">
-                      {formatCurrency(Number(e.amount))}
-                    </span>
-                  </div>
-                ))}
-                {expenses.length > recentExpenses.length && (
-                  <p className="pt-2 text-xs font-semibold text-muted-foreground">
-                    +{expenses.length - recentExpenses.length} more
-                  </p>
-                )}
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* Right rail */}
-        <div className="space-y-5">
-          <section className="card-surface p-5">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-base font-bold text-foreground">Money</h3>
-              {billing && <span className={projectBillingStatusMeta(billing).badge}>{projectBillingStatusMeta(billing).label}</span>}
-            </div>
-            <div className="mt-2">
-              <MoneyRow label="Contract value" value={contract > 0 ? formatCurrency(contract) : "—"} />
-              <MoneyRow label="Invoiced" value={formatCurrency(money.invoiced)} />
-              <MoneyRow label="Payments received" value={formatCurrency(money.received)} />
-              <MoneyRow label="Unpaid invoice balance" value={formatCurrency(money.unpaidInvoiceBalance)} />
-              {money.unallocatedCredit > 0.004 && (
-                <MoneyRow label="Unallocated credit" value={<span className="text-success">{formatCurrency(money.unallocatedCredit)}</span>} />
-              )}
-              <MoneyRow
-                label={money.overpaid > 0.004 ? "Credit balance (overpaid)" : "Remaining project balance"}
-                value={money.overpaid > 0.004 ? <span className="text-success">{formatCurrency(money.overpaid)}</span> : formatCurrency(money.remaining)}
-                strong
-              />
-            </div>
-            <Button className="mt-3 w-full" variant="outline" onClick={() => setRecordPaymentOpen(true)}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              Record payment
-            </Button>
-            <div className="mt-4">
-              <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-subtle">Payments</div>
-              <PaymentsList payments={payments} invoices={invoices} projectId={id} />
-            </div>
             <RecordPaymentSheet open={recordPaymentOpen} onOpenChange={setRecordPaymentOpen} projectId={id} invoices={invoices} />
-            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-hairline pt-4">
-              <Button variant="ghost" size="sm" className="justify-center" asChild>
-                <Link to={`/projects/${id}/client-view`}>
-                  <Eye className="mr-1.5 h-4 w-4" />
-                  Client view
-                </Link>
-              </Button>
-              <DownloadSummaryButton
-                variant="ghost"
-                label="Project summary"
-                className="h-9 justify-center px-3 text-sm"
-                loadDetail={() => getClientViewProject(id)}
-                getLogoUrl={async (path) => (await getSignedImageUrls([path]))[path] ?? null}
-              />
-              <CopyHubLinkButton url={clientHubLink(id)} variant="ghost" size="sm" className="col-span-2 justify-center" />
-            </div>
-            {depositOverdue && (
-              <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                Deposit not received
-              </div>
-            )}
-            {marginProfit != null && (
-              <div className="mt-3 rounded-xl bg-primary/10 p-3">
-                <div className="text-xs font-semibold text-success">
-                  {showActualMargin ? "Actual" : "Projected"} margin
-                </div>
-                <div className="mt-0.5 text-2xl font-extrabold tracking-tight text-foreground">
-                  {marginPct}% <span className="text-sm font-bold text-muted-foreground">· {formatCurrency(marginProfit)}</span>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Crew work order (0125) — once the job is won. */}
-          {project.status !== "estimating" && project.status !== "lost" && <CrewWorkOrderCard project={project} />}
-
-          {/* Google review request (0122) — completed jobs with a client. */}
-          {project.status === "complete" && project.client_id && <ProjectReviewCard projectId={project.id} />}
-          {/* Care & maintenance (0127) — reminders to bring past clients back. */}
-          {project.status === "complete" && project.client_id && <MaintenanceCard project={project} />}
-
-          <section id="schedule-card" className="card-surface scroll-mt-4 p-5">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-base font-bold text-foreground">Schedule</h3>
-              <ScheduleMenu projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="scheduled-start" className="text-xs font-semibold text-muted-foreground">
-                  Start date
-                </Label>
-                <Input
-                  id="scheduled-start"
-                  type="date"
-                  value={project.scheduled_start_date ?? ""}
-                  onChange={(e) => setScheduledStart(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="scheduled-end" className="text-xs font-semibold text-muted-foreground">
-                  End date
-                </Label>
-                <Input
-                  id="scheduled-end"
-                  type="date"
-                  min={project.scheduled_start_date ?? undefined}
-                  value={project.scheduled_end_date ?? ""}
-                  onChange={(e) => setScheduledEnd(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-            </div>
-            <p className="mt-2 text-[11px] text-muted-subtle">
-              Feeds the Dashboard Bookings card and the Bookings calendar once this job is
-              scheduled.
-            </p>
-            {/* Client heads-up (0121) — until the change is sent or dismissed. */}
-            <HeadsUpReminder projectId={project.id} />
-            <div className="mt-3 space-y-1.5">
-              <Label className="text-xs font-semibold text-muted-foreground">Crew</Label>
-              <CrewSelect
-                value={project.crew_id}
-                onChange={(crewId) => scheduleMutation.mutate({ crew_id: crewId })}
-                className="h-10"
-              />
-            </div>
-
-            {/* Forecast on the schedule (0119) — upcoming work days within
-                the forecast range; tap a day for why it's flagged. */}
-            {project.scheduled_start_date && project.status !== "complete" && project.status !== "lost" && (
-              <div className="mt-4 border-t border-hairline pt-4">
-                <h4 className="mb-2 text-sm font-bold text-foreground">Forecast</h4>
-                <ProjectForecastStrip
-                  projectId={project.id}
-                  start={project.scheduled_start_date}
-                  end={project.scheduled_end_date}
-                />
-              </div>
-            )}
-
-            {/* Rain delay action (0120) — this job's delays, with Undo. */}
-            {scheduleDelays.length > 0 && (
-              <div className="mt-4 border-t border-hairline pt-4">
-                <h4 className="mb-2 text-sm font-bold text-foreground">Delays</h4>
-                <ScheduleDelaysList projectId={project.id} canUndo />
-              </div>
-            )}
-
-            {/* Estimated duration — part of the job's schedule, so it lives in
-                this card (it used to be its own card below). Same behavior:
-                estimate in crew days, actual start/end, elapsed vs estimate,
-                flagged red once it runs over. */}
-            <div className="mt-4 border-t border-hairline pt-4">
-              <h4 className="text-sm font-bold text-foreground">Estimated duration</h4>
-
-              {project.estimated_duration_days == null ? (
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-sm text-muted-foreground">No estimate set</p>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      placeholder="Days"
-                      value={estimateDraft}
-                      onChange={(e) => setEstimateDraft(e.target.value)}
-                      className="h-9 w-20"
-                      aria-label="Estimated crew days"
-                    />
-                    <Button
-                      size="sm"
-                      disabled={!estimateDraft || Number(estimateDraft) <= 0 || durationMutation.isPending}
-                      onClick={() => {
-                        const days = parseInt(estimateDraft, 10);
-                        if (days > 0) {
-                          durationMutation.mutate({ estimated_duration_days: days });
-                          setEstimateDraft("");
-                        }
-                      }}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={project.estimated_duration_days}
-                      onChange={(e) => {
-                        const days = e.target.value ? parseInt(e.target.value, 10) : null;
-                        durationMutation.mutate({ estimated_duration_days: days && days > 0 ? days : null });
-                      }}
-                      className="h-10 w-20"
-                      aria-label="Estimated crew days"
-                    />
-                    <span className="text-sm text-muted-foreground">crew days estimated</span>
-                  </div>
-                  {weatherDelayDays > 0 && (
-                    <p className="mt-1 text-xs font-semibold text-info">
-                      {pluralize(project.estimated_duration_days, "working day")} · +{pluralize(weatherDelayDays, "weather day")} (not counted as running over)
-                    </p>
-                  )}
-
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="actual-start" className="text-xs font-semibold text-muted-foreground">
-                        Actual start
-                      </Label>
-                      <Input
-                        id="actual-start"
-                        type="date"
-                        value={project.actual_start_date ?? ""}
-                        onChange={(e) =>
-                          e.target.value && !project.actual_start_date
-                            ? guardStart(() => durationMutation.mutate({ actual_start_date: e.target.value }))
-                            : durationMutation.mutate({ actual_start_date: e.target.value || null })
-                        }
-                        className="h-10"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="actual-end" className="text-xs font-semibold text-muted-foreground">
-                        Actual end
-                      </Label>
-                      <Input
-                        id="actual-end"
-                        type="date"
-                        min={project.actual_start_date ?? undefined}
-                        value={project.actual_end_date ?? ""}
-                        onChange={(e) =>
-                          durationMutation.mutate({ actual_end_date: e.target.value || null })
-                        }
-                        className="h-10"
-                      />
-                    </div>
-                  </div>
-
-                  {(durationStatus.state === "in_progress" || durationStatus.state === "complete") && (
-                    <div className="mt-3">
-                      {(() => {
-                        const isOver =
-                          (durationStatus.state === "in_progress" && durationStatus.overDays > 0) ||
-                          (durationStatus.state === "complete" && durationStatus.diffDays > 0);
-                        const label =
-                          durationStatus.state === "in_progress"
-                            ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}${
-                                durationStatus.weatherDays > 0 ? ` +${durationStatus.weatherDays} weather` : ""
-                              }${
-                                durationStatus.overDays > 0
-                                  ? ` · ${pluralize(durationStatus.overDays, "day")} over`
-                                  : ""
-                              }`
-                            : `Took ${pluralize(durationStatus.totalDays, "day")}${
-                                durationStatus.weatherDays > 0 ? ` (${durationStatus.weatherDays} weather)` : ""
-                              } · ${
-                                durationStatus.diffDays > 0
-                                  ? `${pluralize(durationStatus.diffDays, "day")} over estimate`
-                                  : durationStatus.diffDays < 0
-                                    ? `finished ${pluralize(-durationStatus.diffDays, "day")} early`
-                                    : "right on estimate"
-                              }`;
-                        const progressPct = Math.min(
-                          100,
-                          ((Math.max(0, (durationStatus.state === "in_progress"
-                            ? durationStatus.elapsedDays
-                            : durationStatus.totalDays) - durationStatus.weatherDays)) /
-                            durationStatus.estimateDays) *
-                            100,
-                        );
-                        return (
-                          <>
-                            <p className={cn("text-sm font-semibold", isOver ? "text-destructive" : "text-foreground")}>
-                              {label}
-                            </p>
-                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
-                              <div
-                                className={cn(
-                                  "h-full rounded-full transition-all",
-                                  isOver ? "bg-destructive" : "bg-primary",
-                                )}
-                                style={{ width: `${progressPct}%` }}
-                              />
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
-
-                  {windowNote && <p className="mt-3 text-[11px] text-warning">{windowNote}</p>}
-                </>
-              )}
-            </div>
-          </section>
-
-          <div id="measurements" className="scroll-mt-4">
-            <ProjectMeasurementsCard
-              projectId={id}
-              categoryIds={projectCategoryIds(project)}
-              focusRequest={measureFocus.n}
-              focusCategoryId={measureFocus.categoryId}
-            />
-          </div>
-
-          {project.client && (
-            <section
-              role="button"
-              tabIndex={0}
-              onClick={() => project.client_id && navigate(`/clients/${project.client_id}/edit`)}
-              onKeyDown={(e) => {
-                if ((e.key === "Enter" || e.key === " ") && project.client_id) {
-                  e.preventDefault();
-                  navigate(`/clients/${project.client_id}/edit`);
-                }
-              }}
-              className="card-surface group w-full cursor-pointer p-5 text-left transition-shadow hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-foreground">Client</h3>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-subtle transition-transform group-hover:translate-x-0.5" />
-              </div>
-              <p className="mt-2 text-sm font-bold text-foreground">{project.client.name}</p>
-              <div className="mt-2 space-y-1.5 text-[13px] text-muted-foreground">
-                {project.client.address && (
-                  <p className="flex items-start gap-2">
-                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>{project.client.address}</span>
-                  </p>
-                )}
-                {project.client.phone && (
-                  <p className="flex items-center gap-2">
-                    <Phone className="h-3.5 w-3.5 shrink-0" />
-                    <a
-                      href={`tel:${project.client.phone}`}
-                      className="hover:text-foreground"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {project.client.phone}
-                    </a>
-                  </p>
-                )}
-                {project.client.email && (
-                  <p className="flex items-center gap-2">
-                    <Mail className="h-3.5 w-3.5 shrink-0" />
-                    <a
-                      href={`mailto:${project.client.email}`}
-                      className="hover:text-foreground"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {project.client.email}
-                    </a>
-                  </p>
-                )}
-              </div>
-              {project.client.email && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-3"
-                  disabled={inviteToHubMut.isPending}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    inviteToHubMut.mutate();
-                  }}
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  {inviteToHubMut.isPending ? "Sending…" : "Invite to client hub"}
-                </Button>
-              )}
-            </section>
-          )}
-
-          <section className="card-surface p-5">
-            <h3 className="text-base font-bold text-foreground">Activity</h3>
-            {events.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
-            ) : (
-              <ul className="mt-3 space-y-3">
-                {events.map((e) => (
-                  <li key={e.id}>
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
-                      {timeAgo(e.created_at)}
-                    </div>
-                    <div className="mt-0.5 text-[13px] text-foreground/80">{e.summary}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-      </div>
-
-      {/* Progress updates (0126) — post, review crew posts, share to the Hub.
-          Below the working sections (measurements, cost plan, quotes, schedule),
-          above the photo gallery it draws from. */}
-      {project.status !== "estimating" && project.status !== "lost" && <ProgressUpdatesCard project={project} />}
-
-      <PhotoGallery
-        owner={{ type: "project", id }}
-        title="Project Images"
-        emptyText="No photos yet — add progress photos, before/after, or site conditions."
-      />
-      <ProjectMessagesCard projectId={id} clientId={project.client_id} />
-      <FieldUpdatesCard projectId={id} />
-
       {logUsageLine && (
         <LogUsageDialog open={!!logUsageLine} onOpenChange={(open) => !open && setLogUsageLine(null)} line={logUsageLine} />
       )}
@@ -1334,8 +1490,292 @@ export function ProjectDetailView() {
         deliveries={deliveries}
         usageLogs={usageLogs}
       />
+    </>
+  );
+
+
+  // ---- Tabs --------------------------------------------------------------
+  const goTab = (t: ProjectTab) => () => setTab(t);
+  const overdueInvoiceCount = invoices.filter((i) => invoiceDaysLate(i) > 0).length;
+  const moneyBadge = overdueInvoiceCount || (depositOverdue ? 1 : 0);
+  const pendingUpdates = progressUpdates.filter((u) => u.status === "pending");
+  const latestUpdate = progressUpdates.find((u) => u.status !== "pending") ?? null;
+  const openPrecon = precon && preconPhase(precon.project) === "before" ? precon.readiness.openRequired.length : 0;
+  const nextDelivery =
+    materialOrders
+      .filter((o) => o.status !== "delivered" && o.expected_delivery_date)
+      .sort((a, b) => a.expected_delivery_date!.localeCompare(b.expected_delivery_date!))[0] ?? null;
+  const showsAftercare = project.status === "complete" && !!project.client_id;
+
+  const tabs: PageTab<ProjectTab>[] = [
+    { id: "overview", label: "Overview" },
+    { id: "estimate", label: "Estimate", badge: pendingCOCount, badgeLabel: `${pluralize(pendingCOCount, "change order")} awaiting the client` },
+    { id: "schedule", label: "Schedule", badge: openPrecon, badgeTone: "warn", badgeLabel: `${pluralize(openPrecon, "required item")} still open` },
+    { id: "materials", label: "Materials", badge: materialAlertList.length, badgeTone: "warn", badgeLabel: pluralize(materialAlertList.length, "material alert") },
+    {
+      id: "money",
+      label: "Money",
+      badge: moneyBadge,
+      badgeTone: "alert",
+      badgeLabel: overdueInvoiceCount ? pluralize(overdueInvoiceCount, "overdue invoice") : "Deposit not received",
+    },
+    { id: "updates", label: "Updates", badge: pendingUpdates.length, badgeTone: "warn", badgeLabel: `${pluralize(pendingUpdates.length, "update")} awaiting review` },
+  ];
+  const moreTabs: PageTab<ProjectTab>[] = [
+    { id: "hub", label: "Client Hub" },
+    { id: "aftercare", label: "Reviews & maintenance" },
+    { id: "activity", label: "Activity log" },
+  ];
+
+  const tabBody: Record<ProjectTab, () => ReactNode> = {
+    overview: () => (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <OverviewCard title="Money" onOpen={goTab("money")}>
+              <MoneyRow label="Contract value" value={contract > 0 ? formatCurrency(contract) : "—"} />
+              <MoneyRow label="Paid" value={formatCurrency(money.received)} />
+              <MoneyRow
+                label={money.overpaid > 0.004 ? "Credit balance" : "Remaining"}
+                value={money.overpaid > 0.004 ? <span className="text-success">{formatCurrency(money.overpaid)}</span> : formatCurrency(money.remaining)}
+                strong
+              />
+              {marginProfit != null && (
+                <MoneyRow label={`${showActualMargin ? "Actual" : "Projected"} margin`} value={`${marginPct}% · ${formatCurrency(marginProfit)}`} />
+              )}
+              {(depositOverdue || overdueInvoiceCount > 0) && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {overdueInvoiceCount > 0 ? `${pluralize(overdueInvoiceCount, "invoice")} overdue` : "Deposit not received"}
+                </p>
+              )}
+            </OverviewCard>
+
+            <OverviewCard title="Schedule" onOpen={goTab("schedule")}>
+              <MoneyRow
+                label="Dates"
+                value={
+                  project.scheduled_start_date
+                    ? `${shortDate(project.scheduled_start_date)}${project.scheduled_end_date ? ` – ${shortDate(project.scheduled_end_date)}` : ""}`
+                    : "Not scheduled"
+                }
+              />
+              <MoneyRow label="Crew" value={crewName ?? "Not assigned"} />
+              <MoneyRow
+                label="Duration"
+                value={
+                  durationStatus.state === "in_progress"
+                    ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}`
+                    : project.estimated_duration_days
+                      ? pluralize(project.estimated_duration_days, "crew day")
+                      : "No estimate"
+                }
+              />
+              {project.scheduled_start_date && project.status !== "complete" && project.status !== "lost" && (
+                <div className="mt-3 border-t border-hairline pt-3">
+                  <ProjectForecastStrip projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
+                </div>
+              )}
+            </OverviewCard>
+
+            <OverviewCard title="Estimate" onOpen={goTab("estimate")}>
+              <MoneyRow label="Cost plan" value={costPlanSummaryLine} />
+              <MoneyRow label="Quotes" value={quotesSummary} />
+              <MoneyRow label="Change orders" value={changeOrdersSummary} />
+            </OverviewCard>
+
+            <OverviewCard title="Materials" onOpen={goTab("materials")}>
+              <MoneyRow
+                label="Alerts"
+                value={materialAlertList.length ? <span className="text-warning-strong">{materialAlertList.length}</span> : "None"}
+              />
+              <MoneyRow label="Orders" value={materialOrdersSummary} />
+              <MoneyRow
+                label="Next delivery"
+                value={nextDelivery ? `${shortDate(nextDelivery.expected_delivery_date!)}${nextDelivery.supplier ? ` · ${nextDelivery.supplier}` : ""}` : "None scheduled"}
+              />
+            </OverviewCard>
+          </div>
+
+          <OverviewCard title="Latest update" onOpen={goTab("updates")}>
+            {latestUpdate ? (
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
+                  {timeAgo(latestUpdate.created_at)}
+                  {latestUpdate.author_name ? ` · ${latestUpdate.author_name}` : ""}
+                </p>
+                <p className="mt-0.5 line-clamp-2 text-sm text-foreground">
+                  {[latestUpdate.milestone, latestUpdate.note].filter(Boolean).join(" — ") || "Photo update"}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No progress updates yet.</p>
+            )}
+            {pendingUpdates.length > 0 && (
+              <p className="mt-2 text-xs font-semibold text-warning-strong">{pluralize(pendingUpdates.length, "crew update")} to review</p>
+            )}
+          </OverviewCard>
+        </div>
+
+        <div className="space-y-5">
+          {clientCard}
+          <OverviewCard title="Recent activity" action="See all" onOpen={goTab("activity")}>
+            {events.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No activity yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {events.slice(0, 5).map((e) => (
+                  <li key={e.id}>
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{timeAgo(e.created_at)}</div>
+                    <div className="mt-0.5 text-[13px] text-foreground/80">{e.summary}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </OverviewCard>
+        </div>
+      </div>
+    ),
+
+    estimate: () => (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {hubCostPlan}
+            {hubQuotes}
+            {hubChangeOrders}
+          </div>
+          {changeJobCard}
+          {selectionsCard}
+        </div>
+        <div className="space-y-5">
+          {measurementsCard}
+          {jobContextCard}
+        </div>
+      </div>
+    ),
+
+    schedule: () => (
+      <div className="space-y-5">
+        {preconCard}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {scheduleCard}
+          <div className="space-y-5">{crewWorkOrderCard}</div>
+        </div>
+      </div>
+    ),
+
+    materials: () => (
+      <div className="space-y-5">
+        {trackingCard}
+        <div className="grid gap-3 sm:grid-cols-2">{hubMaterials}</div>
+        {!isProjectActive(project) && (
+          <p className="px-1 text-sm text-muted-foreground">Material tracking starts once the job is Won.</p>
+        )}
+      </div>
+    ),
+
+    money: () => (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {hubInvoices}
+            {hubExpenses}
+            {hubLabor}
+          </div>
+          {profitCard}
+          {laborPendingNote}
+          {plannedVsActualCard}
+          {costsToDateCard}
+        </div>
+        <div className="space-y-5">{moneyCard}</div>
+      </div>
+    ),
+
+    updates: () => (
+      <div className="space-y-5">
+        {progressCard}
+        {photosCard}
+        {messagesCard}
+      </div>
+    ),
+
+    hub: () => (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <section className="card-surface p-5">
+          <h3 className="text-base font-bold text-foreground">Client Hub</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">What the client sees, the printable summary, and their link.</p>
+          {hubActions}
+        </section>
+        {clientCard}
+      </div>
+    ),
+
+    aftercare: () => (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {reviewCard}
+        {maintenanceCard}
+        {!showsAftercare && (
+          <p className="px-1 text-sm text-muted-foreground">
+            Review requests and maintenance reminders start once the job is Complete{project.client_id ? "" : " and has a client"}.
+          </p>
+        )}
+      </div>
+    ),
+
+    activity: () => <div className="max-w-2xl">{activityCard}</div>,
+  };
+
+  return (
+    <div className="animate-fade-in space-y-5">
+      {mobileHeader}
+      {/* Desktop header — the client links to their page; the site address. */}
+      <div className="hidden md:block">
+        <BackLink to="/projects" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Projects</BackLink>
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">{project.name}</h1>
+              <StatusPill meta={meta} />
+            </div>
+            <ClientAndAddress project={project} crewName={crewName} className="mt-1" />
+          </div>
+          {statusSelect}
+        </div>
+      </div>
+      <ClientAndAddress project={project} crewName={null} className="-mt-1 md:hidden" />
+      {preSaleNotice}
+      <div className="md:hidden">{statusSelect}</div>
+      {featureChips}
+      {linkedOpportunityLine}
+      {wonBanner}
+      <PreconSummaryLine projectId={id} to={projectHref(id, "schedule")} className="mt-0" />
+      {alertsBar}
+      {reconcileBanner}
+
+      <div ref={tabsAnchorRef} aria-hidden />
+      <PageTabs
+        tabs={tabs}
+        overflow={moreTabs}
+        active={tab}
+        onChange={setTab}
+        ariaLabel="Project sections"
+        compact={headerScrolledAway}
+        title={
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-base font-bold text-foreground">{project.name}</span>
+            <StatusPill meta={meta} />
+          </div>
+        }
+      />
+
+      <div role="tabpanel" aria-label={[...tabs, ...moreTabs].find((t) => t.id === tab)?.label} key={tab} className="animate-fade-in">
+        {tabBody[tab]()}
+      </div>
+      {dialogs}
     </div>
   );
+
 }
 
 function profitColor(v: number): string {
@@ -1776,6 +2216,83 @@ function ReconcileMaterialsDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** An Overview card: a few facts, and a link into its tab. */
+function OverviewCard({
+  title,
+  action = "View",
+  onOpen,
+  children,
+}: {
+  title: string;
+  action?: string;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="card-surface p-5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-base font-bold text-foreground">{title}</h3>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="-mr-2 inline-flex min-h-9 items-center gap-0.5 rounded-md px-2 text-[13px] font-semibold text-primary hover:bg-primary/5"
+        >
+          {action}
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Header line: client (links to their page), crew, site address. */
+function ClientAndAddress({
+  project,
+  crewName,
+  className,
+}: {
+  project: { client_id: string | null; client?: { name: string } | null; address?: string | null };
+  crewName: string | null;
+  className?: string;
+}) {
+  return (
+    <p className={cn("flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground", className)}>
+      {project.client_id && project.client ? (
+        <Link to={`/clients/${project.client_id}`} className="font-semibold text-foreground hover:underline">
+          {project.client.name}
+        </Link>
+      ) : (
+        <span>No client</span>
+      )}
+      {crewName && <span>· {crewName}</span>}
+      {project.address && (
+        <span className="inline-flex min-w-0 items-center gap-1">
+          · <MapPin className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{project.address}</span>
+        </span>
+      )}
+    </p>
+  );
+}
+
+/** True once `ref` (a marker just above the tab bar) has scrolled above the
+ * top of the window — the tab bar then shows the compact title. */
+function useScrolledPast(ref: RefObject<HTMLElement>, enabled: boolean) {
+  const [past, setPast] = useState(false);
+  useEffect(() => {
+    if (!enabled) {
+      setPast(false);
+      return;
+    }
+    const check = () => setPast(!!ref.current && ref.current.getBoundingClientRect().top < 0);
+    check();
+    window.addEventListener("scroll", check, { passive: true });
+    return () => window.removeEventListener("scroll", check);
+  }, [ref, enabled]);
+  return past;
 }
 
 function HubCard({ title, summary, onOpen }: { title: string; summary: ReactNode; onOpen: () => void }) {

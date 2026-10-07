@@ -25,6 +25,7 @@ import {
 import { computeRecommendations, openRecommendations, MIN_JOBS, MIN_SAME_DIRECTION, roundHalf, TRIGGER, type Recommendation } from "@/lib/estimatingInsights";
 import { usableCloseouts } from "@/lib/similarJobs";
 import { findSmartSectionTemplate } from "@/lib/smartSections";
+import { projectHref } from "@/lib/projectTabs";
 
 
 const n2 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -126,7 +127,7 @@ export function SettingsEstimatingInsightsView() {
             <ul className="mt-2 flex flex-wrap gap-1.5">
               {needCloseout.slice(0, 12).map((p) => (
                 <li key={p.id}>
-                  <Link to={`/projects/${p.id}`} className="inline-block rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-primary hover:bg-muted">
+                  <Link to={projectHref(p.id, "money")} className="inline-block rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-primary hover:bg-muted">
                     {p.name}
                   </Link>
                 </li>

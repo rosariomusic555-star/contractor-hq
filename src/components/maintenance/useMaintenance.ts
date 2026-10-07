@@ -3,6 +3,7 @@ import { getMaintenanceSettings, listMaintenanceItems, listProjects, runMaintena
 import { maintenanceNeedsYou, needsMaintenanceSetup, rescheduleAfterDone } from "@/lib/maintenance";
 import { isoDate } from "@/lib/weatherRisk";
 import type { NeedsYouItem } from "@/lib/needsYou";
+import { projectHref } from "@/lib/projectTabs";
 
 export const useMaintenanceItems = (projectId?: string) =>
   useQuery({ queryKey: ["maintenance-items", projectId ?? "all"], queryFn: () => listMaintenanceItems(projectId), staleTime: 30_000 });
@@ -39,7 +40,7 @@ export function useMaintenanceNeedsYou(): NeedsYouItem[] {
       title: `Set up maintenance reminders for ${p.name}`,
       subtitle: `${p.client?.name ?? "Client"} · bring them back for a reseal, inspection or tune-up`,
       action: "Set up",
-      href: `/projects/${p.id}?maintenance=setup`,
+      href: projectHref(p.id, "aftercare", { maintenance: "setup" }),
       sortValue: 1,
     }));
   return [...due, ...setup];
