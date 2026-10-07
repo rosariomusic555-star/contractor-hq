@@ -926,6 +926,29 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.hash, draft.length]);
 
+  // Quick actions from the project's Estimate tab: #order-sheet,
+  // #add-section, #calc-<sectionId> (open that section's calculator).
+  const handledAction = useRef("");
+  const [calcRequest, setCalcRequest] = useState<string | null>(null);
+  useEffect(() => {
+    const h = location.hash;
+    if (!/^#(order-sheet|add-section|calc-.+)$/.test(h) || draft.length === 0 || handledAction.current === `${location.key}${h}`) return;
+    // Wait for the target section to be in the draft (it loads in steps).
+    if (h.startsWith("#calc-") && !draft.some((x) => x.id === h.slice("#calc-".length))) return;
+    handledAction.current = `${location.key}${h}`;
+    if (h === "#order-sheet") setOrderSheetOpen(true);
+    else if (h === "#add-section") {
+      addSection();
+      window.setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }), 150);
+    } else {
+      const sid = h.slice("#calc-".length);
+      expandSection(sid);
+      setCalcRequest(sid);
+      window.setTimeout(() => document.getElementById(`section-${sid}`)?.scrollIntoView({ block: "start" }), 200);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.hash, location.key, draft.length]);
+
   // --- local mutators -------------------------------------------------------
   const renameSection = (sid: string, name: string) =>
     edit((d) => d.map((s) => (s.id === sid ? { ...s, name } : s)));
@@ -1648,6 +1671,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
                         overheadConfigured={burdenPerHour(overheadSettings) != null}
                         onDismissOverhead={dismissOverheadWarning}
                         onApplyCalculatedLines={(lines, inputs) => applyCalculatedLines(section.id, lines, inputs)}
+                        openCalculator={calcRequest === section.id}
+                        onCalculatorOpened={() => setCalcRequest(null)}
                         projectId={projectId}
                         dragHandleProps={drag?.handle ?? null}
                         dragging={drag?.dragging ?? false}
@@ -2157,6 +2182,9 @@ export interface PendingChangeOverlay {
 
 interface SectionCardProps {
   section: DraftSection;
+  /** Open this section's calculator now (Estimate tab → Calculate quantities). */
+  openCalculator?: boolean;
+  onCalculatorOpened?: () => void;
   /** "Proposed · Add-on quote #1" for a proposed add-on feature. */
   proposedLabel?: string;
   /** Pending change orders on this section's feature (Phase C overlay). */
@@ -2267,6 +2295,8 @@ function MaterialsSectionCard({
   onViewHistory,
   report,
   subSuggestions,
+  openCalculator = false,
+  onCalculatorOpened,
 }: SectionCardProps) {
   // Every cost type + labor — the header total and the collapsed breakdown.
   const totals = sectionTotals(section);
@@ -2587,8 +2617,13 @@ function MaterialsSectionCard({
 
       {buildType && (
         <SmartSectionCalculatorDialog
-          open={calculatorOpen}
-          onOpenChange={setCalculatorOpen}
+          // A request from the Estimate tab stays open until it's closed
+          // (survives the card remounting while the Cost plan loads).
+          open={calculatorOpen || openCalculator}
+          onOpenChange={(o) => {
+            setCalculatorOpen(o);
+            if (!o) onCalculatorOpened?.();
+          }}
           template={buildType}
           catalogItems={catalogItems}
           onApply={onApplyCalculatedLines}

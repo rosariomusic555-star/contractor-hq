@@ -4,6 +4,7 @@ import { MaterialsHubCard } from "@/components/materials-center/MaterialsHubCard
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
 import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
 import { NewOverview, NewOverviewHeader, type OverviewMoney } from "@/components/project-overview/NewOverview";
+import { ChangeOrdersCard, CostPlanCard, QuotesCard } from "@/components/project-overview/EstimateCards";
 import { useJobCosts } from "@/hooks/use-job-costs";
 import { Switch } from "@/components/ui/switch";
 import { featureProfitRows, overviewStatusLabel, type NextAction } from "@/lib/projectOverview";
@@ -588,10 +589,6 @@ export function ProjectDetailView() {
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 5);
 
-  const quotesSummary =
-    quotes.length === 0
-      ? "Not started"
-      : `${pluralize(quotes.length, "quote")}${headlineQuote ? ` · ${quoteStatusMeta(headlineQuote.status).label} · ${formatCurrency(quoteTotal(headlineQuote.quote_sections))}` : ""}`;
   const invoicesSummary =
     invoices.length === 0
       ? "None yet"
@@ -600,21 +597,9 @@ export function ProjectDetailView() {
     expenses.length === 0
       ? "None yet"
       : `${pluralize(expenses.length, "expense")} · ${formatCurrency(expensesTotal)}`;
-  const approvedCOTotal = approvedChangeOrderTotal(changeOrders);
-  const pendingCOCount = changeOrders.filter((co) => co.status === "sent").length;
-  const changeOrdersSummary =
-    changeOrders.length === 0
-      ? "None yet"
-      : `${approvedCOTotal > 0 ? "+" : ""}${formatCurrency(approvedCOTotal)} approved${pendingCOCount ? ` · ${pendingCOCount} pending` : ""}`;
   const pendingDeliveryCount = materialOrders.filter((mo) => mo.status !== "delivered").length;
   const materialOrdersSummary =
     materialOrders.length === 0 ? "None yet" : `${pluralize(materialOrders.length, "order")} · ${pendingDeliveryCount} pending`;
-  const costPlanSummaryLine =
-    materialsSheets.length === 0
-      ? "Not started"
-      : `${materialsSheets.length > 1 ? `${pluralize(materialsSheets.length, "cost plan")} · ` : ""}${formatCurrency(costPlan.planned.total - costPlan.pendingSelections)} planned${
-          costPlan.projectedMarginPct != null ? ` · ${costPlan.projectedMarginPct.toFixed(0)}% margin` : ""
-        }`;
   const laborSummary =
     laborPlannedHours === 0 && laborActualHours === 0
       ? "Nothing logged"
@@ -792,11 +777,6 @@ export function ProjectDetailView() {
     </>
   );
 
-  const hubCostPlan = (
-    <>
-      <HubCard title="Cost plan" summary={costPlanSummaryLine} onOpen={() => navigate(`/projects/${id}/materials`)} />
-    </>
-  );
 
   const hubLabor = (
     <>
@@ -804,11 +784,6 @@ export function ProjectDetailView() {
     </>
   );
 
-  const hubQuotes = (
-    <>
-      <HubCard title="Quotes" summary={quotesSummary} onOpen={() => navigate(`/projects/${id}/quotes`)} />
-    </>
-  );
 
   const hubInvoices = (
     <>
@@ -822,15 +797,6 @@ export function ProjectDetailView() {
     </>
   );
 
-  const hubChangeOrders = (
-    <>
-      <HubCard
-        title="Change orders"
-        summary={changeOrdersSummary}
-        onOpen={() => navigate(`/projects/${id}/change-orders`)}
-      />
-    </>
-  );
 
   const hubMaterials = (
     <>
@@ -1462,11 +1428,15 @@ export function ProjectDetailView() {
   const overdueInvoiceCount = invoices.filter((i) => invoiceDaysLate(i) > 0).length;
   const moneyBadge = overdueInvoiceCount || (depositOverdue ? 1 : 0);
   const pendingUpdates = progressUpdates.filter((u) => u.status === "pending");
+  const estimateToDo =
+    changeOrders.filter((co) => co.status === "draft" && Number(co.amount || 0) !== 0).length +
+    quotes.filter((q) => q.kind === "addon" && q.status === "draft").length;
   const showsAftercare = project.status === "complete" && !!project.client_id;
 
   const tabs: PageTab<ProjectTab>[] = [
     { id: "overview", label: "Overview" },
-    { id: "estimate", label: "Estimate", badge: pendingCOCount, badgeLabel: `${pluralize(pendingCOCount, "change order")} awaiting the client` },
+    // Only things that need the contractor: a change order or add-on quote still to send.
+    { id: "estimate", label: "Estimate", badge: estimateToDo, badgeLabel: `${pluralize(estimateToDo, "item")} to send` },
     { id: "schedule", label: "Schedule" },
     { id: "materials", label: "Materials" },
     {
@@ -1524,10 +1494,27 @@ export function ProjectDetailView() {
     estimate: () => (
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {hubCostPlan}
-            {hubQuotes}
-            {hubChangeOrders}
+          <CostPlanCard
+            projectId={id}
+            project={project}
+            hasSheet={materialsSheets.length > 0}
+            planned={costPlan.planned}
+            money={overviewMoney}
+            sections={materials}
+            features={projectFeatures}
+            categories={jobCategories}
+          />
+          <div className="grid grid-cols-1 items-stretch gap-5 md:grid-cols-2">
+            <QuotesCard projectId={id} project={project} quotes={quotes} />
+            <ChangeOrdersCard
+              projectId={id}
+              project={project}
+              changeOrders={changeOrders}
+              features={projectFeatures}
+              categories={jobCategories}
+              contractValue={contract}
+              onNew={() => navigate(`/projects/${id}/change-orders`)}
+            />
           </div>
           {changeJobCard}
           {selectionsCard}
