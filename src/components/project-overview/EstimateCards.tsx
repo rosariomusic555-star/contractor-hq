@@ -350,7 +350,7 @@ export function QuotesCard({ projectId, project, quotes }: { projectId: string; 
               Approved <span className="font-bold tabular-nums text-foreground">{money(approvedTotal)}</span>
             </span>
             {won && (
-              <Link to={`/projects/${projectId}?tab=estimate&add-new-work=1`} className="inline-flex min-h-9 items-center gap-1 font-semibold text-primary hover:underline">
+              <Link to={`/projects/${projectId}?tab=change-orders&add-new-work=1`} className="inline-flex min-h-9 items-center gap-1 font-semibold text-primary hover:underline">
                 <Plus className="h-3.5 w-3.5" /> Add-on quote
               </Link>
             )}

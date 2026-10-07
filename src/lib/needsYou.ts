@@ -138,7 +138,7 @@ function moreItems(m: NeedsYouMore, now: Date): NeedsYouItem[] {
       title: `Change request${r.requested_by ? ` from ${r.requested_by}` : ""}`,
       subtitle: `${r.project?.name ?? "Project"}${r.note ? ` · “${r.note}”` : ""}`,
       action: "Review",
-      href: projectHref(r.project_id, "estimate"),
+      href: projectHref(r.project_id, "change-orders"),
       sortValue: Math.max(daysSince(r.created_at, now), 1) + 2,
       category: "clients",
     });
@@ -165,7 +165,7 @@ function moreItems(m: NeedsYouMore, now: Date): NeedsYouItem[] {
       title: `${formatCurrency(p.unallocated)} unapplied credit`,
       subtitle: `${p.project?.name ?? "Payment"} · received ${p.paid_on}`,
       action: "Apply",
-      href: p.project_id ? projectHref(p.project_id, "money") : "/invoices",
+      href: p.project_id ? projectHref(p.project_id, "invoices") : "/invoices",
       sortValue: Math.max(daysSince(p.paid_on, now), 1),
       category: "money",
     });

@@ -219,7 +219,7 @@ export function NewOverview({
     // Deposit / schedule steps belong before and during the job, never after.
     const allExtras = stage === "after" ? [] : [...extras];
     if (stage === "after" && remainingToInvoice(contract, invoices) > 0.01)
-      allExtras.push({ key: "final-invoice", title: "Send the final invoice", detail: `${money(remainingToInvoice(contract, invoices))} not invoiced yet`, href: `/projects/${id}/invoices` });
+      allExtras.push({ key: "final-invoice", title: "Send the final invoice", detail: `${money(remainingToInvoice(contract, invoices))} not invoiced yet`, href: projectHref(id, "invoices") });
     const hasDeposit = extras.some((e) => e.key === "deposit");
     return buildNextActions({
       projectId: id,
@@ -382,7 +382,7 @@ export function NewOverview({
   );
 
   const moneyCard = (
-    <OverviewCard title="Money" links={[{ label: "Money", onClick: () => goTab("money") }]} status={m ? "ready" : "loading"} className="order-3 lg:order-none">
+    <OverviewCard title="Money" links={[{ label: "Invoices", onClick: () => goTab("invoices") }, { label: "Money", onClick: () => goTab("money") }]} status={m ? "ready" : "loading"} className="order-3 lg:order-none">
       <FactRow label="Contract value" value={contract > 0 ? money(contract) : "—"} />
       <FactRow label="Paid" value={money(paid)} />
       <FactRow

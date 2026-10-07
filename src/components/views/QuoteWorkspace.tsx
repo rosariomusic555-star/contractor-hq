@@ -1371,7 +1371,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
               {/* Deep links: the project page opens the new feature's
                   Measurements card and pulses it; the Cost plan scrolls to
                   and flashes its section. */}
-              <Link to={`${projectHref(projectId, "estimate")}#measure${addonFeature?.category_id ? `-${addonFeature.category_id}` : ""}`} className="text-primary hover:underline">
+              <Link to={`${projectHref(projectId, "estimates")}#measure${addonFeature?.category_id ? `-${addonFeature.category_id}` : ""}`} className="text-primary hover:underline">
                 1 · Measure it (project page)
               </Link>
               <Link to={`/projects/${projectId}/materials${addonSection ? `#section-${addonSection.id}` : ""}`} className="text-primary hover:underline">

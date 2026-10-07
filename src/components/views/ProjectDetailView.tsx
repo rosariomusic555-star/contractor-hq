@@ -5,6 +5,7 @@ import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
 import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
 import { NewOverview, NewOverviewHeader, type OverviewMoney } from "@/components/project-overview/NewOverview";
 import { ChangeOrdersCard, CostPlanCard, QuotesCard } from "@/components/project-overview/EstimateCards";
+import { FeatureChangesCard, InvoicesCard } from "@/components/project-overview/BillingCards";
 import { useJobCosts } from "@/hooks/use-job-costs";
 import { Switch } from "@/components/ui/switch";
 import { featureProfitRows, overviewStatusLabel, type NextAction } from "@/lib/projectOverview";
@@ -106,6 +107,7 @@ import {
   createProjectInvoice,
   DEPOSIT_INVOICE_NOTE,
   listProgressUpdates,
+  listProjectSelections,
   type ProjectStatus,
   type MaterialsItem,
   type MaterialsSection,
@@ -179,7 +181,7 @@ import { useProjectDelays } from "@/components/schedule/useUndoScheduleDelay";
 import { PageTabs, type PageTab } from "@/components/common/PageTabs";
 import { PreconSummaryLine } from "@/components/precon/PreconSummaryLine";
 import { useUrlTab } from "@/hooks/use-url-tab";
-import { PROJECT_TABS, projectHref, type ProjectTab } from "@/lib/projectTabs";
+import { PROJECT_TABS, PROJECT_TAB_ALIASES, projectHref, type ProjectTab } from "@/lib/projectTabs";
 import { delayDays } from "@/lib/scheduleShift";
 
 const expenseDate = (iso: string | null) =>
@@ -407,8 +409,9 @@ export function ProjectDetailView() {
   });
 
   // The page is tabbed — the tab lives in ?tab=.
-  const { active: tab, setActive: setTab, anchorRef: tabsAnchorRef } = useUrlTab(PROJECT_TABS, "overview");
+  const { active: tab, setActive: setTab, anchorRef: tabsAnchorRef } = useUrlTab(PROJECT_TABS, "overview", "tab", PROJECT_TAB_ALIASES);
   const headerScrolledAway = useScrolledPast(tabsAnchorRef, !isLoading);
+  const { data: projectSelections } = useQuery({ queryKey: ["project-selections", id], queryFn: () => listProjectSelections(id) });
   const { data: progressUpdates = [] } = useQuery({
     queryKey: ["progress-updates", id],
     queryFn: () => listProgressUpdates(id),
@@ -432,11 +435,11 @@ export function ProjectDetailView() {
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.hash, location.key]);
-  // #measure… opens Measurements, which is on Estimate.
+  // #measure… opens Measurements, which is on Estimates.
   useEffect(() => {
-    if (/^#measure/.test(location.hash) && tab !== "estimate") {
+    if (/^#measure/.test(location.hash) && tab !== "estimates") {
       const next = new URLSearchParams(searchParams);
-      next.set("tab", "estimate");
+      next.set("tab", "estimates");
       setSearchParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -785,11 +788,6 @@ export function ProjectDetailView() {
   );
 
 
-  const hubInvoices = (
-    <>
-      <HubCard title="Invoices" summary={invoicesSummary} onOpen={() => navigate(`/projects/${id}/invoices`)} />
-    </>
-  );
 
   const hubExpenses = (
     <>
@@ -949,7 +947,7 @@ export function ProjectDetailView() {
     <>
       <section className="card-surface p-5">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-base font-bold text-foreground">Money</h3>
+          <h3 className="text-base font-bold text-foreground">Billing &amp; payments</h3>
           {billing && <span className={projectBillingStatusMeta(billing).badge}>{projectBillingStatusMeta(billing).label}</span>}
         </div>
         <div className="mt-2">
@@ -979,16 +977,6 @@ export function ProjectDetailView() {
           <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             Deposit not received
-          </div>
-        )}
-        {marginProfit != null && (
-          <div className="mt-3 rounded-xl bg-primary/10 p-3">
-            <div className="text-xs font-semibold text-success">
-              {showActualMargin ? "Final" : "Projected"} margin
-            </div>
-            <div className="mt-0.5 text-2xl font-extrabold tracking-tight text-foreground">
-              {marginPct}% <span className="text-sm font-bold text-muted-foreground">· {formatCurrency(marginProfit)}</span>
-            </div>
           </div>
         )}
       </section>
@@ -1426,26 +1414,34 @@ export function ProjectDetailView() {
 
   // ---- Tabs --------------------------------------------------------------
   const overdueInvoiceCount = invoices.filter((i) => invoiceDaysLate(i) > 0).length;
-  const moneyBadge = overdueInvoiceCount || (depositOverdue ? 1 : 0);
   const pendingUpdates = progressUpdates.filter((u) => u.status === "pending");
-  const estimateToDo =
-    changeOrders.filter((co) => co.status === "draft" && Number(co.amount || 0) !== 0).length +
-    quotes.filter((q) => q.kind === "addon" && q.status === "draft").length;
+  // Badges only for things needing action.
+  const unsentInvoices = invoices.filter((i) => i.status === "draft").length;
+  const invoicesToDo = overdueInvoiceCount + unsentInvoices;
+  const openChangeRequests = (projectSelections?.requests ?? []).filter((r) => r.status === "open").length;
+  const changeOrdersToDo =
+    changeOrders.filter((co) => (co.status === "draft" && Number(co.amount || 0) !== 0) || co.status === "sent").length + openChangeRequests;
   const showsAftercare = project.status === "complete" && !!project.client_id;
 
   const tabs: PageTab<ProjectTab>[] = [
     { id: "overview", label: "Overview" },
-    // Only things that need the contractor: a change order or add-on quote still to send.
-    { id: "estimate", label: "Estimate", badge: estimateToDo, badgeLabel: `${pluralize(estimateToDo, "item")} to send` },
-    { id: "schedule", label: "Schedule" },
-    { id: "materials", label: "Materials" },
+    { id: "estimates", label: "Estimates" },
     {
-      id: "money",
-      label: "Money",
-      badge: moneyBadge,
-      badgeTone: "alert",
-      badgeLabel: overdueInvoiceCount ? pluralize(overdueInvoiceCount, "overdue invoice") : "Deposit not received",
+      id: "invoices",
+      label: "Invoices",
+      badge: invoicesToDo,
+      badgeTone: overdueInvoiceCount ? "alert" : "neutral",
+      badgeLabel: [overdueInvoiceCount ? pluralize(overdueInvoiceCount, "overdue invoice") : "", unsentInvoices ? `${pluralize(unsentInvoices, "invoice")} not sent` : ""].filter(Boolean).join(", "),
     },
+    {
+      id: "change-orders",
+      label: "Change Orders",
+      badge: changeOrdersToDo,
+      badgeLabel: `${pluralize(changeOrdersToDo, "item")} to send, approve or answer`,
+    },
+    { id: "materials", label: "Materials" },
+    { id: "schedule", label: "Schedule" },
+    { id: "money", label: "Money" },
     { id: "updates", label: "Updates", badge: pendingUpdates.length, badgeTone: "neutral", badgeLabel: `${pluralize(pendingUpdates.length, "update")} awaiting review` },
   ];
   const moreTabs: PageTab<ProjectTab>[] = [
@@ -1491,7 +1487,7 @@ export function ProjectDetailView() {
         />
       ),
 
-    estimate: () => (
+    estimates: () => (
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <CostPlanCard
@@ -1504,24 +1500,61 @@ export function ProjectDetailView() {
             features={projectFeatures}
             categories={jobCategories}
           />
-          <div className="grid grid-cols-1 items-stretch gap-5 md:grid-cols-2">
-            <QuotesCard projectId={id} project={project} quotes={quotes} />
-            <ChangeOrdersCard
-              projectId={id}
-              project={project}
-              changeOrders={changeOrders}
-              features={projectFeatures}
-              categories={jobCategories}
-              contractValue={contract}
-              onNew={() => navigate(`/projects/${id}/change-orders`)}
-            />
-          </div>
-          {changeJobCard}
-          {selectionsCard}
+          <QuotesCard projectId={id} project={project} quotes={quotes} />
         </div>
         <div className="space-y-5">
           {measurementsCard}
           {jobContextCard}
+        </div>
+      </div>
+    ),
+
+    invoices: () => (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <InvoicesCard
+            projectId={id}
+            invoices={invoices}
+            changeOrders={changeOrders}
+            deposit={
+              depositCta === "open"
+                ? { label: "Send deposit invoice", href: `/projects/${id}/invoices/${depositInvoice!.id}` }
+                : depositCta === "create"
+                  ? { label: "Send deposit invoice", onClick: () => createDepositMut.mutate(), pending: createDepositMut.isPending }
+                  : null
+            }
+          />
+        </div>
+        {/* Billing summary, Record payment, payments & receipts, client links. */}
+        <div className="space-y-5">{moneyCard}</div>
+      </div>
+    ),
+
+    "change-orders": () => (
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <ChangeOrdersCard
+            projectId={id}
+            project={project}
+            changeOrders={changeOrders}
+            features={projectFeatures}
+            categories={jobCategories}
+            contractValue={contract}
+            onNew={() => navigate(`/projects/${id}/change-orders`)}
+          />
+          {changeJobCard}
+        </div>
+        <div className="space-y-5">
+          {/* Client selections + their change requests (they become change orders). */}
+          {selectionsCard}
+          <FeatureChangesCard
+            projectId={id}
+            features={projectFeatures}
+            categories={jobCategories}
+            quotes={quotes}
+            changeOrders={changeOrders}
+            report={overviewMoney?.report ?? null}
+          />
         </div>
       </div>
     ),
@@ -1549,8 +1582,21 @@ export function ProjectDetailView() {
     money: () => (
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
+          {/* Billing lives on Invoices — just the line here. */}
+          <button
+            type="button"
+            onClick={() => setTab("invoices")}
+            className="flex min-h-11 w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-card border border-border bg-card px-4 py-2.5 text-left text-sm hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="text-muted-foreground">
+              Contract <span className="font-semibold tabular-nums text-foreground">{formatCurrency(contract)}</span> · invoiced{" "}
+              <span className="font-semibold tabular-nums text-foreground">{formatCurrency(money.invoiced)}</span> · paid{" "}
+              <span className="font-semibold tabular-nums text-foreground">{formatCurrency(money.received)}</span> · balance{" "}
+              <span className="font-semibold tabular-nums text-foreground">{formatCurrency(money.remaining)}</span>
+            </span>
+            <span className="text-[13px] font-semibold text-primary">Invoices →</span>
+          </button>
           <div className="grid gap-3 sm:grid-cols-2">
-            {hubInvoices}
             {hubExpenses}
             {hubLabor}
           </div>
@@ -1559,7 +1605,16 @@ export function ProjectDetailView() {
           {plannedVsActualCard}
           {costsToDateCard}
         </div>
-        <div className="space-y-5">{moneyCard}</div>
+        <div className="space-y-5">
+          {marginProfit != null && (
+            <section className="rounded-card border border-border bg-card p-5">
+              <h3 className="text-[15px] font-bold text-foreground">{showActualMargin ? "Final" : "Projected"} margin</h3>
+              <p className="mt-1 text-2xl font-extrabold tabular-nums tracking-tight text-foreground">
+                {marginPct}% <span className="text-sm font-bold text-muted-foreground">· {formatCurrency(marginProfit)}</span>
+              </p>
+            </section>
+          )}
+        </div>
       </div>
     ),
 

@@ -936,6 +936,8 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     // Wait for the target section to be in the draft (it loads in steps).
     if (h.startsWith("#calc-") && !draft.some((x) => x.id === h.slice("#calc-".length))) return;
     handledAction.current = `${location.key}${h}`;
+    // One-shot: drop the hash so a reload doesn't add another section.
+    window.history.replaceState(window.history.state, "", `${location.pathname}${location.search}`);
     if (h === "#order-sheet") setOrderSheetOpen(true);
     else if (h === "#add-section") {
       addSection();
