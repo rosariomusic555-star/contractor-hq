@@ -72,7 +72,8 @@ describe("work order helpers", () => {
     // planned 300 + 10% = 330 sf; 2 pallets (200 sf) delivered + 130 sf ordered
     expect(crewMaterialStatus(wo.materials[0])).toEqual({ planned: 330, ordered: 330, delivered: 200, status: "partial" });
     expect(crewMaterialStatus({ ...wo.materials[0], orders: [] }).status).toBe("not_ordered");
-    expect(crewMaterialStatus({ ...wo.materials[0], tracked: false }).status).toBe("untracked");
+    // Usage tracking off still shows where the order stands (0167).
+    expect(crewMaterialStatus({ ...wo.materials[0], tracked: false }).status).toBe(crewMaterialStatus(wo.materials[0]).status);
   });
   it("811 warnings", () => {
     expect(crewLocate(wo, "2026-10-02")).toMatchObject({ ticket: "A1", clearToDig: "2026-10-06", warning: "Not clear to dig yet" });

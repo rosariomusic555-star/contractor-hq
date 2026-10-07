@@ -619,7 +619,16 @@ export interface MaterialCategory {
   /** 0165 — the category's usual unit; setting a line's category fills it
    * in (src/lib/categoryUnits.ts). Null / undefined = none. */
   default_unit?: string | null;
+  /** 0167 — new cost plan lines in this category are usage-tracked (Log
+   * usage, planned vs used). Undefined before 0167 reads as false. */
+  track_usage_default?: boolean;
   created_at: string;
+}
+
+/** Whether a new material line in this category starts usage-tracked (0167). */
+export function categoryTracksUsage(categories: Pick<MaterialCategory, "id" | "track_usage_default">[], categoryId: string | null | undefined): boolean {
+  if (!categoryId) return false;
+  return !!categories.find((c) => c.id === categoryId)?.track_usage_default;
 }
 
 export async function listMaterialCategories(): Promise<MaterialCategory[]> {
@@ -644,7 +653,7 @@ export async function createMaterialCategory(input: { name: string; sort_order?:
 
 export async function updateMaterialCategory(
   id: string,
-  patch: Partial<Pick<MaterialCategory, "name" | "sort_order" | "needs_color" | "default_unit">>,
+  patch: Partial<Pick<MaterialCategory, "name" | "sort_order" | "needs_color" | "default_unit" | "track_usage_default">>,
 ): Promise<void> {
   const { error } = await supabase.from("material_categories").update(patch).eq("id", id);
   if (error) throw error;
@@ -1963,6 +1972,29 @@ export async function saveWeatherRiskSettings(patch: Partial<WeatherRiskSettings
   if (error) throw error;
 }
 
+// ---------------------------------------------------------------------------
+// Material usage tracking (0167) — on business_profile.
+// ---------------------------------------------------------------------------
+
+export interface MaterialTrackingSettings {
+  /** The quiet "Used 14 of 12 ton" note on tracked lines; off = reports only. */
+  show_over_estimate_notes: boolean;
+}
+
+export const MATERIAL_TRACKING_DEFAULTS: MaterialTrackingSettings = { show_over_estimate_notes: true };
+
+export async function getMaterialTrackingSettings(): Promise<MaterialTrackingSettings> {
+  const { data, error } = await supabase.from("business_profile").select("show_over_estimate_notes").maybeSingle();
+  if (error || !data) return MATERIAL_TRACKING_DEFAULTS;
+  return { show_over_estimate_notes: data.show_over_estimate_notes ?? true };
+}
+
+export async function saveMaterialTrackingSettings(patch: Partial<MaterialTrackingSettings>): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser();
+  const { error } = await supabase.from("business_profile").upsert({ user_id: auth.user?.id, ...patch }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
 export async function saveBusinessProfile(patch: Partial<BusinessProfile>): Promise<BusinessProfile> {
   const merged = { ...(await getBusinessProfile()), ...patch };
   const { businessProfileProblem } = await import("./settingsRules");
@@ -2519,7 +2551,7 @@ async function insertSeededSection(
         unit_cost: 0,
         sort_order: j,
         waste_percent: 0,
-        tracked: item.cost_type === "material",
+        // tracked: left out — the DB fills it from the line's category (0167).
         // Every row carries every column: in a batch insert a key missing
         // from some rows is sent as NULL for them (cost_type is NOT NULL).
         cost_type: item.cost_type,
@@ -2893,7 +2925,8 @@ export async function addMaterialsItem(
       waste_percent: input.waste_percent ?? 0,
       conversion_unit: input.conversion_unit ?? null,
       conversion_factor: input.conversion_factor ?? null,
-      tracked: input.tracked ?? true,
+      // Left out unless given — the DB fills it from the line's category (0167).
+      ...(input.tracked !== undefined ? { tracked: input.tracked } : {}),
       // Only sent when set, so adding a line still works before migration
       // 0093 (which adds the column) has been run.
       ...(input.color ? { color: input.color } : {}),

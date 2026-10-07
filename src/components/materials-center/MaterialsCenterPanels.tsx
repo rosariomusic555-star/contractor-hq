@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { reconcileMaterialsItem } from "@/lib/api";
 import { LINE_STATUS_LABEL } from "@/lib/materialTracking";
+import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
 import type { MaterialLineView, MaterialsCenterReport } from "@/lib/materialsCenter";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -14,15 +15,17 @@ const telOf = (phone: string) => `tel:${phone.replace(/[^\d+]/g, "")}`;
 const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatCurrency(Math.abs(v))}`;
 const qty = (v: number) => (Math.round(v * 100) / 100).toLocaleString("en-US");
 
-/** planned → ordered → delivered → used, one compact bar. */
+/** planned → ordered → delivered (→ used, on a usage-tracked line), one
+ * compact bar. */
 function StageBar({ l }: { l: MaterialLineView }) {
-  const max = Math.max(l.needed, l.ordered, l.delivered, l.used, 1e-9);
+  const used = l.tracked ? l.used : 0;
+  const max = Math.max(l.needed, l.ordered, l.delivered, used, 1e-9);
   const w = (v: number) => `${Math.min(100, (v / max) * 100)}%`;
   return (
-    <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary" title={`ordered ${qty(l.ordered)} · delivered ${qty(l.delivered)} · used ${qty(l.used)} of ${qty(l.needed)}`}>
+    <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary" title={`ordered ${qty(l.ordered)} · delivered ${qty(l.delivered)}${l.tracked ? ` · used ${qty(used)}` : ""} of ${qty(l.needed)}`}>
       <div className="absolute inset-y-0 left-0 rounded-full bg-info/30" style={{ width: w(l.ordered) }} />
       <div className="absolute inset-y-0 left-0 rounded-full bg-primary/60" style={{ width: w(l.delivered) }} />
-      <div className="absolute inset-y-0 left-0 rounded-full bg-success" style={{ width: w(l.used) }} />
+      {l.tracked && <div className="absolute inset-y-0 left-0 rounded-full bg-success" style={{ width: w(used) }} />}
       <div className="absolute inset-y-0 w-px bg-foreground/60" style={{ left: `calc(${w(l.needed)} - 1px)` }} />
     </div>
   );
@@ -61,10 +64,15 @@ export function FeatureStatus({
                   <span className="shrink-0 text-xs text-muted-foreground">{LINE_STATUS_LABEL[l.status]}</span>
                 </div>
                 <StageBar l={l} />
+                {l.over && <OverEstimateNote used={l.used} estimated={l.needed} unit={l.unit} className="mt-0.5" />}
                 <div className="mt-0.5 flex flex-wrap justify-between gap-x-3 text-[11px] text-muted-subtle">
-                  <span>{qty(l.ordered)} / {qty(l.delivered)} / {qty(l.used)} of {qty(l.needed)} {l.unit}</span>
                   <span>
-                    {l.onSite > 0 ? `${qty(l.onSite)} ${l.unit} on site` : ""}
+                    {l.tracked
+                      ? `${qty(l.ordered)} / ${qty(l.delivered)} / ${qty(l.used)} of ${qty(l.needed)} ${l.unit ?? ""}`
+                      : `${qty(l.ordered)} / ${qty(l.delivered)} of ${qty(l.needed)} ${l.unit ?? ""}`}
+                  </span>
+                  <span>
+                    {l.tracked && l.onSite > 0 ? `${qty(l.onSite)} ${l.unit} on site` : ""}
                     {l.variance != null ? <span className={cn("ml-2", l.variance > 0 ? "text-destructive" : "")}>{signed(l.variance)}</span> : null}
                   </span>
                 </div>

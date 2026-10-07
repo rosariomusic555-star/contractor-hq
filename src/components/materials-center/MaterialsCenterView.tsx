@@ -131,7 +131,7 @@ export function MaterialsCenterView({ projectId }: { projectId: string }) {
         }
       >
         {r.stillToOrder.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Every tracked line is fully ordered.</p>
+          <p className="text-sm text-muted-foreground">Every material line is fully ordered.</p>
         ) : (
           <div className="space-y-3">
             {[...groups.entries()].map(([k, ls]) => (
@@ -177,7 +177,7 @@ export function MaterialsCenterView({ projectId }: { projectId: string }) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Section title="Status by feature">
           {data.active ? (
-            <FeatureStatus lines={r.lines.filter((l) => l.tracked)} featureName={featName} projectId={projectId} />
+            <FeatureStatus lines={r.lines} featureName={featName} projectId={projectId} />
           ) : (
             <p className="text-sm text-muted-foreground">Tracking starts once the job is won.</p>
           )}

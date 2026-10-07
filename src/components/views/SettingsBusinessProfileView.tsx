@@ -219,9 +219,9 @@ export function SettingsBusinessProfileView() {
 
       <div className="overflow-hidden rounded-card border border-border">
         <div className="bg-muted/50 px-5 py-3">
-          <span className="text-[15px] font-bold text-foreground">Material budget alerts</span>
+          <span className="text-[15px] font-bold text-foreground">Material ordering alerts</span>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Thresholds for the early-warning chips on a tracked project's Materials card.
+            Thresholds for the ordering alerts on a job's Cost plan (over-ordered, not ordered yet).
           </p>
         </div>
         <div className="grid grid-cols-1 gap-5 bg-card p-5 sm:grid-cols-2">

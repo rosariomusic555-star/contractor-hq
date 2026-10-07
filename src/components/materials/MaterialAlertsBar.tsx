@@ -24,15 +24,15 @@ interface Group {
 }
 
 /**
- * The material budget alerts, as one slim line: "⚠ 2 over estimate · 30 not
- * ordered · job started 1d ago  Review ›". Review opens the alerts grouped
+ * The material ordering alerts (0167: ordering only — using more than
+ * planned is a quiet note on the line), as one slim line: "⚠ 1 delivery
+ * overdue · 30 not ordered · job started 1d ago  Review ›". Review opens the alerts grouped
  * by Cost plan section (so two "Caps" lines make sense) — inline with a
  * capped height on desktop, a bottom sheet on phones. Each group can open
  * in the Cost plan or be marked ordered in one tap; each line links to its
- * Cost plan row and can be marked "not needed" (tracking off). The whole
- * bar can be snoozed for 3 days per project. Renders nothing when there's
- * nothing to say. Shared by the project page and the Cost plan so both
- * tell the same story.
+ * Cost plan row. The whole bar can be snoozed for 3 days per project.
+ * Renders nothing when there's nothing to say. On the Cost plan only (the
+ * project page keeps materials to its one-line readiness summary).
  */
 export function MaterialAlertsBar({
   projectId,
@@ -40,7 +40,6 @@ export function MaterialAlertsBar({
   sectionNames,
   context,
   onMarkOrdered,
-  onNotNeeded,
   busy,
   className,
 }: {
@@ -52,8 +51,6 @@ export function MaterialAlertsBar({
   context?: string | null;
   /** Logs one order for these lines (the group's not-ordered ones). */
   onMarkOrdered?: (lineIds: string[]) => void;
-  /** Stops tracking alerts for a line. */
-  onNotNeeded?: (lineId: string) => void;
   busy?: boolean;
   className?: string;
 }) {
@@ -146,17 +143,6 @@ export function MaterialAlertsBar({
                       <Link to={`/projects/${projectId}/material-orders`} className="min-w-0 flex-1 truncate text-foreground hover:underline">
                         {a.label}
                       </Link>
-                    )}
-                    {a.lineId && onNotNeeded && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => onNotNeeded(a.lineId!)}
-                        className="shrink-0 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-50"
-                        title="Stops tracking alerts for this line"
-                      >
-                        Not needed
-                      </button>
                     )}
                   </li>
                 ))}

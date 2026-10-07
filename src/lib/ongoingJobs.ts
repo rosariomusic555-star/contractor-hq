@@ -83,7 +83,9 @@ function buildAlerts(input: {
   if (input.materialAlertCount > 0) {
     alerts.push({
       key: "material_alert",
-      label: input.materialAlertCount === 1 ? "Material budget alert" : `${input.materialAlertCount} material budget alerts`,
+      // Ordering only (not ordered / over-ordered / delivery overdue) — using
+      // more than planned never reaches the dashboard (0167).
+      label: input.materialAlertCount === 1 ? "Material ordering alert" : `${input.materialAlertCount} material ordering alerts`,
     });
   }
 

@@ -21,7 +21,6 @@ import type {
   Project,
   Quote,
 } from "./api";
-import { projectDurationStatus } from "./projectDuration";
 import { materialLineLabel, quantityWithWaste } from "./materialsMath";
 
 // ---------------------------------------------------------------------------
@@ -378,6 +377,23 @@ export function lineStatus(estimated: number, ordered: number, delivered: number
   return "not_ordered";
 }
 
+/** A usage-tracked line's status without the over-estimate flag — using
+ * more than planned is a quiet note (overEstimate), not a status (0167). */
+export function usageStatus(ordered: number, delivered: number, used: number, hasOrder = false): LineStatus {
+  return lineStatus(0, ordered, delivered, used, hasOrder);
+}
+
+/** Ordering / delivery status for any material line, tracked or not —
+ * never about usage (0167). */
+export function orderingStatus(ordered: number, delivered: number, hasOrder = false): LineStatus {
+  return lineStatus(0, ordered, delivered, 0, hasOrder);
+}
+
+/** More used than planned — the quiet line note's test (0167). */
+export function overEstimate(estimated: number, used: number): boolean {
+  return estimated > 0 && used > estimated + 1e-9;
+}
+
 /** Whether any order line is matched to this sheet line — "an order was
  * placed", even one logged in a unit that still needs converting (whose
  * converted quantity reads 0). What "not ordered" means everywhere. */
@@ -436,10 +452,9 @@ export interface SheetCostSummary {
   /** Positive = over budget. Null when estimatedCost is 0 (nothing to
    * compare a percentage against). */
   variancePct: number | null;
-  /** Counts only lines with tracking ON (0086) — these drive the Material
-   * Tracker's own alert chips, so a line the contractor deliberately
-   * excluded from tracking never nags "not ordered" or "over estimate". */
+  /** Every material line (ordering isn't about usage tracking, 0167). */
   notOrderedCount: number;
+  /** Usage-tracked lines only. */
   overEstimateCount: number;
   /** Distinct delivery lines with no sheet match. */
   unplannedCount: number;
@@ -474,14 +489,11 @@ export function sheetCostSummary(
       actualCost -= Number(line.return_credit);
     }
 
-    if (!line.tracked) continue; // execution-tracking noise only — never skips the cost math above
-
+    // Ordering counts every material line; usage only tracked ones (0167).
     const ordered = orderedQuantity(line, deliveries);
     const delivered = deliveredQuantity(line, deliveries);
-    const used = usedQuantity(line, usageLogs);
-    const status = lineStatus(estQty, ordered, delivered, used, hasAnyOrder(line, deliveries));
-    if (status === "not_ordered") notOrderedCount++;
-    if (status === "over_estimate") overEstimateCount++;
+    if (orderingStatus(ordered, delivered, hasAnyOrder(line, deliveries)) === "not_ordered") notOrderedCount++;
+    if (line.tracked && overEstimate(estQty, usedQuantity(line, usageLogs))) overEstimateCount++;
   }
 
   const unplannedCount = new Set(
@@ -498,9 +510,11 @@ export function sheetCostSummary(
 // Early warnings (Phase 5) — informational only, never blocking.
 // ---------------------------------------------------------------------------
 
-/** Ranked most urgent first — the summary line follows this order. */
-export type MaterialAlertKind = "over_estimate" | "over_order" | "burn_rate" | "delivery_overdue" | "not_ordered";
-export const MATERIAL_ALERT_ORDER: MaterialAlertKind[] = ["over_estimate", "over_order", "burn_rate", "delivery_overdue", "not_ordered"];
+/** Ranked most urgent first — the summary line follows this order. Ordering
+ * only (0167): using more than estimated is a quiet note on the line
+ * (overEstimate / OverEstimateNote), never an alert. */
+export type MaterialAlertKind = "over_order" | "delivery_overdue" | "not_ordered";
+export const MATERIAL_ALERT_ORDER: MaterialAlertKind[] = ["over_order", "delivery_overdue", "not_ordered"];
 
 export interface MaterialAlert {
   key: MaterialAlertKind;
@@ -522,23 +536,15 @@ export interface AlertOrder {
   status: MaterialOrderStatus;
 }
 
-/** How far ahead of job progress a line's usage % needs to be before it's
- * worth flagging — not contractor-configurable per spec (only the
- * over-order margin and not-ordered days are). */
-const BURN_RATE_ALERT_MARGIN_PP = 20;
-
 const localISO = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const daysBetween = (fromISO: string, toISO: string) =>
   Math.round((new Date(`${toISO}T00:00:00`).getTime() - new Date(`${fromISO}T00:00:00`).getTime()) / 86_400_000);
 
 /**
- * Every alert currently live for a tracked sheet's lines (tracking-on
- * material lines only), most urgent kind first:
- *   over_estimate    — more used than estimated
+ * Every ordering alert currently live for a sheet's material lines — all of
+ * them, usage-tracked or not (0167) — most urgent kind first:
  *   over_order       — ordered past the estimate + the contractor's margin
- *   burn_rate        — usage running ahead of job progress (needs a started
- *                      job with an estimated duration)
  *   delivery_overdue — an order past its expected delivery date, not delivered
  *   not_ordered      — nothing ordered for a line with an estimate > 0, once
  *                      the scheduled start is within the lead-time window
@@ -546,38 +552,26 @@ const daysBetween = (fromISO: string, toISO: string) =>
  *                      no alert
  */
 export function materialAlerts(
-  project: Pick<Project, "estimated_duration_days" | "actual_start_date" | "actual_end_date" | "scheduled_start_date">,
-  trackedLines: (MaterialsItem & { section_id?: string })[],
+  project: Pick<Project, "scheduled_start_date">,
+  materialLines: (MaterialsItem & { section_id?: string })[],
   deliveries: DeliveryLineWithOrderStatus[],
-  usageLogs: MaterialsUsageLog[],
+  _usageLogs: MaterialsUsageLog[],
   settings: { overOrderMarginPct: number; notOrderedAlertDays: number },
   now: Date = new Date(),
   orders: AlertOrder[] = [],
 ): MaterialAlert[] {
   const alerts: MaterialAlert[] = [];
-  const duration = projectDurationStatus(project, now);
-  const jobProgressPct = duration.state === "in_progress" ? (duration.elapsedDays / duration.estimateDays) * 100 : null;
   const todayISO = localISO(now);
   const daysUntilStart = project.scheduled_start_date ? daysBetween(todayISO, project.scheduled_start_date) : null;
 
-  for (const line of executionTrackedLines(trackedLines)) {
+  for (const line of materialLines) {
     const estimated = effectiveEstimate(line).quantity;
     const ordered = orderedQuantity(line, deliveries);
-    const used = usedQuantity(line, usageLogs);
     const name = materialLineLabel(line);
     const base = { lineId: line.id, sectionId: line.section_id ?? null, lineName: name };
 
-    if (estimated > 0 && used > estimated) {
-      alerts.push({ ...base, key: "over_estimate", label: `${name} used ${Math.round(((used - estimated) / estimated) * 100)}% over estimate` });
-    }
     if (estimated > 0 && ordered > estimated * (1 + settings.overOrderMarginPct / 100)) {
       alerts.push({ ...base, key: "over_order", label: `${name} ordered ${Math.round(((ordered - estimated) / estimated) * 100)}% over estimate` });
-    }
-    if (jobProgressPct != null && estimated > 0) {
-      const usagePct = (used / estimated) * 100;
-      if (usagePct - jobProgressPct > BURN_RATE_ALERT_MARGIN_PP) {
-        alerts.push({ ...base, key: "burn_rate", label: `${name} ${Math.round(usagePct)}% used, job ${Math.round(jobProgressPct)}% through` });
-      }
     }
     if (
       estimated > 0 &&
@@ -606,14 +600,12 @@ export function materialAlerts(
 }
 
 const ALERT_WORDS: Record<MaterialAlertKind, [string, string]> = {
-  over_estimate: ["over estimate", "over estimate"],
   over_order: ["over-ordered", "over-ordered"],
-  burn_rate: ["using fast", "using fast"],
   delivery_overdue: ["delivery overdue", "deliveries overdue"],
   not_ordered: ["not ordered", "not ordered"],
 };
 
-/** "2 over estimate · 1 delivery overdue · 30 not ordered", most urgent
+/** "1 over-ordered · 1 delivery overdue · 30 not ordered", most urgent
  * first — the same line on the project page and the Cost plan. */
 export function materialAlertSummary(alerts: MaterialAlert[]): { key: MaterialAlertKind; count: number; text: string }[] {
   return MATERIAL_ALERT_ORDER.map((key) => {
