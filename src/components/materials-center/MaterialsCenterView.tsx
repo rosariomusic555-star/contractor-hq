@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { KpiCard } from "@/components/common/KpiCard";
 import { OrderSheetDialog } from "@/components/materials/OrderSheetDialog";
+import { unitFor } from "@/lib/materialsMath";
 import { useMaterialsCenter } from "@/hooks/use-materials-center";
 import type { MaterialOrder } from "@/lib/api";
 import { activeFeatures, countsTowardTotals, featureName as featureLabel } from "@/lib/features";
@@ -145,7 +146,18 @@ export function MaterialsCenterView({ projectId }: { projectId: string }) {
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-medium text-foreground [overflow-wrap:anywhere]">{l.label}</span>
                           <span className="block text-xs text-muted-foreground">
-                            Need {qty(l.needed)} {l.unit} · ordered {qty(l.ordered)} · <span className="font-semibold text-foreground">{qty(l.toOrder)} to order</span>
+                            {l.ordered > 0 ? (
+                              <>
+                                <span className="font-semibold text-foreground">
+                                  {qty(l.toOrder)} of {qty(l.needed)} {unitFor(l.needed, l.unit)} left to order
+                                </span>{" "}
+                                <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">Partially ordered</span>
+                              </>
+                            ) : (
+                              <>
+                                Need {qty(l.needed)} {unitFor(l.needed, l.unit)} · <span className="font-semibold text-foreground">{qty(l.toOrder)} to order</span>
+                              </>
+                            )}
                             {l.orderableHint != null && <span className="text-info"> · order {qty(l.orderableHint)} (full packages)</span>}
                           </span>
                           {l.usualSupplier && <span className="block text-[11px] text-muted-subtle">Usually from {l.usualSupplier}</span>}

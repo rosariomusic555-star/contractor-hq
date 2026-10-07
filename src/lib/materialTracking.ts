@@ -389,6 +389,23 @@ export function orderingStatus(ordered: number, delivered: number, hasOrder = fa
   return lineStatus(0, ordered, delivered, 0, hasOrder);
 }
 
+/** Some ordered, not all of it yet — "Partially ordered". */
+export function partiallyOrdered(estimated: number, ordered: number): boolean {
+  return ordered > 1e-6 && ordered + 1e-6 < estimated;
+}
+
+/** What's still to order on a line, in its unit (waste included): planned −
+ * already ordered, never below 0. Every new order prefills with this. */
+export function remainingToOrder(line: MaterialsItem, deliveries: DeliveryLineWithOrderStatus[]): number {
+  return Math.max(0, effectiveEstimate(line).quantity - orderedQuantity(line, deliveries));
+}
+
+/** The status chip's words — "Partially ordered" while an order covers only
+ * part of the line. */
+export function lineStatusLabel(status: LineStatus, estimated: number, ordered: number): string {
+  return status === "ordered" && partiallyOrdered(estimated, ordered) ? "Partially ordered" : LINE_STATUS_LABEL[status];
+}
+
 /** More used than planned — the quiet line note's test (0167). */
 export function overEstimate(estimated: number, used: number): boolean {
   return estimated > 0 && used > estimated + 1e-9;

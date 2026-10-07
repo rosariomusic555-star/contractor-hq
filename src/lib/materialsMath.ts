@@ -129,3 +129,10 @@ export function sortItemsByCost<T extends { quantity: number; unit_cost: number;
     .sort((a, b) => (a.total - b.total) * dir || a.index - b.index)
     .map((r) => r.item);
 }
+
+/** "6 pallets", "1 pallet", "120 sq ft" — count words get an s, measures don't. */
+const COUNT_UNITS = new Set(["pallet", "bag", "roll", "tube", "piece", "layer", "ton", "yard", "box", "bundle", "block", "cap"]);
+export function unitFor(quantity: number, unit: string | null | undefined): string {
+  const u = (unit ?? "").trim();
+  return COUNT_UNITS.has(u.toLowerCase()) && Math.abs(quantity - 1) > 1e-9 ? `${u}s` : u;
+}

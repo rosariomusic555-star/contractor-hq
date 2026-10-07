@@ -209,6 +209,8 @@ import {
   isProjectActive,
   revisedBaseline,
   orderingStatus,
+  remainingToOrder,
+  lineStatusLabel,
   overEstimate,
   usageStatus,
   hasAnyOrder,
@@ -1687,6 +1689,11 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         .map((sec) => ({ ...sec, materials_items: sec.materials_items.filter((i) => (i.cost_type ?? "material") === "material") })),
     [sections],
   );
+  // A new order prefills with what's still left on each line.
+  const orderSheetRemaining = useMemo(
+    () => new Map(orderSheetSections.flatMap((sec) => sec.materials_items.map((i) => [i.id, remainingToOrder(i, deliveries)] as const))),
+    [orderSheetSections, deliveries],
+  );
   const draftGeneral = draft.find((sec) => sec.is_general);
   const draftFeatureSections = draft.filter((sec) => !sec.is_general);
 
@@ -1992,6 +1999,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         sections={orderSheetSections}
         catalogItems={catalogItems}
         priceBookItems={priceBookItems}
+        quantityOverrides={orderSheetRemaining}
       />
 
       {historyFeatureId &&
@@ -3120,7 +3128,7 @@ function MaterialTrackingRow({
         <span className="text-xs font-semibold text-foreground/80">
           Est. {estimated} {u} · Ordered {ordered} · Delivered {delivered} · Used {used}
         </span>
-        <span className={LINE_STATUS_BADGE[status]}>{LINE_STATUS_LABEL[status]}</span>
+        <span className={LINE_STATUS_BADGE[status]}>{lineStatusLabel(status, estimated, ordered)}</span>
       </div>
 
       <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-border">
@@ -3166,7 +3174,7 @@ function MaterialOrderingRow({ unit, track }: { unit: string; track: { estimated
       <span className="text-xs text-muted-foreground">
         Needs {n(track.estimated)} {u} · Ordered {n(track.ordered)} · Delivered {n(track.delivered)}
       </span>
-      <span className={LINE_STATUS_BADGE[track.status]}>{LINE_STATUS_LABEL[track.status]}</span>
+      <span className={LINE_STATUS_BADGE[track.status]}>{lineStatusLabel(track.status, track.estimated, track.ordered)}</span>
     </div>
   );
 }

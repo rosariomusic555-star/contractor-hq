@@ -35,7 +35,7 @@ import {
 import { downloadOrderSheetPdf, orderSheetPdfForEmail } from "@/lib/orderSheetPdf";
 import { defaultOrderEmail } from "@/lib/orderSheetEmail";
 import { EmailOrderSheetStep, type OrderSheetPdf } from "./EmailOrderSheetStep";
-import { materialLineLabel } from "@/lib/materialsMath";
+import { materialLineLabel, unitFor } from "@/lib/materialsMath";
 import { withErrorBoundary } from "@/components/common/withErrorBoundary";
 
 interface OrderSheetDialogProps {
@@ -60,10 +60,19 @@ interface FlatItem {
   item: MaterialsItem;
   sectionName: string;
   category: string;
-  /** What goes on the sheet: waste-adjusted, rounded up to the package. */
+  /** What goes on the sheet by default: waste-adjusted, rounded up to the package. */
   orderQuantity: number;
   orderUnit: string | null;
+  /** Still to order, in the order unit (before package rounding). */
+  remaining: number;
 }
+
+const fmtQty = (v: number) => String(Math.round(v * 100) / 100);
+/** A typed order quantity, or null when it isn't a number above 0. */
+const parseQty = (raw: string | undefined): number | null => {
+  const n = Number(raw);
+  return raw != null && raw.trim() !== "" && Number.isFinite(n) && n > 0 ? n : null;
+};
 
 /**
  * "What do you want to order?" — picks a subset of a Materials Sheet's
@@ -116,6 +125,8 @@ function OrderSheetDialogInner({
   // 0162 — print line descriptions (on by default).
   const [includeDescriptions, setIncludeDescriptions] = useState(true);
   const [pendingLines, setPendingLines] = useState<ResolvedOrderLine[]>([]);
+  // "Order qty" per line — any amount above 0; prefilled with what's left.
+  const [qtyById, setQtyById] = useState<Record<string, string>>({});
 
   const catalogById = useMemo(() => new Map(catalogItems.map((c) => [c.id, c])), [catalogItems]);
   const { data: materialCategories = [] } = useQuery({ queryKey: ["material-categories"], queryFn: listMaterialCategories });
@@ -139,6 +150,8 @@ function OrderSheetDialogInner({
             const left = quantityOverrides?.get(item.id);
             return left != null ? ({ ...item, quantity: left, waste_percent: 0 } as MaterialsItem) : item;
           })
+          // Fully ordered already — nothing left to put on a sheet.
+          .filter((item) => Number(item.quantity) > 0)
           .map((item) => {
             const catalogProduct = item.catalog_product_id ? catalogById.get(item.catalog_product_id) : undefined;
             const priceBookItem = item.price_book_item_id ? priceBookById.get(item.price_book_item_id) : undefined;
@@ -146,7 +159,8 @@ function OrderSheetDialogInner({
               lineCategoryName(item, materialCategoryNameById) ?? catalogProduct?.category ?? priceBookItem?.category ?? guessOrderCategory(item.name),
             );
             const order = resolveOrderLine(item, catalogById, priceBookById, materialCategoryNameById);
-            return { item, sectionName: s.name, category, orderQuantity: order.quantity, orderUnit: order.unit };
+            const remaining = Number(item.quantity) * (1 + (Number(item.waste_percent) || 0) / 100);
+            return { item, sectionName: s.name, category, orderQuantity: order.quantity, orderUnit: order.unit, remaining };
           }),
       ),
     [sections, catalogById, priceBookById, materialCategoryNameById, quantityOverrides],
@@ -181,6 +195,7 @@ function OrderSheetDialogInner({
     setNotes("");
     setPoNumber("");
     setPendingLines([]);
+    setQtyById({});
     if (emailPdf) URL.revokeObjectURL(emailPdf.url);
     setEmailPdf(null);
     setEmailDefaults(null);
@@ -214,10 +229,15 @@ function OrderSheetDialogInner({
     });
   };
 
+  const qtyRaw = (f: FlatItem) => qtyById[f.item.id] ?? fmtQty(f.orderQuantity);
+  const selectedFlat = flatItems.filter((f) => selectedIds.has(f.item.id));
+  const badQty = selectedFlat.some((f) => parseQty(qtyRaw(f)) == null);
+  // Only the entered quantity goes on the sheet, the email and the order.
   const selectedLines = () =>
-    flatItems
-      .filter((f) => selectedIds.has(f.item.id))
-      .map((f) => resolveOrderLine(f.item, catalogById, priceBookById, materialCategoryNameById, colorCategoryIds));
+    selectedFlat.map((f) => ({
+      ...resolveOrderLine(f.item, catalogById, priceBookById, materialCategoryNameById, colorCategoryIds),
+      quantity: parseQty(qtyRaw(f)) ?? f.orderQuantity,
+    }));
   const missingColorCount = selectedLines().filter((l) => l.missingColor).length;
   const sheetHeader = () => ({
     includeDescriptions,
@@ -363,22 +383,57 @@ function OrderSheetDialogInner({
                   <div key={category}>
                     <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{category}</p>
                     <div className="space-y-0.5">
-                      {(itemsByCategory.get(category) ?? []).map(({ item, sectionName, orderQuantity, orderUnit }) => (
-                        <label
-                          key={item.id}
-                          className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/50 sm:min-h-0"
-                        >
-                          <Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() => toggleItem(item.id)} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm text-foreground">{materialLineLabel(item) || "Untitled item"}</span>
-                            {/* Which feature — several sections can have a "Wall Block". */}
-                            <span className="block truncate text-xs text-muted-foreground">{sectionName}</span>
-                          </span>
-                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                            {orderQuantity} {orderUnit || ""}
-                          </span>
-                        </label>
-                      ))}
+                      {(itemsByCategory.get(category) ?? []).map((f) => {
+                        const { item, sectionName, orderQuantity, orderUnit, remaining } = f;
+                        const on = selectedIds.has(item.id);
+                        const raw = qtyRaw(f);
+                        const entered = parseQty(raw);
+                        const over = entered != null ? entered - remaining : 0;
+                        return (
+                          <div key={item.id} className="rounded-lg hover:bg-muted/50">
+                            <label className="flex min-h-11 cursor-pointer items-center gap-3 px-2 py-2 sm:min-h-0">
+                              <Checkbox checked={on} onCheckedChange={() => toggleItem(item.id)} />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm text-foreground">{materialLineLabel(item) || "Untitled item"}</span>
+                                {/* Which feature — several sections can have a "Wall Block". */}
+                                <span className="block truncate text-xs text-muted-foreground">{sectionName}</span>
+                              </span>
+                              {!on && (
+                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                  {orderQuantity} {orderUnit || ""}
+                                </span>
+                              )}
+                            </label>
+                            {/* Order part of it now, the rest later. */}
+                            {on && (
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pb-2 pl-9 pr-2">
+                                <Label htmlFor={`os-qty-${item.id}`} className="text-xs font-semibold text-muted-foreground">
+                                  Order qty
+                                </Label>
+                                <Input
+                                  id={`os-qty-${item.id}`}
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="any"
+                                  value={raw}
+                                  onChange={(e) => setQtyById((m) => ({ ...m, [item.id]: e.target.value }))}
+                                  className={cn("h-10 w-24 tabular-nums", entered == null && "border-destructive")}
+                                  aria-describedby={`os-qty-hint-${item.id}`}
+                                />
+                                <span id={`os-qty-hint-${item.id}`} className="text-xs text-muted-foreground">
+                                  of {fmtQty(remaining)} {unitFor(remaining, orderUnit)} remaining
+                                  {entered == null
+                                    ? " · enter an amount above 0"
+                                    : over > 0.005
+                                      ? ` · ${fmtQty(over)} more than planned`
+                                      : ""}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -433,13 +488,13 @@ function OrderSheetDialogInner({
                 {selectedIds.size > 0 ? pluralize(selectedIds.size, "item") + " selected" : "Nothing selected yet"}
               </span>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={startEmail} disabled={selectedIds.size === 0 || generateMut.isPending}>
+                <Button variant="outline" onClick={startEmail} disabled={selectedIds.size === 0 || badQty || generateMut.isPending}>
                   <Mail className="mr-1.5 h-4 w-4" />
                   Email to supplier
                 </Button>
                 <Button
                   onClick={() => generateMut.mutate()}
-                  disabled={selectedIds.size === 0 || generateMut.isPending}
+                  disabled={selectedIds.size === 0 || badQty || generateMut.isPending}
                   className="font-bold"
                 >
                   <FileDown className="mr-1.5 h-4 w-4" />

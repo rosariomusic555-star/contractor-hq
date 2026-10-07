@@ -418,8 +418,10 @@ export function ProjectDetailView() {
   const { data: preconBundle } = usePreconBundle(id);
   // #precon (the header's pre-construction line) opens the checklist, on
   // Schedule.
+  const [preconExpand, setPreconExpand] = useState(0);
   useEffect(() => {
     if (location.hash !== "#precon") return;
+    setPreconExpand((n) => n + 1);
     if (tab !== "schedule") {
       const next = new URLSearchParams(searchParams);
       next.set("tab", "schedule");
@@ -720,6 +722,8 @@ export function ProjectDetailView() {
           projectId={id}
           onRecordPayment={() => setRecordPaymentOpen(true)}
           onAssignCrew={() => document.getElementById("schedule-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+          expandRequest={preconExpand}
+          onExpandHandled={() => setPreconExpand(0)}
         />
       </div>
     </>
