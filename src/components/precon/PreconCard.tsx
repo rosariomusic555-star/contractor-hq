@@ -11,7 +11,6 @@ import { addProjectPreconItem, createStartConfirmation, getProject, updatePrecon
 import { preconPhase, type ItemView, type PreconAction } from "@/lib/precon";
 import { useHeadsUp } from "@/components/schedule/rainDelayContext";
 import { usePreconBundle } from "./usePrecon";
-import { READINESS_LABEL, READINESS_TONE } from "./preconStyles";
 import { PreconItemSheet } from "./PreconItemSheet";
 
 const ACTION_LABEL: Record<PreconAction, string> = {
@@ -132,9 +131,11 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
           <ClipboardCheck className="h-4 w-4 text-muted-foreground" /> Pre-construction
         </h3>
         <div className="flex items-center gap-1">
-          {phase === "before" && (
-            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-bold", READINESS_TONE[r.status])}>
-              {r.status === "open" ? `${r.openRequired.length} item${r.openRequired.length === 1 ? "" : "s"} open` : READINESS_LABEL[r.status]}
+          {/* Setup tasks, not problems — no warning colors. Real issues (an
+              811 ticket that isn't clear / has expired) show on their row. */}
+          {phase === "before" && r.status === "ready" && (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Ready to start
             </span>
           )}
           <DropdownMenu>
@@ -154,7 +155,7 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
       </div>
 
       {phase === "started" ? (
-        <button type="button" onClick={() => setExpanded((e) => !e)} className="mt-1 flex items-center gap-1 text-sm font-semibold text-warning">
+        <button type="button" onClick={() => setExpanded((e) => !e)} className="mt-1 flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground">
           {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           Started with {openCount} open item{openCount === 1 ? "" : "s"}
         </button>
@@ -165,7 +166,7 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
             {r.daysToStart != null && r.daysToStart >= 0 && ` · starts in ${r.daysToStart} day${r.daysToStart === 1 ? "" : "s"}`}
           </p>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className={cn("h-full rounded-full", r.status === "blocked" ? "bg-destructive" : "bg-primary")} style={{ width: `${r.total ? (r.done / r.total) * 100 : 0}%` }} />
+            <div className="h-full rounded-full bg-muted-foreground/50" style={{ width: `${r.total ? (r.done / r.total) * 100 : 0}%` }} />
           </div>
         </>
       )}
@@ -241,8 +242,10 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
         <ul className="mt-3 divide-y divide-hairline">
           {r.views.map((v) => {
             const Icon = v.state === "done" ? CheckCircle2 : v.state === "na" ? MinusCircle : v.warnings.length ? AlertTriangle : Circle;
+            // An open item is just an unchecked row; only a real warning on it
+            // (811 not clear / expired) gets color.
             const tone =
-              v.state === "done" ? "text-success" : v.state === "na" ? "text-muted-subtle" : v.item.required ? (r.status === "blocked" ? "text-destructive" : "text-warning") : "text-muted-foreground";
+              v.state === "done" ? "text-success" : v.state === "na" ? "text-muted-subtle" : v.warnings.length ? "text-warning" : "text-muted-foreground";
             return (
               <li key={v.item.id} className="flex items-start gap-2 py-1">
                 <button type="button" onClick={() => setEditing(v)} className="flex min-h-[48px] min-w-0 flex-1 items-start gap-2.5 rounded-lg py-1.5 text-left hover:bg-muted/40">
