@@ -1669,6 +1669,76 @@ export async function createProject(input: {
   return data;
 }
 
+/** Where a standalone quote can go (0166): this client's open
+ * opportunities — linking one marks it Won instead of leaving a duplicate
+ * lead — and its projects that don't have a signed quote yet. */
+export async function listStandaloneQuoteTargets(
+  clientId: string,
+): Promise<{ opportunities: Opportunity[]; projects: Project[] }> {
+  const [opps, projects, quotes] = await Promise.all([
+    listOpportunitiesForClient(clientId),
+    listProjectsForClient(clientId),
+    supabase.from("quotes").select("project_id, status, kind").not("project_id", "is", null).eq("status", "approved"),
+  ]);
+  const signed = new Set(
+    ((quotes.data ?? []) as { project_id: string; kind: string | null }[])
+      .filter((q) => (q.kind ?? "original") === "original")
+      .map((q) => q.project_id),
+  );
+  return {
+    opportunities: opps.filter((o) => o.stage !== "won" && o.stage !== "lost"),
+    projects: projects.filter((p) => !signed.has(p.id) && p.status !== "complete" && p.status !== "lost"),
+  };
+}
+
+export interface StandaloneQuoteConversion {
+  project_id: string;
+  /** The quote was approved — the project is Won (Scheduled). */
+  won: boolean;
+  /** The draft deposit invoice, when one was drafted (or already was). */
+  deposit_invoice_id: string | null;
+}
+
+/**
+ * The one way a standalone quote joins a project (0166) — the "Create
+ * project" modal, wherever it opens. Into an existing project of the
+ * client's, the open opportunity's project, or a new project. The SQL moves
+ * the quote, links the opportunity, makes a feature per section and, for an
+ * approved quote, does the Won step; then the Cost plan gets the features'
+ * sections as usual.
+ */
+export async function createProjectFromQuote(input: {
+  quoteId: string;
+  /** An existing project of the client's — name / address are ignored. */
+  projectId?: string | null;
+  /** The client's open opportunity, linked and marked Won. */
+  opportunity?: Pick<Opportunity, "id" | "project_id"> | null;
+  name: string;
+  clientId: string | null;
+  address: string | null;
+}): Promise<StandaloneQuoteConversion> {
+  let projectId = input.projectId ?? input.opportunity?.project_id ?? null;
+  let created = false;
+  if (!projectId) {
+    const project = await createProject({ name: input.name.trim(), client_id: input.clientId, address: input.address?.trim() || null });
+    projectId = project.id;
+    created = true;
+    void logProjectEvent(projectId, "project_created", "Project created from a standalone quote");
+  }
+  const { data, error } = await supabase.rpc("convert_standalone_quote", {
+    p_quote_id: input.quoteId,
+    p_project_id: projectId,
+    p_opportunity_id: input.opportunity?.id ?? null,
+  });
+  if (error) {
+    // Don't leave an empty project behind.
+    if (created) await deleteProject(projectId).catch(() => undefined);
+    throw error;
+  }
+  await ensureFeatureSections(projectId).catch(() => 0);
+  return data as StandaloneQuoteConversion;
+}
+
 export async function updateProject(
   id: string,
   patch: Partial<
@@ -5268,7 +5338,8 @@ export type ProjectEventKind =
   | "client_heads_up"
   | "review_requested"
   | "review_link_clicked"
-  | "order_sheet_emailed";
+  | "order_sheet_emailed"
+  | "quote_converted";
 
 export interface ProjectEvent {
   id: string;

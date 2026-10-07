@@ -213,6 +213,20 @@ export function ProjectDetailView() {
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices", { project: id }], queryFn: () => listInvoices(id) });
   const { data: payments = [] } = useQuery({ queryKey: ["payments", { project: id }], queryFn: () => listPayments(id) });
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  // ?then=… — carried on to from a standalone quote that just became this
+  // project (useContinueProjectAction): open Record payment, or bring the
+  // Schedule card into view once the project has loaded.
+  const thenAction = searchParams.get("then");
+  useEffect(() => {
+    if (!project || !thenAction) return;
+    if (thenAction === "record-payment") setRecordPaymentOpen(true);
+    if (thenAction === "schedule") {
+      const card = document.getElementById("schedule-card");
+      card?.scrollIntoView({ behavior: "smooth", block: "start" });
+      card?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+    }
+    setSearchParams({}, { replace: true });
+  }, [project, thenAction, setSearchParams]);
   // Pre-construction (0124): starting with required items open is a
   // warning ("Start anyway"), never a block.
   const [startGuard, setStartGuard] = useState<null | { apply: () => void; open: string[] }>(null);

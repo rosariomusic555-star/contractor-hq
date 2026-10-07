@@ -21,7 +21,7 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, pluralize, formatDate } from "@/lib/utils";
 import { listQuotes, createQuote, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
-import { quoteStatusMeta } from "@/lib/statusMeta";
+import { quoteListStatusMeta } from "@/lib/statusMeta";
 
 /** "open" is a combined filter — draft + sent, i.e. not yet approved/declined/
  * expired. Same definition the Dashboard's own "Open quotes" KPI uses, so
@@ -178,7 +178,7 @@ export function QuotesView() {
                       <td className="font-bold text-foreground">{q.project?.name ?? "Standalone quote"}</td>
                       <td className="text-muted-foreground">{clientOf(q)}</td>
                       <td className="font-bold tabular-nums">{total > 0 ? formatCurrency(total) : "—"}</td>
-                      <td><StatusPill meta={quoteStatusMeta(q.status)} /></td>
+                      <td><StatusPill meta={quoteListStatusMeta(q)} /></td>
                       <td><QuoteActivityBadge quote={q} settings={activitySettings} /></td>
                       <td className="text-muted-foreground">{formatDate(q.updated_at)}</td>
                       <td onClick={(e) => e.stopPropagation()}>
@@ -216,7 +216,7 @@ export function QuotesView() {
           {/* Mobile cards */}
           <div className="space-y-2.5 md:hidden">
             {filtered.map(({ q, total }) => {
-              const meta = quoteStatusMeta(q.status);
+              const meta = quoteListStatusMeta(q);
               return (
                 <ListCard
                   key={q.id}

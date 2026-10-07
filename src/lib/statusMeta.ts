@@ -84,6 +84,12 @@ export function quoteStatusMeta(status: string): StatusMeta {
   return QUOTE_META[status as QuoteVisualStatus] ?? meta(titleCase(status), "grey");
 }
 
+/** A quote's pill in lists: an approved standalone quote (0166) reads
+ * "Approved · No project" (amber) until it's turned into a project. */
+export function quoteListStatusMeta(q: { status: string; project_id: string | null }): StatusMeta {
+  return q.status === "approved" && q.project_id == null ? meta("Approved · No project", "amber") : quoteStatusMeta(q.status);
+}
+
 // ---------------------------------------------------------------------------
 // Invoices
 // ---------------------------------------------------------------------------
