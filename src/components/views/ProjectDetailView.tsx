@@ -3,6 +3,12 @@ import { ExpensesHubCard } from "@/components/job-costs/ExpensesHubCard";
 import { MaterialsHubCard } from "@/components/materials-center/MaterialsHubCard";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
 import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
+import { NewOverview, NewOverviewHeader, type OverviewMoney } from "@/components/project-overview/NewOverview";
+import { useJobCosts } from "@/hooks/use-job-costs";
+import { Switch } from "@/components/ui/switch";
+import { featureProfitRows, overviewStatusLabel, type NextAction } from "@/lib/projectOverview";
+import { usePreconBundle } from "@/components/precon/usePrecon";
+import { preconPhase } from "@/lib/precon";
 import { useParams, useNavigate, useSearchParams, useLocation, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -37,7 +43,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { PaymentsList } from "@/components/payments/PaymentsList";
@@ -175,9 +180,6 @@ import { PreconSummaryLine } from "@/components/precon/PreconSummaryLine";
 import { useUrlTab } from "@/hooks/use-url-tab";
 import { PROJECT_TABS, projectHref, type ProjectTab } from "@/lib/projectTabs";
 import { delayDays } from "@/lib/scheduleShift";
-
-const shortDate = (iso: string) =>
-  new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 const expenseDate = (iso: string | null) =>
   iso
@@ -410,6 +412,10 @@ export function ProjectDetailView() {
     queryKey: ["progress-updates", id],
     queryFn: () => listProgressUpdates(id),
   });
+  // Job costs — the one source for projected profit / margin (jobCosts.ts →
+  // plannedActual.ts), also used by the Money card's margin below.
+  const jobCosts = useJobCosts(id);
+  const { data: preconBundle } = usePreconBundle(id);
   // #precon (the header's pre-construction line) opens the checklist, on
   // Schedule.
   useEffect(() => {
@@ -446,7 +452,7 @@ export function ProjectDetailView() {
   const depositOverdue = isDepositOverdue(headlineQuote, paidTotal);
   const depositRequired = headlineDepositDue(headlineQuote);
   const billing = projectBillingBadge(contract, projectInvoicedTotal, paidTotal, depositRequired);
-  // "Won — project ready" CTAs, each shown only while it's still to do:
+  // "Won — next: …" CTAs, each shown only while it's still to do:
   // - Schedule: until the job has a start date (editable any time in the
   //   Schedule card).
   // - Deposit: by the deposit invoice's own status — a draft still needs
@@ -545,10 +551,24 @@ export function ProjectDetailView() {
   const predictedCost = costPlan.planned.total > 0 ? costPlan.planned.total : null;
   // Actual cost only once the job's Complete — mid-job spend is a fraction of
   // the cost, and read as ~100% margin (same rule as the Profit summary).
-  const showActualMargin = project.status === "complete" && actualCost != null;
-  const realCost = showActualMargin ? resolveCost(actualCost, predictedCost) : predictedCost;
-  const marginPct = contract > 0 && realCost != null ? Math.round(((contract - realCost) / contract) * 100) : null;
-  const marginProfit = realCost != null ? contract - realCost : null;
+  // Projected (or, once Complete and reconciled, final) profit — contract
+  // minus projected total cost, the same figure as Job costs / Planned vs
+  // actual and the New overview (jobCostReport). Never contract − spend.
+  const overviewMoney: OverviewMoney | null = jobCosts
+    ? (() => {
+        const { rows, total } = featureProfitRows({
+          report: jobCosts.report,
+          quotes,
+          changeOrders,
+          jobOpen: project.status !== "complete",
+          materialsCounted: jobCosts.report.materials.counted,
+        });
+        return { report: jobCosts.report, rows, total, final: project.status === "complete" && jobCosts.report.materials.counted };
+      })()
+    : null;
+  const showActualMargin = !!overviewMoney?.final;
+  const marginPct = overviewMoney?.total.margin != null ? Math.round(overviewMoney.total.margin) : null;
+  const marginProfit = overviewMoney && overviewMoney.total.price > 0 ? overviewMoney.total.profit : null;
 
   const weatherDelayDays = delayDays(scheduleDelays, project.id).weather;
   const durationStatus = projectDurationStatus(project, new Date(), weatherDelayDays);
@@ -617,17 +637,6 @@ export function ProjectDetailView() {
   );
 
 
-  const mobileHeader = (
-    <>
-      <MobilePageHeader
-        title={project.name}
-        subtitle={`${project.client?.name ?? "No client"}${crewName ? ` · ${crewName}` : ""}`}
-        back={{ to: "/projects", label: "Projects" }}
-        pills={<StatusPill meta={meta} className="!bg-white/20 !text-sidebar-foreground" />}
-      />
-    </>
-  );
-
 
   const preSaleNotice = (
     <>
@@ -663,28 +672,16 @@ export function ProjectDetailView() {
     </>
   );
 
-  const linkedOpportunityLine = (
-    <>
-      {linkedOpportunity && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="font-semibold text-muted-foreground">From pipeline:</span>
-          <Link to={`/pipeline/${linkedOpportunity.id}`} className="font-bold text-primary hover:underline">
-            {linkedOpportunity.title}
-          </Link>
-          <StatusPill meta={opportunityStageMeta(linkedOpportunity.stage)} />
-        </div>
-      )}
-    </>
-  );
-
   const wonBanner = (
     <>
       {showWonBanner && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-success/30 bg-success/10 p-4">
           <div className="flex items-center gap-2.5">
             <PartyPopper className="h-5 w-5 shrink-0 text-success" />
-            <p className="text-sm font-bold text-foreground">Won — project ready</p>
+            <p className="text-sm font-bold text-foreground">
+              Won — next:{" "}
+              {showScheduleCta && depositCta ? "schedule the job and send the deposit invoice" : showScheduleCta ? "schedule the job" : "send the deposit invoice"}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {showScheduleCta && (
@@ -1017,7 +1014,7 @@ export function ProjectDetailView() {
         {marginProfit != null && (
           <div className="mt-3 rounded-xl bg-primary/10 p-3">
             <div className="text-xs font-semibold text-success">
-              {showActualMargin ? "Actual" : "Projected"} margin
+              {showActualMargin ? "Final" : "Projected"} margin
             </div>
             <div className="mt-0.5 text-2xl font-extrabold tracking-tight text-foreground">
               {marginPct}% <span className="text-sm font-bold text-muted-foreground">· {formatCurrency(marginProfit)}</span>
@@ -1458,15 +1455,9 @@ export function ProjectDetailView() {
 
 
   // ---- Tabs --------------------------------------------------------------
-  const goTab = (t: ProjectTab) => () => setTab(t);
   const overdueInvoiceCount = invoices.filter((i) => invoiceDaysLate(i) > 0).length;
   const moneyBadge = overdueInvoiceCount || (depositOverdue ? 1 : 0);
   const pendingUpdates = progressUpdates.filter((u) => u.status === "pending");
-  const latestUpdate = progressUpdates.find((u) => u.status !== "pending") ?? null;
-  const nextDelivery =
-    materialOrders
-      .filter((o) => o.status !== "delivered" && o.expected_delivery_date)
-      .sort((a, b) => a.expected_delivery_date!.localeCompare(b.expected_delivery_date!))[0] ?? null;
   const showsAftercare = project.status === "complete" && !!project.client_id;
 
   const tabs: PageTab<ProjectTab>[] = [
@@ -1489,111 +1480,42 @@ export function ProjectDetailView() {
     { id: "activity", label: "Activity log" },
   ];
 
+  // New overview: the deposit / schedule steps the page already runs.
+  const overviewExtras: NextAction[] = [
+    ...(depositCta === "open"
+      ? [{ key: "deposit", title: "Send the deposit invoice", detail: "Drafted and ready to send", href: `/projects/${id}/invoices/${depositInvoice!.id}` }]
+      : depositCta === "create"
+        ? [{ key: "deposit", title: "Send the deposit invoice", detail: "Creates it pre-filled from the quote", href: `/projects/${id}/invoices`, onClick: () => createDepositMut.mutate() }]
+        : depositOverdue
+          ? [{ key: "deposit", title: "Collect the deposit", detail: "Deposit not received yet", href: `/projects/${id}/invoices` }]
+          : []),
+    ...(showScheduleCta && (project.status === "scheduled" || project.status === "in_progress")
+      ? [{ key: "schedule", title: "Schedule the job", detail: "No start date yet", href: projectHref(id, "schedule", { then: "schedule" }) }]
+      : []),
+  ];
+  const readyToStart = preconBundle && preconPhase(preconBundle.project) === "before" ? preconBundle.readiness.status === "ready" : null;
+
   const tabBody: Record<ProjectTab, () => ReactNode> = {
     overview: () => (
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <OverviewCard title="Money" onOpen={goTab("money")}>
-              <MoneyRow label="Contract value" value={contract > 0 ? formatCurrency(contract) : "—"} />
-              <MoneyRow label="Paid" value={formatCurrency(money.received)} />
-              <MoneyRow
-                label={money.overpaid > 0.004 ? "Credit balance" : "Remaining"}
-                value={money.overpaid > 0.004 ? <span className="text-success">{formatCurrency(money.overpaid)}</span> : formatCurrency(money.remaining)}
-                strong
-              />
-              {marginProfit != null && (
-                <MoneyRow label={`${showActualMargin ? "Actual" : "Projected"} margin`} value={`${marginPct}% · ${formatCurrency(marginProfit)}`} />
-              )}
-              {(depositOverdue || overdueInvoiceCount > 0) && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  {overdueInvoiceCount > 0 ? `${pluralize(overdueInvoiceCount, "invoice")} overdue` : "Deposit not received"}
-                </p>
-              )}
-            </OverviewCard>
-
-            <OverviewCard title="Schedule" onOpen={goTab("schedule")}>
-              <MoneyRow
-                label="Dates"
-                value={
-                  project.scheduled_start_date
-                    ? `${shortDate(project.scheduled_start_date)}${project.scheduled_end_date ? ` – ${shortDate(project.scheduled_end_date)}` : ""}`
-                    : "Not scheduled"
-                }
-              />
-              <MoneyRow label="Crew" value={crewName ?? "Not assigned"} />
-              <MoneyRow
-                label="Duration"
-                value={
-                  durationStatus.state === "in_progress"
-                    ? `Day ${durationStatus.elapsedDays} of ${durationStatus.estimateDays}`
-                    : project.estimated_duration_days
-                      ? pluralize(project.estimated_duration_days, "crew day")
-                      : "No estimate"
-                }
-              />
-              {project.scheduled_start_date && project.status !== "complete" && project.status !== "lost" && (
-                <div className="mt-3 border-t border-hairline pt-3">
-                  <ProjectForecastStrip projectId={project.id} start={project.scheduled_start_date} end={project.scheduled_end_date} />
-                </div>
-              )}
-            </OverviewCard>
-
-            <OverviewCard title="Estimate" onOpen={goTab("estimate")}>
-              <MoneyRow label="Cost plan" value={costPlanSummaryLine} />
-              <MoneyRow label="Quotes" value={quotesSummary} />
-              <MoneyRow label="Change orders" value={changeOrdersSummary} />
-            </OverviewCard>
-
-            <OverviewCard title="Materials" onOpen={goTab("materials")}>
-              <MoneyRow label="Orders" value={materialOrdersSummary} />
-              <MoneyRow
-                label="Next delivery"
-                value={nextDelivery ? `${shortDate(nextDelivery.expected_delivery_date!)}${nextDelivery.supplier ? ` · ${nextDelivery.supplier}` : ""}` : "None scheduled"}
-              />
-            </OverviewCard>
-          </div>
-
-          <OverviewCard title="Latest update" onOpen={goTab("updates")}>
-            {latestUpdate ? (
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
-                  {timeAgo(latestUpdate.created_at)}
-                  {latestUpdate.author_name ? ` · ${latestUpdate.author_name}` : ""}
-                </p>
-                <p className="mt-0.5 line-clamp-2 text-sm text-foreground">
-                  {[latestUpdate.milestone, latestUpdate.note].filter(Boolean).join(" — ") || "Photo update"}
-                </p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No progress updates yet.</p>
-            )}
-            {pendingUpdates.length > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">{pluralize(pendingUpdates.length, "crew update")} to review</p>
-            )}
-          </OverviewCard>
-        </div>
-
-        <div className="space-y-5">
-          {clientCard}
-          <OverviewCard title="Recent activity" action="See all" onOpen={goTab("activity")}>
-            {events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No activity yet.</p>
-            ) : (
-              <ul className="space-y-3">
-                {events.slice(0, 5).map((e) => (
-                  <li key={e.id}>
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-muted-subtle">{timeAgo(e.created_at)}</div>
-                    <div className="mt-0.5 text-[13px] text-foreground/80">{e.summary}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </OverviewCard>
-        </div>
-      </div>
-    ),
+        <NewOverview
+          project={project}
+          crewName={crewName}
+          weatherDays={weatherDelayDays}
+          contract={contract}
+          paid={money.received}
+          remaining={money.remaining}
+          overpaid={money.overpaid}
+          quotes={quotes}
+          changeOrders={changeOrders}
+          invoices={invoices}
+          events={events}
+          money={overviewMoney}
+          extras={overviewExtras}
+          onInviteToHub={() => inviteToHubMut.mutate()}
+          invitePending={inviteToHubMut.isPending}
+          goTab={(t) => setTab(t)}
+        />
+      ),
 
     estimate: () => (
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -1684,31 +1606,41 @@ export function ProjectDetailView() {
     activity: () => <div className="max-w-2xl">{activityCard}</div>,
   };
 
+  const header = (
+    <>
+      <BackLink to="/projects" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Projects</BackLink>
+      <NewOverviewHeader
+        project={project}
+        statusLabel={overviewStatusLabel(project, readyToStart)}
+        contract={contract}
+        margin={overviewMoney?.total.margin ?? null}
+        marginLabel={showActualMargin ? "Final margin" : "Projected margin"}
+        featureNames={projectCategoryIds(project).map((cid) => jobCategories.find((c) => c.id === cid)?.name).filter((n): n is string => !!n)}
+        featureEditor={featureChips}
+        statusSelect={statusSelect}
+        onMoney={() => setTab("money")}
+        below={
+          <div className="space-y-3">
+            {preSaleNotice}
+            {wonBanner}
+            {reconcileBanner}
+            <div className="flex flex-wrap items-center justify-between gap-x-4">
+              <PreconSummaryLine projectId={id} to={`${projectHref(id, "schedule")}#precon`} className="mt-0" />
+              {linkedOpportunity && (
+                <Link to={`/pipeline/${linkedOpportunity.id}`} className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                  <Link2 className="h-3.5 w-3.5" /> From pipeline: {linkedOpportunity.title}
+                </Link>
+              )}
+            </div>
+          </div>
+        }
+      />
+    </>
+  );
+
   return (
     <div className="animate-fade-in space-y-5">
-      {mobileHeader}
-      {/* Desktop header — the client links to their page; the site address. */}
-      <div className="hidden md:block">
-        <BackLink to="/projects" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Projects</BackLink>
-        <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground">{project.name}</h1>
-              <StatusPill meta={meta} />
-            </div>
-            <ClientAndAddress project={project} crewName={crewName} className="mt-1" />
-          </div>
-          {statusSelect}
-        </div>
-      </div>
-      <ClientAndAddress project={project} crewName={null} className="-mt-1 md:hidden" />
-      {preSaleNotice}
-      <div className="md:hidden">{statusSelect}</div>
-      {featureChips}
-      {linkedOpportunityLine}
-      {wonBanner}
-      <PreconSummaryLine projectId={id} to={`${projectHref(id, "schedule")}#precon`} className="-my-2" />
-      {reconcileBanner}
+      {header}
 
       <div ref={tabsAnchorRef} aria-hidden />
       <PageTabs
@@ -2177,65 +2109,7 @@ function ReconcileMaterialsDialog({
   );
 }
 
-/** An Overview card: a few facts, and a link into its tab. */
-function OverviewCard({
-  title,
-  action = "View",
-  onOpen,
-  children,
-}: {
-  title: string;
-  action?: string;
-  onOpen: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <section className="card-surface p-5">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-base font-bold text-foreground">{title}</h3>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="-mr-2 inline-flex min-h-9 items-center gap-0.5 rounded-md px-2 text-[13px] font-semibold text-primary hover:bg-primary/5"
-        >
-          {action}
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {children}
-    </section>
-  );
-}
 
-/** Header line: client (links to their page), crew, site address. */
-function ClientAndAddress({
-  project,
-  crewName,
-  className,
-}: {
-  project: { client_id: string | null; client?: { name: string } | null; address?: string | null };
-  crewName: string | null;
-  className?: string;
-}) {
-  return (
-    <p className={cn("flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground", className)}>
-      {project.client_id && project.client ? (
-        <Link to={`/clients/${project.client_id}`} className="font-semibold text-foreground hover:underline">
-          {project.client.name}
-        </Link>
-      ) : (
-        <span>No client</span>
-      )}
-      {crewName && <span>· {crewName}</span>}
-      {project.address && (
-        <span className="inline-flex min-w-0 items-center gap-1">
-          · <MapPin className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{project.address}</span>
-        </span>
-      )}
-    </p>
-  );
-}
 
 /** True once `ref` (a marker just above the tab bar) has scrolled above the
  * top of the window — the tab bar then shows the compact title. */
