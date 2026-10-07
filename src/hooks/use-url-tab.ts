@@ -10,9 +10,11 @@ import { useSearchParams } from "react-router-dom";
  * were; a tab you haven't opened yet starts at the tab bar (`anchorRef`), or
  * stays put if the page isn't scrolled that far.
  */
-export function useUrlTab<T extends string>(ids: readonly T[], fallback: T, param = "tab") {
+export function useUrlTab<T extends string>(ids: readonly T[], fallback: T, param = "tab", aliases: Record<string, T> = {}) {
   const [params, setParams] = useSearchParams();
-  const raw = params.get(param);
+  const raw0 = params.get(param);
+  // An old key (e.g. ?tab=estimate) opens its tab now.
+  const raw = raw0 && aliases[raw0] ? aliases[raw0] : raw0;
   const active = (raw && (ids as readonly string[]).includes(raw) ? raw : fallback) as T;
 
   const scrolls = useRef(new Map<string, number>());

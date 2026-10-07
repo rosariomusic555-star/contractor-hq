@@ -245,7 +245,7 @@ export function ProjectChangeOrdersView() {
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                   {newButton()}
                   <Button variant="outline" asChild>
-                    <Link to={projectHref(id, "estimate", { "add-new-work": "1" })}>
+                    <Link to={projectHref(id, "change-orders", { "add-new-work": "1" })}>
                       <FilePlus2 className="mr-1.5 h-4 w-4" /> Add new work
                     </Link>
                   </Button>

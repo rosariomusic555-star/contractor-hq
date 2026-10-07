@@ -110,7 +110,7 @@ export function RecentActivity({ className }: { className?: string }) {
         amount: Number(p.amount),
         status: "completed",
         createdAt: p.created_at,
-        linkTo: p.project_id ? projectHref(p.project_id, "money") : `/receipt/${p.share_token}`,
+        linkTo: p.project_id ? projectHref(p.project_id, "invoices") : `/receipt/${p.share_token}`,
       })),
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

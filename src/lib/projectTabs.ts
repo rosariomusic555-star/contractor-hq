@@ -3,8 +3,11 @@
  * param. Links that should land on a particular part of a project use
  * projectHref().
  */
-export const PROJECT_TABS = ["overview", "estimate", "schedule", "materials", "money", "updates", "hub", "aftercare", "activity"] as const;
+export const PROJECT_TABS = ["overview", "estimates", "invoices", "change-orders", "materials", "schedule", "money", "updates", "hub", "aftercare", "activity"] as const;
 export type ProjectTab = (typeof PROJECT_TABS)[number];
+
+/** Old tab keys still in links / bookmarks → their tab now. */
+export const PROJECT_TAB_ALIASES: Record<string, ProjectTab> = { estimate: "estimates" };
 
 /** `/projects/<id>?tab=<tab>` (+ any extra params, e.g. maintenance=setup). */
 export function projectHref(projectId: string, tab?: ProjectTab | null, extra?: Record<string, string>): string {
