@@ -65,6 +65,7 @@ function HeaderLink({ link }: { link: CardLink }) {
  */
 export function OverviewCard({
   title,
+  headerTo,
   links = [],
   status = "ready",
   onRetry,
@@ -73,6 +74,8 @@ export function OverviewCard({
   children,
 }: {
   title: string;
+  /** The title opens this (the whole header reads as "open"). */
+  headerTo?: string;
   links?: CardLink[];
   status?: "loading" | "error" | "ready";
   onRetry?: () => void;
@@ -83,7 +86,15 @@ export function OverviewCard({
   return (
     <section className={cn("rounded-card border border-border bg-card p-5", className)} aria-label={title}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <h3 className="text-[15px] font-bold text-foreground">{title}</h3>
+        <h3 className="text-[15px] font-bold text-foreground">
+          {headerTo ? (
+            <Link to={headerTo} className="inline-flex min-h-9 items-center rounded-md hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
+        </h3>
         {links.length > 0 && (
           <div className="-mr-1.5 flex flex-wrap items-center gap-x-2">
             {links.map((l) => (
