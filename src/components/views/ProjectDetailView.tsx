@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import { ExpensesHubCard } from "@/components/job-costs/ExpensesHubCard";
 import { MaterialsHubCard } from "@/components/materials-center/MaterialsHubCard";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
-import { MaterialAlertsBar } from "@/components/materials/MaterialAlertsBar";
-import { markLinesOrdered } from "@/lib/materialAlertActions";
+import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
 import { useParams, useNavigate, useSearchParams, useLocation, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -132,7 +131,7 @@ import {
 import {
   sheetCostSummary,
   materialAlerts,
-  startContext,
+  overEstimate,
   needsReconciliation,
   leftoverQuantity,
   deliveredQuantity,
@@ -396,24 +395,6 @@ export function ProjectDetailView() {
 
   // The Won banner's "Send deposit invoice" when no deposit invoice exists
   // (never created, or deleted) — creates a pre-filled one and opens it.
-  // Material alerts' quick actions: log the group as ordered in one tap,
-  // or stop tracking a line that isn't needed / is already on hand.
-  const markOrderedMut = useMutation({
-    mutationFn: (lineIds: string[]) => markLinesOrdered(id, trackedLines.filter((l) => lineIds.includes(l.id))),
-    onSuccess: (_o, lineIds) => {
-      qc.invalidateQueries({ queryKey: ["material-orders"] });
-      toast({ title: `${pluralize(lineIds.length, "line")} marked ordered`, description: "Logged as one order — add the supplier and delivery date under Material orders." });
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-  const notNeededMut = useMutation({
-    mutationFn: (lineId: string) => updateMaterialsItem(lineId, { tracked: false }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["materials"] });
-      toast({ title: "Won't alert for that line", description: "Tracking is off for it — turn it back on in the Cost plan." });
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
 
   const createDepositMut = useMutation({
     mutationFn: () => createProjectInvoice(id, "deposit"),
@@ -488,21 +469,6 @@ export function ProjectDetailView() {
   const materialCostSummary = sheetCostSummary(trackedLines, deliveries, usageLogs);
   const unreconciledLines = needsReconciliation(trackedLines, deliveries, usageLogs);
   const materialsFullyReconciled = trackedLines.length > 0 && unreconciledLines.length === 0;
-  const materialAlertList = businessProfile
-    ? materialAlerts(
-        project,
-        trackedLines,
-        deliveries,
-        usageLogs,
-        {
-          overOrderMarginPct: businessProfile.material_over_order_margin_pct,
-          notOrderedAlertDays: businessProfile.material_not_ordered_alert_days,
-        },
-        new Date(),
-        materialOrders,
-      )
-    : [];
-  const sectionNames = new Map(materials.map((sec) => [sec.id, sec.name]));
 
   const expensesTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
   const laborActualTotal = laborEntries.reduce((s, e) => s + Number(e.cost), 0);
@@ -746,21 +712,6 @@ export function ProjectDetailView() {
         projectId={id}
         onRecordPayment={() => setRecordPaymentOpen(true)}
         onAssignCrew={() => document.getElementById("schedule-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}
-      />
-    </>
-  );
-
-  const alertsBar = (
-    <>
-      {/* Material alerts — one slim line; Review opens them grouped by feature. */}
-      <MaterialAlertsBar
-        projectId={id}
-        alerts={materialAlertList}
-        sectionNames={sectionNames}
-        context={startContext(project.scheduled_start_date)}
-        onMarkOrdered={(ids) => markOrderedMut.mutate(ids)}
-        onNotNeeded={(lineId) => notNeededMut.mutate(lineId)}
-        busy={markOrderedMut.isPending || notNeededMut.isPending}
       />
     </>
   );
@@ -1511,7 +1462,7 @@ export function ProjectDetailView() {
     { id: "overview", label: "Overview" },
     { id: "estimate", label: "Estimate", badge: pendingCOCount, badgeLabel: `${pluralize(pendingCOCount, "change order")} awaiting the client` },
     { id: "schedule", label: "Schedule", badge: openPrecon, badgeTone: "warn", badgeLabel: `${pluralize(openPrecon, "required item")} still open` },
-    { id: "materials", label: "Materials", badge: materialAlertList.length, badgeTone: "warn", badgeLabel: pluralize(materialAlertList.length, "material alert") },
+    { id: "materials", label: "Materials" },
     {
       id: "money",
       label: "Money",
@@ -1585,10 +1536,6 @@ export function ProjectDetailView() {
             </OverviewCard>
 
             <OverviewCard title="Materials" onOpen={goTab("materials")}>
-              <MoneyRow
-                label="Alerts"
-                value={materialAlertList.length ? <span className="text-warning-strong">{materialAlertList.length}</span> : "None"}
-              />
               <MoneyRow label="Orders" value={materialOrdersSummary} />
               <MoneyRow
                 label="Next delivery"
@@ -1750,7 +1697,6 @@ export function ProjectDetailView() {
       {linkedOpportunityLine}
       {wonBanner}
       <PreconSummaryLine projectId={id} to={projectHref(id, "schedule")} className="mt-0" />
-      {alertsBar}
       {reconcileBanner}
 
       <div ref={tabsAnchorRef} aria-hidden />
@@ -2058,18 +2004,19 @@ function MaterialsTrackingCard({
                   {g.rows.map(({ line, estQty, used, unitCost, entries }) => {
                     const unit = line.unit || "units";
                     const pct = estQty > 0 ? Math.min(100, (used / estQty) * 100) : used > 0 ? 100 : 0;
-                    const over = estQty > 0 && used > estQty;
+                    const over = overEstimate(estQty, used);
                     return (
                       <li key={line.id} className="py-3 first:pt-0 last:pb-0">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-foreground">{materialLineLabel(line)}</p>
                             <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
-                              <span className={cn("font-bold", over ? "text-destructive" : "text-foreground")}>
+                              <span className="font-bold text-foreground">
                                 {qty(used)} / {qty(estQty)} {unit}
                               </span>{" "}
                               used · {formatCurrency(used * unitCost)} of {formatCurrency(estQty * unitCost)}
                             </p>
+                            {over && <OverEstimateNote used={used} estimated={estQty} unit={line.unit} className="mt-0.5" />}
                           </div>
                           <Button size="sm" variant="outline" className="h-8 shrink-0 px-2.5 text-xs font-bold" onClick={() => onLogUsage(line)}>
                             <Plus className="mr-1 h-3.5 w-3.5" />
@@ -2078,7 +2025,7 @@ function MaterialsTrackingCard({
                         </div>
                         <div className="mt-2 flex items-center gap-3">
                           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                            <div className={cn("h-full rounded-full", over ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
                           </div>
                           {entries > 0 && (
                             <button type="button" onClick={() => onShowHistory(line)} className="shrink-0 text-[11px] font-semibold text-primary hover:underline">
@@ -2100,7 +2047,8 @@ function MaterialsTrackingCard({
           )}
         </>
       )}
-      {/* Not-ordered / over-estimate live in the alerts bar above (one story). */}
+      {/* Ordering lives in the materials center and the readiness line; using
+          more than planned is the quiet note on its row (0167). */}
       {summary.unplannedCount > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           <span className="badge-status badge-pending">{pluralize(summary.unplannedCount, "unplanned item")}</span>

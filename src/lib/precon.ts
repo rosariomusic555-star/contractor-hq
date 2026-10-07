@@ -60,6 +60,7 @@ export interface PreconSignals {
   selectionsOpen: number;
   deposit: { due: number; paid: number };
   /** Tracked material lines, and the ones not fully ordered yet. */
+  /** tracked = material lines with a planned quantity (all of them, 0167). */
   materials: { tracked: number; short: string[] };
   /** Tracked lines not fully delivered with no delivery expected by the start date. */
   deliveries: { unscheduled: string[] };
@@ -107,12 +108,12 @@ export function autoCheck(kind: PreconKind, s: PreconSignals): { state: ItemStat
         ? { state: "done", detail: `${money(s.deposit.due)} received` }
         : { state: "open", detail: `${money(s.deposit.paid)} of ${money(s.deposit.due)} received`, action: "record_payment" };
     case "materials":
-      if (s.materials.tracked === 0) return { state: "na", detail: "No tracked materials" };
+      if (s.materials.tracked === 0) return { state: "na", detail: "No materials on the plan" };
       return s.materials.short.length
         ? { state: "open", detail: `${plural(s.materials.short.length, "line")} not fully ordered`, action: "open_cost_plan" }
         : { state: "done", detail: `All ${plural(s.materials.tracked, "line")} ordered` };
     case "deliveries":
-      if (s.materials.tracked === 0) return { state: "na", detail: "No tracked materials" };
+      if (s.materials.tracked === 0) return { state: "na", detail: "No materials on the plan" };
       return s.deliveries.unscheduled.length
         ? { state: "open", detail: `${plural(s.deliveries.unscheduled.length, "line")} with no delivery by the start date`, action: "open_cost_plan" }
         : { state: "done", detail: "All expected by the start date" };

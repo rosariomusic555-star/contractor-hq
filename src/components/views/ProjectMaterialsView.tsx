@@ -105,6 +105,7 @@ import {
   listCategories,
   listMaterialCategories,
   materialCategoryIdByName,
+  categoryTracksUsage,
   projectCategoryIds,
   type Category,
   type MaterialCategory,
@@ -139,6 +140,7 @@ import { FeatureHistoryDialog } from "@/components/materials/FeatureHistoryDialo
 import { TrueCostSummary } from "@/components/overhead/TrueCostCard";
 import { averageLaborRate, burdenPerHour, looksLikeOverhead, lumpSumsWithoutHours, plannedManHours } from "@/lib/overhead";
 import { MaterialAlertsBar } from "@/components/materials/MaterialAlertsBar";
+import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
 import { markLinesOrdered } from "@/lib/materialAlertActions";
 import { useMeasurementPrefill } from "@/hooks/use-measurement-prefill";
 import { SmartSectionCalculatorDialog } from "@/components/materials/SmartSectionCalculatorDialog";
@@ -206,7 +208,9 @@ import {
   usedQuantity,
   isProjectActive,
   revisedBaseline,
-  lineStatus,
+  orderingStatus,
+  overEstimate,
+  usageStatus,
   hasAnyOrder,
   sheetCostSummary,
   materialAlerts,
@@ -341,7 +345,8 @@ const blankDraftItem = (cost_type: LineCostType = "material", name = ""): DraftI
   catalog_product_id: null,
   waste_percent: 0,
   color: "",
-  tracked: cost_type === "material",
+  // Usage tracking follows the line's category (0167) — none yet, so off.
+  tracked: false,
   rememberPrice: false,
   cost_type,
   vendor: "",
@@ -426,6 +431,25 @@ const withCategoryUnits = (before: DraftSection[], after: DraftSection[], catego
       const next = withCategoryUnit(prevById.get(i.id), i, categories);
       if (next !== i) changed = true;
       return next;
+    });
+    return changed ? { ...s, items } : s;
+  });
+};
+
+/** Every material line whose category this edit set (or a new line with
+ * one) — usage tracking becomes that category's default (0167). A manual
+ * Tracked / Not tracked toggle sticks until the category changes again. */
+const withCategoryTracking = (before: DraftSection[], after: DraftSection[], categories: MaterialCategory[]): DraftSection[] => {
+  const prevById = new Map(before.flatMap((s) => s.items.map((i) => [i.id, i] as const)));
+  return after.map((s) => {
+    let changed = false;
+    const items = s.items.map((i) => {
+      const prev = prevById.get(i.id);
+      if (i.cost_type !== "material" || (prev ? prev.material_category_id === i.material_category_id : !i.material_category_id)) return i;
+      const tracked = categoryTracksUsage(categories, i.material_category_id);
+      if (tracked === i.tracked) return i;
+      changed = true;
+      return { ...i, tracked };
     });
     return changed ? { ...s, items } : s;
   });
@@ -737,13 +761,14 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
       : [];
   const alertSectionNames = new Map(sections.map((sec) => [sec.id, sec.name]));
 
-  // Per tracked line: what's been ordered/delivered/used, plus an explicit
-  // "Revise estimate" if there is one. Est. itself is worked out live in
-  // each row from the draft quantity + waste (see ItemRow).
+  // Per material line: what's been ordered/delivered (every line, 0167) and
+  // used (usage-tracked lines), plus an explicit "Revise estimate" if there
+  // is one. Est. itself is worked out live in each row from the draft
+  // quantity + waste (see ItemRow).
   const trackingByItemId = useMemo(() => {
     const map: TrackingContext["byItemId"] = new Map();
     if (!trackingActive) return map;
-    for (const line of executionTrackedLines(trackedLines)) {
+    for (const line of trackedLines) {
       map.set(line.id, {
         revisedQuantity: revisedBaseline(line)?.quantity ?? null,
         ordered: orderedQuantity(line, deliveries),
@@ -808,7 +833,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
   // A line whose category it set gets the category's default unit (0165).
   const edit = (fn: (d: DraftSection[]) => DraftSection[]) => {
     markDirty();
-    setDraft((d) => normalizeDraft(withCategoryUnits(d, fn(d), materialCategories)));
+    setDraft((d) => {
+      const next = fn(d);
+      return normalizeDraft(withCategoryTracking(d, withCategoryUnits(d, next, materialCategories), materialCategories));
+    });
   };
   const { moveSection, moveItem: moveItemRaw, onDragEnd: onDragEndRaw } = useSectionReorder<DraftItem, DraftSection>(edit);
   // Reordering an item while its section is sorted by cost: the sorted
@@ -862,24 +890,10 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     },
     onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
   });
-  const notNeededMut = useMutation({
-    mutationFn: (lineId: string) => updateMaterialsItem(lineId, { tracked: false }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["materials"] });
-      toast({ title: "Won't alert for that line", description: "Tracking is off for it — turn it back on with its Tracked toggle." });
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
+
   // Mid-edit, "not needed" goes into the draft (Save applies it) so a later
   // Save can't flip it back; otherwise it's written straight away.
-  const markNotNeeded = (lineId: string) => {
-    if (dirty.current) {
-      edit((d) => d.map((sec) => ({ ...sec, items: sec.items.map((i) => (i.id === lineId ? { ...i, tracked: false } : i)) })));
-      toast({ title: "Tracking off for that line", description: "Save changes to apply." });
-    } else {
-      notNeededMut.mutate(lineId);
-    }
-  };
+
 
   // Links from the alerts (…/materials#line-<id> or #section-<id>): open
   // the section, scroll to it and flash the row.
@@ -1746,8 +1760,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
         sectionNames={alertSectionNames}
         context={startContext(project?.scheduled_start_date)}
         onMarkOrdered={(ids) => markOrderedMut.mutate(ids)}
-        onNotNeeded={markNotNeeded}
-        busy={markOrderedMut.isPending || notNeededMut.isPending}
+        busy={markOrderedMut.isPending}
       />
 
       {trackingActive && itemTrackingSummary.totalCount > 0 && (
@@ -2720,7 +2733,11 @@ function ItemRow({
         return {
           ...trackData,
           estimated,
-          status: lineStatus(estimated, trackData.ordered, trackData.delivered, trackData.used, trackData.hasOrder),
+          // Usage stages only on a usage-tracked line; over-estimate is a
+          // quiet note, never a status (0167).
+          status: item.tracked
+            ? usageStatus(trackData.ordered, trackData.delivered, trackData.used, trackData.hasOrder)
+            : orderingStatus(trackData.ordered, trackData.delivered, trackData.hasOrder),
         };
       })()
     : undefined;
@@ -3045,7 +3062,12 @@ function ItemRow({
 
       {taxRow}
 
-      {track && <MaterialTrackingRow itemId={item.id} itemName={materialLineLabel(item)} unit={item.unit} track={track} tracking={tracking} />}
+      {track &&
+        (item.tracked ? (
+          <MaterialTrackingRow itemId={item.id} itemName={materialLineLabel(item)} unit={item.unit} track={track} tracking={tracking} />
+        ) : (
+          <MaterialOrderingRow unit={item.unit} track={track} />
+        ))}
 
       <MaterialPickerDialog
         open={pickerOpen}
@@ -3066,7 +3088,8 @@ const LINE_STATUS_BADGE: Record<LineStatus, string> = {
   delivered: "badge-status badge-info",
   in_use: "badge-status badge-scheduled",
   used_up: "badge-status badge-paid",
-  over_estimate: "badge-status badge-overdue",
+  // Not shown any more (0167: a quiet note instead) — kept for the type.
+  over_estimate: "badge-status badge-pending",
 };
 
 /** Phase 4's live tracking row — Est/Ordered/Delivered/Used, a segmented
@@ -3105,11 +3128,7 @@ function MaterialTrackingRow({
         <div className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: `${Math.min(100, (used / denom) * 100)}%` }} />
       </div>
 
-      {status === "over_estimate" && (
-        <p className="text-[11px] font-semibold text-warning-strong">
-          {(used - estimated).toFixed(2)} {u} over the {estimated} {u} estimate
-        </p>
-      )}
+      {overEstimate(estimated, used) && <OverEstimateNote used={used} estimated={estimated} unit={unit} />}
 
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => tracking.onLogUsage(itemId)}>
@@ -3133,6 +3152,21 @@ function MaterialTrackingRow({
       {historyOpen && (
         <UsageLogHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} line={{ id: itemId, name: itemName, unit }} />
       )}
+    </div>
+  );
+}
+
+/** A line that isn't usage-tracked (0167): just where its order stands —
+ * no usage, no progress bar, no Log usage. */
+function MaterialOrderingRow({ unit, track }: { unit: string; track: { estimated: number; ordered: number; delivered: number; status: LineStatus } }) {
+  const u = unit || "units";
+  const n = (v: number) => String(Math.round(v * 100) / 100);
+  return (
+    <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-hairline bg-muted/30 px-3 py-2">
+      <span className="text-xs text-muted-foreground">
+        Needs {n(track.estimated)} {u} · Ordered {n(track.ordered)} · Delivered {n(track.delivered)}
+      </span>
+      <span className={LINE_STATUS_BADGE[track.status]}>{LINE_STATUS_LABEL[track.status]}</span>
     </div>
   );
 }

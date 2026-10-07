@@ -19,11 +19,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { useShowOverEstimateNotes } from "@/hooks/use-show-over-estimate-notes";
 import { useToast } from "@/hooks/use-toast";
 import {
   listMaterialCategories,
   createMaterialCategory,
   updateMaterialCategory,
+  saveMaterialTrackingSettings,
+  type MaterialTrackingSettings,
   deleteMaterialCategory,
   type MaterialCategory,
 } from "@/lib/api";
@@ -77,6 +80,25 @@ export function SettingsMaterialCategoriesView() {
     onMutate: ({ id, default_unit }) =>
       qc.setQueryData<MaterialCategory[]>(["material-categories"], (old) => old?.map((c) => (c.id === id ? { ...c, default_unit } : c))),
     onSettled: invalidate,
+    onError,
+  });
+
+  // Track usage by default (0167) — optimistic, like Needs color.
+  const trackMut = useMutation({
+    mutationFn: ({ id, track_usage_default }: { id: string; track_usage_default: boolean }) => updateMaterialCategory(id, { track_usage_default }),
+    onMutate: ({ id, track_usage_default }) =>
+      qc.setQueryData<MaterialCategory[]>(["material-categories"], (old) => old?.map((c) => (c.id === id ? { ...c, track_usage_default } : c))),
+    onSettled: invalidate,
+    onError,
+  });
+
+  // Show over-estimate notes on lines (0167).
+  const showNotes = useShowOverEstimateNotes();
+  const notesMut = useMutation({
+    mutationFn: (show_over_estimate_notes: boolean) => saveMaterialTrackingSettings({ show_over_estimate_notes }),
+    onMutate: (show_over_estimate_notes) =>
+      qc.setQueryData<MaterialTrackingSettings>(["material-tracking-settings"], { show_over_estimate_notes }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["material-tracking-settings"] }),
     onError,
   });
 
@@ -149,6 +171,11 @@ export function SettingsMaterialCategoriesView() {
             <span className="font-semibold text-foreground">Default unit</span> — choosing the category on a line fills in
             this unit, unless you've already picked a different one.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">Track usage</span> — new lines in that category start with usage
+            tracking on (Log usage, planned vs used). Usually just base gravel and bedding sand. Any line can still be
+            switched on or off. Ordering and deliveries work for every line either way.
+          </p>
 
           {isLoading ? (
             <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
@@ -167,6 +194,7 @@ export function SettingsMaterialCategoriesView() {
                   onRename={(name) => renameMut.mutate({ id: s.id, name })}
                   onNeedsColor={(needs_color) => colorMut.mutate({ id: s.id, needs_color })}
                   onDefaultUnit={(default_unit) => unitMut.mutate({ id: s.id, default_unit })}
+                  onTrackUsage={(track_usage_default) => trackMut.mutate({ id: s.id, track_usage_default })}
                   onDelete={() => deleteMut.mutate(s.id)}
                 />
               ))}
@@ -192,6 +220,25 @@ export function SettingsMaterialCategoriesView() {
           </div>
         </div>
       </div>
+
+      <section className="card-surface p-5">
+        <h2 className="text-base font-bold text-foreground">Materials tracking</h2>
+        <label className="mt-3 flex cursor-pointer items-start justify-between gap-4">
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-foreground">Show over-estimate notes on lines</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              A small "Used 14 of 12 ton" note on usage-tracked lines that went over, in the Materials tab and the Cost
+              plan. Off: over-estimate only shows in reports (planned vs actual, job costs, closeout).
+            </span>
+          </span>
+          <Switch
+            checked={showNotes}
+            onCheckedChange={(on) => notesMut.mutate(on)}
+            aria-label="Show over-estimate notes on lines"
+            className="mt-0.5 shrink-0"
+          />
+        </label>
+      </section>
     </div>
   );
 }
@@ -207,6 +254,7 @@ function MaterialCategoryRow({
   onRename,
   onNeedsColor,
   onDefaultUnit,
+  onTrackUsage,
   onDelete,
 }: {
   category: MaterialCategory;
@@ -217,6 +265,7 @@ function MaterialCategoryRow({
   onRename: (name: string) => void;
   onNeedsColor: (needs: boolean) => void;
   onDefaultUnit: (unit: string | null) => void;
+  onTrackUsage: (track: boolean) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(category.name);
@@ -247,6 +296,8 @@ function MaterialCategoryRow({
         </button>
       </div>
 
+      {/* Phones: the name on its own line, the controls wrap under it. */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 sm:flex-nowrap sm:gap-2">
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -255,7 +306,7 @@ function MaterialCategoryRow({
           if (trimmed && trimmed !== category.name) onRename(trimmed);
           else setName(category.name);
         }}
-        className="h-10 flex-1 border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background"
+        className="h-10 w-full border-transparent bg-transparent px-2 font-semibold hover:border-input hover:bg-muted focus-visible:border-primary focus-visible:bg-background sm:w-auto sm:flex-1"
       />
 
       <Select value={unit || NO_UNIT} onValueChange={(v) => onDefaultUnit(v === NO_UNIT ? null : v)}>
@@ -279,6 +330,16 @@ function MaterialCategoryRow({
           checked={!!category.needs_color}
           onCheckedChange={onNeedsColor}
           aria-label={`${category.name} needs a color`}
+        />
+      </label>
+
+      <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-muted-foreground" title="Track usage by default">
+        <span className="hidden sm:inline">Track usage</span>
+        <span className="sm:hidden">Usage</span>
+        <Switch
+          checked={!!category.track_usage_default}
+          onCheckedChange={onTrackUsage}
+          aria-label={`${category.name}: track usage by default`}
         />
       </label>
 
@@ -311,6 +372,7 @@ function MaterialCategoryRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   );
 }

@@ -34,11 +34,12 @@ import {
   deliveredQuantity,
   effectiveDeliveryStatus,
   effectiveEstimate,
-  executionTrackedLines,
   lineActualCost,
   lineTaxFactor,
-  lineStatus,
   orderedQuantity,
+  orderingStatus,
+  overEstimate,
+  usageStatus,
   usedQuantity,
   type DeliveryLineWithOrderStatus,
   type LineStatus,
@@ -69,6 +70,8 @@ export interface MaterialLineView {
   sectionName: string;
   unit: string | null;
   tracked: boolean;
+  /** Usage-tracked and more used than planned (0167) — a quiet note, not an alert. */
+  over: boolean;
   needed: number;
   ordered: number;
   delivered: number;
@@ -188,12 +191,18 @@ export function materialsCenterReport(input: {
       ordered: r3(ordered),
       delivered: r3(delivered),
       used: r3(used),
-      onSite: r3(Math.max(0, delivered - used)),
+      // What's left on site is only knowable when usage is logged (0167).
+      onSite: line.tracked ? r3(Math.max(0, delivered - used)) : 0,
       toOrder: r3(toOrder),
       plannedCost: r2(plannedCost),
       deliveredCost: r2(deliveredCost),
       variance: delivered > EPS && delivered + EPS >= est.quantity ? r2(deliveredCost - plannedCost) : null,
-      status: lineStatus(est.quantity, ordered, delivered, used, deliveries.some((d) => d.item.materials_item_id === line.id)),
+      // Ordering status for every line; usage stages only when usage-tracked.
+      // Over-estimate is never a status — it's the quiet `over` note (0167).
+      status: line.tracked
+        ? usageStatus(ordered, delivered, used, deliveries.some((d) => d.item.materials_item_id === line.id))
+        : orderingStatus(ordered, delivered, deliveries.some((d) => d.item.materials_item_id === line.id)),
+      over: !!line.tracked && overEstimate(est.quantity, used),
       orderableHint: toOrder > EPS ? nextOrderableQuantity(toOrder, specs) : null,
       usualSupplier: supplierFor.get(line.id) ?? null,
       unitCost: Number(est.unit_cost),
@@ -203,9 +212,10 @@ export function materialsCenterReport(input: {
   });
 
   // Readiness + still to order: the pre-construction rules, same line set.
-  const tracked = allLines.map((x) => x.line);
-  const signals = materialSignals(tracked, deliveries, input.orders, start);
-  const executionIds = new Set(executionTrackedLines(tracked).filter((l) => effectiveEstimate(l).quantity > EPS).map((l) => l.id));
+  // Every material line — ordering isn't about usage tracking (0167).
+  const materialLines = allLines.map((x) => x.line);
+  const signals = materialSignals(materialLines, deliveries, input.orders, start);
+  const executionIds = new Set(materialLines.filter((l) => effectiveEstimate(l).quantity > EPS).map((l) => l.id));
   const stillToOrder = lines.filter((l) => executionIds.has(l.id) && l.ordered + EPS < l.needed);
   const daysToStart = start ? Math.round((new Date(`${start}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86400000) : null;
 
@@ -327,7 +337,7 @@ export function materialsCenterReport(input: {
     })
     .filter(Boolean) as MaterialsCenterReport["calendar"]["items"];
 
-  const trackedLines = lines.filter((l) => executionIds.has(l.id));
+  const trackedLines = lines.filter((l) => executionIds.has(l.id)); // every planned material line
   return {
     lines,
     stillToOrder,

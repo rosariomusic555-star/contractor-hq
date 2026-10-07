@@ -27,6 +27,9 @@ import {
   unplannedActualCost,
   usedQuantity,
   type DeliveryLineWithOrderStatus,
+  overEstimate,
+  orderingStatus,
+  usageStatus,
 } from "./materialTracking";
 
 let idCounter = 0;
@@ -382,14 +385,15 @@ describe("actual cost, including Unplanned items", () => {
     expect(summary.actualCost).toBe(600);
   });
 
-  it("excludes an untracked line's status from notOrderedCount/overEstimateCount", () => {
-    const untrackedNotOrdered = makeItem({
+  it("counts an untracked line as not ordered (ordering is for every line, 0167), but never as over estimate", () => {
+    const untracked = makeItem({
       id: "mi-1",
       tracked: false,
       materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 24, unit_cost: 1, unit: "ton", reason: null, created_at: "2026-01-01" }],
     });
-    const summary = sheetCostSummary([untrackedNotOrdered], [], []);
-    expect(summary.notOrderedCount).toBe(0);
+    const summary = sheetCostSummary([untracked], [], [makeUsage({ materials_item_id: "mi-1", quantity: 30 })]);
+    expect(summary.notOrderedCount).toBe(1);
+    expect(summary.overEstimateCount).toBe(0);
   });
 
   it("shows a real estimated cost for a line with no baseline yet — the tracker works before Won, not just after", () => {
@@ -439,35 +443,17 @@ describe("Track / Don't Track (0086)", () => {
 describe("burn-rate and other early-warning alerts", () => {
   const settings = { overOrderMarginPct: 10, notOrderedAlertDays: 5 };
 
-  it("flags a line well ahead of job progress", () => {
-    const project = {
-      estimated_duration_days: 10,
-      actual_start_date: "2026-06-01",
-      actual_end_date: null,
-      scheduled_start_date: "2026-06-01",
-    };
+  it("never raises a usage-based alert — over estimate / using fast are quiet line notes now (0167)", () => {
+    const project = { scheduled_start_date: null };
     const line = makeItem({
       id: "mi-1",
       materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 100, unit_cost: 1, unit: "ea", reason: null, created_at: "2026-01-01" }],
     });
-    const logs = [makeUsage({ materials_item_id: "mi-1", quantity: 80 })];
-    // 5 working days elapsed of a 10-day estimate = 50% through; day count
-    // uses Mon-Jun-01 as day 1, "now" below is Fri-Jun-05 -> 5 working days.
-    const now = new Date("2026-06-05T12:00:00");
-    const alerts = materialAlerts(project, [line], [], logs, settings, now);
-    expect(alerts.some((a) => a.key === "burn_rate")).toBe(true);
-  });
-
-  it("never evaluates burn-rate without an estimated duration and an actual start date", () => {
-    const line = makeItem({
-      id: "mi-1",
-      materials_item_baselines: [{ id: "b1", materials_item_id: "mi-1", quantity: 100, unit_cost: 1, unit: "ea", reason: null, created_at: "2026-01-01" }],
-    });
-    const logs = [makeUsage({ materials_item_id: "mi-1", quantity: 99 })];
-    const noEstimate = { estimated_duration_days: null, actual_start_date: "2026-06-01", actual_end_date: null, scheduled_start_date: null };
-    const notStarted = { estimated_duration_days: 10, actual_start_date: null, actual_end_date: null, scheduled_start_date: null };
-    expect(materialAlerts(noEstimate, [line], [], logs, settings).some((a) => a.key === "burn_rate")).toBe(false);
-    expect(materialAlerts(notStarted, [line], [], logs, settings).some((a) => a.key === "burn_rate")).toBe(false);
+    const logs = [makeUsage({ materials_item_id: "mi-1", quantity: 180 })];
+    expect(materialAlerts(project, [line], [], logs, settings, new Date("2026-06-05T12:00:00"))).toEqual([]);
+    expect(overEstimate(100, 180)).toBe(true);
+    expect(overEstimate(100, 100)).toBe(false);
+    expect(overEstimate(0, 5)).toBe(false);
   });
 
   it("flags a line ordered more than the margin over estimate", () => {
@@ -509,7 +495,7 @@ describe("burn-rate and other early-warning alerts", () => {
     expect(materialAlerts(soonProject, [line], deliveries, [], settings, now).some((a) => a.key === "not_ordered")).toBe(false);
   });
 
-  it("never alerts on an untracked (Don't Track) line", () => {
+  it("an untracked line still gets its not-ordered alert (0167 — ordering is for every line)", () => {
     const line = makeItem({
       id: "mi-1",
       tracked: false,
@@ -517,7 +503,7 @@ describe("burn-rate and other early-warning alerts", () => {
     });
     const now = new Date("2026-06-01T00:00:00");
     const soonProject = { estimated_duration_days: null, actual_start_date: null, actual_end_date: null, scheduled_start_date: "2026-06-02" };
-    expect(materialAlerts(soonProject, [line], [], [], settings, now)).toEqual([]);
+    expect(materialAlerts(soonProject, [line], [], [], settings, now).map((a) => a.key)).toEqual(["not_ordered"]);
   });
 
   it("still flags over-order for a line with no baseline yet (still in Estimating, say), using its live quantity as the estimate", () => {
@@ -600,7 +586,7 @@ describe("material alerts — compact summary rules", () => {
     expect(lineStatus(800, 0, 0, 0, hasAnyOrder(line, order))).toBe("ordered");
   });
 
-  it("carries its section, ranks over-estimate first, and summarises in that order", () => {
+  it("carries its section, leaves usage out, and summarises ordering in rank order", () => {
     const over = makeItem({ id: "o", section_id: "s2", quantity: 10 });
     const notOrdered1 = makeItem({ id: "n1", section_id: "s1", quantity: 5 });
     const notOrdered2 = makeItem({ id: "n2", section_id: "s1", quantity: 5 });
@@ -611,17 +597,25 @@ describe("material alerts — compact summary rules", () => {
     ];
     const deliveries = [dl(makeOrderItem({ materials_item_id: "o", quantity: 10, unit: "ton", material_order_id: "ord-late" }))];
     const alerts = materialAlerts(started, [notOrdered1, over, notOrdered2], deliveries, logs, settings, now, orders);
-    expect(alerts.map((a) => a.key)).toEqual(["over_estimate", "delivery_overdue", "not_ordered", "not_ordered"]);
-    expect(alerts[0]).toMatchObject({ lineId: "o", sectionId: "s2" });
-    expect(alerts[1]).toMatchObject({ orderId: "ord-late", label: "Stone Yard 2d overdue" });
-    expect(materialAlertSummary(alerts).map((x) => x.text).join(" · ")).toBe("1 over estimate · 1 delivery overdue · 2 not ordered");
+    expect(alerts.map((a) => a.key)).toEqual(["delivery_overdue", "not_ordered", "not_ordered"]);
+    expect(alerts[1]).toMatchObject({ lineId: "n1", sectionId: "s1" });
+    expect(alerts[0]).toMatchObject({ orderId: "ord-late", label: "Stone Yard 2d overdue" });
+    expect(materialAlertSummary(alerts).map((x) => x.text).join(" · ")).toBe("1 delivery overdue · 2 not ordered");
     expect(startContext("2026-06-09", now)).toBe("job started 1d ago");
     expect(startContext("2026-06-12", now)).toBe("job starts in 2d");
   });
 
-  it("a line with tracking off never alerts", () => {
+  it("a line with usage tracking off still gets ordering alerts (0167)", () => {
     const off = makeItem({ id: "x", quantity: 10, tracked: false });
-    expect(materialAlerts(started, [off], [], [], settings, now)).toEqual([]);
+    expect(materialAlerts(started, [off], [], [], settings, now).map((a) => a.key)).toEqual(["not_ordered"]);
+  });
+
+  it("status helpers: ordering only for untracked lines, usage without the over flag for tracked", () => {
+    expect(orderingStatus(0, 0, false)).toBe("not_ordered");
+    expect(orderingStatus(5, 0)).toBe("ordered");
+    expect(orderingStatus(5, 5)).toBe("delivered");
+    expect(usageStatus(10, 10, 12)).toBe("used_up");
+    expect(usageStatus(10, 10, 4)).toBe("in_use");
   });
 });
 

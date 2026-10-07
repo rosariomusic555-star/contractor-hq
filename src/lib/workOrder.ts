@@ -34,7 +34,8 @@ export function crewMaterialStatus(m: CrewMaterial): { planned: number; ordered:
     ordered += q;
     if (o.status === "delivered") delivered += q;
   }
-  if (!m.tracked) return { planned, ordered, delivered, status: "untracked" };
+  // Ordering status for every line — usage tracking only decides whether the
+  // crew can log usage on it (0167).
   const status: CrewMaterialStatus =
     planned > EPS && delivered + EPS >= planned ? "delivered" : delivered > EPS ? "partial" : ordered > EPS ? "ordered" : "not_ordered";
   return { planned, ordered, delivered, status };

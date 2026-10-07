@@ -28,7 +28,6 @@ import {
   deliveredQuantity,
   effectiveDeliveryStatus,
   effectiveEstimate,
-  executionTrackedLines,
   orderedQuantity,
   type DeliveryLineWithOrderStatus,
 } from "@/lib/materialTracking";
@@ -46,14 +45,16 @@ export interface PreconBundle {
 
 const EPS = 1e-6;
 
+/** Ordering readiness over EVERY material line with a planned quantity —
+ * usage tracking (0167) has nothing to do with whether it's ordered. */
 export function materialSignals(
-  trackedLines: MaterialsItem[],
+  materialLines: MaterialsItem[],
   deliveries: DeliveryLineWithOrderStatus[],
   orders: Pick<MaterialOrder, "id" | "expected_delivery_date" | "status">[],
   start: string | null,
 ): Pick<PreconSignals, "materials" | "deliveries"> {
   const orderById = new Map(orders.map((o) => [o.id, o]));
-  const lines = executionTrackedLines(trackedLines).filter((l) => effectiveEstimate(l).quantity > EPS);
+  const lines = materialLines.filter((l) => effectiveEstimate(l).quantity > EPS);
   const short: string[] = [];
   const unscheduled: string[] = [];
   for (const line of lines) {
