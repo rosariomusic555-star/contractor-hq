@@ -153,7 +153,7 @@ export function CompactLineRow({
           onPointerDown={(e) => e.stopPropagation()}
           aria-label={`Delete ${label}`}
           title="Delete"
-          className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-[opacity,color,background-color] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 sm:flex [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+          className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-subtle transition-[opacity,color,background-color] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 sm:flex [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [fieldset:disabled_&]:hidden"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -196,6 +196,8 @@ function useSwipeToReveal(enabled: boolean) {
         onTouchStart: (e: ReactTouchEvent) => {
           suppressClick.current = false;
           if ((e.target as HTMLElement).closest("[data-rfd-drag-handle-draggable-id]")) return;
+          // A locked document (approved change order) disables its fieldset.
+          if ((e.currentTarget as HTMLElement).closest("fieldset:disabled")) return;
           const t = e.touches[0];
           gesture.current = { x: t.clientX, y: t.clientY, base: open ? -SWIPE_REVEAL : 0, horizontal: null };
         },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { featureSortUpdates, moveId, orderCategoryIdsByFeatures, type ProjectFeature } from "./features";
+import { distinctFeatureNames, featureSortUpdates, moveId, orderCategoryIdsByFeatures, type ProjectFeature } from "./features";
 
 const f = (id: string, category_id: string | null, sort_order: number, status: ProjectFeature["status"] = "active"): ProjectFeature => ({
   id,
@@ -56,5 +56,21 @@ describe("moveId", () => {
   it("moves an item and ignores out-of-range moves", () => {
     expect(moveId(["a", "b", "c"], 0, 2)).toEqual(["b", "c", "a"]);
     expect(moveId(["a", "b"], 0, -1)).toEqual(["a", "b"]);
+  });
+});
+
+describe("distinctFeatureNames", () => {
+  const cats = [{ id: "fp", name: "Fire Pit" }, { id: "pp", name: "Paver Patio" }];
+  it("numbers repeats only", () => {
+    const names = distinctFeatureNames(
+      [
+        { id: "a", category_id: "pp", label: null },
+        { id: "b", category_id: "fp", label: null },
+        { id: "c", category_id: "fp", label: null },
+        { id: "d", category_id: "fp", label: "Back yard" },
+      ],
+      cats,
+    );
+    expect([...names.values()]).toEqual(["Paver Patio", "Fire Pit 1", "Fire Pit 2", "Fire Pit · Back yard"]);
   });
 });

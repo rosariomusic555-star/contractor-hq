@@ -193,12 +193,11 @@ export function CostChangesBlock({
                 {c.kind === "edit" && (
                   <div className="mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                     <div className="col-span-2 self-end text-xs text-muted-foreground">
-                      Now {Number(c.before?.quantity ?? 0)}
-                      {c.before?.unit ? ` ${c.before.unit}` : ""} × {formatCurrency(Number(c.before?.unit_cost ?? 0))} ={" "}
-                      {formatCurrency(lineCostWithTax({ quantity: Number(c.before?.quantity ?? 0), unit_cost: Number(c.before?.unit_cost ?? 0), waste_percent: Number(c.before?.waste_percent ?? 0), cost_type: (c.before?.cost_type as LineCostType) ?? "material", taxable: !!c.before?.taxable, tax_rate: Number(c.before?.tax_rate ?? 0) }))}
+                      <NowLine before={c.before} />
                     </div>
-                    <NumField label="New qty" value={c.line.quantity ?? c.before?.quantity} disabled={locked} onChange={(v) => onEdit(c.id, { line: { ...c.line, quantity: v } })} />
-                    <NumField label="New unit cost" prefix="$" value={c.line.unit_cost ?? c.before?.unit_cost} disabled={locked} onChange={(v) => onEdit(c.id, { line: { ...c.line, unit_cost: v } })} />
+                    {/* Blank = unchanged (the current value shows as the placeholder). */}
+                    <NumField label="New qty" value={c.line.quantity} placeholder={num(c.before?.quantity)} disabled={locked} onChange={(v) => onEdit(c.id, { line: withField(c.line, "quantity", v) })} />
+                    <NumField label="New unit cost" prefix="$" value={c.line.unit_cost} placeholder={num(c.before?.unit_cost)} disabled={locked} onChange={(v) => onEdit(c.id, { line: withField(c.line, "unit_cost", v) })} />
                   </div>
                 )}
 
@@ -279,6 +278,38 @@ export function CostChangesBlock({
   );
 }
 
+/** Sets a field, or drops it when blank (an edit's "unchanged"). */
+const withField = (line: Record<string, unknown>, key: string, v: number | null) => {
+  const { [key]: _old, ...rest } = line;
+  return v == null ? rest : { ...rest, [key]: v };
+};
+
+/** "Now 706 sq ft × $8.00 + 3.5% waste + 8.25% tax = $6,327.95" — the
+ * waste and tax are in the total, so they're spelled out. */
+function NowLine({ before }: { before: Record<string, unknown> | null }) {
+  const b = before ?? {};
+  const qty = Number(b.quantity ?? 0);
+  const waste = Number(b.waste_percent ?? 0);
+  const taxRate = b.taxable ? Number(b.tax_rate ?? 0) : 0;
+  const pct = (v: number) => `${Number(v.toFixed(3))}%`;
+  const total = lineCostWithTax({
+    quantity: qty,
+    unit_cost: Number(b.unit_cost ?? 0),
+    waste_percent: waste,
+    cost_type: (b.cost_type as LineCostType) ?? "material",
+    taxable: !!b.taxable,
+    tax_rate: Number(b.tax_rate ?? 0),
+  });
+  return (
+    <>
+      Now {qty}
+      {b.unit ? ` ${b.unit}` : ""} × {formatCurrency(Number(b.unit_cost ?? 0))}
+      {waste > 0 && ` + ${pct(waste)} waste`}
+      {taxRate > 0 && ` + ${pct(taxRate)} tax`} = {formatCurrency(total)}
+    </>
+  );
+}
+
 function Field({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
     <label className={cn("block min-w-0", className)}>
@@ -293,12 +324,14 @@ function NumField({
   value,
   onChange,
   prefix,
+  placeholder,
   disabled,
 }: {
   label: string;
   value: unknown;
   onChange: (v: number | null) => void;
   prefix?: string;
+  placeholder?: string;
   disabled?: boolean;
 }) {
   // Local text so "4." can be typed; follows outside changes (discard).
@@ -319,6 +352,7 @@ function NumField({
             setText(e.target.value);
             onChange(parse(e.target.value));
           }}
+          placeholder={placeholder}
           disabled={disabled}
           className={cn("h-10", prefix && "pl-6")}
         />
