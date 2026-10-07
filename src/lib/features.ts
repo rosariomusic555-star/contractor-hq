@@ -39,6 +39,26 @@ export function featureName(f: Pick<ProjectFeature, "category_id" | "label">, ca
   return label && label.toLowerCase() !== type.toLowerCase() ? `${type} · ${label}` : type;
 }
 
+/** featureName for a list, numbering features whose names would repeat
+ * ("Fire Pit 1", "Fire Pit 2" for two unlabeled fire pits), in list order. */
+export function distinctFeatureNames(
+  features: Pick<ProjectFeature, "id" | "category_id" | "label">[],
+  categories: Pick<Category, "id" | "name">[],
+): Map<string, string> {
+  const base = features.map((f) => [f.id, featureName(f, categories)] as const);
+  const totals = new Map<string, number>();
+  for (const [, n] of base) totals.set(n, (totals.get(n) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return new Map(
+    base.map(([id, n]) => {
+      if ((totals.get(n) ?? 0) < 2) return [id, n];
+      const k = (seen.get(n) ?? 0) + 1;
+      seen.set(n, k);
+      return [id, `${n} ${k}`];
+    }),
+  );
+}
+
 /** The Smart Section / measurement build type behind a feature's type. */
 export const featureBuildType = (f: Pick<ProjectFeature, "category_id">, categories: Pick<Category, "id" | "name">[]) =>
   buildTypeForCategoryName(typeNameOf(f, categories))?.id ?? null;

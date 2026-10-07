@@ -4331,6 +4331,8 @@ export async function updateChangeOrder(
       | "approved_at"
       | "signed_at"
       | "signed_by"
+      | "declined_at"
+      | "decline_comment"
     >
   >,
 ): Promise<void> {

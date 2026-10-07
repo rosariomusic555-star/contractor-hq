@@ -66,8 +66,11 @@ export function costChangeDelta(c: CostChangeLike): number {
     case "remove":
       return -lineCostWithTax(asLine(c.before));
     case "edit": {
+      // A blank field is "unchanged" — what approval does with it too
+      // (apply_change_order_to_features coalesces to the line's value).
+      const set = Object.fromEntries(Object.entries(c.line ?? {}).filter(([, v]) => v != null && v !== ""));
       const before = asLine(c.before);
-      const after = asLine({ ...(c.before ?? {}), ...(c.line ?? {}) });
+      const after = asLine({ ...(c.before ?? {}), ...set });
       return lineCostWithTax(after) - lineCostWithTax(before);
     }
     case "labor":

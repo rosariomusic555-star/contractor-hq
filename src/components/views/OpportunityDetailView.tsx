@@ -425,7 +425,7 @@ export function OpportunityDetailView() {
             value={field("title", opportunity.title)}
             onChange={(e) => setField("title", e.target.value)}
             onBlur={() => commitField("title", opportunity.title)}
-            className="h-auto border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0"
+            className="h-auto border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0 md:text-[28px]"
           />
           <p className="mt-1 text-sm text-muted-foreground">{opportunity.client?.name ?? "No client"}</p>
           {opportunity.project_id ? (

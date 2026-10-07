@@ -47,7 +47,7 @@ import { changeOrderStatusMeta } from "@/lib/statusMeta";
 import { computeProjectImpact, scheduleImpactLabel } from "@/lib/changeOrderImpact";
 import { changeOrderDraftTotal, costChangesDelta } from "@/lib/changeOrderCost";
 import { changeOrderInvoiceable } from "@/lib/projectBilling";
-import { activeFeatures, featureName } from "@/lib/features";
+import { activeFeatures, distinctFeatureNames, featureName } from "@/lib/features";
 import { CostChangesBlock, type DraftCostChange } from "@/components/changeOrders/CostChangesBlock";
 import type { SectionFeaturePicker } from "@/components/common/SectionNameField";
 import {
@@ -158,6 +158,16 @@ const seed = (co: ChangeOrder, costChanges: ChangeOrderCostChange[]): ChangeOrde
   scheduleImpactDays: co.schedule_impact_days != null ? String(co.schedule_impact_days) : "",
 });
 
+/** A cost change's line as saved: an added line's blank quantity / cost are
+ * 0, as its delta counted them (the DB reads a missing quantity as 1). An
+ * edit's blank field is left out — "unchanged", as the DB and the delta
+ * both read it. */
+const savedCostChangeLine = (c: DraftCostChange): Record<string, unknown> => {
+  if (c.kind === "add") return { ...c.line, quantity: Number(c.line.quantity ?? 0), unit_cost: Number(c.line.unit_cost ?? 0) };
+  if (c.kind === "edit") return Object.fromEntries(Object.entries(c.line).filter(([, v]) => v != null));
+  return c.line;
+};
+
 const lineTotal = (i: DraftLineItem) => i.price * i.quantity;
 const sectionSubtotal = (s: DraftLineSection) => s.items.reduce((sum, i) => sum + lineTotal(i), 0);
 
@@ -257,6 +267,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
 
   // --- features: each section changes one existing, active feature --------
   const live = activeFeatures(features);
+  // Two unlabeled features of one type read "Fire Pit 1" / "Fire Pit 2".
+  const nameOf = distinctFeatureNames(live, categories);
   const [suggestAddon, setSuggestAddon] = useState<string | null>(null);
   const setSectionFeature = (sid: string, featureId: string) =>
     edit((d) => {
@@ -272,7 +284,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           return {
             ...x,
             feature_id: featureId,
-            name: f ? featureName(f, categories) : x.name,
+            name: f ? (nameOf.get(f.id) ?? featureName(f, categories)) : x.name,
             items: x.items.map((i) => (i.category_id == null || i.category_id === prevCat ? { ...i, category_id: cat } : i)),
           };
         }),
@@ -286,7 +298,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     return {
       primary: live
         .filter((f) => !used.has(f.id))
-        .map((f) => ({ key: f.id, label: featureName(f, categories), categoryId: f.category_id, featureId: f.id })),
+        .map((f) => ({ key: f.id, label: nameOf.get(f.id) ?? featureName(f, categories), categoryId: f.category_id, featureId: f.id })),
       // A type the job doesn't have is a new feature — that's an add-on
       // quote, not a change order.
       other: categories.filter((c) => !typesOnJob.has(c.id)).map((c) => ({ key: `new:${c.id}`, label: c.name, categoryId: c.id, newFeature: true })),
@@ -364,6 +376,8 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   const costDelta = costChangesDelta(draft.costChanges);
   const hasCostChanges = draft.costChanges.length > 0;
 
+  // A declined change order never counts: it shows as $0 in the impact.
+  const declined = changeOrder.status === "declined";
   const impact = project
     ? computeProjectImpact({
         project,
@@ -372,14 +386,18 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         invoices,
         payments,
         materialsSections: materials,
-        thisChangeOrderTotal: changeOrder.status === "approved" ? Number(changeOrder.amount) : total,
-        thisChangeOrderItemCount: itemCount,
-        draftScheduleImpactDays: changeOrder.status === "approved" ? changeOrder.schedule_impact_days : scheduleImpactDays,
-        thisChangeOrderCostDelta: hasCostChanges ? costDelta : undefined,
+        thisChangeOrderTotal: declined ? 0 : changeOrder.status === "approved" ? Number(changeOrder.amount) : total,
+        thisChangeOrderItemCount: declined ? 0 : itemCount,
+        draftScheduleImpactDays: declined ? 0 : changeOrder.status === "approved" ? changeOrder.schedule_impact_days : scheduleImpactDays,
+        thisChangeOrderCostDelta: declined ? 0 : hasCostChanges ? costDelta : undefined,
         costAlreadyApplied: changeOrder.status === "approved",
         scheduleAlreadyApplied: changeOrder.status === "approved",
       })
     : null;
+
+  // Draft invoices count toward "Remaining to bill" but not "Invoiced to
+  // date" — said under the panel so the two add up.
+  const draftInvoiced = invoices.filter((i) => i.status === "draft").reduce((sum, i) => sum + Number(i.amount || 0), 0);
 
   const isDirty = dirty.current;
   // "3 unsaved changes" + the accent edge on edited sections.
@@ -509,6 +527,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
         const dc = draft.costChanges[ci];
         const section_id = sectionIdMap.get(dc.section_id) ?? null;
         if (!section_id) continue; // its section was removed
+        const line = savedCostChangeLine(dc);
         const srv = serverChanges.get(dc.id);
         if (!srv) {
           await createChangeOrderCostChange({
@@ -518,17 +537,17 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             kind: dc.kind,
             materials_item_id: dc.materials_item_id,
             materials_section_id: dc.materials_section_id,
-            line: dc.line,
+            line,
             before: dc.before,
             sort_order: ci,
           });
         } else if (
-          JSON.stringify(srv.line) !== JSON.stringify(dc.line) ||
+          JSON.stringify(srv.line) !== JSON.stringify(line) ||
           srv.sort_order !== ci ||
           srv.section_id !== section_id ||
           srv.feature_id !== dc.feature_id
         ) {
-          await updateChangeOrderCostChange(srv.id, { line: dc.line, sort_order: ci, section_id, feature_id: dc.feature_id });
+          await updateChangeOrderCostChange(srv.id, { line, sort_order: ci, section_id, feature_id: dc.feature_id });
         }
       }
 
@@ -627,14 +646,14 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
     mutationFn: () =>
       updateChangeOrder(changeOrder.id, {
         status: "declined",
-        // approved_at intentionally left as-is; decline fields live in
-        // the DB row directly via a raw client-side update elsewhere if
-        // ever needed — the common case (contractor-side decline) needs
-        // no signature/comment capture beyond the log entry below.
+        // Same fields the client's own decline sets (0069).
+        declined_at: new Date().toISOString(),
+        decline_comment: declineComment.trim() || null,
       }),
     onSuccess: () => {
       invalidate();
-      void logProjectEvent(projectId, "change_order_rejected", `Change order declined: ${changeOrder.title}`);
+      const why = declineComment.trim();
+      void logProjectEvent(projectId, "change_order_rejected", `Change order declined: ${changeOrder.title}${why ? ` — ${why}` : ""}`);
       qc.invalidateQueries({ queryKey: ["project-events", projectId] });
       setDeclineOpen(false);
       toast({ title: "Change order declined" });
@@ -670,11 +689,11 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
       )}
       {!locked && changeOrder.status === "sent" && (
         <>
-          <Button variant="outline" onClick={() => setDeclineOpen(true)} disabled={approveMut.isPending}>
+          <Button variant="outline" onClick={() => setDeclineOpen(true)} disabled={approveMut.isPending || isDirty}>
             <X className="mr-1.5 h-4 w-4" />
             Decline
           </Button>
-          <Button onClick={() => setApproveOpen(true)} disabled={approveMut.isPending} className="font-bold">
+          <Button onClick={() => setApproveOpen(true)} disabled={approveMut.isPending || isDirty} className="font-bold">
             <Check className="mr-1.5 h-4 w-4" />
             Mark approved
           </Button>
@@ -735,7 +754,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                 onChange={(e) => edit((d) => ({ ...d, title: e.target.value }))}
                 placeholder="e.g. Add retaining wall extension"
                 disabled={locked}
-                className="h-auto max-w-md border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0 disabled:opacity-100"
+                className="h-auto max-w-md border-none bg-transparent px-0 text-[28px] font-bold tracking-tight text-foreground shadow-none focus-visible:ring-0 disabled:opacity-100 md:text-[28px]"
               />
               <StatusPill meta={meta} />
             </div>
@@ -1010,9 +1029,10 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           {impact && (
             <div className="card-surface p-[18px]">
               <div className="text-base font-bold text-foreground">Project impact</div>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-[11px] font-bold uppercase tracking-wide text-muted-subtle">
-                <span>Before</span>
-                <span>After</span>
+              <div className={cn("mt-3 text-[11px] font-bold uppercase tracking-wide text-muted-subtle", IMPACT_COLS)}>
+                <span />
+                <span className="text-right">Before</span>
+                <span className="text-right">After</span>
               </div>
 
               <ImpactRow
@@ -1026,7 +1046,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                 after={formatCurrency(impact.previouslyApproved)}
               />
               <ImpactRow
-                label="This change order"
+                label={declined ? "This CO (declined)" : "This change order"}
                 before="—"
                 after={formatCurrency(impact.thisChangeOrder)}
                 highlight
@@ -1047,6 +1067,11 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
                   after={formatCurrency(impact.remainingToBill)}
                   strong
                 />
+                {draftInvoiced > 0 && (
+                  <p className="mt-1.5 text-[11px] text-muted-subtle">
+                    {formatCurrency(draftInvoiced)} in draft invoices counts as billed — it's not in "Invoiced to date" until sent.
+                  </p>
+                )}
               </div>
 
               <div className="mt-3 border-t border-hairline pt-3">
@@ -1147,6 +1172,10 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
   );
 }
 
+/** Label · Before · After — fixed money columns so every row (and the
+ * heading) lines up, whatever the amounts' widths. */
+const IMPACT_COLS = "grid grid-cols-[minmax(0,1fr)_4.75rem_4.75rem] gap-1.5";
+
 function ImpactRow({
   label,
   before,
@@ -1161,7 +1190,7 @@ function ImpactRow({
   highlight?: boolean;
 }) {
   return (
-    <div className={cn("grid grid-cols-[1fr_auto_auto] items-center gap-2 py-1.5", highlight && "rounded-lg bg-primary/5 px-2")}>
+    <div className={cn(IMPACT_COLS, "items-center py-1.5", highlight && "-mx-2 rounded-lg bg-primary/5 px-2")}>
       <span className={cn("truncate text-xs", strong ? "font-bold text-foreground" : "text-muted-foreground")}>{label}</span>
       <span className={cn("text-right text-xs tabular-nums", strong ? "font-bold text-foreground" : "text-muted-foreground")}>
         {before}
