@@ -28,6 +28,7 @@ import {
   type WeatherCondition,
   type WeatherSettings,
 } from "@/lib/weatherRisk";
+import { projectHref } from "@/lib/projectTabs";
 
 export type ForecastStatus = "ok" | "no_address" | "geocode_failed" | "unsupported" | "unavailable";
 
@@ -206,7 +207,7 @@ export async function runWeatherRiskAlerts(): Promise<number> {
       kind: "weather_risk",
       title: `Weather risk ${shortDayLabel(r.date)}: ${r.project.name}`,
       body: r.summary,
-      link: `/projects/${r.project.id}`,
+      link: projectHref(r.project.id, "schedule"),
       dedupe_key: `weather:${r.project.id}:${r.date}:${r.level}`,
     }))
     .filter((r) => !seen.has(r.dedupe_key));

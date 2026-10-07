@@ -85,6 +85,7 @@ import {
   snapshotDocument,
 } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
+import { projectHref } from "@/lib/projectTabs";
 
 const NONE = "__none__";
 const NO_FEATURES: import("@/lib/features").ProjectFeature[] = [];
@@ -925,7 +926,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
             <p className="-mt-2 text-xs text-muted-foreground">
               A change order changes features already on this job (bigger patio, upgrade, removal or credit). A completely
               new feature goes on an add-on quote —{" "}
-              <Link to={`/projects/${projectId}?add-new-work=1`} className="font-semibold text-primary hover:underline">
+              <Link to={projectHref(projectId, "estimate", { "add-new-work": "1" })} className="font-semibold text-primary hover:underline">
                 Add new work
               </Link>
               .
@@ -1112,7 +1113,7 @@ export function ChangeOrderWorkspace({ changeOrder, backHref, backLabel }: Chang
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep editing</AlertDialogCancel>
-            <AlertDialogAction onClick={() => navigate(`/projects/${projectId}?add-new-work=1`)}>Add new work instead</AlertDialogAction>
+            <AlertDialogAction onClick={() => navigate(projectHref(projectId, "estimate", { "add-new-work": "1" }))}>Add new work instead</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

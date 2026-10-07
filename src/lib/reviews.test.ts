@@ -52,8 +52,8 @@ describe("Needs you items", () => {
       NOW,
     );
     expect(items.map((i) => [i.title, i.href])).toEqual([
-      ["Ask Greg Gray for a review", "/projects/p1?review=ask"],
-      ["Remind Greg about the review", "/projects/p2?review=remind"],
+      ["Ask Greg Gray for a review", "/projects/p1?tab=aftercare&review=ask"],
+      ["Remind Greg about the review", "/projects/p2?tab=aftercare&review=remind"],
     ]);
   });
 });

@@ -9,6 +9,7 @@
  * ========================================================================== */
 
 import { buildTypeForCategoryName } from "@/lib/measurements";
+import { projectHref } from "@/lib/projectTabs";
 
 export interface MaintenanceTemplateLike {
   id: string;
@@ -154,7 +155,7 @@ export function maintenanceNeedsYou(
       title: `${i.clientName ?? i.projectName}: ${i.label.toLowerCase()} ${days < 0 ? "overdue since" : "due in"} ${monthYear(i.next_due).split(" ")[0]}`,
       subtitle: `${i.projectName}${installed}`,
       action: "Reach out",
-      href: `/projects/${i.project_id}?maintenance=${i.id}`,
+      href: projectHref(i.project_id, "aftercare", { maintenance: i.id }),
       sortValue: Math.max(1, leadDays - days),
     });
   }

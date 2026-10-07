@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getSignedImageUrls, listProgressUpdates, setProgressUpdateShared } from "@/lib/api";
 import { useCardLink } from "@/hooks/use-card-link";
+import { projectHref } from "@/lib/projectTabs";
 
 /** Dashboard (0126): crew progress posts waiting to be shared — two big
  * buttons each, quick on a phone. Hidden when there's nothing to review. */
@@ -35,7 +36,7 @@ export function UpdatesToReviewCard({ className }: { className?: string }) {
           const thumb = u.photos?.[0] ? urls[u.photos[0].storage_path] : null;
           return (
             <li key={u.id} className="rounded-xl border border-border p-3">
-              <Link to={`/projects/${u.project_id}`} className="flex gap-3">
+              <Link to={projectHref(u.project_id, "updates")} className="flex gap-3">
                 {thumb && <img src={thumb} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />}
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-bold text-foreground">{u.project?.name}</span>

@@ -109,7 +109,12 @@ deposit %/terms, and by `QuoteWorkspace` for the sales-tax line and "valid until
   `tailwindcss-animate`.
 - **`src/components/common/*`** — the shared building blocks: `PageHeader`, `MobilePageHeader`,
   `FilterControls` (`FilterSegment` / `FilterPills`), `KpiCard`, `StatusPill`, `MoneyRow`,
-  `SearchInput`, `ListCard`. Reach for these before inventing new markup.
+  `SearchInput`, `ListCard`, `PageTabs` (the one tab bar — underline, badges, sticky, "More" overflow;
+  pair with `useUrlTab` from `src/hooks/use-url-tab.ts` so the tab lives in `?tab=`). Reach for these
+  before inventing new markup.
+- **Project page is tabbed** (Overview / Estimate / Schedule / Materials / Money / Updates + More:
+  Client Hub, Reviews & maintenance, Activity log). Link to a part of a project with
+  `projectHref(id, tab)` (`src/lib/projectTabs.ts`), never a hand-built `?tab=`.
 
 ### Conventions
 

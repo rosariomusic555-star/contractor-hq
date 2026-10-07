@@ -9,6 +9,7 @@ import type { BreakdownRow, JobRow } from "@/lib/revenueReport";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { pctText, signedMoney } from "./revenueCols";
 import { withErrorBoundary } from "@/components/common/withErrorBoundary";
+import { projectHref } from "@/lib/projectTabs";
 
 
 /** A definition, on hover / tap. */
@@ -228,7 +229,7 @@ export function JobsTable({
                 <span>Collected <b className="block text-foreground">{formatCurrency(j.collected)}</b></span>
                 <span>Profit <b className={cn("block", (j.profit ?? 0) < 0 ? "text-destructive" : "text-foreground")}>{money(j.profit)} {j.marginPct != null && `(${pctText(j.marginPct)})`}</b></span>
               </div>
-              {j.closeoutId && <Link to={`/projects/${j.projectId}`} className="mt-1 block text-[11px] font-semibold text-primary">Closeout on file</Link>}
+              {j.closeoutId && <Link to={projectHref(j.projectId, "money")} className="mt-1 block text-[11px] font-semibold text-primary">Closeout on file</Link>}
             </li>
           ))}
         </ul>

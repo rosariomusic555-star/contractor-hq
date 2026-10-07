@@ -5,6 +5,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { timeAgo } from "@/lib/time";
 import { listQuotes, listInvoices, listPayments, quoteTotal, type Quote, type Invoice } from "@/lib/api";
 import { useCardLink } from "@/hooks/use-card-link";
+import { projectHref } from "@/lib/projectTabs";
 
 type ActivityType = "quote" | "invoice" | "payment";
 type ActivityStatus = "completed" | "pending" | "overdue";
@@ -109,7 +110,7 @@ export function RecentActivity({ className }: { className?: string }) {
         amount: Number(p.amount),
         status: "completed",
         createdAt: p.created_at,
-        linkTo: p.project_id ? `/projects/${p.project_id}` : `/receipt/${p.share_token}`,
+        linkTo: p.project_id ? projectHref(p.project_id, "money") : `/receipt/${p.share_token}`,
       })),
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

@@ -13,6 +13,7 @@ import { fmtMultiple } from "@/lib/marketingRoi";
 import { pctChange } from "@/lib/businessHealth";
 import { useCompletedProfit } from "@/hooks/use-revenue-data";
 import { useBusinessHealth } from "./useBusinessHealth";
+import { projectHref } from "@/lib/projectTabs";
 
 const money = (v: number | null | undefined) => (v == null ? "—" : formatCurrency(v));
 const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? "−" : ""}$${Math.round(Math.abs(v) / 100) / 10}k` : formatCurrency(v));
@@ -83,8 +84,8 @@ export function BusinessHealthView() {
       sub: `${h.backlogCrewWeeks} crew-weeks`,
       tip: "Contract value (original + approved change orders + add-ons) of signed jobs not complete yet — scheduled and unscheduled. Crew-weeks = remaining booked days + unscheduled planned crew-days, ÷ 5.",
       rows: () => [
-        ...h.unscheduled.map((u) => ({ label: u.project.name, sub: `Not scheduled · ${u.crewDays ?? "?"} crew-days`, value: money(u.contract), href: `/projects/${u.project.id}` })),
-        ...h.capacity.flatMap((c) => c.jobs.map((p) => ({ label: p.name, sub: `${c.crew.name} · ${day(p.scheduled_start_date)} – ${day(p.scheduled_end_date)}`, value: money(h.contractOf(p.id)), href: `/projects/${p.id}` }))),
+        ...h.unscheduled.map((u) => ({ label: u.project.name, sub: `Not scheduled · ${u.crewDays ?? "?"} crew-days`, value: money(u.contract), href: projectHref(u.project.id, "schedule") })),
+        ...h.capacity.flatMap((c) => c.jobs.map((p) => ({ label: p.name, sub: `${c.crew.name} · ${day(p.scheduled_start_date)} – ${day(p.scheduled_end_date)}`, value: money(h.contractOf(p.id)), href: projectHref(p.id, "schedule") }))),
       ],
     },
     {
