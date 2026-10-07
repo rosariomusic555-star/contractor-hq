@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { ClientCombobox } from "@/components/common/ClientPicker";
 import { useClientField } from "@/hooks/use-client-field";
 import { useToast } from "@/hooks/use-toast";
-import { createProject, updateQuote, logProjectEvent } from "@/lib/api";
+import { createProject, logProjectEvent } from "@/lib/api";
 import { BackLink } from "@/components/common/BackLink";
 
 /** Dedicated "New project" screen (/projects/new) — the walk-in / repeat-
@@ -17,12 +17,9 @@ import { BackLink } from "@/components/common/BackLink";
  * ClientCombobox — see src/components/common/ClientPicker.tsx; a new client
  * is created by "Create project", right before the project).
  *
- * Reachable from a standalone quote's "Create project" nudge (Estimated
- * Cost card), which navigates here with `state: { linkQuoteId }`. In that
- * case, creating the project also re-parents that exact quote onto it
- * (quotes.project_id) instead of leaving it behind as an orphaned
- * standalone quote — landing the user back on the quote, now
- * project-linked, rather than on the new project's own page.
+ * A standalone quote doesn't come here any more: it becomes a project
+ * through CreateProjectFromQuoteDialog (0166) — the old
+ * `state: { linkQuoteId }` hand-off redirects to that modal.
  *
  * NOT reachable from an opportunity anymore — that path is
  * getOrCreateOpportunityProject() (lazy, on the first photo/sheet/quote)
@@ -47,34 +44,28 @@ export function NewProjectView() {
     mutationFn: async () => {
       const clientId = await client.ensureClient();
       if (clientId === undefined) return null;
-      const project = await createProject({ name: name.trim(), client_id: clientId, status: "estimating" });
-      if (linkQuoteId) await updateQuote(linkQuoteId, { project_id: project.id });
-      return project;
+      return createProject({ name: name.trim(), client_id: clientId, status: "estimating" });
     },
     onSuccess: (project) => {
       if (!project) return;
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["clients"] });
       void logProjectEvent(project.id, "project_created", "Project created");
-      if (linkQuoteId) {
-        qc.invalidateQueries({ queryKey: ["quote", linkQuoteId] });
-        qc.invalidateQueries({ queryKey: ["quotes"] });
-        toast({ title: "Quote moved into new project" });
-        navigate(`/quotes/${linkQuoteId}`);
-      } else {
-        navigate(`/projects/${project.id}`);
-      }
+      navigate(`/projects/${project.id}`);
     },
     onError: (err: Error) =>
       toast({ title: "Couldn't create project", description: err.message, variant: "destructive" }),
   });
 
+  // Hooks above run unconditionally; only now hand a quote off to its modal.
+  if (linkQuoteId) return <Navigate to={`/quotes/${linkQuoteId}?convert=1`} replace />;
+
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
       <BackLink
-        to={linkQuoteId ? `/quotes/${linkQuoteId}` : "/projects"}
+        to="/projects"
         className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >{linkQuoteId ? "Back to quote" : "Projects"}</BackLink>
+      >Projects</BackLink>
 
       <h1 className="text-[28px] font-bold tracking-tight text-foreground">New project</h1>
 
@@ -103,7 +94,7 @@ export function NewProjectView() {
       <div className="flex justify-end gap-3">
         <Button
           variant="outline"
-          onClick={() => navigate(linkQuoteId ? `/quotes/${linkQuoteId}` : "/projects")}
+          onClick={() => navigate("/projects")}
         >
           Cancel
         </Button>

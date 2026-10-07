@@ -17,7 +17,18 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-
  * approval. On a draft or sent quote, "Mark approved" for when the client
  * agreed outside the app — same downstream effects as a Client Hub approval.
  */
-export function QuoteApprovalRow({ quote, clientName, disabledReason }: { quote: Quote; clientName: string | null; disabledReason: string | null }) {
+export function QuoteApprovalRow({
+  quote,
+  clientName,
+  disabledReason,
+  onApproved,
+}: {
+  quote: Quote;
+  clientName: string | null;
+  disabledReason: string | null;
+  /** After a successful Mark approved (a standalone quote opens Create project). */
+  onApproved?: () => void;
+}) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const recordedBy = useRecorderName();
@@ -36,7 +47,12 @@ export function QuoteApprovalRow({ quote, clientName, disabledReason }: { quote:
     onSuccess: () => {
       for (const k of ["quotes", "quote", "opportunities", "projects", "project", "invoices", "project-features", "quote-selections"]) qc.invalidateQueries({ queryKey: [k] });
       setOpen(false);
-      toast({ title: "Quote approved", description: "The job is Won — same as a client approval in the Client Hub." });
+      toast(
+        quote.project_id
+          ? { title: "Quote approved", description: "The job is Won — same as a client approval in the Client Hub." }
+          : { title: "Quote approved" },
+      );
+      onApproved?.();
     },
     onError: (e: Error) => toast({ title: "Couldn't approve", description: e.message, variant: "destructive" }),
   });

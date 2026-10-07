@@ -250,7 +250,9 @@ export function depositItems(quotes: Quote[], invoices: Invoice[], now: Date): N
     if (inv.project_id) billed.add(`project:${inv.project_id}`);
   }
   return quotes
-    .filter((q) => q.status === "approved")
+    // A standalone one can't be billed until it's a project — that's
+    // standaloneApprovedItems' job.
+    .filter((q) => q.status === "approved" && q.project_id != null)
     .filter((q) => !billed.has(`quote:${q.id}`) && !(q.project_id && billed.has(`project:${q.project_id}`)))
     // No deposit to ask for ($0 quote or 0%) → nothing to bill.
     .filter((q) => headlineDepositDue(q) > 0)
@@ -263,6 +265,28 @@ export function depositItems(quotes: Quote[], invoices: Invoice[], now: Date): N
       href: `/quotes/${quote.id}`,
       sortValue: daysSince(quote.updated_at, now),
     }));
+}
+
+/**
+ * Approved standalone quotes (0166) — a dead end until they're a project:
+ * top of the list (red, ahead of anything counted in days) until converted.
+ * Opens the quote's Create project modal.
+ */
+export function standaloneApprovedItems(quotes: Quote[], now: Date): NeedsYouItem[] {
+  return quotes
+    .filter((q) => q.status === "approved" && q.project_id == null)
+    .map((quote) => {
+      const who = quote.client?.name ?? quote.signed_by ?? "Your client";
+      return {
+        key: `quote-standalone-${quote.id}`,
+        tone: "red" as const,
+        title: `${who} approved a standalone quote`,
+        subtitle: `${formatCurrency(quoteTotal(quote.quote_sections ?? []))} · Create the project to invoice and schedule it`,
+        action: "Create project",
+        href: `/quotes/${quote.id}?convert=1`,
+        sortValue: 10_000 + daysSince(quote.signed_at ?? quote.updated_at, now),
+      };
+    });
 }
 
 /**
@@ -311,6 +335,7 @@ export function buildNeedsYouItems(
     ...reviewNeedsYouItems(reviews.requests, reviews.settings, now),
     ...siteVisitConfirmItems(siteVisits.opportunities, siteVisits.appointments, now),
     ...overdueInvoiceItems(invoices, now),
+    ...standaloneApprovedItems(quotes, now),
     ...depositItems(quotes, invoices, now),
     ...quoteFollowUpItems(quotes, now, more.coldSettings),
     ...moreItems(more, now),

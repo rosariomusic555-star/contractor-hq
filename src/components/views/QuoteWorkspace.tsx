@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
 import { changedItemIds, draftChanges, EDITED_CLASS } from "@/lib/draftChanges";
 import { costPlanHasEntries, costPlanTotal, sumSectionTotals } from "@/lib/costPlanMath";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import {
@@ -56,6 +56,11 @@ import { ClientPickerDialog } from "@/components/common/ClientPicker";
 import { DraftSaveBar } from "@/components/common/DraftSaveBar";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { QuoteApprovalRow } from "@/components/quotes/QuoteApprovalRow";
+import { CreateProjectFromQuoteDialog } from "@/components/quotes/CreateProjectFromQuoteDialog";
+import { StandaloneApprovedBanner } from "@/components/quotes/StandaloneApprovedBanner";
+import { useContinueProjectAction } from "@/hooks/use-continue-project-action";
+import { isApprovedStandalone, type ProjectAction } from "@/lib/standaloneQuote";
+import { useAuth } from "@/lib/auth";
 import { AutoGrowTextarea } from "@/components/common/AutoGrowTextarea";
 import { SectionTypeChip } from "@/components/common/SectionTypeChip";
 import { QuoteSectionSelections } from "@/components/selections/QuoteSectionSelections";
@@ -304,6 +309,23 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
   });
 
   const projectId = quote.project_id;
+
+  // Standalone quote → project (0166): one modal, wherever it opens — the
+  // banner on an approved one, right after Mark approved, ?convert=1 (Needs
+  // you, the client-signed notification), the "Create project" nudges.
+  // Owner only (the SQL checks too).
+  const { role } = useAuth();
+  const canConvert = !projectId && role === "owner";
+  const [convert, setConvert] = useState<{ open: boolean; then: ProjectAction | null }>({ open: false, then: null });
+  const openConvert = (then: ProjectAction | null = null) => setConvert({ open: true, then });
+  const continueAction = useContinueProjectAction();
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (!searchParams.get("convert")) return;
+    if (canConvert) openConvert();
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, canConvert]);
 
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: listClients });
   const { data: activeProjects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
@@ -916,7 +938,7 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       }
       if (createProjectAfterSave.current) {
         createProjectAfterSave.current = false;
-        navigate("/projects/new", { state: { linkQuoteId: quote.id } });
+        openConvert();
       } else if (openAfterSave.current) {
         const to = openAfterSave.current;
         openAfterSave.current = null;
@@ -1193,17 +1215,16 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
     else saveMut.mutate();
   };
 
+  // An approved quote is never saved first: saving would undo its approval
+  // (its unsaved edits stay in the editor), and the server copy is what the
+  // client signed.
   const handleCreateProjectClick = () => {
-    if (!isDirty) {
-      navigate("/projects/new", { state: { linkQuoteId: quote.id } });
+    if (!isDirty || quote.status === "approved") {
+      openConvert();
       return;
     }
     createProjectAfterSave.current = true;
-    if (quote.status === "approved") {
-      setConfirmApprovedSaveOpen(true);
-    } else {
-      saveMut.mutate();
-    }
+    saveMut.mutate();
   };
 
   const primaryAction = (fullWidth?: boolean) =>
@@ -1243,6 +1264,20 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
 
   return (
     <div className="animate-fade-in max-w-6xl space-y-5">
+      {/* Stays mounted while open — the quote has a project by its success step. */}
+      {(canConvert || convert.open) && (
+        <CreateProjectFromQuoteDialog
+          open={convert.open}
+          onOpenChange={(open) => setConvert((c) => ({ ...c, open }))}
+          quote={quote}
+          then={convert.then}
+          onConverted={(result) => {
+            if (!convert.then) return false;
+            void continueAction(convert.then, result);
+            return true;
+          }}
+        />
+      )}
       <MobilePageHeader
         className="mobile-header-ink"
         title={quote.project?.name ?? "Standalone quote"}
@@ -1257,6 +1292,10 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
           </>
         }
       />
+
+      {canConvert && isApprovedStandalone(quote) && (
+        <StandaloneApprovedBanner hasDeposit={Number(quote.deposit_percentage) > 0} onCreateProject={openConvert} />
+      )}
 
       {/* Desktop header */}
       <div className="hidden md:block">
@@ -1306,7 +1345,13 @@ export function QuoteWorkspace({ quote, backHref, backLabel }: QuoteWorkspacePro
       )}
 
       {/* Approval (0133) — who approved (client vs contractor-recorded), or "Mark approved". */}
-      <QuoteApprovalRow quote={quote} clientName={quote.client?.name ?? quote.project?.client?.name ?? null} disabledReason={isDirty ? "Save your changes first" : null} />
+      <QuoteApprovalRow
+        quote={quote}
+        clientName={quote.client?.name ?? quote.project?.client?.name ?? null}
+        disabledReason={isDirty ? "Save your changes first" : null}
+        // A standalone quote just approved: straight to making it a project.
+        onApproved={() => canConvert && openConvert()}
+      />
 
       {/* Quote activity (0117) — how the client is engaging; internal only. */}
       {quote.status !== "draft" && <QuoteActivityLine quote={quote} />}
