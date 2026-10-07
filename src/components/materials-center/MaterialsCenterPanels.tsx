@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { reconcileMaterialsItem } from "@/lib/api";
-import { LINE_STATUS_LABEL } from "@/lib/materialTracking";
+import { lineStatusLabel } from "@/lib/materialTracking";
 import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
 import type { MaterialLineView, MaterialsCenterReport } from "@/lib/materialsCenter";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -61,7 +61,7 @@ export function FeatureStatus({
               <li key={l.id} className="text-sm">
                 <div className="flex items-baseline justify-between gap-2">
                   <Link to={`/projects/${projectId}/materials`} className="min-w-0 truncate text-foreground hover:underline" title={l.label}>{l.label}</Link>
-                  <span className="shrink-0 text-xs text-muted-foreground">{LINE_STATUS_LABEL[l.status]}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{lineStatusLabel(l.status, l.needed, l.ordered)}</span>
                 </div>
                 <StageBar l={l} />
                 {l.over && <OverEstimateNote used={l.used} estimated={l.needed} unit={l.unit} className="mt-0.5" />}

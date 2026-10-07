@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCheck, MinusCircle, MoreHorizontal, Plus, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, Circle, ClipboardCheck, MinusCircle, MoreHorizontal, Plus, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,18 +26,54 @@ const ACTION_LABEL: Record<PreconAction, string> = {
 /**
  * Pre-construction card (0124), near the top of the project page from Won
  * until the job starts: "5 of 8 ready", Ready / Items open / Blocked, each
- * item with its status and a quick action; tap a row to edit it. After the
- * start it collapses to "Started with 1 open item" (hidden if all done).
+ * item with its status and a quick action; tap a row to edit it.
+ * Collapsible from its header (chevron): collapsed it's one neutral line,
+ * "Pre-construction · 2 of 7 ready". Expanded by default while the job hasn't
+ * started and items are open, collapsed once everything's done or the job
+ * has started; after that the user's choice is remembered per project.
+ * `expandRequest` (a counter) opens it — the Overview's summary line.
  * Internal only — never in the Client Hub.
  */
-export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { projectId: string; onRecordPayment: () => void; onAssignCrew: () => void }) {
+const collapseKey = (projectId: string) => `chq_precon_collapsed:${projectId}`;
+function readCollapsed(projectId: string): boolean | null {
+  try {
+    const v = localStorage.getItem(collapseKey(projectId));
+    return v === "1" ? true : v === "0" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+export function PreconCard({
+  projectId,
+  onRecordPayment,
+  onAssignCrew,
+  expandRequest = 0,
+  onExpandHandled,
+}: {
+  projectId: string;
+  onRecordPayment: () => void;
+  onAssignCrew: () => void;
+  expandRequest?: number;
+  /** Called once the request has opened the card, so it isn't re-applied. */
+  onExpandHandled?: () => void;
+}) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
   const openHeadsUp = useHeadsUp();
   const { data: b } = usePreconBundle(projectId);
   const [editing, setEditing] = useState<ItemView | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  // null = follow the default for the job's state; true/false = the user's choice.
+  const [userCollapsed, setUserCollapsed] = useState<boolean | null>(() => readCollapsed(projectId));
+  const [forcedOpen, setForcedOpen] = useState(false);
+  useEffect(() => {
+    if (expandRequest > 0) {
+      setForcedOpen(true);
+      onExpandHandled?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandRequest]);
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   // "Edit this job's checklist": a local draft (rename / reorder / remove), saved together.
@@ -121,19 +157,44 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
 
   const locate = r.views.find((v) => v.item.kind === "locate" && v.state !== "na");
   const ticket = locate ? String(locate.item.details.ticket ?? "") : "";
-  const collapsed = phase === "started" && !expanded;
+  const defaultCollapsed = phase === "started" || r.status === "ready";
+  const collapsed = forcedOpen ? false : (userCollapsed ?? defaultCollapsed);
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setForcedOpen(false);
+    setUserCollapsed(next);
+    try {
+      localStorage.setItem(collapseKey(projectId), next ? "1" : "0");
+    } catch {
+      /* private mode — this visit only */
+    }
+  };
   const openCount = r.views.filter((v) => v.state === "open").length;
 
   return (
     <section className="card-surface p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
-          <ClipboardCheck className="h-4 w-4 text-muted-foreground" /> Pre-construction
-        </h3>
+        {/* Only the header toggles — nothing inside the checklist does. */}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          aria-controls={`precon-body-${projectId}`}
+          className="-mx-1 flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-subtle transition-transform", collapsed && "-rotate-90")} />
+          <ClipboardCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-base font-bold text-foreground">Pre-construction</span>
+          {collapsed && (
+            <span className="truncate text-sm text-muted-foreground">
+              · {r.status === "ready" ? "Ready" : `${r.done} of ${r.total} ready`}
+            </span>
+          )}
+        </button>
         <div className="flex items-center gap-1">
           {/* Setup tasks, not problems — no warning colors. Real issues (an
               811 ticket that isn't clear / has expired) show on their row. */}
-          {phase === "before" && r.status === "ready" && (
+          {!collapsed && phase === "before" && r.status === "ready" && (
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
               <CheckCircle2 className="h-3.5 w-3.5" /> Ready to start
             </span>
@@ -154,11 +215,11 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
         </div>
       </div>
 
+      <div id={`precon-body-${projectId}`} hidden={collapsed}>
       {phase === "started" ? (
-        <button type="button" onClick={() => setExpanded((e) => !e)} className="mt-1 flex items-center gap-1 text-sm font-semibold text-muted-foreground hover:text-foreground">
-          {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        <p className="mt-1 text-sm text-muted-foreground">
           Started with {openCount} open item{openCount === 1 ? "" : "s"}
-        </button>
+        </p>
       ) : (
         <>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -305,6 +366,8 @@ export function PreconCard({ projectId, onRecordPayment, onAssignCrew }: { proje
             <Plus className="mr-1 h-3.5 w-3.5" /> Add item for this job
           </Button>
         ))}
+
+      </div>
 
       <PreconItemSheet view={editing} projectId={projectId} settings={b.settings} onOpenChange={(o) => !o && setEditing(null)} />
     </section>
