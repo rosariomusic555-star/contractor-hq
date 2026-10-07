@@ -172,8 +172,6 @@ import {
 import { useProjectDelays } from "@/components/schedule/useUndoScheduleDelay";
 import { PageTabs, type PageTab } from "@/components/common/PageTabs";
 import { PreconSummaryLine } from "@/components/precon/PreconSummaryLine";
-import { usePreconBundle } from "@/components/precon/usePrecon";
-import { preconPhase } from "@/lib/precon";
 import { useUrlTab } from "@/hooks/use-url-tab";
 import { PROJECT_TABS, projectHref, type ProjectTab } from "@/lib/projectTabs";
 import { delayDays } from "@/lib/scheduleShift";
@@ -412,7 +410,19 @@ export function ProjectDetailView() {
     queryKey: ["progress-updates", id],
     queryFn: () => listProgressUpdates(id),
   });
-  const { data: precon } = usePreconBundle(id);
+  // #precon (the header's pre-construction line) opens the checklist, on
+  // Schedule.
+  useEffect(() => {
+    if (location.hash !== "#precon") return;
+    if (tab !== "schedule") {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", "schedule");
+      setSearchParams(next, { replace: true });
+    }
+    const t = window.setTimeout(() => document.getElementById("precon")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.hash, location.key]);
   // #measure… opens Measurements, which is on Estimate.
   useEffect(() => {
     if (/^#measure/.test(location.hash) && tab !== "estimate") {
@@ -708,22 +718,24 @@ export function ProjectDetailView() {
   const preconCard = (
     <>
       {/* Pre-construction checklist (0124) — from Won until the job starts. */}
-      <PreconCard
-        projectId={id}
-        onRecordPayment={() => setRecordPaymentOpen(true)}
-        onAssignCrew={() => document.getElementById("schedule-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}
-      />
+      <div id="precon" className="scroll-mt-28">
+        <PreconCard
+          projectId={id}
+          onRecordPayment={() => setRecordPaymentOpen(true)}
+          onAssignCrew={() => document.getElementById("schedule-card")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+        />
+      </div>
     </>
   );
 
   const reconcileBanner = (
     <>
       {project.status === "complete" && unreconciledLines.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-warning-strong/30 bg-warning/10 p-4">
-          <p className="text-sm font-bold text-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-card px-4 py-3">
+          <p className="text-sm text-muted-foreground">
             Reconcile materials — {pluralize(unreconciledLines.length, "line")} still need a leftover disposition.
           </p>
-          <Button size="sm" className="font-bold" onClick={() => setReconcileOpen(true)}>
+          <Button size="sm" variant="outline" className="font-semibold" onClick={() => setReconcileOpen(true)}>
             Reconcile materials
           </Button>
         </div>
@@ -1451,7 +1463,6 @@ export function ProjectDetailView() {
   const moneyBadge = overdueInvoiceCount || (depositOverdue ? 1 : 0);
   const pendingUpdates = progressUpdates.filter((u) => u.status === "pending");
   const latestUpdate = progressUpdates.find((u) => u.status !== "pending") ?? null;
-  const openPrecon = precon && preconPhase(precon.project) === "before" ? precon.readiness.openRequired.length : 0;
   const nextDelivery =
     materialOrders
       .filter((o) => o.status !== "delivered" && o.expected_delivery_date)
@@ -1461,7 +1472,7 @@ export function ProjectDetailView() {
   const tabs: PageTab<ProjectTab>[] = [
     { id: "overview", label: "Overview" },
     { id: "estimate", label: "Estimate", badge: pendingCOCount, badgeLabel: `${pluralize(pendingCOCount, "change order")} awaiting the client` },
-    { id: "schedule", label: "Schedule", badge: openPrecon, badgeTone: "warn", badgeLabel: `${pluralize(openPrecon, "required item")} still open` },
+    { id: "schedule", label: "Schedule" },
     { id: "materials", label: "Materials" },
     {
       id: "money",
@@ -1470,7 +1481,7 @@ export function ProjectDetailView() {
       badgeTone: "alert",
       badgeLabel: overdueInvoiceCount ? pluralize(overdueInvoiceCount, "overdue invoice") : "Deposit not received",
     },
-    { id: "updates", label: "Updates", badge: pendingUpdates.length, badgeTone: "warn", badgeLabel: `${pluralize(pendingUpdates.length, "update")} awaiting review` },
+    { id: "updates", label: "Updates", badge: pendingUpdates.length, badgeTone: "neutral", badgeLabel: `${pluralize(pendingUpdates.length, "update")} awaiting review` },
   ];
   const moreTabs: PageTab<ProjectTab>[] = [
     { id: "hub", label: "Client Hub" },
@@ -1559,7 +1570,7 @@ export function ProjectDetailView() {
               <p className="text-sm text-muted-foreground">No progress updates yet.</p>
             )}
             {pendingUpdates.length > 0 && (
-              <p className="mt-2 text-xs font-semibold text-warning-strong">{pluralize(pendingUpdates.length, "crew update")} to review</p>
+              <p className="mt-2 text-xs text-muted-foreground">{pluralize(pendingUpdates.length, "crew update")} to review</p>
             )}
           </OverviewCard>
         </div>
@@ -1696,7 +1707,7 @@ export function ProjectDetailView() {
       {featureChips}
       {linkedOpportunityLine}
       {wonBanner}
-      <PreconSummaryLine projectId={id} to={projectHref(id, "schedule")} className="mt-0" />
+      <PreconSummaryLine projectId={id} to={`${projectHref(id, "schedule")}#precon`} className="-my-2" />
       {reconcileBanner}
 
       <div ref={tabsAnchorRef} aria-hidden />
