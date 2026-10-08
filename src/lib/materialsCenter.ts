@@ -42,8 +42,7 @@ import {
   usageStatus,
   usedQuantity,
   type DeliveryLineWithOrderStatus,
-  type LineStatus,
-} from "./materialTracking";
+  type LineStatus, purchasedLines } from "./materialTracking";
 import { materialLineLabel } from "./materialsMath";
 import { nextOrderableQuantity } from "./catalogOrdering";
 import { materialSignals } from "./preconSignals";
@@ -153,7 +152,7 @@ export function materialsCenterReport(input: {
 }): MaterialsCenterReport {
   const { project, today } = input;
   const start = project.scheduled_start_date;
-  const deliveries: DeliveryLineWithOrderStatus[] = input.orders.flatMap((o) => o.material_order_items.map((item) => ({ item, orderStatus: o.status })));
+  const deliveries: DeliveryLineWithOrderStatus[] = purchasedLines(input.orders);
   const counted = input.sections.filter(countsTowardTotals);
   const allLines = counted.flatMap((s) => (s.materials_items ?? []).filter((l) => costTypeOf(l) === "material").map((l) => ({ line: l, section: s })));
   const lineById = new Map(allLines.map((x) => [x.line.id, x.line]));
@@ -304,7 +303,10 @@ export function materialsCenterReport(input: {
     if (!name) continue;
     const k = name.toLowerCase();
     const s = supMap.get(k) ?? { name, spend: 0, openOrders: 0, orders: 0, contact: input.suppliers.find((x) => x.name.trim().toLowerCase() === k) ?? null };
-    s.spend += ov.deliveredAmount + ov.palletCharge - ov.palletCredit;
+    // Spend = what's been paid (a requested quote is nothing yet).
+    if ((ov.order.payment_status ?? "paid") === "paid") {
+      s.spend += (ov.order.amount_paid != null ? Number(ov.order.amount_paid) : ov.orderAmount) + ov.palletCharge - ov.palletCredit;
+    }
     s.orders++;
     if (ov.state !== "delivered") s.openOrders++;
     supMap.set(k, s);
@@ -349,7 +351,12 @@ export function materialsCenterReport(input: {
       inUse: trackedLines.filter((l) => l.used > EPS).length,
       plannedCost: r2(lines.reduce((s, l) => s + l.plannedCost, 0)),
       // Everything on order, at the price entered (else the plan's unit cost).
-      orderedCost: r2(orders.reduce((s, o) => s + o.orderAmount, 0)),
+      // Paid purchases only: the amount paid, else the lines' estimate.
+      orderedCost: r2(
+        orders
+          .filter((o) => (o.order.payment_status ?? "paid") === "paid")
+          .reduce((s, o) => s + (o.order.amount_paid != null ? Number(o.order.amount_paid) : o.orderAmount), 0),
+      ),
       deliveredCost: r2(orders.reduce((s, o) => s + o.deliveredAmount, 0)),
       nextDelivery,
     },

@@ -50,7 +50,13 @@ describe("planned vs actual", () => {
   });
 
   it("per-feature labor when logged per feature; bridge adds up to the profit change", () => {
-    const r = plannedActualReport({ ...base, laborEntries: [{ cost: 5000, hours: 125, feature_id: "patio" }] });
+    // 0168: material cost is the paid supplier purchase's expense ($450 over the $3,600 plan),
+    // never the delivered cost.
+    const r = plannedActualReport({
+      ...base,
+      expenses: [{ amount: 4050, expense_category_id: null, expense_lines: [], cost_type: "material", feature_id: "patio" }] as any,
+      laborEntries: [{ cost: 5000, hours: 125, feature_id: "patio" }],
+    });
     expect(r.laborTracking).toBe("per_feature");
     const patio = r.features.find((f) => f.featureId === "patio")!;
     expect(patio.labor).toEqual({ plannedHours: 100, actualHours: 125, estimatedSplit: false });
@@ -64,7 +70,7 @@ describe("planned vs actual", () => {
     expect(r.profit.expectedFullyLoaded).toBe(12400 - 1000);
     expect(r.profit.actualFullyLoaded).toBe(10950 - 1250);
     expect(r.biggest[0]).toMatchObject({ label: "Labor", dollars: 1000 });
-    expect(profitSentence(r)).toBe("Labor (Paver Patio) +$1,000, Gravel base (Paver Patio) +$450, Overhead on extra hours +$250 → Fully loaded profit −$1,700");
+    expect(profitSentence(r)).toBe("Labor (Paver Patio) +$1,000, Material (Paver Patio) +$450, Overhead on extra hours +$250 → Fully loaded profit −$1,700");
   });
 
   it("open job: overhead counts planned hours until more are logged — no phantom overhead saving", () => {

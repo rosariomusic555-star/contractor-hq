@@ -171,7 +171,9 @@ export function plannedActualReport(input: {
   laborEntries: Pick<LaborEntry, "cost" | "hours" | "feature_id">[];
   deliveries: DeliveryLineWithOrderStatus[];
   usageLogs: MaterialsUsageLog[];
-  /** Delivered material cost counts in the totals (Complete + reconciled). */
+  /** The job is final (Complete): actuals stand as they are — the open-job
+   * "spend below plan counts at plan" rule ends. (Name kept from before
+   * 0168, when it also meant "count delivered material cost".) */
   materialsCounted: boolean;
   overheadRate: number | null;
   thresholds?: VarianceThresholds;
@@ -284,7 +286,8 @@ export function plannedActualReport(input: {
     }
     const act = { ...(actual.get(fid) ?? { material: 0, labor: 0, subcontractor: 0, equipment: 0, other: 0 }) };
     const lines = lineRows(fid);
-    if (input.materialsCounted) act.material += lines.reduce((s, l) => s + l.cost.actual, 0);
+    // 0168: material cost is the paid supplier purchases' expenses (in
+    // `actual` above) — delivered cost never counts separately.
     const lab = laborActual.get(fid);
     act.labor += lab?.cost ?? 0;
     // Job still open (not Complete + reconciled): each type counts as what's
@@ -354,16 +357,6 @@ export function plannedActualReport(input: {
     const where = multi ? ` (${f.name})` : "";
     for (const b of f.buckets) {
       if (b.bucket === "labor" && laborTracking === "project") continue;
-      if (b.bucket === "material" && input.materialsCounted) {
-        let lineSum = 0;
-        for (const l of f.lines) {
-          if (Math.abs(l.cost.dollars) >= 1) drivers.push({ label: `${l.name}${where}`, amount: -l.cost.dollars });
-          lineSum += l.cost.dollars;
-        }
-        const rest = b.dollars - lineSum;
-        if (Math.abs(rest) >= 1) drivers.push({ label: `Other materials${where}`, amount: -rest });
-        continue;
-      }
       if (Math.abs(b.dollars) >= 1) drivers.push({ label: `${b.label}${where}`, amount: -b.dollars });
     }
   }
@@ -394,17 +387,17 @@ export function plannedActualReport(input: {
   const biggest: PlannedActualReport["biggest"] = [];
   for (const f of features) {
     for (const b of f.buckets) {
-      if (b.bucket === "material" && input.materialsCounted) continue; // lines below instead
       if (b.bucket === "labor" && laborTracking === "project") continue;
       if (b.dollars > 0) biggest.push({ key: `${f.featureId}-${b.bucket}`, label: b.label, where: f.name, dollars: b.dollars, pct: b.pct, tone: b.tone });
     }
     for (const l of f.lines) {
-      if (input.materialsCounted ? l.cost.dollars > 0 : l.qty.dollars > 0 && l.qtySource !== "none") {
+      // Lines: by quantity (used / received vs planned) — informational.
+      if (l.qty.dollars > 0 && l.qtySource !== "none") {
         biggest.push({
           key: `line-${l.id}`,
           label: l.name,
           where: f.name,
-          dollars: input.materialsCounted ? l.cost.dollars : r2((l.actualQty - l.plannedQty) * (l.plannedQty > 0 ? l.cost.planned / l.plannedQty : 0)),
+          dollars: r2((l.actualQty - l.plannedQty) * (l.plannedQty > 0 ? l.cost.planned / l.plannedQty : 0)),
           pct: l.qty.pct,
           tone: l.qty.tone,
         });

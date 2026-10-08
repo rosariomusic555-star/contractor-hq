@@ -65,7 +65,7 @@ export function PlannedVsActualCard({ projectId, showContext = true, showCloseou
         {!report.materialsCounted && (
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Job still open: each cost type counts as what's been spent or its plan, whichever is more, so unspent budget never shows as profit — overruns show right away. Delivered material cost counts once the job is Complete and every line is reconciled; the lines below show deliveries so far.
+            Job still open: each cost type counts as what's been spent or its plan, whichever is more, so unspent budget never shows as profit — overruns show right away. Material cost is what you've paid suppliers (paid purchases go to Expenses).
           </p>
         )}
         <ProjectTotals report={report} />
@@ -270,7 +270,7 @@ function FeatureSection({ f, report }: { f: FeatureBlock; report: PlannedActualR
                   </li>
                 ))}
               </ul>
-              {!report.materialsCounted && <p className="mt-1 text-[11px] text-muted-subtle">Line variance is by quantity until materials count in the totals.</p>}
+              <p className="mt-1 text-[11px] text-muted-subtle">Line variance is by quantity (used or received vs planned).</p>
             </div>
           )}
         </div>

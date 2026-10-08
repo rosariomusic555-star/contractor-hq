@@ -14,10 +14,10 @@ import { attachmentChangeLines } from "@/lib/workOrderAttachments";
 export type CrewMaterialStatus = "not_ordered" | "ordered" | "partial" | "delivered" | "untracked";
 
 export const CREW_MATERIAL_STATUS_LABEL: Record<CrewMaterialStatus, string> = {
-  not_ordered: "Not ordered",
-  ordered: "Ordered",
-  partial: "Partially delivered",
-  delivered: "Delivered",
+  not_ordered: "Not bought yet",
+  ordered: "Bought",
+  partial: "Partly on site",
+  delivered: "On site",
   untracked: "—",
 };
 

@@ -9,10 +9,11 @@ describe("partial orders", () => {
     expect(partiallyOrdered(6, 6)).toBe(false);
     expect(partiallyOrdered(6, 8)).toBe(false);
   });
-  it("labels the chip Partially ordered", () => {
-    expect(lineStatusLabel("ordered", 6, 4)).toBe("Partially ordered");
-    expect(lineStatusLabel("ordered", 6, 6)).toBe("Ordered");
-    expect(lineStatusLabel("not_ordered", 6, 0)).toBe("Not ordered");
+  it("labels the chip Not purchased / Partially purchased / Purchased / On site (0168)", () => {
+    expect(lineStatusLabel("ordered", 6, 4)).toBe("Partially purchased");
+    expect(lineStatusLabel("ordered", 6, 6)).toBe("Purchased");
+    expect(lineStatusLabel("not_ordered", 6, 0)).toBe("Not purchased");
+    expect(lineStatusLabel("delivered", 6, 6)).toBe("On site");
   });
   it("pluralizes count units only", () => {
     expect(unitFor(6, "pallet")).toBe("pallets");

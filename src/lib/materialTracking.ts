@@ -355,12 +355,13 @@ export function effectiveEstimate(
 export type LineStatus = "not_ordered" | "ordered" | "delivered" | "in_use" | "used_up" | "over_estimate";
 
 export const LINE_STATUS_LABEL: Record<LineStatus, string> = {
-  not_ordered: "Not ordered",
-  ordered: "Ordered",
-  delivered: "Delivered",
-  in_use: "In use",
-  used_up: "Used up",
-  over_estimate: "Over estimate",
+  // 0168: Not purchased → Purchased (partial / full) → On site.
+  not_ordered: "Not purchased",
+  ordered: "Purchased",
+  delivered: "On site",
+  in_use: "On site",
+  used_up: "On site",
+  over_estimate: "On site",
 };
 
 /** One status per line even though several of these conditions can be true
@@ -389,6 +390,17 @@ export function orderingStatus(ordered: number, delivered: number, hasOrder = fa
   return lineStatus(0, ordered, delivered, 0, hasOrder);
 }
 
+/** A job's purchase lines as quantities — paid purchases only (0168): a
+ * supplier quote that's only been requested hasn't bought anything yet. The
+ * one place every screen turns purchases into Purchased / On site. */
+export function purchasedLines(
+  orders: { status: MaterialOrderStatus; payment_status?: string | null; material_order_items: MaterialOrderItem[] }[],
+): DeliveryLineWithOrderStatus[] {
+  return orders
+    .filter((o) => (o.payment_status ?? "paid") === "paid")
+    .flatMap((o) => o.material_order_items.map((item) => ({ item, orderStatus: o.status })));
+}
+
 /** Some ordered, not all of it yet — "Partially ordered". */
 export function partiallyOrdered(estimated: number, ordered: number): boolean {
   return ordered > 1e-6 && ordered + 1e-6 < estimated;
@@ -403,7 +415,7 @@ export function remainingToOrder(line: MaterialsItem, deliveries: DeliveryLineWi
 /** The status chip's words — "Partially ordered" while an order covers only
  * part of the line. */
 export function lineStatusLabel(status: LineStatus, estimated: number, ordered: number): string {
-  return status === "ordered" && partiallyOrdered(estimated, ordered) ? "Partially ordered" : LINE_STATUS_LABEL[status];
+  return status === "ordered" && partiallyOrdered(estimated, ordered) ? "Partially purchased" : LINE_STATUS_LABEL[status];
 }
 
 /** More used than planned — the quiet line note's test (0167). */
@@ -530,8 +542,8 @@ export function sheetCostSummary(
 /** Ranked most urgent first — the summary line follows this order. Ordering
  * only (0167): using more than estimated is a quiet note on the line
  * (overEstimate / OverEstimateNote), never an alert. */
-export type MaterialAlertKind = "over_order" | "delivery_overdue" | "not_ordered";
-export const MATERIAL_ALERT_ORDER: MaterialAlertKind[] = ["over_order", "delivery_overdue", "not_ordered"];
+export type MaterialAlertKind = "over_order" | "not_ordered";
+export const MATERIAL_ALERT_ORDER: MaterialAlertKind[] = ["over_order", "not_ordered"];
 
 export interface MaterialAlert {
   key: MaterialAlertKind;
@@ -588,7 +600,7 @@ export function materialAlerts(
     const base = { lineId: line.id, sectionId: line.section_id ?? null, lineName: name };
 
     if (estimated > 0 && ordered > estimated * (1 + settings.overOrderMarginPct / 100)) {
-      alerts.push({ ...base, key: "over_order", label: `${name} ordered ${Math.round(((ordered - estimated) / estimated) * 100)}% over estimate` });
+      alerts.push({ ...base, key: "over_order", label: `${name} bought ${Math.round(((ordered - estimated) / estimated) * 100)}% over estimate` });
     }
     if (
       estimated > 0 &&
@@ -596,30 +608,19 @@ export function materialAlerts(
       daysUntilStart != null &&
       daysUntilStart <= settings.notOrderedAlertDays
     ) {
-      alerts.push({ ...base, key: "not_ordered", label: `${name} not ordered` });
+      alerts.push({ ...base, key: "not_ordered", label: `${name} not purchased` });
     }
   }
 
-  for (const o of orders) {
-    if (o.status === "delivered" || !o.expected_delivery_date || o.expected_delivery_date >= todayISO) continue;
-    const late = daysBetween(o.expected_delivery_date, todayISO);
-    alerts.push({
-      key: "delivery_overdue",
-      lineId: null,
-      sectionId: null,
-      orderId: o.id,
-      lineName: o.supplier || "Delivery",
-      label: `${o.supplier || "Delivery"} ${late}d overdue`,
-    });
-  }
+  // 0168: no per-delivery alerts (late deliveries are a note on the purchase).
+  void orders;
 
   return alerts.sort((a, b) => MATERIAL_ALERT_ORDER.indexOf(a.key) - MATERIAL_ALERT_ORDER.indexOf(b.key));
 }
 
 const ALERT_WORDS: Record<MaterialAlertKind, [string, string]> = {
-  over_order: ["over-ordered", "over-ordered"],
-  delivery_overdue: ["delivery overdue", "deliveries overdue"],
-  not_ordered: ["not ordered", "not ordered"],
+  over_order: ["over-purchased", "over-purchased"],
+  not_ordered: ["not purchased", "not purchased"],
 };
 
 /** "1 over-ordered · 1 delivery overdue · 30 not ordered", most urgent

@@ -48,7 +48,7 @@ describe("auto checks", () => {
     expect(autoCheck("selections", { ...ready, selectionsOpen: 2 })).toMatchObject({ state: "open", detail: "2 selections not approved" });
     expect(autoCheck("deposit", { ...ready, deposit: { due: 0, paid: 0 } }).state).toBe("na");
     expect(autoCheck("deposit", { ...ready, deposit: { due: 3000, paid: 1000 } })).toMatchObject({ state: "open", detail: "$1,000 of $3,000 received", action: "record_payment" });
-    expect(autoCheck("materials", { ...ready, materials: { tracked: 3, short: ["Pavers"] } })).toMatchObject({ state: "open", detail: "1 line not fully ordered" });
+    expect(autoCheck("materials", { ...ready, materials: { tracked: 3, short: ["Pavers"] } })).toMatchObject({ state: "open", detail: "1 line not fully purchased" });
     expect(autoCheck("materials", { ...ready, materials: { tracked: 0, short: [] } }).state).toBe("na");
     expect(autoCheck("deliveries", { ...ready, deliveries: { unscheduled: ["Base", "Sand"] } }).detail).toBe("2 lines with no delivery by the start date");
     expect(autoCheck("crew", { ...ready, crewName: null }).action).toBe("assign_crew");

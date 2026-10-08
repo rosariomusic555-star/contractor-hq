@@ -45,7 +45,7 @@ import type { ProjectFeature } from "./features";
 import { countsTowardTotals } from "./features";
 import { isExcludedFromFinancials, localDateOf } from "./financials";
 import { isMaintenanceJob } from "./maintenance";
-import { needsReconciliation, type DeliveryLineWithOrderStatus } from "./materialTracking";
+import { needsReconciliation, type DeliveryLineWithOrderStatus, purchasedLines } from "./materialTracking";
 import { plannedActualReport } from "./plannedActual";
 import { isActivePayment, paymentUnallocated, paymentMethodLabel } from "./projectMoney";
 import { sectionIncluded } from "./selections";
@@ -351,7 +351,7 @@ export function makeJobProfit(input: ProfitInputs): (projectId: string) => JobPr
       const quotes = byProject.quotes.get(projectId) ?? [];
       const sections = byProject.sections.get(projectId) ?? [];
       const orders = byProject.orders.get(projectId) ?? [];
-      const deliveries: DeliveryLineWithOrderStatus[] = orders.flatMap((o) => o.material_order_items.map((item) => ({ item, orderStatus: o.status })));
+      const deliveries: DeliveryLineWithOrderStatus[] = purchasedLines(orders);
       const lines = sections.filter(countsTowardTotals).flatMap((s) => s.materials_items).filter((i) => (i.cost_type ?? "material") === "material");
       const usageLogs = lines.flatMap((l) => usageByItem.get(l.id) ?? []);
       const reconciled = lines.length > 0 && needsReconciliation(lines, deliveries, usageLogs).length === 0;
@@ -368,7 +368,7 @@ export function makeJobProfit(input: ProfitInputs): (projectId: string) => JobPr
         laborEntries: byProject.labor.get(projectId) ?? [],
         deliveries,
         usageLogs,
-        materialsCounted: p.status === "complete" && reconciled,
+        materialsCounted: p.status === "complete",
         overheadRate: rate,
       });
       out = {

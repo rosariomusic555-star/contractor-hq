@@ -148,8 +148,7 @@ import {
   isProjectActive,
   executionTrackedLines,
   currentBaseline,
-  type DeliveryLineWithOrderStatus,
-} from "@/lib/materialTracking";
+  type DeliveryLineWithOrderStatus, purchasedLines } from "@/lib/materialTracking";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
 import { actualCostByType, costPlanSummary } from "@/lib/costPlan";
@@ -195,7 +194,6 @@ export function ProjectDetailView() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [estimateDraft, setEstimateDraft] = useState("");
-  const [reconcileOpen, setReconcileOpen] = useState(false);
   // "Add new work" — also opened from a change order's "new feature" hint
   // (?add-new-work=1).
   const [searchParams, setSearchParams] = useSearchParams();
@@ -314,6 +312,23 @@ export function ProjectDetailView() {
       qc.invalidateQueries({ queryKey: ["projects"] });
       // Marked Complete → offer the closeout snapshot (Feature 5).
       if (status === "complete" && project?.status !== "complete") setCloseoutOpen(true);
+      // Waste learning (0080 → 0168): one row per usage-tracked line, at
+      // completion now that there's no material reconcile step.
+      if (status === "complete" && project?.status !== "complete") {
+        for (const line of executionTrackedLines(trackedLines)) {
+          const baseline = currentBaseline(line);
+          if (baseline) {
+            void recordMaterialLearningSnapshot({
+              project_id: id,
+              catalog_product_id: line.catalog_product_id,
+              material_name: materialLineLabel(line),
+              baseline_quantity: baseline.quantity,
+              final_used: usedQuantity(line, usageLogs),
+              unit: line.unit,
+            });
+          }
+        }
+      }
       void logProjectEvent(id, "status_changed", `Status → ${projectStatusMeta(status).label}`);
       qc.invalidateQueries({ queryKey: ["project-events", id] });
     },
@@ -482,9 +497,7 @@ export function ProjectDetailView() {
   // own cost figure once the project is Complete AND every tracked line is
   // reconciled (see materialActualCost's doc comment, financials.ts, for
   // why this deliberately isn't blended in any earlier).
-  const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
-    o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
-  );
+  const deliveries: DeliveryLineWithOrderStatus[] = purchasedLines(materialOrders);
   // Always computed — sheetCostSummary/needsReconciliation both handle an
   // empty line list fine (all-zero totals), so the Materials card shows
   // on every project, not just ones with a sheet started yet.
@@ -510,13 +523,15 @@ export function ProjectDetailView() {
   // labor as soon as either has at least one entry. Null only when NOTHING
   // has been logged yet ("unknown," never a silent $0 — same convention
   // resolveCost() already documents).
-  const hasActualCostData = (project.status === "complete" && materialsFullyReconciled) || expenses.length > 0 || laborEntries.length > 0;
+  // 0168: material cost is the paid supplier purchases' expenses (in
+  // `expenses`) — delivered cost never counts separately.
+  const hasActualCostData = expenses.length > 0 || laborEntries.length > 0;
   // Actual, by type — expenses matched through their category's cost type.
   const actualByType = actualCostByType(
     expenses,
     expenseCategories,
     laborActualTotal,
-    project.status === "complete" && materialsFullyReconciled ? materialCostSummary.actualCost : 0,
+    0,
   );
   const actualCost = hasActualCostData ? actualByType.total : null;
   // The overhead rate the job was sold with (0110) — else its quote's, else
@@ -530,15 +545,8 @@ export function ProjectDetailView() {
 
   // Per feature (Phase E): planned vs actual, price and margin. Reconciled
   // material cost joins per feature under the same Complete gate as above.
-  const materialActualByFeature =
-    project.status === "complete" && materialsFullyReconciled
-      ? materials.filter(countsTowardTotals).reduce((m, sec) => {
-          const lines = sec.materials_items.filter((i) => (i.cost_type ?? "material") === "material");
-          const k = sec.feature_id ?? null;
-          m.set(k, (m.get(k) ?? 0) + sheetCostSummary(lines, deliveries, usageLogs).actualCost);
-          return m;
-        }, new Map<string | null, number>())
-      : undefined;
+  // 0168: material cost per feature comes from the purchase expenses (by feature).
+  const materialActualByFeature: Map<string | null, number> | undefined = undefined;
   const featureRows: FeatureReport[] | null =
     projectFeatures.some((f) => f.status === "active")
       ? featureReports({
@@ -551,7 +559,7 @@ export function ProjectDetailView() {
           expenseCategories,
           laborEntries,
           materialActual: materialActualByFeature,
-          materialPending: !materialActualByFeature,
+          materialPending: false, // 0168: material actuals are the purchase expenses — never pending
         })
       : null;
   const predictedCost = costPlan.planned.total > 0 ? costPlan.planned.total : null;
@@ -714,21 +722,6 @@ export function ProjectDetailView() {
           onExpandHandled={() => setPreconExpand(0)}
         />
       </div>
-    </>
-  );
-
-  const reconcileBanner = (
-    <>
-      {project.status === "complete" && unreconciledLines.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-card px-4 py-3">
-          <p className="text-sm text-muted-foreground">
-            Reconcile materials — {pluralize(unreconciledLines.length, "line")} still need a leftover disposition.
-          </p>
-          <Button size="sm" variant="outline" className="font-semibold" onClick={() => setReconcileOpen(true)}>
-            Reconcile materials
-          </Button>
-        </div>
-      )}
     </>
   );
 
@@ -1400,14 +1393,6 @@ export function ProjectDetailView() {
         <UsageLogHistoryDialog open={!!historyLine} onOpenChange={(open) => !open && setHistoryLine(null)} line={historyLine} />
       )}
 
-      <ReconcileMaterialsDialog
-        open={reconcileOpen}
-        onOpenChange={setReconcileOpen}
-        projectId={id}
-        lines={unreconciledLines}
-        deliveries={deliveries}
-        usageLogs={usageLogs}
-      />
     </>
   );
 
@@ -1669,7 +1654,6 @@ export function ProjectDetailView() {
           <div className="space-y-3">
             {preSaleNotice}
             {wonBanner}
-            {reconcileBanner}
             <div className="flex flex-wrap items-center justify-between gap-x-4">
               <PreconSummaryLine projectId={id} to={`${projectHref(id, "schedule")}#precon`} className="mt-0" />
               {linkedOpportunity && (
@@ -2047,118 +2031,6 @@ function MaterialsTrackingCard({
   );
 }
 
-function ReconcileMaterialsDialog({
-  open,
-  onOpenChange,
-  projectId,
-  lines,
-  deliveries,
-  usageLogs,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  projectId: string;
-  lines: MaterialsItem[];
-  deliveries: DeliveryLineWithOrderStatus[];
-  usageLogs: MaterialsUsageLog[];
-}) {
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const [choices, setChoices] = useState<Record<string, { disposition: "returned" | "kept" | "waste"; credit: string }>>({});
-
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      for (const line of lines) {
-        const choice = choices[line.id];
-        if (!choice) continue;
-        await reconcileMaterialsItem(line.id, {
-          disposition: choice.disposition,
-          return_credit: choice.disposition === "returned" ? parseFloat(choice.credit) || 0 : null,
-        });
-        const baseline = currentBaseline(line);
-        if (baseline) {
-          await recordMaterialLearningSnapshot({
-            project_id: projectId,
-            catalog_product_id: line.catalog_product_id,
-            material_name: materialLineLabel(line),
-            baseline_quantity: baseline.quantity,
-            final_used: usedQuantity(line, usageLogs),
-            unit: line.unit,
-          });
-        }
-      }
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["materials"] });
-      toast({ title: "Materials reconciled" });
-      onOpenChange(false);
-    },
-    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[80vh] max-w-lg gap-4 overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Reconcile materials</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          These lines have leftover delivered material — say what happened to it. Returned quantities can carry a credit
-          that reduces actual material cost.
-        </p>
-        <div className="space-y-3">
-          {lines.map((line) => {
-            const delivered = deliveredQuantity(line, deliveries);
-            const used = usedQuantity(line, usageLogs);
-            const leftover = leftoverQuantity(delivered, used);
-            const choice = choices[line.id] ?? { disposition: "kept" as const, credit: "" };
-            return (
-              <div key={line.id} className="rounded-lg border border-hairline p-3">
-                <p className="text-sm font-bold text-foreground">
-                  {materialLineLabel(line)} — {leftover} {line.unit ?? ""} leftover
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Select
-                    value={choice.disposition}
-                    onValueChange={(v) => setChoices((c) => ({ ...c, [line.id]: { ...choice, disposition: v as "returned" | "kept" | "waste" } }))}
-                  >
-                    <SelectTrigger className="h-9 w-40 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="returned">Returned to supplier</SelectItem>
-                      <SelectItem value="kept">Kept in stock</SelectItem>
-                      <SelectItem value="waste">Waste</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {choice.disposition === "returned" && (
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={choice.credit}
-                      onChange={(e) => setChoices((c) => ({ ...c, [line.id]: { ...choice, credit: e.target.value } }))}
-                      placeholder="Credit $"
-                      className="h-9 w-32"
-                    />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <Button className="w-full font-bold" disabled={saveMut.isPending} onClick={() => saveMut.mutate()}>
-          {saveMut.isPending ? "Saving…" : "Save reconciliation"}
-        </Button>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-
-
-/** True once `ref` (a marker just above the tab bar) has scrolled above the
- * top of the window — the tab bar then shows the compact title. */
 function useScrolledPast(ref: RefObject<HTMLElement>, enabled: boolean) {
   const [past, setPast] = useState(false);
   useEffect(() => {

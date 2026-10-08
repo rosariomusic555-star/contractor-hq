@@ -130,10 +130,12 @@ describe("profit on completed jobs", () => {
     const jp = makeJobProfit({ ...base, projects, closeouts, quotes: quotes as any, sections: sections as any });
     expect(jp("x")).toMatchObject({ source: "closeout", price: 10000, profit: 3000, fullyLoaded: 2000 });
     const y = jp("y")!;
-    expect(y).toMatchObject({ source: "live", price: 40000, profit: 20000 });
-    // Dollar-weighted: (3000 + 20000) / (10000 + 40000) = 46%, not the average of 30% and 50%.
+    // 0168: a Complete job is final — its actuals stand (no costs logged here), the
+    // plan isn't carried any more.
+    expect(y).toMatchObject({ source: "live", price: 40000, profit: 40000 });
+    // Dollar-weighted: (3000 + 40000) / (10000 + 40000) = 86%, not the average of 30% and 100%.
     const t = profitTotals([jp("x")!, y]);
-    expect(t.marginPct).toBeCloseTo(46);
+    expect(t.marginPct).toBeCloseTo(86);
   });
 
   it("the report: headline with comparison, won jobs, upsell share, revenue type, payment methods", () => {

@@ -222,8 +222,7 @@ import {
   trackingSummary,
   LINE_STATUS_LABEL,
   type LineStatus,
-  type DeliveryLineWithOrderStatus,
-} from "@/lib/materialTracking";
+  type DeliveryLineWithOrderStatus, purchasedLines } from "@/lib/materialTracking";
 import { BackLink } from "@/components/common/BackLink";
 
 const NONE = "__none__";
@@ -722,9 +721,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
     queryKey: ["material-orders", { project: projectId }],
     queryFn: () => listMaterialOrders(projectId),
   });
-  const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
-    o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
-  );
+  const deliveries: DeliveryLineWithOrderStatus[] = purchasedLines(materialOrders);
   // Tracking, deliveries and the order sheet are about MATERIAL lines only.
   // …and only lines that count: never a proposed add-on's or removed feature's.
   const trackedLines: MaterialsItem[] = sections
@@ -1748,7 +1745,7 @@ function MaterialsSheetBuilder({ projectId, projectName, sheetId, backHref, back
               className="font-bold"
             >
               <FileDown className="mr-1.5 h-3.5 w-3.5" />
-              Generate Order Sheet
+              Request supplier quote
             </Button>
           </div>
         )}
@@ -3163,7 +3160,7 @@ function MaterialTrackingRow({
     <div className="mt-1 space-y-2 rounded-xl border border-hairline bg-muted/30 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-semibold text-foreground/80">
-          Est. {estimated} {u} · Ordered {ordered} · Delivered {delivered} · Used {used}
+          Est. {estimated} {u} · Purchased {ordered} · On site {delivered} · Used {used}
         </span>
         <span className={LINE_STATUS_BADGE[status]}>{lineStatusLabel(status, estimated, ordered)}</span>
       </div>
@@ -3209,7 +3206,7 @@ function MaterialOrderingRow({ unit, track }: { unit: string; track: { estimated
   return (
     <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-hairline bg-muted/30 px-3 py-2">
       <span className="text-xs text-muted-foreground">
-        Needs {n(track.estimated)} {u} · Ordered {n(track.ordered)} · Delivered {n(track.delivered)}
+        Needs {n(track.estimated)} {u} · Purchased {n(track.ordered)} · On site {n(track.delivered)}
       </span>
       <span className={LINE_STATUS_BADGE[track.status]}>{lineStatusLabel(track.status, track.estimated, track.ordered)}</span>
     </div>

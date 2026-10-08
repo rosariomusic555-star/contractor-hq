@@ -110,8 +110,8 @@ export function autoCheck(kind: PreconKind, s: PreconSignals): { state: ItemStat
     case "materials":
       if (s.materials.tracked === 0) return { state: "na", detail: "No materials on the plan" };
       return s.materials.short.length
-        ? { state: "open", detail: `${plural(s.materials.short.length, "line")} not fully ordered`, action: "open_cost_plan" }
-        : { state: "done", detail: `All ${plural(s.materials.tracked, "line")} ordered` };
+        ? { state: "open", detail: `${plural(s.materials.short.length, "line")} not fully purchased`, action: "open_cost_plan" }
+        : { state: "done", detail: `All ${plural(s.materials.tracked, "line")} purchased` };
     case "deliveries":
       if (s.materials.tracked === 0) return { state: "na", detail: "No materials on the plan" };
       return s.deliveries.unscheduled.length

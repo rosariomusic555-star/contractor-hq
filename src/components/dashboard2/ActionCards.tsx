@@ -25,7 +25,6 @@ import {
 import { coldLabel, coldState, timeAgoShort } from "@/lib/quoteActivity";
 import { forecastWorkDays, isoDate } from "@/lib/weatherRisk";
 import { useScheduleForecasts } from "@/lib/forecast";
-import { upcomingDeliveries } from "@/lib/materialOrders";
 import { useUpcomingPrecon } from "@/components/precon/usePrecon";
 import { opportunityStageMeta } from "@/lib/statusMeta";
 import { RISK_TEXT } from "@/components/weather/riskStyles";
@@ -94,8 +93,8 @@ export function StartingSoonCard() {
           const label = r.status === "ready" ? "Ready" : r.status === "blocked" ? `Blocked · ${r.openRequired.length} open` : `${r.openRequired.length} open`;
           const day1 = batch ? forecastWorkDays({ start: p.scheduled_start_date, end: p.scheduled_end_date }, batch.projects[p.id]?.forecast, batch.settings, today).find((d) => d.date === p.scheduled_start_date) : null;
           const pOrders = orders.filter((o) => o.project_id === p.id);
-          const late = pOrders.some((o) => o.status !== "delivered" && o.expected_delivery_date && o.expected_delivery_date > p.scheduled_start_date!);
-          const materials = pOrders.length === 0 ? null : pOrders.every((o) => o.status === "delivered") ? { t: "green" as const, l: "Materials in" } : late ? { t: "red" as const, l: "Delivery after start" } : { t: "amber" as const, l: "Materials on order" };
+          // 0168: just whether the supplier quotes are paid.
+          const materials = pOrders.length === 0 ? null : pOrders.some((o) => (o.payment_status ?? "paid") !== "paid") ? { t: "amber" as const, l: "Supplier quote not paid" } : { t: "green" as const, l: "Materials paid" };
           const crew = crews.find((c) => c.id === (p as { crew_id?: string }).crew_id)?.name;
           return (
             <li key={p.id}>
@@ -185,29 +184,26 @@ export function ClientActivityCard() {
 }
 
 // ---------------------------------------------------------------------------
-// This week — appointments + deliveries for the next 6 days (today is in Today).
+// This week — appointments for the next 6 days (today is in Today). No
+// per-delivery items (0168).
 // ---------------------------------------------------------------------------
 export function ThisWeekCard() {
   const today = isoDate(new Date());
   const { data: appointments = [], isLoading } = useQuery({ queryKey: ["appointments"], queryFn: listAppointments });
-  const { data: orders = [] } = useQuery({ queryKey: ["material-orders"], queryFn: () => listMaterialOrders() });
-  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
-  const deliveries = upcomingDeliveries(orders, new Map(projects.map((p) => [p.id, p])), 6).filter((d) => d.date > today);
   const appts = appointments.filter((a) => a.status === "scheduled" && isoDate(new Date(a.date_time)) > today && isoDate(new Date(a.date_time)) <= addDays(today, 6));
   const days = Array.from({ length: 6 }, (_, i) => addDays(today, i + 1));
   const byDay = days
     .map((d) => ({
       d,
       appts: appts.filter((a) => isoDate(new Date(a.date_time)) === d).sort((a, b) => a.date_time.localeCompare(b.date_time)),
-      deliveries: deliveries.filter((x) => x.date === d),
     }))
-    .filter((x) => x.appts.length || x.deliveries.length);
+    .filter((x) => x.appts.length);
   return (
-    <Card title="This week" count={appts.length + deliveries.length || null} viewAll={{ to: "/appointments", label: "Appointments" }}>
+    <Card title="This week" count={appts.length || null} viewAll={{ to: "/appointments", label: "Appointments" }}>
       {isLoading ? (
         <CardSkeleton rows={2} />
       ) : byDay.length === 0 ? (
-        <EmptyLine>No appointments or deliveries in the next 6 days.</EmptyLine>
+        <EmptyLine>No appointments in the next 6 days.</EmptyLine>
       ) : (
         <ul className="divide-y divide-hairline">
           {byDay.map((g) => (
@@ -221,15 +217,6 @@ export function ThisWeekCard() {
                     {a.address ? <span className="text-muted-foreground"> · {a.address}</span> : null}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">{a.all_day ? "All day" : new Date(a.date_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
-                </Link>
-              ))}
-              {g.deliveries.map((x) => (
-                <Link key={x.itemId} to={`/projects/${x.projectId}/material-orders`} className="flex min-h-[40px] items-center gap-2 text-sm hover:text-primary">
-                  <Truck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">
-                    {x.description} <span className="text-muted-foreground">· {x.projectName}</span>
-                  </span>
-                  {x.conflict && <span className="shrink-0 text-[11px] font-semibold text-destructive">after start</span>}
                 </Link>
               ))}
             </li>

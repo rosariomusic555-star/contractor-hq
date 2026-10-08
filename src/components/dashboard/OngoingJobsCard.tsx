@@ -116,7 +116,8 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   const opportunitiesById = new Map(opportunities.map((o: Opportunity) => [o.id, o]));
   const projectsById = new Map(projects.map((p) => [p.id, p]));
 
-  const deliveries = upcomingDeliveries(materialOrders, projectsById);
+  // 0168: no per-delivery items on the dashboard.
+  const deliveries: ReturnType<typeof upcomingDeliveries> = [];
   const appointmentRows = upcomingAppointmentRows(appointments, opportunitiesById, projectsById);
 
   // Material budget tracking (0080) — tracked lines per project (only the
@@ -137,6 +138,8 @@ export function OngoingJobsCard({ className }: { className?: string }) {
   const materialOrderDeliveriesByProject = new Map<string, DeliveryLineWithOrderStatus[]>();
   for (const order of materialOrders) {
     const list = materialOrderDeliveriesByProject.get(order.project_id) ?? [];
+    // A requested quote hasn't bought anything yet (0168).
+    if ((order.payment_status ?? "paid") !== "paid") continue;
     for (const item of order.material_order_items) list.push({ item, orderStatus: order.status });
     materialOrderDeliveriesByProject.set(order.project_id, list);
   }

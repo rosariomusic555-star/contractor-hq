@@ -447,18 +447,40 @@ export function WorkOrderView({ projectId }: { projectId: string }) {
       {wo.materials.length > 0 && (
         <Section title="Materials">
           <MaterialsList wo={wo} canLog={wo.viewer.can_log_usage && !offline} />
-          {/* 0152 sends every delivery; before it only pending ones (no status "delivered"). */}
-          {wo.deliveries.some((d) => d.status !== "delivered" && d.expected_date) && (
-            <div className="space-y-1 border-t border-hairline pt-3">
-              <p className="text-sm font-bold text-foreground">Upcoming deliveries</p>
-              {wo.deliveries
-                .filter((d) => d.status !== "delivered" && d.expected_date)
-                .map((d) => (
-                  <p key={d.id} className="flex items-center gap-1.5 text-sm text-foreground">
-                    <Truck className="h-4 w-4 text-muted-foreground" /> {d.supplier ?? "Delivery"} · {day(d.expected_date)}
-                    {d.open_issues ? <span className="text-xs font-semibold text-destructive">· {d.open_issues} issue{d.open_issues === 1 ? "" : "s"}</span> : null}
-                  </p>
-                ))}
+          {/* 0168: getting it to the job — what's coming (delivery date) and
+              what needs to be picked up (supplier + items). No prices. */}
+          {wo.deliveries.some((d) => d.status !== "delivered") && (
+            <div className="space-y-3 border-t border-hairline pt-3">
+              {wo.deliveries.some((d) => d.status !== "delivered" && (d.fulfillment ?? "delivery") === "delivery") && (
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-foreground">Coming</p>
+                  {wo.deliveries
+                    .filter((d) => d.status !== "delivered" && (d.fulfillment ?? "delivery") === "delivery")
+                    .map((d) => (
+                      <div key={d.id} className="text-sm text-foreground">
+                        <p className="flex items-center gap-1.5">
+                          <Truck className="h-4 w-4 shrink-0 text-muted-foreground" /> {d.supplier ?? "Delivery"} · {d.expected_date ? day(d.expected_date) : "date to be set"}
+                        </p>
+                        {(d.items ?? []).length > 0 && <p className="pl-[22px] text-xs text-muted-foreground">{(d.items ?? []).join(", ")}</p>}
+                        {d.note && <p className="whitespace-pre-line pl-[22px] text-xs text-foreground/80">{d.note}</p>}
+                      </div>
+                    ))}
+                </div>
+              )}
+              {wo.deliveries.some((d) => d.status !== "delivered" && d.fulfillment === "pickup") && (
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-foreground">To pick up</p>
+                  {wo.deliveries
+                    .filter((d) => d.status !== "delivered" && d.fulfillment === "pickup")
+                    .map((d) => (
+                      <div key={d.id} className="text-sm text-foreground">
+                        <p className="font-semibold">{d.supplier ?? "Supplier"}</p>
+                        {(d.items ?? []).length > 0 && <p className="text-xs text-muted-foreground">{(d.items ?? []).join(", ")}</p>}
+                        {d.note && <p className="whitespace-pre-line text-xs text-foreground/80">{d.note}</p>}
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           )}
           {wo.deliveries.some((d) => (d.photos ?? []).length > 0) && (
@@ -637,16 +659,6 @@ function MaterialsList({ wo, canLog }: { wo: CrewWorkOrder; canLog: boolean }) {
                       {fmtQty(s.planned)} {m.unit ?? ""}
                       {m.waste_percent ? <span className="text-muted-subtle"> (incl. {fmtQty(Number(m.waste_percent))}% waste)</span> : null}
                     </span>
-                    {/* 0152: an open delivery issue on this material. */}
-                    {m.orders
-                      .filter((o) => o.issue)
-                      .map((o, i) => (
-                        <span key={i} className="block text-sm font-semibold text-destructive">
-                          {CREW_ISSUE_LABEL[o.issue!]}
-                          {o.issue_note ? ` — ${o.issue_note}` : ""}
-                          {o.issue === "backordered" && o.issue_expected_date ? ` · expected ${day(o.issue_expected_date)}` : ""}
-                        </span>
-                      ))}
                     {/* What's already logged — so a second person doesn't log it again. */}
                     {Number(m.used) > 0 && (
                       <span className="block text-sm font-semibold text-info">

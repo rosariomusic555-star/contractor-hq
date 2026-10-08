@@ -75,7 +75,7 @@ const parseQty = (raw: string | undefined): number | null => {
 };
 
 /**
- * "What do you want to order?" — picks a subset of a Materials Sheet's
+ * "Request supplier quote" (0168) — picks a subset of a Materials Sheet's
  * lines, generates a supplier-facing PDF, and optionally marks the picked
  * lines as ordered (a real material_orders row, since Ordered is always
  * derived from material_order_items — see materialTracking.ts — never a
@@ -288,6 +288,8 @@ function OrderSheetDialogInner({
         expected_delivery_date: dateNeeded || null,
         notes: notes.trim() || null,
         po_number: poNumber.trim() || null,
+        // A request, not a purchase yet — Mark paid when the supplier's quote is paid.
+        payment_status: "quote_requested",
         items: pendingLines.map((l) => ({
           description: l.detail ? `${l.title} — ${l.detail}` : l.title,
           quantity: l.quantity,
@@ -299,11 +301,11 @@ function OrderSheetDialogInner({
       qc.invalidateQueries({ queryKey: ["material-orders", { project: projectId }] });
       qc.invalidateQueries({ queryKey: ["material-orders"] });
       if (order.supplier) void touchSupplierUsage(order.supplier);
-      toast({ title: "Marked as ordered" });
+      toast({ title: "Quote request saved", description: "Mark it paid in Materials when you pay the supplier." });
       onOrdered?.();
       close();
     },
-    onError: (err: Error) => toast({ title: "Couldn't mark as ordered", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Couldn't save the quote request", description: err.message, variant: "destructive" }),
   });
 
   /** The order as plain text — for Copy and the mail-app draft. */
@@ -333,7 +335,7 @@ function OrderSheetDialogInner({
         {step === "select" ? (
           <>
             <DialogHeader className="border-b border-hairline px-5 py-4">
-              <DialogTitle>What do you want to order?</DialogTitle>
+              <DialogTitle>Request a supplier quote</DialogTitle>
             </DialogHeader>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -498,7 +500,7 @@ function OrderSheetDialogInner({
                   className="font-bold"
                 >
                   <FileDown className="mr-1.5 h-4 w-4" />
-                  {generateMut.isPending ? "Generating…" : "Generate"}
+                  {generateMut.isPending ? "Building…" : "Download PDF"}
                 </Button>
               </div>
             </div>
@@ -519,13 +521,13 @@ function OrderSheetDialogInner({
         ) : (
           <>
             <DialogHeader className="px-5 pt-5">
-              <DialogTitle>Mark these items as ordered?</DialogTitle>
+              <DialogTitle>Save this quote request?</DialogTitle>
             </DialogHeader>
             <div className="space-y-3 px-5 py-4">
               <p className="text-sm text-muted-foreground">
-                {emailedTo ? `The order sheet was emailed to ${emailedTo}.` : "The order sheet downloaded."} Marking these {pluralize(pendingLines.length, "item")} as ordered
-                {supplier.trim() ? ` creates a pending delivery from ${supplier.trim()}` : " logs them as ordered"} and
-                updates the Material Tracker.
+                {emailedTo ? `The list was emailed to ${emailedTo}.` : "The list downloaded."} Saving it adds a purchase
+                {supplier.trim() ? ` from ${supplier.trim()}` : ""} in "Quote requested" with these {pluralize(pendingLines.length, "item")} — mark it
+                paid when you pay the supplier's quote.
               </p>
               {!emailedTo && (
                 <div className="flex flex-wrap gap-2">
@@ -567,7 +569,7 @@ function OrderSheetDialogInner({
                 Not now
               </Button>
               <Button onClick={() => markOrderedMut.mutate()} disabled={markOrderedMut.isPending} className="font-bold">
-                {markOrderedMut.isPending ? "Saving…" : "Yes, mark as ordered"}
+                {markOrderedMut.isPending ? "Saving…" : "Save quote request"}
               </Button>
             </div>
           </>

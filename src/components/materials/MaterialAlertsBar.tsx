@@ -25,8 +25,8 @@ interface Group {
 
 /**
  * The material ordering alerts (0167: ordering only — using more than
- * planned is a quiet note on the line), as one slim line: "⚠ 1 delivery
- * overdue · 30 not ordered · job started 1d ago  Review ›". Review opens the alerts grouped
+ * planned is a quiet note on the line), as one slim line: "⚠ 30 not
+ * purchased · job started 1d ago  Review ›". Review opens the alerts grouped
  * by Cost plan section (so two "Caps" lines make sense) — inline with a
  * capped height on desktop, a bottom sheet on phones. Each group can open
  * in the Cost plan or be marked ordered in one tap; each line links to its
@@ -63,9 +63,9 @@ export function MaterialAlertsBar({
   const groups = useMemo<Group[]>(() => {
     const map = new Map<string, Group>();
     for (const a of alerts) {
-      const key = a.key === "delivery_overdue" ? "__deliveries__" : (a.sectionId ?? "__other__");
-      const name = a.key === "delivery_overdue" ? "Deliveries" : a.sectionId ? (sectionNames.get(a.sectionId) ?? "Section") : "Other";
-      if (!map.has(key)) map.set(key, { key, name, sectionId: a.key === "delivery_overdue" ? null : a.sectionId, alerts: [] });
+      const key = a.sectionId ?? "__other__";
+      const name = a.sectionId ? (sectionNames.get(a.sectionId) ?? "Section") : "Other";
+      if (!map.has(key)) map.set(key, { key, name, sectionId: a.sectionId, alerts: [] });
       map.get(key)!.alerts.push(a);
     }
     return [...map.values()];
@@ -125,7 +125,7 @@ export function MaterialAlertsBar({
                   onClick={() => onMarkOrdered(notOrderedIds)}
                   className="min-h-9 text-xs font-bold text-primary hover:underline disabled:opacity-50"
                 >
-                  Mark as ordered
+                  Mark as purchased
                 </button>
               )}
               </div>

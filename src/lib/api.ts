@@ -622,6 +622,9 @@ export interface MaterialCategory {
   /** 0167 — new cost plan lines in this category are usage-tracked (Log
    * usage, planned vs used). Undefined before 0167 reads as false. */
   track_usage_default?: boolean;
+  /** 0168 — leftovers can go back to the supplier for credit (pavers, wall
+   * block, caps, edging…). Bulk material never offers a return. */
+  returnable?: boolean;
   created_at: string;
 }
 
@@ -653,7 +656,7 @@ export async function createMaterialCategory(input: { name: string; sort_order?:
 
 export async function updateMaterialCategory(
   id: string,
-  patch: Partial<Pick<MaterialCategory, "name" | "sort_order" | "needs_color" | "default_unit" | "track_usage_default">>,
+  patch: Partial<Pick<MaterialCategory, "name" | "sort_order" | "needs_color" | "default_unit" | "track_usage_default" | "returnable">>,
 ): Promise<void> {
   const { error } = await supabase.from("material_categories").update(patch).eq("id", id);
   if (error) throw error;
@@ -4259,6 +4262,12 @@ export async function createExpense(input: {
 /** Expenses are otherwise create/delete-only — this exists just so a
  * mis-tagged or untagged expense can be recategorized without deleting and
  * re-adding it. */
+/** An expense's notes — whether it was created by a supplier purchase (0168). */
+export async function getExpenseNotes(id: string): Promise<string | null> {
+  const { data } = await supabase.from("expenses").select("notes").eq("id", id).maybeSingle();
+  return (data as { notes?: string | null } | null)?.notes ?? null;
+}
+
 export async function updateExpense(
   id: string,
   patch: Partial<
@@ -4964,7 +4973,23 @@ export interface MaterialOrder {
   pallets_delivered?: number | null;
   pallets_returned?: number | null;
   pallet_deposit_each?: number | null;
+  /** 0168 — a supplier PURCHASE: Quote requested → Paid. Undefined before
+   * 0168 reads as paid (every older order was placed). */
+  payment_status?: PurchasePaymentStatus;
+  /** Total paid to the supplier (null = not entered). */
+  amount_paid?: number | null;
+  paid_on?: string | null;
+  /** The expense this purchase records its cost as (auto, or linked). */
+  expense_id?: string | null;
+  /** How it gets to site — Delivery (expected date, Delivered) or Pickup. */
+  fulfillment?: PurchaseFulfillment;
+  picked_up_by?: string | null;
+  /** The supplier quote / invoice (photo or PDF), expense-receipts/<project>/… */
+  attachment_path?: string | null;
 }
+
+export type PurchasePaymentStatus = "quote_requested" | "paid";
+export type PurchaseFulfillment = "delivery" | "pickup";
 
 const MATERIAL_ORDER_SELECT = "*, material_order_items(*), project:projects(name)";
 
@@ -4992,6 +5017,13 @@ export async function createMaterialOrder(input: {
   notes?: string | null;
   po_number?: string | null;
   delivered_on?: string | null;
+  /** 0168 purchase fields — only sent when given. */
+  payment_status?: PurchasePaymentStatus;
+  amount_paid?: number | null;
+  paid_on?: string | null;
+  fulfillment?: PurchaseFulfillment;
+  picked_up_by?: string | null;
+  attachment_path?: string | null;
   items: {
     description: string;
     quantity: number;
@@ -5011,6 +5043,12 @@ export async function createMaterialOrder(input: {
       // 0152 — only sent when set, so creating works before it's run.
       ...(input.po_number?.trim() ? { po_number: input.po_number.trim() } : {}),
       ...(input.delivered_on ? { delivered_on: input.delivered_on } : input.status === "delivered" && input.expected_delivery_date ? { delivered_on: input.expected_delivery_date } : {}),
+      ...(input.payment_status ? { payment_status: input.payment_status } : {}),
+      ...(input.amount_paid != null ? { amount_paid: input.amount_paid } : {}),
+      ...(input.paid_on ? { paid_on: input.paid_on } : {}),
+      ...(input.fulfillment ? { fulfillment: input.fulfillment } : {}),
+      ...(input.picked_up_by ? { picked_up_by: input.picked_up_by } : {}),
+      ...(input.attachment_path ? { attachment_path: input.attachment_path } : {}),
     })
     .select()
     .single();
@@ -5040,6 +5078,60 @@ export async function createMaterialOrder(input: {
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Supplier purchases (0168) — returns + the quote/invoice attachment.
+// ---------------------------------------------------------------------------
+
+export interface MaterialReturn {
+  id: string;
+  material_order_id: string;
+  materials_item_id: string | null;
+  description: string;
+  quantity: number;
+  unit: string | null;
+  credit: number;
+  returned_on: string;
+  expense_id: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export async function listMaterialReturns(projectId: string): Promise<MaterialReturn[]> {
+  const { data, error } = await supabase
+    .from("material_returns")
+    .select("*, material_orders!inner(project_id)")
+    .eq("material_orders.project_id", projectId)
+    .order("returned_on");
+  if (error) {
+    if (error.code === "PGRST205" || error.code === "42P01") return [];
+    throw error;
+  }
+  return (data ?? []).map(({ material_orders: _o, ...r }) => r as MaterialReturn);
+}
+
+export async function createMaterialReturn(input: Omit<MaterialReturn, "id" | "created_at">): Promise<MaterialReturn> {
+  const { data, error } = await supabase.from("material_returns").insert(input).select().single();
+  if (error) throw error;
+  return data as MaterialReturn;
+}
+
+export async function deleteMaterialReturn(id: string): Promise<void> {
+  const { error } = await supabase.from("material_returns").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** The supplier quote / invoice — a photo (compressed) or a PDF (as is),
+ * under the expense-receipts prefix (its storage policy, 0151). */
+export async function uploadPurchaseAttachment(projectId: string, file: File): Promise<string> {
+  if (file.type === "application/pdf") {
+    const path = `expense-receipts/${projectId}/purchase-${randomImageFilename(file.name).replace(/\.[a-z0-9]+$/i, "")}.pdf`;
+    const { error } = await supabase.storage.from(IMAGES_BUCKET).upload(path, file, { contentType: "application/pdf", upsert: false });
+    if (error) throw error;
+    return path;
+  }
+  return uploadExpenseReceipt(projectId, file);
+}
+
 export async function updateMaterialOrder(
   id: string,
   patch: Partial<
@@ -5055,6 +5147,13 @@ export async function updateMaterialOrder(
       | "pallets_delivered"
       | "pallets_returned"
       | "pallet_deposit_each"
+      | "payment_status"
+      | "amount_paid"
+      | "paid_on"
+      | "expense_id"
+      | "fulfillment"
+      | "picked_up_by"
+      | "attachment_path"
     >
   >,
 ): Promise<void> {

@@ -23,7 +23,7 @@ import { isActivePayment, paymentUnallocated } from "@/lib/projectMoney";
 import { useReviewNeedsYou } from "@/components/reviews/useReviewNeedsYou";
 import { usePreconNeedsYou } from "@/components/precon/usePrecon";
 import { useMaintenanceNeedsYou } from "@/components/maintenance/useMaintenance";
-import { materialIssueNeedsYouItems } from "@/lib/materialsCenter";
+import { unpaidQuoteNeedsYouItems } from "@/lib/purchases";
 import { isoDate } from "@/lib/weatherRisk";
 
 /**
@@ -51,9 +51,9 @@ export function useNeedsYouItems(): { items: NeedsYouItem[]; isLoading: boolean 
   const reviews = useReviewNeedsYou();
   const precon = usePreconNeedsYou();
   const maintenance = useMaintenanceNeedsYou();
-  // Open delivery issues (0152) — short / damaged / wrong item / backordered.
+  // Supplier quotes not paid yet, before a job starts (0168) — one per job.
   const { data: materialOrders = [] } = useQuery({ queryKey: ["material-orders"], queryFn: () => listMaterialOrders() });
-  const materialIssues = materialIssueNeedsYouItems(materialOrders, new Map(projects.map((p) => [p.id, p])), isoDate(new Date()));
+  const materialIssues = unpaidQuoteNeedsYouItems(materialOrders, new Map(projects.map((p) => [p.id, p])), isoDate(new Date()));
 
   const items = buildNeedsYouItems(quotes, invoices, undefined, { opportunities, appointments }, reviews, [...precon, ...maintenance, ...materialIssues], {
     coldSettings,

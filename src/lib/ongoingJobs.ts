@@ -85,7 +85,7 @@ function buildAlerts(input: {
       key: "material_alert",
       // Ordering only (not ordered / over-ordered / delivery overdue) — using
       // more than planned never reaches the dashboard (0167).
-      label: input.materialAlertCount === 1 ? "Material ordering alert" : `${input.materialAlertCount} material ordering alerts`,
+      label: input.materialAlertCount === 1 ? "1 material not purchased" : `${input.materialAlertCount} materials not purchased`,
     });
   }
 
@@ -209,7 +209,7 @@ export function buildOngoingJobCards(input: {
           input.materialOrderDeliveriesByProject.get(project.id) ?? [],
           input.usageLogsByProject.get(project.id) ?? [],
           input.materialAlertSettings,
-        ).length;
+        ).filter((a) => a.key === "not_ordered").length;
       }
 
       return {

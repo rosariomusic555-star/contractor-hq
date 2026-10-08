@@ -17,6 +17,19 @@ const base = {
   today: "2026-09-29",
 };
 
+describe("purchases and readiness (0168)", () => {
+  it("a Delivery purchase with no date by the start is unscheduled; a Pickup never blocks; a requested quote isn't purchased", () => {
+    const orders = [
+      { id: "o1", supplier: "Stone Co", expected_delivery_date: null, status: "ordered", fulfillment: "delivery", material_order_items: [item("a", "pav", 500, { material_order_id: "o1", unit: "square_foot" })], created_at: "2026-09-20" },
+      { id: "o2", supplier: "Yard", expected_delivery_date: null, status: "ordered", fulfillment: "pickup", material_order_items: [item("b", "gravel", 20, { material_order_id: "o2" })], created_at: "2026-09-20" },
+      { id: "o3", supplier: "Sand Co", expected_delivery_date: "2026-10-01", status: "ordered", payment_status: "quote_requested", material_order_items: [item("c", "sand", 4, { material_order_id: "o3" })], created_at: "2026-09-20" },
+    ] as any;
+    const r = materialsCenterReport({ ...base, orders });
+    expect(r.readiness.unscheduled).toEqual(["Pavers"]);
+    expect(r.readiness.short).toEqual(["Sand"]);
+  });
+});
+
 describe("materialsCenterReport", () => {
   it("still to order and readiness follow the pre-construction rules", () => {
     const orders = [
@@ -27,7 +40,8 @@ describe("materialsCenterReport", () => {
     expect(r.stillToOrder.map((l) => l.id).sort()).toEqual(["pav", "sand"]);
     expect(r.stillToOrder.find((l) => l.id === "sand")!.toOrder).toBe(1);
     expect(r.readiness.short).toHaveLength(2);
-    expect(r.readiness.unscheduled).toEqual(["Pavers"]); // sand has a delivery coming, pavers none
+    // 0168: only lines bought for Delivery can be "unscheduled" — pavers aren't purchased yet (that's the Materials item).
+    expect(r.readiness.unscheduled).toEqual([]);
     expect(r.readiness.daysToStart).toBe(6);
     expect(r.summary).toMatchObject({ lineCount: 3, fullyOrdered: 1, fullyDelivered: 0 });
     expect(r.summary.nextDelivery!.date).toBe("2026-10-02");

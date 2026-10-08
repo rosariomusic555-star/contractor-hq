@@ -92,6 +92,15 @@ export function SettingsMaterialCategoriesView() {
     onError,
   });
 
+  // Returnable (0168) — leftovers go back to the supplier for credit.
+  const returnMut = useMutation({
+    mutationFn: ({ id, returnable }: { id: string; returnable: boolean }) => updateMaterialCategory(id, { returnable }),
+    onMutate: ({ id, returnable }) =>
+      qc.setQueryData<MaterialCategory[]>(["material-categories"], (old) => old?.map((c) => (c.id === id ? { ...c, returnable } : c))),
+    onSettled: invalidate,
+    onError,
+  });
+
   // Show over-estimate notes on lines (0167).
   const showNotes = useShowOverEstimateNotes();
   const notesMut = useMutation({
@@ -176,6 +185,10 @@ export function SettingsMaterialCategoriesView() {
             tracking on (Log usage, planned vs used). Usually just base gravel and bedding sand. Any line can still be
             switched on or off. Ordering and deliveries work for every line either way.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">Returnable</span> — leftovers can go back to the supplier for credit
+            (pavers, wall block, caps, edging…). Bulk material never asks.
+          </p>
 
           {isLoading ? (
             <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
@@ -195,6 +208,7 @@ export function SettingsMaterialCategoriesView() {
                   onNeedsColor={(needs_color) => colorMut.mutate({ id: s.id, needs_color })}
                   onDefaultUnit={(default_unit) => unitMut.mutate({ id: s.id, default_unit })}
                   onTrackUsage={(track_usage_default) => trackMut.mutate({ id: s.id, track_usage_default })}
+                  onReturnable={(returnable) => returnMut.mutate({ id: s.id, returnable })}
                   onDelete={() => deleteMut.mutate(s.id)}
                 />
               ))}
@@ -255,6 +269,7 @@ function MaterialCategoryRow({
   onNeedsColor,
   onDefaultUnit,
   onTrackUsage,
+  onReturnable,
   onDelete,
 }: {
   category: MaterialCategory;
@@ -266,6 +281,7 @@ function MaterialCategoryRow({
   onNeedsColor: (needs: boolean) => void;
   onDefaultUnit: (unit: string | null) => void;
   onTrackUsage: (track: boolean) => void;
+  onReturnable: (returnable: boolean) => void;
   onDelete: () => void;
 }) {
   const [name, setName] = useState(category.name);
@@ -341,6 +357,12 @@ function MaterialCategoryRow({
           onCheckedChange={onTrackUsage}
           aria-label={`${category.name}: track usage by default`}
         />
+      </label>
+
+      <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-muted-foreground" title="Returnable for credit">
+        <span className="hidden sm:inline">Returnable</span>
+        <span className="sm:hidden">Return</span>
+        <Switch checked={!!category.returnable} onCheckedChange={onReturnable} aria-label={`${category.name}: returnable to the supplier`} />
       </label>
 
       <AlertDialog>

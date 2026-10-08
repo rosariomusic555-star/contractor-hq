@@ -23,7 +23,7 @@ import {
 } from "@/lib/api";
 import { countsTowardTotals } from "@/lib/features";
 import { burdenPerHour } from "@/lib/overhead";
-import { needsReconciliation, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
+import { needsReconciliation, type DeliveryLineWithOrderStatus, purchasedLines } from "@/lib/materialTracking";
 import { plannedActualReport } from "@/lib/plannedActual";
 import { closeoutFeatures, type CloseoutSnapshot } from "@/lib/closeout";
 import { delayDays } from "@/lib/scheduleShift";
@@ -69,12 +69,11 @@ export function usePlannedActual(projectId: string) {
 
   return useMemo(() => {
     if (!project) return null;
-    const deliveries: DeliveryLineWithOrderStatus[] = materialOrders.flatMap((o) =>
-      o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
-    );
+    const deliveries: DeliveryLineWithOrderStatus[] = purchasedLines(materialOrders);
     const unreconciled = needsReconciliation(materialLines, deliveries, usageLogs).length;
     const reconciled = materialLines.length > 0 && unreconciled === 0;
-    const materialsCounted = project.status === "complete" && reconciled;
+    // 0168: final once Complete — material cost is the purchases' expenses.
+    const materialsCounted = project.status === "complete";
     const headline = pickHeadlineQuote(quotes);
     const overheadRate =
       project.overhead_rate != null

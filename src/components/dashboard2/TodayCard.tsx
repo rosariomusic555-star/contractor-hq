@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { APPOINTMENT_TYPE_LABEL, listAppointments, listCrews, listEmployees, listMaterialOrders, listProjects, listRunningTimers, type Project } from "@/lib/api";
 import { appointmentWeather, forecastWorkDays, isoDate } from "@/lib/weatherRisk";
 import { useAppointmentForecasts, useScheduleForecasts } from "@/lib/forecast";
-import { upcomingDeliveries } from "@/lib/materialOrders";
 import { openSummary } from "@/lib/precon";
 import { useRainDelay } from "@/components/schedule/rainDelayContext";
 import { usePreconBundle } from "@/components/precon/usePrecon";
@@ -22,7 +21,7 @@ const isBooked = (p: Project) => p.status === "scheduled" || p.status === "in_pr
 /**
  * Today — the day's command center: each job on today's schedule (by crew)
  * with its address, today's weather + risk (Rain delay on a flagged day),
- * readiness when it starts today, who's clocked in, today's deliveries;
+ * readiness when it starts today, who's clocked in, 
  * then today's appointments with their forecast. Everything from the
  * shared caches (projects, forecasts, material orders, running timers).
  */
@@ -44,7 +43,6 @@ export function TodayCard() {
         .sort((a, b) => ((a as { crew_id?: string }).crew_id ?? "").localeCompare((b as { crew_id?: string }).crew_id ?? "")),
     [projects, today],
   );
-  const deliveries = upcomingDeliveries(orders, new Map(projects.map((p) => [p.id, p])), 0);
   const appts = appointments
     .filter((a) => a.status === "scheduled" && isoDate(new Date(a.date_time)) === today)
     .sort((a, b) => a.date_time.localeCompare(b.date_time));
@@ -84,7 +82,6 @@ export function TodayCard() {
               crewName={crews.find((c) => c.id === (p as { crew_id?: string }).crew_id)?.name ?? null}
               forecastDay={batch ? forecastWorkDays({ start: p.scheduled_start_date, end: p.scheduled_end_date }, batch.projects[p.id]?.forecast, batch.settings, today).find((d) => d.date === today) ?? null : null}
               clockedIn={timers.filter((t) => t.project_id === p.id).map((t) => ({ name: employees.find((e) => e.id === t.employee_id)?.name ?? t.worker_name ?? "Crew", since: t.start_at }))}
-              deliveries={deliveries.filter((d) => d.projectId === p.id)}
             />
           ))}
           {appts.map((a) => {
@@ -118,14 +115,12 @@ function TodayJob({
   crewName,
   forecastDay,
   clockedIn,
-  deliveries,
 }: {
   project: Project;
   today: string;
   crewName: string | null;
   forecastDay: ReturnType<typeof forecastWorkDays>[number] | null;
   clockedIn: { name: string; since: string }[];
-  deliveries: ReturnType<typeof upcomingDeliveries>;
 }) {
   const openDelay = useRainDelay();
   const startsToday = project.scheduled_start_date === today;
@@ -165,11 +160,6 @@ function TodayJob({
             <UserRound className="h-3 w-3" /> {clockedIn.map((c) => c.name.split(" ")[0]).join(", ")} clocked in
           </span>
         ) : null}
-        {deliveries.map((d) => (
-          <span key={d.itemId} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-            <Truck className="h-3 w-3" /> {d.description}
-          </span>
-        ))}
         <Link to={`/projects/${project.id}/work-order`} className="flex min-h-[32px] items-center gap-1 rounded-full px-2 font-semibold text-primary">
           <ClipboardList className="h-3 w-3" /> Work order
         </Link>
