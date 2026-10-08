@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ImagePlus, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { StatusPill } from "@/components/common/StatusPill";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { timeAgo } from "@/lib/time";
@@ -18,7 +17,7 @@ import {
   addProjectNote,
   listEmployeeProjectSelections,
 } from "@/lib/api";
-import { BackLink } from "@/components/common/BackLink";
+import { BannerStatus, ProjectBanner } from "@/components/project-overview/ProjectBanner";
 import { ProjectForecastStrip } from "@/components/weather/ForecastStrip";
 import { ScheduleDelaysList } from "@/components/schedule/ScheduleDelaysList";
 import { delayDayLabel } from "@/lib/scheduleShift";
@@ -109,15 +108,15 @@ export function EmployeeProjectDetailView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <BackLink
-        to="/employee"
-        className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-      >My projects</BackLink>
-
-      <div className="flex items-center gap-2.5">
-        <h1 className="text-[22px] font-bold tracking-tight text-foreground">{project.name}</h1>
-        <StatusPill meta={projectStatusMeta(project.status)} />
-      </div>
+      {/* Same banner as the owner's project page — no prices for crews. */}
+      <ProjectBanner
+        backTo="/employee"
+        backLabel="My projects"
+        name={project.name}
+        statusLabel={projectStatusMeta(project.status).label}
+        address={project.address}
+        statusControl={<BannerStatus label={projectStatusMeta(project.status).label} />}
+      />
 
       {/* Crew work order (0125) — everything for the job site, no prices. */}
       <Link

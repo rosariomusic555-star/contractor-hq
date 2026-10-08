@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ClipboardCheck, RefreshCw } from "lucide-react";
+import { ClipboardCheck, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -203,15 +203,6 @@ function CloseoutDialogInner({ projectId, open, onOpenChange }: { projectId: str
             Snapshots planned vs actual by feature, labor, profit and job context. {data?.current ? "The earlier closeout is kept, marked as replaced." : ""}
           </DialogDescription>
         </DialogHeader>
-        {data && data.unreconciled > 0 && (
-          <div className="flex items-start gap-2 rounded-lg bg-warning/15 p-3 text-xs text-foreground">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-strong" />
-            <span>
-              {data.unreconciled} material line{data.unreconciled === 1 ? " isn't" : "s aren't"} reconciled yet. Delivered cost still counts, but returns and leftovers
-              won't be credited — reconcile first on the Cost plan for the most accurate result.
-            </span>
-          </div>
-        )}
         <div className="space-y-1.5">
           <Label htmlFor="closeout-note">What happened (optional)</Label>
           <Textarea id="closeout-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. hit roots, extra excavation" />

@@ -3,7 +3,8 @@ import { ExpensesHubCard } from "@/components/job-costs/ExpensesHubCard";
 import { MaterialsHubCard } from "@/components/materials-center/MaterialsHubCard";
 import { AddNewWorkDialog } from "@/components/projects/AddNewWorkDialog";
 import { OverEstimateNote } from "@/components/materials/OverEstimateNote";
-import { NewOverview, NewOverviewHeader, type OverviewMoney } from "@/components/project-overview/NewOverview";
+import { NewOverview, type OverviewMoney } from "@/components/project-overview/NewOverview";
+import { ProjectBanner, ProjectBannerSlim, PROJECT_BANNER_SLIM_BLEED } from "@/components/project-overview/ProjectBanner";
 import { ChangeOrdersCard, CostPlanCard, QuotesCard } from "@/components/project-overview/EstimateCards";
 import { FeatureChangesCard, InvoicesCard } from "@/components/project-overview/BillingCards";
 import { useJobCosts } from "@/hooks/use-job-costs";
@@ -45,7 +46,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { StatusPill } from "@/components/common/StatusPill";
 import { MoneyRow } from "@/components/common/MoneyRow";
 import { PaymentsList } from "@/components/payments/PaymentsList";
 import { ProjectSelectionsCard } from "@/components/selections/ProjectSelectionsCard";
@@ -623,7 +623,7 @@ export function ProjectDetailView() {
         v === "in_progress" ? guardStart(() => statusMutation.mutate("in_progress")) : statusMutation.mutate(v as ProjectStatus)
       }
     >
-      <SelectTrigger className="h-9 w-40 rounded-[0.625rem] border-border bg-card text-sm font-semibold">
+      <SelectTrigger className="h-9 w-36 rounded-[0.625rem] border-transparent bg-banner-control text-sm font-semibold text-banner-control-foreground focus:ring-white/70 focus:ring-offset-0 sm:w-40">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -1638,41 +1638,48 @@ export function ProjectDetailView() {
   };
 
   const header = (
-    <>
-      <BackLink to="/projects" className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground">Projects</BackLink>
-      <NewOverviewHeader
-        project={project}
-        statusLabel={overviewStatusLabel(project, readyToStart)}
-        contract={contract}
-        margin={overviewMoney?.total.margin ?? null}
-        marginLabel={showActualMargin ? "Final margin" : "Projected margin"}
-        featureNames={projectCategoryIds(project).map((cid) => jobCategories.find((c) => c.id === cid)?.name).filter((n): n is string => !!n)}
-        featureEditor={featureChips}
-        statusSelect={statusSelect}
-        onMoney={() => setTab("money")}
-        below={
-          <div className="space-y-3">
-            {preSaleNotice}
-            {wonBanner}
-            <div className="flex flex-wrap items-center justify-between gap-x-4">
-              <PreconSummaryLine projectId={id} to={`${projectHref(id, "schedule")}#precon`} className="mt-0" />
-              {linkedOpportunity && (
-                <Link to={`/pipeline/${linkedOpportunity.id}`} className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-                  <Link2 className="h-3.5 w-3.5" /> From pipeline: {linkedOpportunity.title}
-                </Link>
-              )}
-            </div>
-          </div>
-        }
-      />
-    </>
+    <ProjectBanner
+      backTo="/projects"
+      backLabel="Projects"
+      name={project.name}
+      statusLabel={overviewStatusLabel(project, readyToStart)}
+      client={project.client_id && project.client ? { id: project.client_id, name: project.client.name } : null}
+      address={project.address}
+      featureNames={projectCategoryIds(project).map((cid) => jobCategories.find((c) => c.id === cid)?.name).filter((n): n is string => !!n)}
+      featureEditor={featureChips}
+      money={{
+        contract,
+        margin: overviewMoney?.total.margin ?? null,
+        marginLabel: showActualMargin ? "Final margin" : "Projected margin",
+        onOpen: () => setTab("money"),
+      }}
+      statusControl={statusSelect}
+    />
+  );
+
+  // The stage notices, readiness line and pipeline link — under the tabs now
+  // that the banner sits right on top of them.
+  const belowTabs = (
+    <div className="space-y-3 [&:has(>div:only-child:empty)]:hidden">
+      {preSaleNotice}
+      {wonBanner}
+      <div className="flex flex-wrap items-center justify-between gap-x-4">
+        <PreconSummaryLine projectId={id} to={`${projectHref(id, "schedule")}#precon`} className="mt-0" />
+        {linkedOpportunity && (
+          <Link to={`/pipeline/${linkedOpportunity.id}`} className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+            <Link2 className="h-3.5 w-3.5" /> From pipeline: {linkedOpportunity.title}
+          </Link>
+        )}
+      </div>
+    </div>
   );
 
   return (
     <div className="animate-fade-in space-y-5">
       {header}
 
-      <div ref={tabsAnchorRef} aria-hidden />
+      {/* Tabs sit right under the banner. */}
+      <div ref={tabsAnchorRef} aria-hidden className="!mt-0" />
       <PageTabs
         tabs={tabs}
         overflow={moreTabs}
@@ -1680,14 +1687,12 @@ export function ProjectDetailView() {
         onChange={setTab}
         ariaLabel="Project sections"
         compact={headerScrolledAway}
-        title={
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-base font-bold text-foreground">{project.name}</span>
-            <StatusPill meta={meta} />
-          </div>
-        }
+        className="!mt-1"
+        titleClassName={PROJECT_BANNER_SLIM_BLEED}
+        title={<ProjectBannerSlim name={project.name} statusLabel={meta.label} />}
       />
 
+      {belowTabs}
       <div role="tabpanel" aria-label={[...tabs, ...moreTabs].find((t) => t.id === tab)?.label} key={tab} className="animate-fade-in">
         {tabBody[tab]()}
       </div>
