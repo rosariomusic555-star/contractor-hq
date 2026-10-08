@@ -5,12 +5,12 @@ export function defaultOrderEmail(p: { supplier: string; jobName: string; compan
   const needed = p.dateNeeded ? `, needed by ${fmtDay(p.dateNeeded)}` : "";
   const deliver = p.address.trim() ? ` for delivery to ${p.address.trim().replace(/\s*\n\s*/g, ", ")}` : "";
   return {
-    subject: `Material order — ${p.jobName}${p.company ? ` — ${p.company}` : ""}`,
+    subject: `Quote request — ${p.jobName}${p.company ? ` — ${p.company}` : ""}`,
     message: [
       `Hi ${p.supplier.trim() || "there"},`,
       "",
       `Attached is the material list for ${p.jobName}${deliver}${needed}.`,
-      "Could you send over pricing and availability?",
+      "Could you send a quote with pricing and availability?",
       "",
       "Thanks,",
       p.company ?? "",

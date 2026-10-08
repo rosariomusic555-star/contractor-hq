@@ -207,7 +207,7 @@ export function CostPlanCard({
           <Link to={base}>Open cost plan</Link>
         </Button>
         <Button size="sm" variant="outline" className="h-9" onClick={() => navigate(`${base}#order-sheet`)}>
-          <FileDown className="mr-1.5 h-3.5 w-3.5" /> Generate order sheet
+          <FileDown className="mr-1.5 h-3.5 w-3.5" /> Request supplier quote
         </Button>
         {calcSections.length > 0 && (
           <Popover>

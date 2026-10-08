@@ -29,8 +29,7 @@ import {
   effectiveDeliveryStatus,
   effectiveEstimate,
   orderedQuantity,
-  type DeliveryLineWithOrderStatus,
-} from "@/lib/materialTracking";
+  type DeliveryLineWithOrderStatus, purchasedLines } from "@/lib/materialTracking";
 import { materialLineLabel } from "@/lib/materialsMath";
 import { preconPhase, readiness, type PreconItemRow, type PreconSettingsLike, type PreconSignals, type Readiness } from "@/lib/precon";
 
@@ -50,7 +49,7 @@ const EPS = 1e-6;
 export function materialSignals(
   materialLines: MaterialsItem[],
   deliveries: DeliveryLineWithOrderStatus[],
-  orders: Pick<MaterialOrder, "id" | "expected_delivery_date" | "status">[],
+  orders: Pick<MaterialOrder, "id" | "expected_delivery_date" | "status" | "fulfillment">[],
   start: string | null,
 ): Pick<PreconSignals, "materials" | "deliveries"> {
   const orderById = new Map(orders.map((o) => [o.id, o]));
@@ -59,10 +58,18 @@ export function materialSignals(
   const unscheduled: string[] = [];
   for (const line of lines) {
     const est = effectiveEstimate(line).quantity;
+    // Materials: every needed line fully purchased (paid — `deliveries` is
+    // paid purchases only, see purchasedLines).
     if (orderedQuantity(line, deliveries) + EPS < est) short.push(materialLineLabel(line));
-    if (deliveredQuantity(line, deliveries) + EPS >= est) continue;
-    const coming = deliveries.some((d) => {
-      if (d.item.materials_item_id !== line.id || effectiveDeliveryStatus(d.item, d.orderStatus) === "delivered") return false;
+    // Deliveries: only what's coming by Delivery — pickup lines never block
+    // (0168). A Delivery line needs an expected date by the start.
+    const byDelivery = deliveries.filter(
+      (d) => d.item.materials_item_id === line.id && (orderById.get(d.item.material_order_id)?.fulfillment ?? "delivery") === "delivery",
+    );
+    if (byDelivery.length === 0) continue;
+    const pending = byDelivery.filter((d) => effectiveDeliveryStatus(d.item, d.orderStatus) !== "delivered");
+    if (pending.length === 0) continue;
+    const coming = pending.some((d) => {
       const exp = orderById.get(d.item.material_order_id)?.expected_delivery_date;
       return !!exp && (!start || exp <= start);
     });
@@ -102,7 +109,7 @@ export async function fetchPreconBundle(projectId: string): Promise<PreconBundle
     .filter(countsTowardTotals)
     .flatMap((s) => s.materials_items)
     .filter((i) => (i.cost_type ?? "material") === "material");
-  const deliveries: DeliveryLineWithOrderStatus[] = orders.flatMap((o) => o.material_order_items.map((item) => ({ item, orderStatus: o.status })));
+  const deliveries: DeliveryLineWithOrderStatus[] = purchasedLines(orders);
 
   const start = project.scheduled_start_date;
   const startConfirmed = updates.some(

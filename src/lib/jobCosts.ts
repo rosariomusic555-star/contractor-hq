@@ -41,8 +41,7 @@ import {
   lineActualCost,
   lineTaxFactor,
   usedQuantity,
-  type DeliveryLineWithOrderStatus,
-} from "./materialTracking";
+  type DeliveryLineWithOrderStatus, purchasedLines } from "./materialTracking";
 import { DEFAULT_VARIANCE_THRESHOLDS, plannedActualReport, varianceTone, type VarianceThresholds, type VarianceTone } from "./plannedActual";
 import { countWorkingDays } from "./projectDuration";
 
@@ -359,9 +358,7 @@ export function jobCostReport(input: {
   const plannedLaborCost = counted.reduce((s, sec) => s + sectionLaborCost(sec), 0);
 
   // --- Materials: Cost plan lines vs deliveries / usage -------------------
-  const deliveries: DeliveryLineWithOrderStatus[] = input.materialOrders.flatMap((o) =>
-    o.material_order_items.map((item) => ({ item, orderStatus: o.status })),
-  );
+  const deliveries: DeliveryLineWithOrderStatus[] = purchasedLines(input.materialOrders);
   const allLines: (MaterialsItem & { __section: MaterialsSection })[] = counted.flatMap((s) =>
     (s.materials_items ?? []).filter((l) => costTypeOf(l) === "material").map((l) => ({ ...l, __section: s })),
   );
@@ -398,13 +395,13 @@ export function jobCostReport(input: {
       if (line) {
         const c = lineActualCost(line, [{ item, orderStatus: o.status }]) * lineTaxFactor(line);
         amount += c;
-        if (input.materialsCounted) actualRow(keyOf(line.__section.feature_id)).material += c;
+        // 0168: delivered cost is tracked, never added — paid purchases are expenses.
       } else {
         const c = Number(item.quantity) * (item.unit_price != null ? Number(item.unit_price) : 0);
         amount += c;
         unplanned++;
         unplannedDeliveredCost += c;
-        if (input.materialsCounted) actualRow(GENERAL).material += c;
+        // 0168: delivered cost is tracked, never added — paid purchases are expenses.
       }
     }
     return {
@@ -430,8 +427,8 @@ export function jobCostReport(input: {
       categoryId: null,
       amount: d.deliveredAmount,
       receiptPath: null,
-      inTotals: input.materialsCounted,
-      note: input.materialsCounted ? null : "Tracked — counts in the totals once the job is Complete and reconciled",
+      inTotals: false,
+      note: "Tracked — the cost is the supplier purchase (Expenses)",
       orderId: d.orderId,
       unassigned: false,
     });
@@ -441,13 +438,13 @@ export function jobCostReport(input: {
   // Supplier credits (0152) — returned leftovers (reconciled line credit) and
   // pallet deposits back; a pallet deposit charged is a cost. Same rule as
   // deliveries: in the totals once the job is Complete and reconciled.
-  const creditNote = input.materialsCounted ? null : "Tracked — counts in the totals once the job is Complete and reconciled";
+  const creditNote = "Tracked — supplier credits are recorded as return credits (Expenses)";
   let supplierCredits = 0;
   for (const l of allLines) {
     const credit = l.disposition === "returned" ? Number(l.return_credit ?? 0) : 0;
     if (credit <= 0) continue;
     supplierCredits += credit;
-    if (input.materialsCounted) actualRow(keyOf(l.__section.feature_id)).material -= credit;
+    // 0168: delivered cost is tracked, never added — paid purchases are expenses.
     rows.push({
       key: `credit-return-${l.id}`,
       source: "credit",
@@ -459,7 +456,7 @@ export function jobCostReport(input: {
       categoryId: null,
       amount: -r2(credit),
       receiptPath: null,
-      inTotals: input.materialsCounted,
+      inTotals: false,
       note: creditNote,
       unassigned: false,
     });
@@ -472,7 +469,7 @@ export function jobCostReport(input: {
     for (const [kind, amt] of [["charge", charged], ["back", -back]] as const) {
       if (!amt) continue;
       if (kind === "back") supplierCredits += back;
-      if (input.materialsCounted) actualRow(GENERAL).material += amt;
+      // 0168: delivered cost is tracked, never added — paid purchases are expenses.
       rows.push({
         key: `pallet-${kind}-${o.id}`,
         source: kind === "back" ? "credit" : "delivery",
@@ -484,7 +481,7 @@ export function jobCostReport(input: {
         categoryId: null,
         amount: r2(amt),
         receiptPath: null,
-        inTotals: input.materialsCounted,
+        inTotals: false,
         note: creditNote,
         orderId: o.id,
         unassigned: false,

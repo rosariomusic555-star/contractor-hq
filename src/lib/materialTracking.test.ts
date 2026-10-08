@@ -597,10 +597,10 @@ describe("material alerts — compact summary rules", () => {
     ];
     const deliveries = [dl(makeOrderItem({ materials_item_id: "o", quantity: 10, unit: "ton", material_order_id: "ord-late" }))];
     const alerts = materialAlerts(started, [notOrdered1, over, notOrdered2], deliveries, logs, settings, now, orders);
-    expect(alerts.map((a) => a.key)).toEqual(["delivery_overdue", "not_ordered", "not_ordered"]);
-    expect(alerts[1]).toMatchObject({ lineId: "n1", sectionId: "s1" });
-    expect(alerts[0]).toMatchObject({ orderId: "ord-late", label: "Stone Yard 2d overdue" });
-    expect(materialAlertSummary(alerts).map((x) => x.text).join(" · ")).toBe("1 delivery overdue · 2 not ordered");
+    // 0168: no per-delivery alerts — a late delivery is a note on the purchase.
+    expect(alerts.map((a) => a.key)).toEqual(["not_ordered", "not_ordered"]);
+    expect(alerts[0]).toMatchObject({ lineId: "n1", sectionId: "s1" });
+    expect(materialAlertSummary(alerts).map((x) => x.text).join(" · ")).toBe("2 not purchased");
     expect(startContext("2026-06-09", now)).toBe("job started 1d ago");
     expect(startContext("2026-06-12", now)).toBe("job starts in 2d");
   });

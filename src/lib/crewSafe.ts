@@ -24,8 +24,8 @@ export const CREW_FIELDS = {
   labor: ["crew_days", "crew_size", "man_hours"],
   change: ["number", "title", "approved_at", "scope_note", "items"],
   material: ["id", "feature_id", "section", "name", "color", "product", "quantity", "unit", "waste_percent", "planned_quantity", "conversion_factor", "conversion_unit", "tracked", "orders", "used", "description", "missing_color"],
-  materialOrder: ["quantity", "unit", "status", "expected_date", "issue", "issue_note", "issue_expected_date"],
-  delivery: ["id", "supplier", "expected_date", "status", "delivered_on", "open_issues", "photos"],
+  materialOrder: ["quantity", "unit", "status", "expected_date", "fulfillment", "supplier"],
+  delivery: ["id", "supplier", "expected_date", "status", "delivered_on", "fulfillment", "note", "items", "photos"],
   photo: ["id", "storage_path", "caption"],
   delay: ["date", "days", "reason"],
   // 0154 — work order attachments (site plans, drawings, spec sheets…).
@@ -155,10 +155,9 @@ export interface CrewMaterial {
     unit: string | null;
     status: string;
     expected_date: string | null;
-    /** An open delivery issue on this line (0152). */
-    issue?: DeliveryIssue | null;
-    issue_note?: string | null;
-    issue_expected_date?: string | null;
+    /** 0168 — how it gets to site, and from whom (paid purchases only). */
+    fulfillment?: "delivery" | "pickup";
+    supplier?: string | null;
   }[];
   /** Logged as used so far, in the line's unit (0145; absent before it). */
   used?: number;
@@ -210,9 +209,12 @@ export interface CrewWorkOrder {
     supplier: string | null;
     expected_date: string | null;
     status: string;
-    /** 0152: every delivery now (not just pending), with its photos and open issues. */
+    /** 0152: every delivery now (not just pending), with its photos. */
     delivered_on?: string | null;
-    open_issues?: number;
+    /** 0168 — each paid supplier purchase: Delivery or Pickup, its note and items. */
+    fulfillment?: "delivery" | "pickup";
+    note?: string | null;
+    items?: string[];
     photos?: { id: string; storage_path: string; caption: string | null }[];
   }[];
   photos: { id: string; storage_path: string; caption: string | null }[];

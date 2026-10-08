@@ -81,7 +81,7 @@ describe("jobCostReport", () => {
     expect(r.unassignedCount).toBe(2); // the rental line + the untagged expense
   });
 
-  it("deliveries are tracked but only totalled once the job is complete and reconciled", () => {
+  it("deliveries are tracked, never totalled — the paid purchase's expense is the cost (0168)", () => {
     const orders = [
       { id: "o", project_id: "p", supplier: "Stone Co", expected_delivery_date: "2026-10-05", status: "delivered", material_order_items: [{ id: "i", materials_item_id: "pav", quantity: 100, unit: "ea", unit_price: 55, status: null }] },
     ] as any;
@@ -94,7 +94,8 @@ describe("jobCostReport", () => {
     const half = jobCostReport({ ...base, materialOrders: [{ ...orders[0], material_order_items: [{ ...orders[0].material_order_items[0], quantity: 50 }] }] as any });
     expect(half.materials.lines.find((l) => l.id === "pav")).toMatchObject({ variance: null, partial: true });
     const done = jobCostReport({ ...base, project: { ...base.project, status: "complete" }, materialOrders: orders, materialsCounted: true });
-    expect(done.actual).toBe(5500);
+    expect(done.actual).toBe(0);
+    expect(done.materials.deliveredTotal).toBe(5500);
   });
 
   it("flags labor typed as a manual expense while timesheet labor exists", () => {
@@ -144,7 +145,7 @@ describe("job costs export", () => {
 });
 
 describe("supplier credits (0152)", () => {
-  it("return credits and pallet deposits back reduce material cost once counted; deposits charged add", () => {
+  it("supplier credits are shown but never totalled — returns are credit expenses now (0168)", () => {
     const secs = [
       { ...sections[0], materials_items: [{ ...sections[0].materials_items[0], disposition: "returned", return_credit: 150, reconciled_at: "2026-10-20T12:00:00Z" }] },
       sections[1],
@@ -157,8 +158,7 @@ describe("supplier credits (0152)", () => {
       },
     ] as any;
     const done = jobCostReport({ ...base, project: { ...base.project, status: "complete" }, sections: secs, materialOrders: orders, materialsCounted: true });
-    // 100×50 delivered − 150 return + 4×25 deposit − 3×25 back
-    expect(done.actual).toBe(5000 - 150 + 100 - 75);
+    expect(done.actual).toBe(0);
     expect(done.materials.supplierCredits).toBe(225);
     expect(done.rows.filter((r) => r.source === "credit").map((r) => r.amount).sort()).toEqual([-150, -75]);
     const open = jobCostReport({ ...base, sections: secs, materialOrders: orders });

@@ -152,7 +152,8 @@ export function featureProfitRows(input: {
   const totalPrice = profitPrice(quotes, changeOrders);
   const featureRows = report.matrix.filter((m) => m.featureId !== "labor");
   const featurePriceSum = featureRows.filter((m) => m.featureId).reduce((s, m) => s + featurePrice(m.featureId!, quotes, changeOrders), 0);
-  const carried = (b: CostBucket) => input.jobOpen || (b === "material" && !input.materialsCounted);
+  // 0168: material cost is the paid purchases' expenses, like every other type.
+  const carried = (_b: CostBucket) => input.jobOpen;
   const projectedOf = (m: MatrixRow, laborAtPlan: boolean) =>
     COST_BUCKETS.reduce((s, b) => {
       const { planned, actual } = m.cells[b];
