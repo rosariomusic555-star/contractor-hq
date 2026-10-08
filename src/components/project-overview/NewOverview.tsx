@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ClipboardCheck, Eye, Mail, MapPin, Navigation, Pencil, Phone, Send } from "lucide-react";
+import { Check, ClipboardCheck, Eye, Mail, Navigation, Phone, Send } from "lucide-react";
 import {
   getClient,
   getSignedImageUrls,
@@ -52,113 +52,6 @@ export interface OverviewMoney {
   total: { price: number; planned: number; actual: number; profit: number; margin: number | null };
   /** Complete + delivered material counted — the numbers are final. */
   final: boolean;
-}
-
-// --- Header -------------------------------------------------------------------
-
-/**
- * The New overview's compact header: "Project · <status>", name, client ·
- * address, the first few feature chips (+N expands inline; Edit opens the
- * existing picker), and on the right Contract value + Projected margin (both
- * open Money). The stage banner, readiness line and pipeline link come in as
- * `below`.
- */
-export function NewOverviewHeader({
-  project,
-  statusLabel,
-  contract,
-  margin,
-  marginLabel,
-  featureNames,
-  featureEditor,
-  statusSelect,
-  onMoney,
-  below,
-}: {
-  project: Project;
-  statusLabel: string;
-  contract: number;
-  margin: number | null;
-  marginLabel: string;
-  featureNames: string[];
-  featureEditor: ReactNode;
-  statusSelect: ReactNode;
-  onMoney: () => void;
-  below: ReactNode;
-}) {
-  const [allChips, setAllChips] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const shown = allChips ? featureNames : featureNames.slice(0, 4);
-  const more = featureNames.length - shown.length;
-  return (
-    <header className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-subtle">Project · {statusLabel}</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground md:text-[28px]">{project.name}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground">
-            {project.client_id && project.client ? (
-              <Link to={`/clients/${project.client_id}`} className="font-semibold text-foreground hover:underline">
-                {project.client.name}
-              </Link>
-            ) : (
-              <span>No client</span>
-            )}
-            {project.address && (
-              <span className="inline-flex min-w-0 items-center gap-1">
-                · <MapPin className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{project.address}</span>
-              </span>
-            )}
-          </p>
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-            {shown.map((n) => (
-              <span key={n} className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-semibold text-foreground">
-                {n}
-              </span>
-            ))}
-            {more > 0 && (
-              <button type="button" onClick={() => setAllChips(true)} className="min-h-7 rounded-full border border-dashed border-border px-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                +{more} more
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setEditing((e) => !e)}
-              aria-expanded={editing}
-              aria-label="Edit features"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-subtle hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          {editing && <div className="mt-2 w-full md:w-2/3">{featureEditor}</div>}
-        </div>
-        <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
-          <div className="flex items-center gap-3 sm:justify-end">
-            <button type="button" onClick={onMoney} className="rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-right">
-              <span className="block text-[11px] font-semibold uppercase tracking-wider text-muted-subtle">Contract value</span>
-              <span className="block text-2xl font-extrabold tabular-nums tracking-tight text-foreground">{contract > 0 ? money(contract) : "—"}</span>
-            </button>
-            {margin != null && (
-              <button
-                type="button"
-                onClick={onMoney}
-                className="rounded-full bg-primary/10 px-3 py-1.5 text-sm font-bold tabular-nums text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                title={`${marginLabel} — open Money`}
-              >
-                {pct(margin)} <span className="font-semibold text-muted-foreground">{marginLabel.toLowerCase()}</span>
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-3 sm:justify-end">
-            {statusSelect}
-          </div>
-        </div>
-      </div>
-      {below}
-    </header>
-  );
 }
 
 // --- Body ---------------------------------------------------------------------
@@ -398,7 +291,7 @@ export function NewOverview({
             <p className="mt-1 text-[11px] text-muted-foreground">Contract minus projected total cost — spend below plan counts at plan until the job's done.</p>
           )}
           {!m.final && stage === "after" && (
-            <p className="mt-1 text-[11px] text-muted-foreground">Final once every material line is reconciled (Cost plan › Reconcile materials) — until then delivered materials count at plan.</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">Final once the job is marked Complete.</p>
           )}
         </div>
       )}
@@ -415,9 +308,6 @@ export function NewOverview({
       {m && <FeaturesTable rows={m.rows} total={m.total} projectId={id} sectionByFeature={sectionByFeature} profitWord={profitWord} />}
       {m && (
         <div className="mt-3 space-y-0.5 text-[11px] text-muted-foreground">
-          {!m.report.materials.counted && m.report.materials.deliveredTotal > 0 && (
-            <p>Delivered materials ({money(m.report.materials.deliveredTotal)}) count in Actual at closeout, once every line is reconciled.</p>
-          )}
           {laborPending > 0.004 && <p>Labor includes {money(laborPending)} from timesheets not approved yet.</p>}
         </div>
       )}

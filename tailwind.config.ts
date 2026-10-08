@@ -63,6 +63,12 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        banner: {
+          DEFAULT: "hsl(var(--banner))",
+          foreground: "hsl(var(--banner-foreground))",
+          control: "hsl(var(--banner-control))",
+          "control-foreground": "hsl(var(--banner-control-foreground))",
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

@@ -313,7 +313,7 @@ function MaterialsSection({ r, projectId, featName }: { r: JobCostReport; projec
       </div>
       {!m.counted && m.deliveredTotal > 0 && (
         <p className="text-xs text-muted-foreground">
-          {formatCurrency(m.deliveredTotal)} delivered so far — tracked here, counted in the totals once the job is Complete and reconciled.
+          {formatCurrency(m.deliveredTotal)} delivered so far — shown for tracking only. Material cost comes from paid supplier purchases in Expenses.
         </p>
       )}
       {m.lines.length === 0 ? (
@@ -378,8 +378,7 @@ function MaterialsSection({ r, projectId, featName }: { r: JobCostReport; projec
           {m.unplannedDeliveredCost > 0 && <>Unplanned material delivered: {formatCurrency(m.unplannedDeliveredCost)} (not on any Cost plan line). </>}
           {m.materialExpenseCount > 0 && (
             <>
-              {pluralize(m.materialExpenseCount, "material expense")} ({formatCurrency(m.materialExpenses)}) logged by hand — not matched to a Cost plan line
-              {m.deliveredTotal > 0 ? "; if it's the bill for a delivery above, it's the same material (deliveries only count once reconciled)." : "."}
+              {pluralize(m.materialExpenseCount, "material expense")} ({formatCurrency(m.materialExpenses)}) — supplier purchases and receipts. This is the job's material cost.
             </>
           )}
         </p>

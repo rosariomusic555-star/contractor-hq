@@ -16,7 +16,10 @@ export function Sidebar() {
   const { setOpen: setAssistantOpen } = useAssistant();
 
   return (
-    <aside className="hidden md:flex fixed left-0 top-0 h-screen w-[276px] flex-col bg-card border-r border-border">
+    <aside className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col bg-card border-r border-border">
+      {/* z-30: above page content — full-bleed bands (.bleed-banner) run
+          under the sidebar, and the page's fade-in transform would
+          otherwise paint them on top of it. */}
       {/* Company */}
       <div className="flex items-center gap-[11px] px-[18px] py-5">
         <SidebarCompany />

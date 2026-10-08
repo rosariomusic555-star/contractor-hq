@@ -56,6 +56,7 @@ export function PageTabs<T extends string>({
   active,
   onChange,
   title,
+  titleClassName,
   compact = false,
   className,
   ariaLabel = "Sections",
@@ -66,6 +67,8 @@ export function PageTabs<T extends string>({
   active: T;
   onChange: (id: T) => void;
   title?: ReactNode;
+  /** Extra classes for the compact title's wrapper (e.g. to bleed wider). */
+  titleClassName?: string;
   compact?: boolean;
   className?: string;
   ariaLabel?: string;
@@ -113,6 +116,7 @@ export function PageTabs<T extends string>({
           className={cn(
             "overflow-hidden transition-all duration-200",
             compact ? "max-h-14 py-2 opacity-100" : "max-h-0 py-0 opacity-0",
+            titleClassName,
           )}
           aria-hidden={!compact}
         >
