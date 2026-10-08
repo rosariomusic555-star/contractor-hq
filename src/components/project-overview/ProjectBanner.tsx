@@ -5,7 +5,7 @@ import { BackLink } from "@/components/common/BackLink";
 import { formatCurrency } from "@/lib/utils";
 
 /**
- * The project page's top banner — a slate block (the section-header colour) across the top of the
+ * The project page's top banner — a full-bleed slate band (the section-header colour; `.bleed-banner`) across the top of the
  * page, right above the tabs: back link, "Project · <status>", the name,
  * client · address and the first few feature chips (+N expands; the pencil
  * opens the existing picker on a light surface); on the right Contract value
@@ -46,7 +46,7 @@ export function ProjectBanner({
   const hasClientLine = client !== undefined || !!address;
 
   return (
-    <header className="bg-banner -mx-4 -mt-4 rounded-b-2xl px-4 pb-4 pt-3 text-banner-foreground md:-mx-8 md:-mt-8 md:rounded-b-card md:px-8 md:pb-5 md:pt-4">
+    <header className="bleed-banner -mt-4 pb-4 pt-3 text-banner-foreground md:-mt-8 md:pb-5 md:pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
@@ -138,7 +138,7 @@ export function ProjectBanner({
  *  PROJECT_BANNER_SLIM_BLEED so it spans the banner's width). */
 export function ProjectBannerSlim({ name, statusLabel }: { name: string; statusLabel: string }) {
   return (
-    <div className="bg-banner flex min-w-0 items-center gap-2.5 px-4 py-2 text-banner-foreground md:rounded-b-xl md:px-8">
+    <div className="flex min-w-0 items-center gap-2.5 text-banner-foreground">
       <span className="truncate text-base font-bold">{name}</span>
       <BannerStatus label={statusLabel} />
     </div>
@@ -150,5 +150,7 @@ export function BannerStatus({ label }: { label: string }) {
   return <span className="shrink-0 rounded-full bg-banner-control px-2.5 py-0.5 text-xs font-semibold text-banner-control-foreground">{label}</span>;
 }
 
-/** PageTabs `titleClassName` for ProjectBannerSlim — no padding, banner width. */
-export const PROJECT_BANNER_SLIM_BLEED = "-mx-4 !py-0 md:-mx-8";
+/** PageTabs `titleClassName` for ProjectBannerSlim — the full-bleed slate
+ *  band goes on PageTabs' title wrapper itself (its overflow-hidden would
+ *  clip a band drawn by the child). */
+export const PROJECT_BANNER_SLIM_BLEED = "bleed-banner";

@@ -166,6 +166,16 @@
   /* Primary surface — white card, 16px radius, hairline border, soft shadow.
      Used app-wide (~15 views). `.stat-card` keeps a hover lift; `.card-surface`
      is the static variant. */
+  /* Full-bleed band: the element stays in the content column (so its text
+     lines up with the cards below) while its background runs to both
+     window edges — a spread shadow clipped to the element's own height.
+     It slides under the fixed sidebar and never adds horizontal scroll. */
+  .bleed-banner {
+    background-color: hsl(var(--banner));
+    box-shadow: 0 0 0 100vmax hsl(var(--banner));
+    clip-path: inset(0 -100vmax);
+  }
+
   .stat-card {
     @apply bg-card p-6 border border-border;
     border-radius: var(--radius-card);
