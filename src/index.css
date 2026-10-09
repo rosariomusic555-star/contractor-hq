@@ -176,6 +176,24 @@
     clip-path: inset(0 -100vmax);
   }
 
+  /* Usage chart bars (tracking cards): grow up from the baseline on mount. */
+  .bar-grow {
+    transform-origin: bottom;
+    animation: bar-grow 0.45s ease-out both;
+  }
+
+  @keyframes bar-grow {
+    from {
+      transform: scaleY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar-grow {
+      animation: none;
+    }
+  }
+
   .stat-card {
     @apply bg-card p-6 border border-border;
     border-radius: var(--radius-card);
