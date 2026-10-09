@@ -42,21 +42,28 @@ const addDays = (d: string, n: number) => {
 // ---------------------------------------------------------------------------
 // Needs you — every feature's action items, chips, 5 + View all.
 // ---------------------------------------------------------------------------
-export function NeedsYouCard() {
+export function NeedsYouCard({ simple = false }: { /** The simplified Dashboard: "Needs your attention", most urgent 5, no filter chips. */ simple?: boolean } = {}) {
   const { items, isLoading } = useNeedsYouItems();
   const [filter, setFilter] = useState<NeedsYouCategory | "all">("all");
   const shown = (filter === "all" ? items : items.filter((i) => categoryOf(i) === filter)).slice(0, MAX);
   return (
-    <Card title="Needs you" count={items.length} viewAll={items.length > MAX ? { to: "/needs-you" } : undefined} to="/needs-you">
+    <Card
+      title={simple ? "Needs your attention" : "Needs you"}
+      count={items.length}
+      viewAll={simple ? (items.length > 0 ? { to: "/needs-you", label: "View all →" } : undefined) : items.length > MAX ? { to: "/needs-you" } : undefined}
+      to="/needs-you"
+    >
       {isLoading ? (
         <CardSkeleton />
       ) : items.length === 0 ? (
-        <EmptyLine>Nothing needs you right now.</EmptyLine>
+        <EmptyLine>{simple ? "You're all caught up." : "Nothing needs you right now."}</EmptyLine>
       ) : (
         <>
-          <div className="px-4 pt-2">
-            <NeedsYouChips items={items} value={filter} onChange={setFilter} />
-          </div>
+          {!simple && (
+            <div className="px-4 pt-2">
+              <NeedsYouChips items={items} value={filter} onChange={setFilter} />
+            </div>
+          )}
           <ul className="divide-y divide-hairline px-4">
             {shown.map((i) => (
               <li key={i.key}>
@@ -230,7 +237,7 @@ export function ThisWeekCard() {
 // ---------------------------------------------------------------------------
 // Pipeline snapshot — by stage, weighted, new leads this week by source.
 // ---------------------------------------------------------------------------
-export function PipelineCard() {
+export function PipelineCard({ simple = false }: { /** The simplified Dashboard: leads this month by source (from Insights) instead of this week. */ simple?: boolean } = {}) {
   const { data: opps = [], isLoading } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
   const { data: settings } = useQuery({ queryKey: ["business-health-settings"], queryFn: getBusinessHealthSettings, staleTime: 5 * 60_000 });
@@ -249,11 +256,12 @@ export function PipelineCard() {
     });
   }, [opps, quotes, settings]);
   const weekAgo = Date.now() - 7 * 86_400_000;
-  const newLeads = opps.filter((o) => Date.parse(o.created_at) >= weekAgo);
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const newLeads = opps.filter((o) => Date.parse(o.created_at) >= (simple ? monthStart : weekAgo));
   const bySource = [...new Set(newLeads.map((o) => o.lead_source?.trim() || "Unknown"))].map((s) => [s, newLeads.filter((o) => (o.lead_source?.trim() || "Unknown") === s).length] as const);
   const open = rows.reduce((s, r) => s + r.count, 0);
   return (
-    <Card title="Pipeline" count={open || null} viewAll={{ to: "/pipeline" }} single>
+    <Card title="Pipeline" count={open || null} viewAll={{ to: "/pipeline", label: simple ? "View all →" : undefined }} single>
       {isLoading ? (
         <CardSkeleton rows={2} />
       ) : open === 0 && newLeads.length === 0 ? (
@@ -276,9 +284,16 @@ export function PipelineCard() {
             <span>Weighted</span>
             <span className="tabular-nums text-success">{formatCurrency(rows.reduce((s, r) => s + r.weighted, 0))}</span>
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {newLeads.length} new lead{newLeads.length === 1 ? "" : "s"} this week{bySource.length ? ` · ${bySource.map(([s, n]) => `${s} ${n}`).join(", ")}` : ""}
-          </p>
+          {simple ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Leads this month: {newLeads.length}</span>
+              {bySource.length ? ` · ${bySource.map(([s, n]) => `${s} ${n}`).join(", ")}` : ""}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {newLeads.length} new lead{newLeads.length === 1 ? "" : "s"} this week{bySource.length ? ` · ${bySource.map(([s, n]) => `${s} ${n}`).join(", ")}` : ""}
+            </p>
+          )}
         </div>
       )}
     </Card>

@@ -1,10 +1,12 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarClock, ClipboardList, CloudRain, MapPin, Truck, UserRound } from "lucide-react";
+import { CalendarClock, ClipboardList, CloudRain, MapPin, Navigation, Truck, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { APPOINTMENT_TYPE_LABEL, listAppointments, listCrews, listEmployees, listMaterialOrders, listProjects, listRunningTimers, type Project } from "@/lib/api";
+import { APPOINTMENT_TYPE_LABEL, listAppointments, listCrews, listEmployees, listMaterialOrders, listOpportunities, listProjects, listRunningTimers, type Project } from "@/lib/api";
+import { navigateUrl } from "@/lib/workOrder";
+import { addDays } from "@/lib/businessHealth";
 import { appointmentWeather, forecastWorkDays, isoDate } from "@/lib/weatherRisk";
 import { useAppointmentForecasts, useScheduleForecasts } from "@/lib/forecast";
 import { openSummary } from "@/lib/precon";
@@ -17,6 +19,8 @@ import { jobsOnDay } from "./todayJobs";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 const dayName = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+/** Small section label inside the Schedule card ("Today", "Upcoming"). */
+const SECTION = "px-4 pb-1 pt-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground";
 const isBooked = (p: Project) => p.status === "scheduled" || p.status === "in_progress";
 
 /**
@@ -26,7 +30,7 @@ const isBooked = (p: Project) => p.status === "scheduled" || p.status === "in_pr
  * then today's appointments with their forecast. Everything from the
  * shared caches (projects, forecasts, material orders, running timers).
  */
-export function TodayCard() {
+export function TodayCard({ schedule = false }: { /** The simplified Dashboard's "Schedule": Today, then the next 7 days. */ schedule?: boolean } = {}) {
   const today = isoDate(new Date());
   const { data: projects = [], isLoading } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: crews = [] } = useQuery({ queryKey: ["crews"], queryFn: listCrews });
@@ -36,6 +40,7 @@ export function TodayCard() {
   const { data: employees = [] } = useQuery({ queryKey: ["employees"], queryFn: listEmployees });
   const { batch } = useScheduleForecasts();
   const apptBatch = useAppointmentForecasts();
+  const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities, enabled: schedule });
 
   const jobs = useMemo(
     () => jobsOnDay(projects, today).sort((a, b) => ((a as { crew_id?: string }).crew_id ?? "").localeCompare((b as { crew_id?: string }).crew_id ?? "")),
@@ -48,15 +53,42 @@ export function TodayCard() {
     .filter((p) => isBooked(p) && p.scheduled_start_date && p.scheduled_start_date > today)
     .sort((a, b) => a.scheduled_start_date!.localeCompare(b.scheduled_start_date!))[0];
 
+  // Schedule: the next 7 days after today — job starts and appointments.
+  const upcoming = useMemo(() => {
+    if (!schedule) return [];
+    const end = addDays(today, 7);
+    const oppTitle = new Map(opportunities.map((o) => [o.id, o.title]));
+    return [
+      ...projects
+        .filter((p) => isBooked(p) && p.scheduled_start_date && p.scheduled_start_date > today && p.scheduled_start_date <= end)
+        .map((p) => ({ key: `p-${p.id}`, day: p.scheduled_start_date!, sort: p.scheduled_start_date!, what: "Job starts", name: p.name, to: `/projects/${p.id}` })),
+      ...appointments
+        .filter((a) => a.status === "scheduled" && isoDate(new Date(a.date_time)) > today && isoDate(new Date(a.date_time)) <= end)
+        .map((a) => ({
+          key: `a-${a.id}`,
+          day: isoDate(new Date(a.date_time)),
+          sort: a.date_time,
+          what: `${APPOINTMENT_TYPE_LABEL[a.type]}${a.all_day ? "" : ` ${time(a.date_time)}`}`,
+          name: (a.opportunity_id && oppTitle.get(a.opportunity_id)) || a.address || "",
+          to: a.opportunity_id ? `/pipeline/${a.opportunity_id}` : "/appointments",
+        })),
+    ].sort((x, y) => x.sort.localeCompare(y.sort));
+  }, [schedule, projects, appointments, opportunities, today]);
+
   if (isLoading)
     return (
-      <Card title="Today">
+      <Card title={schedule ? "Schedule" : "Today"}>
         <CardSkeleton />
       </Card>
     );
 
   return (
-    <Card title={`Today · ${dayName(today)}`} count={jobs.length ? `${jobs.length} job${jobs.length === 1 ? "" : "s"}` : null} viewAll={{ to: "/bookings", label: "Schedule" }}>
+    <Card
+      title={schedule ? "Schedule" : `Today · ${dayName(today)}`}
+      count={schedule ? null : jobs.length ? `${jobs.length} job${jobs.length === 1 ? "" : "s"}` : null}
+      viewAll={{ to: "/bookings", label: schedule ? "Schedule →" : "Schedule" }}
+    >
+      {schedule && <p className={SECTION}>Today · {dayName(today)}</p>}
       {jobs.length === 0 && appts.length === 0 ? (
         <p className="px-4 py-3 text-sm text-muted-foreground">
           Nothing scheduled today.
@@ -80,6 +112,7 @@ export function TodayCard() {
               crewName={crews.find((c) => c.id === (p as { crew_id?: string }).crew_id)?.name ?? null}
               forecastDay={batch ? forecastWorkDays({ start: p.scheduled_start_date, end: p.scheduled_end_date }, batch.projects[p.id]?.forecast, batch.settings, today).find((d) => d.date === today) ?? null : null}
               clockedIn={timers.filter((t) => t.project_id === p.id).map((t) => ({ name: employees.find((e) => e.id === t.employee_id)?.name ?? t.worker_name ?? "Crew", since: t.start_at }))}
+              directions={schedule}
             />
           ))}
           {appts.map((a) => {
@@ -103,6 +136,26 @@ export function TodayCard() {
           })}
         </ul>
       )}
+      {schedule && (
+        <>
+          <p className={cn(SECTION, "border-t border-hairline")}>Upcoming · next 7 days</p>
+          {upcoming.length === 0 ? (
+            <p className="px-4 pb-3 text-sm text-muted-foreground">Nothing else scheduled this week.</p>
+          ) : (
+            <ul className="pb-1.5">
+              {upcoming.map((u) => (
+                <li key={u.key}>
+                  <Link to={u.to} className="flex min-h-9 items-center gap-2 px-4 text-[13px] hover:bg-muted/40">
+                    <span className="w-[5.5rem] shrink-0 font-semibold text-muted-foreground">{dayName(u.day)}</span>
+                    <span className="shrink-0 font-semibold text-foreground">{u.what}</span>
+                    {u.name && <span className="min-w-0 truncate text-muted-foreground">· {u.name}</span>}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </Card>
   );
 }
@@ -113,12 +166,14 @@ function TodayJob({
   crewName,
   forecastDay,
   clockedIn,
+  directions = false,
 }: {
   project: Project;
   today: string;
   crewName: string | null;
   forecastDay: ReturnType<typeof forecastWorkDays>[number] | null;
   clockedIn: { name: string; since: string }[];
+  directions?: boolean;
 }) {
   const openDelay = useRainDelay();
   const startsToday = project.scheduled_start_date === today;
@@ -161,6 +216,11 @@ function TodayJob({
         <Link to={`/projects/${project.id}/work-order`} className="flex min-h-[32px] items-center gap-1 rounded-full px-2 font-semibold text-primary">
           <ClipboardList className="h-3 w-3" /> Work order
         </Link>
+        {directions && project.address && (
+          <a href={navigateUrl(project.address)} target="_blank" rel="noreferrer" className="flex min-h-[32px] items-center gap-1 rounded-full px-2 font-semibold text-primary">
+            <Navigation className="h-3 w-3" /> Directions
+          </a>
+        )}
         {risky && openDelay && (
           <Button size="sm" variant="outline" className="ml-auto h-8 px-2.5 text-xs font-bold" onClick={() => openDelay({ projectId: project.id, date: today })}>
             <CloudRain className="mr-1 h-3.5 w-3.5" /> Rain delay

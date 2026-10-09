@@ -32,6 +32,7 @@ import { buildOngoingJobCards, ongoingGridColumns, type OngoingJobCard } from "@
 import { trackedSheetIds, type DeliveryLineWithOrderStatus } from "@/lib/materialTracking";
 import { projectStatusMeta } from "@/lib/statusMeta";
 import { CategoryChips } from "@/components/common/CategoryChips";
+import { Card, EmptyLine } from "@/components/dashboard2/CardShell";
 import { countsTowardTotals } from "@/lib/features";
 import { useCardLink } from "@/hooks/use-card-link";
 
@@ -79,7 +80,7 @@ function groupByProjectId<T extends { project_id: string | null }>(rows: T[]): M
  * needs — batched in ONE listProjectImagesForProjects() call for exactly
  * the cards actually rendered, never one request per card.
  */
-export function OngoingJobsCard({ className }: { className?: string }) {
+export function OngoingJobsCard({ className, simple = false }: { className?: string; /** The simplified Dashboard: 3 lean tiles (photo, name, status, contract, paid bar, day N of M). */ simple?: boolean }) {
   const cardLink = useCardLink("/projects");
   const [gridRef, gridWidth] = useElementWidth<HTMLDivElement>();
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
@@ -207,6 +208,23 @@ export function OngoingJobsCard({ className }: { className?: string }) {
     return path ? (signedUrls[path] ?? null) : null;
   };
 
+  if (simple) {
+    const three = allCards.slice(0, 3);
+    return (
+      <Card title="Ongoing projects" count={allCards.length || null} viewAll={allCards.length > 0 ? { to: "/projects", label: "View all →" } : undefined}>
+        {allCards.length === 0 ? (
+          <EmptyLine>No ongoing projects right now.</EmptyLine>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3">
+            {three.map((card) => (
+              <SimpleJobTile key={card.project.id} card={card} coverUrl={coverUrlFor(card.project.id)} />
+            ))}
+          </div>
+        )}
+      </Card>
+    );
+  }
+
   return (
     <section onClick={cardLink.onClick} className={cn(cardLink.className, "card-surface p-5", className)}>
       <header className="flex items-center justify-between">
@@ -265,6 +283,50 @@ const ALERT_BADGE_CLASS: Record<OngoingJobCard["alerts"][number]["key"], string>
   deposit_not_received: "badge-status badge-overdue",
   material_alert: "badge-status badge-overdue",
 };
+
+/** The simplified Dashboard's project tile — only what tells you where the
+ *  job stands: photo, name, status, contract, paid so far, day N of M. */
+function SimpleJobTile({ card, coverUrl }: { card: OngoingJobCard; coverUrl: string | null }) {
+  const { project } = card;
+  return (
+    <Link to={`/projects/${project.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <div className="h-28 shrink-0 overflow-hidden bg-muted">
+        {coverUrl ? (
+          <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <Briefcase className="h-6 w-6 text-muted-subtle" aria-hidden />
+          </div>
+        )}
+      </div>
+      <div className="flex flex-1 flex-col gap-2 p-3">
+        <div className="flex items-start justify-between gap-2">
+          <p className="line-clamp-2 text-sm font-bold text-foreground [overflow-wrap:anywhere]">{project.name}</p>
+          {/* Quiet status here — green while it's being built, neutral otherwise
+              (amber/red are kept for things that are actually late). */}
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold",
+              project.status === "in_progress" ? "bg-primary/20 text-primary-foreground" : "bg-muted text-muted-foreground",
+            )}
+          >
+            {projectStatusMeta(project.status).label}
+          </span>
+        </div>
+        <p className="text-base font-extrabold tabular-nums text-foreground">{formatCurrency(card.contractTotal)}</p>
+        <div className="mt-auto">
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Paid <span className="font-semibold text-foreground">{formatCurrency(card.paidTotal)}</span> of {formatCurrency(card.contractTotal)}
+          </p>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" role="presentation">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${card.paidPct}%` }} />
+          </div>
+          {card.durationLabel && <p className={cn("mt-1.5 text-xs tabular-nums", card.durationOver ? "text-warning-strong" : "text-muted-foreground")}>{card.durationLabel}</p>}
+        </div>
+      </div>
+    </Link>
+  );
+}
 
 /** wide: the only job — photo left, full details right. roomy: 1–2 per row
  * (and phones) — stacked, little truncation. compact: 3 per row. */

@@ -1,4 +1,5 @@
-import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { SimpleCardsContext } from "./simpleContext";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useCardLink } from "@/hooks/use-card-link";
@@ -77,6 +78,8 @@ export function Card({
   single?: boolean;
 }) {
   const link = useCardLink(to ?? viewAll?.to, { desktop: single });
+  const simple = useContext(SimpleCardsContext);
+  const label = viewAll?.label ?? "View all";
   return (
     <section id={id} onClick={link.onClick} className={cn("card-surface overflow-hidden p-0", link.className, className)}>
       <header className="flex min-h-[44px] items-center gap-2 border-b border-hairline px-4 py-2">
@@ -87,7 +90,7 @@ export function Card({
         {right}
         {viewAll && (
           <Link to={viewAll.to} className="flex min-h-[44px] items-center text-xs font-semibold text-primary hover:text-primary/80">
-            {viewAll.label ?? "View all"}
+            {simple && !label.endsWith("→") ? `${label} →` : label}
           </Link>
         )}
       </header>
