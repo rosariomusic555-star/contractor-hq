@@ -65,12 +65,12 @@ export type SimpleExtraId = "starting" | "activity" | "bookings" | "revenue" | "
 
 /** The simplified layout's optional cards (all off by default) and their
  *  home column: left (wide) after Ongoing projects, right (narrow) after
- *  Pipeline. Everything else is merged into its five main sections. */
-export const SIMPLE_EXTRAS: { id: SimpleExtraId; label: string; column: "left" | "right" }[] = [
+ *  Pipeline, or full width below both (above Recent activity). Everything else is merged into its five main sections. */
+export const SIMPLE_EXTRAS: { id: SimpleExtraId; label: string; column: "left" | "right" | "full" }[] = [
   { id: "starting", label: "Starting soon", column: "left" },
   { id: "activity", label: "Client activity", column: "left" },
   { id: "bookings", label: "Bookings", column: "left" },
-  { id: "revenue", label: "Revenue overview", column: "left" },
+  { id: "revenue", label: "Revenue overview", column: "full" },
   { id: "weather", label: "Weather risks", column: "right" },
   { id: "crew", label: "Crew & time", column: "right" },
   { id: "money", label: "Money", column: "right" },

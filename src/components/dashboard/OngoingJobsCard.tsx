@@ -299,30 +299,30 @@ function SimpleJobTile({ card, coverUrl }: { card: OngoingJobCard; coverUrl: str
           </div>
         )}
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <p className="line-clamp-2 text-sm font-bold text-foreground [overflow-wrap:anywhere]">{project.name}</p>
-          {/* Quiet status here — green while it's being built, neutral otherwise
-              (amber/red are kept for things that are actually late). */}
-          <span
-            className={cn(
-              "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold",
-              project.status === "in_progress" ? "bg-primary/20 text-primary-foreground" : "bg-muted text-muted-foreground",
-            )}
-          >
-            {projectStatusMeta(project.status).label}
-          </span>
+      {/* Photo → status → name → contract → paid bar → day N of M. The name
+          always reserves two lines, so amounts and bars line up across a row. */}
+      <div className="flex flex-1 flex-col p-3">
+        {/* Quiet status — green while it's being built, neutral otherwise
+            (amber/red are kept for things that are actually late). */}
+        <span
+          className={cn(
+            "self-start rounded-full px-2.5 py-0.5 text-[11px] font-bold",
+            project.status === "in_progress" ? "bg-primary/20 text-primary-foreground" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {projectStatusMeta(project.status).label}
+        </span>
+        <p title={project.name} className="mt-1.5 line-clamp-2 min-h-[2.75rem] text-base font-semibold leading-[1.375rem] text-foreground [overflow-wrap:anywhere]">
+          {project.name}
+        </p>
+        <p className="mt-1.5 text-base font-extrabold tabular-nums text-foreground">{formatCurrency(card.contractTotal)}</p>
+        <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+          Paid <span className="font-semibold text-foreground">{formatCurrency(card.paidTotal)}</span> of {formatCurrency(card.contractTotal)}
+        </p>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" role="presentation">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${card.paidPct}%` }} />
         </div>
-        <p className="text-base font-extrabold tabular-nums text-foreground">{formatCurrency(card.contractTotal)}</p>
-        <div className="mt-auto">
-          <p className="text-xs text-muted-foreground tabular-nums">
-            Paid <span className="font-semibold text-foreground">{formatCurrency(card.paidTotal)}</span> of {formatCurrency(card.contractTotal)}
-          </p>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" role="presentation">
-            <div className="h-full rounded-full bg-primary" style={{ width: `${card.paidPct}%` }} />
-          </div>
-          {card.durationLabel && <p className={cn("mt-1.5 text-xs tabular-nums", card.durationOver ? "text-warning-strong" : "text-muted-foreground")}>{card.durationLabel}</p>}
-        </div>
+        {card.durationLabel && <p className={cn("mt-1.5 text-xs tabular-nums", card.durationOver ? "text-warning-strong" : "text-muted-foreground")}>{card.durationLabel}</p>}
       </div>
     </Link>
   );

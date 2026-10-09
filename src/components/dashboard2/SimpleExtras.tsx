@@ -50,16 +50,21 @@ export function SimpleBookingsCard() {
   );
 }
 
-/** Revenue overview — invoiced per month, last 6 months, as small bars. */
+/** Revenue overview — invoiced per month as bars, full width under the two
+ *  columns: the last 12 months once there's invoicing older than 6 months,
+ *  otherwise the last 6 (wider bars). */
 export function SimpleRevenueCard() {
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
   const byKey = new Map(monthlyRevenue(invoices).map((p) => [p.key, p.revenue]));
   const now = new Date();
-  const months = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    return { key, label: d.toLocaleDateString("en-US", { month: "short" }), revenue: byKey.get(key) ?? 0 };
-  });
+  const lastMonths = (n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (n - 1) + i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      return { key, label: d.toLocaleDateString("en-US", { month: "short" }), revenue: byKey.get(key) ?? 0 };
+    });
+  const twelve = lastMonths(12);
+  const months = twelve.slice(0, 6).some((m) => m.revenue > 0) ? twelve : twelve.slice(6);
   const total = months.reduce((s, m) => s + m.revenue, 0);
   const max = Math.max(...months.map((m) => m.revenue), 1);
   return (
@@ -69,27 +74,28 @@ export function SimpleRevenueCard() {
       ) : total === 0 ? (
         <EmptyLine>Revenue will show here as you invoice jobs.</EmptyLine>
       ) : (
-        <div className="px-4 pb-3 pt-4">
+        // Inner padding keeps the value labels and caption off the card edges.
+        <div className="px-6 pb-4 pt-5">
           <p className="sr-only">Invoiced by month: {months.map((m) => `${m.label} ${formatCurrency(m.revenue)}`).join(", ")}.</p>
-          <div className="flex h-36 items-end gap-2" aria-hidden>
+          <div className="flex h-48 items-end gap-3 sm:gap-4" aria-hidden>
             {months.map((m, i) => (
               <div key={m.key} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${m.label}: ${formatCurrency(m.revenue)}`}>
-                {m.revenue > 0 && <span className="text-[10px] font-semibold tabular-nums text-muted-foreground">{k(m.revenue)}</span>}
+                {m.revenue > 0 && <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-muted-foreground">{k(m.revenue)}</span>}
                 <div
-                  className={cn("w-full max-w-10 rounded-t-md", m.revenue > 0 ? (i === months.length - 1 ? "bg-primary" : "bg-primary/60") : "bg-muted")}
-                  style={{ height: m.revenue > 0 ? `${Math.max(6, (m.revenue / max) * 100)}%` : "4px" }}
+                  className={cn("w-full max-w-16 rounded-t-md", m.revenue > 0 ? (i === months.length - 1 ? "bg-primary" : "bg-primary/60") : "bg-muted")}
+                  style={{ height: m.revenue > 0 ? `${Math.max(4, (m.revenue / max) * 88)}%` : "4px" }}
                 />
               </div>
             ))}
           </div>
-          <div className="mt-1.5 flex gap-2">
+          <div className="mt-2 flex gap-3 sm:gap-4">
             {months.map((m) => (
-              <span key={m.key} className="flex-1 text-center text-[11px] text-muted-foreground">
+              <span key={m.key} className="min-w-0 flex-1 truncate text-center text-[11px] text-muted-foreground">
                 {m.label}
               </span>
             ))}
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">Invoiced, last 6 months</p>
+          <p className="mt-3 text-xs text-muted-foreground">Invoiced, last {months.length} months</p>
         </div>
       )}
     </Card>

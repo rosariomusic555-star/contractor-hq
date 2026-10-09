@@ -137,8 +137,8 @@ function renderExtra(id: SimpleExtraId): ReactNode {
 function SimpleLayout({ extras }: { extras: SimpleExtraId[] }) {
   const wide = useWideLayout();
   const box = (title: string, node: ReactNode) => <CardErrorBoundary title={title}>{node}</CardErrorBoundary>;
-  const extra = (column: "left" | "right") =>
-    SIMPLE_EXTRAS.filter((x) => x.column === column && extras.includes(x.id)).map((x) => (
+  const extra = (...columns: ("left" | "right" | "full")[]) =>
+    SIMPLE_EXTRAS.filter((x) => columns.includes(x.column) && extras.includes(x.id)).map((x) => (
       <CardErrorBoundary key={x.id} title={x.label}>
         <LazyMount>{renderExtra(x.id)}</LazyMount>
       </CardErrorBoundary>
@@ -164,13 +164,18 @@ function SimpleLayout({ extras }: { extras: SimpleExtraId[] }) {
               {extra("right")}
             </div>
           </div>
-        ) : (
+        ) : null}
+        {/* Full-width optional cards (Revenue overview), below both columns. */}
+        {wide && extra("full")}
+        {!wide && (
           <>
             {needs}
             {schedule}
             {ongoing}
             {pipeline}
-            {extra("left")}
+            {/* Same order as before on one column: Revenue overview after the
+                wide-column cards. */}
+            {extra("left", "full")}
             {extra("right")}
           </>
         )}
@@ -345,7 +350,7 @@ export function DashboardV2() {
                   <li key={id} className="flex min-h-[48px] items-center gap-3">
                     <span className={cn("flex-1 text-sm", on ? "font-semibold text-foreground" : "text-muted-foreground")}>
                       {label}
-                      <span className="ml-1 text-[10px] font-normal text-muted-subtle">{column === "left" ? "wide column" : "narrow column"}</span>
+                      <span className="ml-1 text-[10px] font-normal text-muted-subtle">{column === "left" ? "wide column" : column === "right" ? "narrow column" : "full width"}</span>
                     </span>
                     <Switch
                       checked={on}

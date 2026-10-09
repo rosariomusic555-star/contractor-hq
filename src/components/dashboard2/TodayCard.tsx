@@ -185,10 +185,12 @@ function TodayJob({
     <li className="px-4 py-2.5">
       <div className="flex items-start gap-2">
         <Link to={`/projects/${project.id}`} className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-bold text-foreground">
+          {/* Schedule card: the badge sits on its own row above the name. */}
+          {startsToday && directions && <span className="mb-1 inline-block rounded bg-info/10 px-1.5 py-0.5 text-[10px] font-bold text-info">STARTS</span>}
+          <span className="block truncate text-sm font-bold text-foreground" title={project.name}>
             {crewName && <span className="font-semibold text-muted-foreground">{crewName} · </span>}
             {project.name}
-            {startsToday && <span className="ml-1.5 rounded bg-info/10 px-1 text-[10px] font-bold text-info">STARTS</span>}
+            {startsToday && !directions && <span className="ml-1.5 rounded bg-info/10 px-1 text-[10px] font-bold text-info">STARTS</span>}
           </span>
           {project.address && (
             <span className="flex items-center gap-1 truncate text-xs text-muted-foreground">
