@@ -65,12 +65,19 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
   );
 
   return (
-    <BleedBanner label="Today">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-6">
+    // Room above the greeting (16 / 20px); see HeadlineTiles for the gap
+    // below it.
+    <BleedBanner label="Today" className="pt-4 md:pt-5">
+      {/* Desktop (lg+): greeting left, actions right on the same row (the
+          greeting gives way — the name truncates, the status line wraps).
+          Narrower: the actions drop below the greeting. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
         {/* Greeting + the day */}
-        <div className="min-w-0">
-          <h1 className="truncate text-[22px] font-bold tracking-tight md:text-[28px] md:leading-9">{firstName ? `${greeting}, ${firstName}` : greeting}</h1>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] font-semibold md:text-sm">
+        <div className="min-w-0 max-w-full lg:flex-1">
+          {/* 26px on phones up to 36px on wide screens; one line — a long
+              name ends in "…" rather than wrapping. */}
+          <h1 className="truncate text-[length:clamp(26px,2.4vw,36px)] font-extrabold leading-[1.1] tracking-[-0.02em]">{firstName ? `${greeting}, ${firstName}` : greeting}</h1>
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 text-[15px] font-semibold md:text-base">
             <span>{dateLabel}</span>
             {!profileLoading && !setUp ? (
               <>
@@ -97,7 +104,7 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
           {weather && WeatherIcon && (
             <Link
               to="/bookings"
-              className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full bg-black/[0.18] px-2.5 py-1 text-xs font-semibold hover:bg-black/25", ON_BANNER_RING)}
+              className={cn("mt-3 inline-flex items-center gap-1.5 rounded-full bg-black/[0.18] px-2.5 py-1 text-xs font-semibold hover:bg-black/25", ON_BANNER_RING)}
               title={weather.conditionLabel}
             >
               <WeatherIcon className="h-4 w-4" aria-hidden />
@@ -110,7 +117,9 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
         </div>
 
         {/* Quick actions — desktop: all four (wide) or primary + "New ▾" */}
-        <div className="hidden shrink-0 items-center gap-2 md:flex">
+        {/* Centered on the greeting line (not the whole block): offset by half
+            of (greeting line height − 40px button). */}
+        <div className="hidden shrink-0 items-center gap-2 lg:flex lg:mt-[calc((clamp(26px,2.4vw,36px)*1.1-2.5rem)/2)]">
           <button type="button" className={PRIMARY} onClick={actions.onNewOpportunity}>
             <Plus className="h-4 w-4" /> New opportunity
           </button>
@@ -140,8 +149,8 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
           </button>
         </div>
 
-        {/* Phones: New opportunity full width + a "+" menu for the rest */}
-        <div className="flex items-center gap-2 md:hidden">
+        {/* Phones / tablets: New opportunity full width + a "+" menu for the rest */}
+        <div className="flex items-center gap-2 lg:hidden">
           <button type="button" className={cn(PRIMARY, "h-11 flex-1")} onClick={actions.onNewOpportunity}>
             <Plus className="h-4 w-4" /> New opportunity
           </button>
