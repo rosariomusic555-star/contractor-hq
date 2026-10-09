@@ -127,9 +127,9 @@ function renderExtra(id: SimpleExtraId): ReactNode {
 
 /**
  * The simplified Dashboard (Customize › Simplified layout). Below the
- * banner: Schedule + Ongoing projects (left, ~2/3) and Needs your attention
- * + Pipeline (right, ~1/3); optional cards stack under their own column;
- * then one Recent activity list full width. Each column stacks its own
+ * banner: Schedule (left, ~2/3) | Needs your attention + Pipeline (right,
+ * ~1/3); Ongoing projects full width; optional cards in their own columns;
+ * then Revenue overview and Recent activity full width. Each column stacks its own
  * cards, so nothing leaves a hole. Narrower than 1024px: one column —
  * Needs → Schedule → Ongoing → Pipeline → optional cards → Recent activity.
  */
@@ -150,18 +150,25 @@ function SimpleLayout({ extras }: { extras: SimpleExtraId[] }) {
   return (
       <div className="space-y-4">
         {wide ? (
-          <div className="grid grid-cols-3 items-start gap-4">
-            <div className="col-span-2 space-y-4">
-              {schedule}
-              {ongoing}
-              {extra("left")}
+          <>
+            {/* Top row: Schedule | Needs your attention + Pipeline. */}
+            <div className="grid grid-cols-3 items-start gap-4">
+              <div className="col-span-2 space-y-4">{schedule}</div>
+              <div className="space-y-4">
+                {needs}
+                {pipeline}
+              </div>
             </div>
-            <div className="space-y-4">
-              {needs}
-              {pipeline}
-              {extra("right")}
-            </div>
-          </div>
+            {/* Ongoing projects full width, after the taller column. */}
+            {ongoing}
+            {/* Optional cards in their own columns (each stacks on its own). */}
+            {extras.some((id) => SIMPLE_EXTRAS.find((x) => x.id === id)?.column !== "full") && (
+              <div className="grid grid-cols-3 items-start gap-4">
+                <div className="col-span-2 space-y-4">{extra("left")}</div>
+                <div className="space-y-4">{extra("right")}</div>
+              </div>
+            )}
+          </>
         ) : null}
         {/* Full-width optional cards (Revenue overview), below both columns. */}
         {wide && extra("full")}
