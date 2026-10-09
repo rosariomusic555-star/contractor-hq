@@ -106,11 +106,14 @@ export function AppLayout() {
         <TypeConfigsLoader />
         <Sidebar />
         <BottomTabBar />
-        {/* Phone bottom padding clears the tab bar AND the two stacked floating
-            buttons (+ at 8.75rem + 52px, assistant below it), so the end of a
-            page can scroll out from under them. */}
-        <main className="p-4 pb-[calc(12.5rem+var(--draft-bar-h,0px))] md:ml-[276px] md:p-8 md:pb-[calc(2rem+var(--draft-bar-h,0px))]">
-          <div className="mx-auto w-full max-w-[1200px]">
+        {/* Side padding 16 / 24 / 32px (phone / tablet / desktop); content
+            fills the width up to 1600px, centered beyond that. Bottom
+            padding clears the floating buttons so the end of a page can
+            scroll out from under them — phones: the tab bar AND the two
+            stacked buttons (+ at 8.75rem + 52px, assistant below it);
+            md+: the assistant button (56px at bottom 24px). */}
+        <main className="p-4 pb-[calc(12.5rem+var(--draft-bar-h,0px))] md:ml-[276px] md:px-6 md:pt-6 md:pb-[calc(6rem+var(--draft-bar-h,0px))] lg:px-8 lg:pt-8">
+          <div className="mx-auto w-full max-w-[1600px]">
             <Outlet />
           </div>
         </main>

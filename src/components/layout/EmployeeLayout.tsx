@@ -58,7 +58,7 @@ export function EmployeeLayout() {
         </div>
       </header>
 
-      <main className="p-4 md:p-8">
+      <main className="p-4 md:p-6 lg:p-8">
         <div className="mx-auto w-full max-w-2xl">
           <Outlet />
         </div>

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, Pencil } from "lucide-react";
 import { BackLink } from "@/components/common/BackLink";
+import { BleedBanner } from "@/components/common/BleedBanner";
 import { formatCurrency } from "@/lib/utils";
 
 /**
@@ -46,7 +47,7 @@ export function ProjectBanner({
   const hasClientLine = client !== undefined || !!address;
 
   return (
-    <header className="bleed-banner -mt-4 pb-4 pt-3 text-banner-foreground md:-mt-8 md:pb-5 md:pt-4">
+    <BleedBanner>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
@@ -129,7 +130,7 @@ export function ProjectBanner({
           </div>
         )}
       </div>
-    </header>
+    </BleedBanner>
   );
 }
 

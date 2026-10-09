@@ -1,43 +1,27 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { clockIn, clockOut, getMyTimesheet, type AssignedProject } from "@/lib/api";
+import type { AssignedProject } from "@/lib/api";
 import { TIMESHEET_STATUS, elapsed, fmtClock, fmtHours, isoDay, periodTotals } from "@/lib/timesheets";
 import { useProjectForecast } from "@/lib/forecast";
 import { forecastWorkDays } from "@/lib/weatherRisk";
 import { RISK_TEXT } from "@/components/weather/riskStyles";
+import { useCrewClock } from "./useCrewClock";
 
 /**
  * Crew home (dashboard refresh): clock in / out, this week's hours and
  * timesheet status, today's weather on a job. Only the crew's own data, via
  * the crew RPCs (my_timesheet / time_clock_*) — no rates, costs or prices.
  */
-export function CrewClockCard({ todayJobs }: { todayJobs: AssignedProject[] }) {
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const today = isoDay(new Date());
-  const { data: ts } = useQuery({ queryKey: ["my-timesheet", today], queryFn: () => getMyTimesheet(today) });
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!ts?.running) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [ts?.running]);
-  const refresh = () => qc.invalidateQueries({ queryKey: ["my-timesheet"] });
-  const onError = (e: Error) => toast({ title: e.message, variant: "destructive" });
-  const inMut = useMutation({ mutationFn: (pid: string) => clockIn(pid, today), onSuccess: () => (refresh(), toast({ title: "Clocked in" })), onError });
-  const outMut = useMutation({ mutationFn: () => clockOut(0, null), onSuccess: () => (refresh(), toast({ title: "Clocked out — add a break on My time if you took one" })), onError });
+export function CrewClockCard({ todayJobs, hideClock = false }: { todayJobs: AssignedProject[]; /** The banner has the clock button — just the hours here. */ hideClock?: boolean }) {
+  const { ts, now, quickJob, inMut, outMut } = useCrewClock(todayJobs);
   if (!ts) return null;
   const totals = periodTotals(ts.entries);
   const st = TIMESHEET_STATUS[ts.status];
-  const quickJob = todayJobs.length === 1 && ts.projects.some((p) => p.id === todayJobs[0].id) ? todayJobs[0] : null;
   return (
     <section className="card-surface overflow-hidden p-0">
-      <div className={cn("flex items-center gap-3 px-4 py-3", ts.running && "bg-primary/10")}>
+      <div className={cn("flex items-center gap-3 px-4 py-3", ts.running && "bg-primary/10", hideClock && "hidden")}>
         <Clock className={cn("h-5 w-5 shrink-0", ts.running ? "text-primary" : "text-muted-foreground")} />
         <div className="min-w-0 flex-1">
           {ts.running ? (
@@ -65,7 +49,7 @@ export function CrewClockCard({ todayJobs }: { todayJobs: AssignedProject[] }) {
           </Button>
         )}
       </div>
-      <Link to="/employee/time" className="grid grid-cols-3 divide-x divide-hairline border-t border-hairline text-center hover:bg-muted/30">
+      <Link to="/employee/time" className={cn("grid grid-cols-3 divide-x divide-hairline text-center hover:bg-muted/30", !hideClock && "border-t border-hairline")}>
         <div className="py-2">
           <p className="text-[11px] text-muted-foreground">This week</p>
           <p className="font-bold tabular-nums">{fmtHours(totals.total)} h</p>

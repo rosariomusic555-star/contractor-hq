@@ -16,52 +16,32 @@ import {
   listRunningTimers,
   listSubmittedTimesheets,
 } from "@/lib/api";
-import { resolveRange } from "@/lib/financials";
-import { pctChange, addDays } from "@/lib/businessHealth";
+import { addDays } from "@/lib/businessHealth";
 import { computeRecommendations, openRecommendations } from "@/lib/estimatingInsights";
 import { buildRoiRows, fmtMultiple, resolvePeriod } from "@/lib/marketingRoi";
 import { dueBuckets, monthYear } from "@/lib/maintenance";
 import { isoDate } from "@/lib/weatherRisk";
-import { useBusinessHealth } from "@/components/health/useBusinessHealth";
 import { useMaintenanceItems } from "@/components/maintenance/useMaintenance";
 import { Card, CardSkeleton, EmptyLine } from "./CardShell";
 import { TONE_TEXT } from "./tones";
+import { k, useHeadlineCells, useHealth } from "./headline";
 import { projectHref } from "@/lib/projectTabs";
 
-const k = (v: number) => (Math.abs(v) >= 1000 ? `${v < 0 ? "−" : ""}$${Math.round(Math.abs(v) / 100) / 10}k` : formatCurrency(v));
-const shortDay = (d: string | null) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—");
-
-/** Business health numbers (same hook as that page, so they always match). */
-function useHealth() {
-  const range = useMemo(() => resolveRange("ytd", undefined), []);
-  return useBusinessHealth(range);
-}
 
 // ---------------------------------------------------------------------------
 // Headline strip — 5 numbers, swipeable on a phone, each links to its page.
 // ---------------------------------------------------------------------------
 export function HeadlineStrip() {
-  const h = useHealth();
-  const c = pctChange(h.bookedCompare.thisMonth, h.bookedCompare.sameMonthLastYear);
-  const cells = [
-    { label: "Collected this month", value: k(h.collectedCompare.thisMonth), sub: null as React.ReactNode, to: "/revenue?period=this_month&basis=collected" },
-    { label: "Overdue", value: k(h.overdueAR), sub: h.overdueAR > 0 ? <span className="text-destructive">needs chasing</span> : "all current", to: "/invoices" },
-    {
-      label: "Booked this month",
-      value: k(h.bookedCompare.thisMonth),
-      sub: c == null ? "— vs last year" : <span className={c >= 0 ? "text-success" : "text-destructive"}>{`${c >= 0 ? "▲" : "▼"} ${Math.abs(c)}% vs last year`}</span>,
-      to: "/business-health",
-    },
-    { label: "Booked through", value: shortDay(h.bookedThrough), sub: `${k(h.backlogDollars)} backlog`, to: "/business-health" },
-    { label: "Next 30 days in", value: k(h.cash.periods[0].inTotal), sub: <span className={h.cash.periods[0].net >= 0 ? "text-success" : "text-destructive"}>net {k(h.cash.periods[0].net)}</span>, to: "/business-health" },
-  ];
+  const { cells, isLoading } = useHeadlineCells();
   return (
     <div className="-mx-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-5 md:overflow-visible md:px-0">
       {cells.map((x) => (
         <Link key={x.label} to={x.to} className="card-surface min-w-[9.5rem] snap-start px-3 py-2.5 transition-shadow hover:shadow-card-hover md:min-w-0">
           <span className="block text-[11px] font-semibold text-muted-foreground">{x.label}</span>
-          {h.isLoading ? <span className="mt-1 block h-6 w-16 animate-pulse rounded bg-muted" /> : <span className="block text-lg font-extrabold tabular-nums text-foreground">{x.value}</span>}
-          <span className="block truncate text-[11px] text-muted-foreground">{x.sub}</span>
+          {isLoading ? <span className="mt-1 block h-6 w-16 animate-pulse rounded bg-muted" /> : <span className="block text-lg font-extrabold tabular-nums text-foreground">{x.value}</span>}
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {x.tone ? <span className={x.tone === "good" ? "text-success" : "text-destructive"}>{x.sub}</span> : x.sub}
+          </span>
         </Link>
       ))}
     </div>

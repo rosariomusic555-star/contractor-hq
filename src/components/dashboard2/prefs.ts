@@ -47,12 +47,16 @@ export interface DashboardPrefs {
   order: CardId[];
   hidden: CardId[];
   hideHeadline: boolean;
+  /** The slate banner header (greeting, status, actions, headline tiles)
+   *  instead of the plain greeting + action row — while it's compared. */
+  bannerHeader: boolean;
 }
 
 export const DEFAULT_PREFS: DashboardPrefs = {
   order: CARDS.map((c) => c.id),
   hidden: CARDS.filter((c) => c.hiddenByDefault).map((c) => c.id),
   hideHeadline: false,
+  bannerHeader: false,
 };
 
 function read(key: string): DashboardPrefs {
