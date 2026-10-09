@@ -1,4 +1,6 @@
 import { CrewClockCard, CrewJobWeather, CrewUpcoming } from "@/components/timesheets/CrewHomeCards";
+import { CrewBanner } from "@/components/timesheets/CrewBanner";
+import { useCrewBanner } from "@/hooks/use-crew-banner";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardList, MapPin, Clock } from "lucide-react";
@@ -23,6 +25,8 @@ export function EmployeeProjectsView() {
     queryFn: listMyAssignedProjects,
   });
 
+  const banner = useCrewBanner();
+
   // "Today" (0125): the job(s) this crew member is scheduled on today.
   const today = isoDate(new Date());
   const todays = projects.filter(
@@ -31,8 +35,11 @@ export function EmployeeProjectsView() {
 
   return (
     <div className="animate-fade-in space-y-5">
+      {/* New banner header (being compared; ?banner=1): greeting, today's
+          jobs, Clock in / out — the clock card below then shows just hours. */}
+      {banner && <CrewBanner todayJobs={todays} />}
       {/* Crew home (dashboard refresh): clock in / out + this week's hours. */}
-      <CrewClockCard todayJobs={todays} />
+      <CrewClockCard todayJobs={todays} hideClock={banner} />
       {todays.map((p) => (
         <Link key={p.id} to={`/employee/projects/${p.id}/work-order`} className="block rounded-2xl bg-primary p-5 text-primary-foreground shadow-card">
           <p className="text-xs font-bold uppercase tracking-wide opacity-80">Today</p>

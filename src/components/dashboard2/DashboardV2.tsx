@@ -24,6 +24,7 @@ import { createInvoice, createQuote, listInvoices } from "@/lib/api";
 import { CardErrorBoundary, LazyMount } from "./CardShell";
 import { CARDS, type CardId, useDashboardPrefs } from "./prefs";
 import { TodayCard } from "./TodayCard";
+import { DashboardBanner } from "./DashboardBanner";
 import { ClientActivityCard, NeedsYouCard, PipelineCard, StartingSoonCard, ThisWeekCard } from "./ActionCards";
 import { CrewTimeCard, HeadlineStrip, InsightsCard, MoneyCard, PastClientsCard } from "./SummaryCards";
 
@@ -132,7 +133,24 @@ export function DashboardV2() {
   };
 
   return (
-    <div className="mx-auto max-w-[1200px] animate-fade-in space-y-3 pb-24 md:space-y-4">
+    <div className="animate-fade-in space-y-3 pb-24 md:space-y-4">
+      {prefs.bannerHeader ? (
+        // The banner (Customize › Banner header): greeting, status, actions
+        // and the headline numbers — which then aren't shown again below.
+        <DashboardBanner
+          showTiles={!prefs.hideHeadline}
+          onCustomize={() => setCustomizing(true)}
+          actions={{
+            onNewOpportunity: () => setOppOpen(true),
+            onNewQuote: () => newQuote.mutate(),
+            onNewInvoice: () => newInvoice.mutate(),
+            onRecordPayment: () => setPayOpen(true),
+            quotePending: newQuote.isPending,
+            invoicePending: newInvoice.isPending,
+          }}
+        />
+      ) : (
+      <>
       {/* Header + quick actions */}
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-0">
@@ -164,6 +182,8 @@ export function DashboardV2() {
         <CardErrorBoundary title="Headline numbers">
           <HeadlineStrip />
         </CardErrorBoundary>
+      )}
+      </>
       )}
 
       {isMobile ? (
@@ -200,6 +220,12 @@ export function DashboardV2() {
             <SheetDescription>Show, hide and reorder cards. Saved for you on this device.</SheetDescription>
           </SheetHeader>
           <ul className="mt-4 divide-y divide-hairline">
+            <li className="flex min-h-[48px] items-center gap-3">
+              <span className="flex-1 text-sm font-semibold">
+                Banner header <span className="ml-1 text-[10px] font-normal text-muted-subtle">new</span>
+              </span>
+              <Switch checked={prefs.bannerHeader} onCheckedChange={(v) => update({ bannerHeader: v })} aria-label="Show the banner header" />
+            </li>
             <li className="flex min-h-[48px] items-center gap-3">
               <span className="flex-1 text-sm font-semibold">Headline numbers</span>
               <Switch checked={!prefs.hideHeadline} onCheckedChange={(v) => update({ hideHeadline: !v })} aria-label="Show headline numbers" />

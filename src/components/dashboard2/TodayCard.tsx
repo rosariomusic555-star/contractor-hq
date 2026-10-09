@@ -13,6 +13,7 @@ import { usePreconBundle } from "@/components/precon/usePrecon";
 import { RISK_TEXT } from "@/components/weather/riskStyles";
 import { Card, CardSkeleton } from "./CardShell";
 import { TONE_PILL } from "./tones";
+import { jobsOnDay } from "./todayJobs";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 const dayName = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -37,10 +38,7 @@ export function TodayCard() {
   const apptBatch = useAppointmentForecasts();
 
   const jobs = useMemo(
-    () =>
-      projects
-        .filter((p) => isBooked(p) && p.scheduled_start_date && p.scheduled_start_date <= today && (p.scheduled_end_date ?? p.scheduled_start_date) >= today)
-        .sort((a, b) => ((a as { crew_id?: string }).crew_id ?? "").localeCompare((b as { crew_id?: string }).crew_id ?? "")),
+    () => jobsOnDay(projects, today).sort((a, b) => ((a as { crew_id?: string }).crew_id ?? "").localeCompare((b as { crew_id?: string }).crew_id ?? "")),
     [projects, today],
   );
   const appts = appointments

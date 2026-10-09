@@ -1,18 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { Sun, Cloud, CloudRain, CloudSnow, CloudLightning, CloudFog, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+import { WEATHER_ICON, useWeatherStrip } from "./useWeatherStrip";
 import { cn } from "@/lib/utils";
-import { getBusinessProfile } from "@/lib/api";
-import { getWeatherStrip, DEFAULT_WORK_WINDOW, type WeatherIconKey, type WorkWindow } from "@/lib/weather";
 import { useCardLink } from "@/hooks/use-card-link";
-
-const ICON: Record<WeatherIconKey, typeof Sun> = {
-  sun: Sun,
-  cloud: Cloud,
-  rain: CloudRain,
-  snow: CloudSnow,
-  storm: CloudLightning,
-  fog: CloudFog,
-};
 
 const FLAG_LABEL: Record<"rain" | "cold", string> = {
   rain: "Rain risk during work hours — install-critical",
@@ -30,19 +19,7 @@ const FLAG_LABEL: Record<"rain" | "cold", string> = {
  */
 export function WeatherStrip({ className }: { className?: string }) {
   const cardLink = useCardLink("/bookings", { desktop: true });
-  const { data: profile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
-  const address = profile?.address?.trim() || null;
-  const workWindow: WorkWindow = profile
-    ? { start: profile.crew_start_time, end: profile.crew_end_time }
-    : DEFAULT_WORK_WINDOW;
-
-  const { data: days } = useQuery({
-    queryKey: ["weather-strip", address, workWindow.start, workWindow.end],
-    queryFn: () => getWeatherStrip(address as string, workWindow),
-    enabled: !!address,
-    staleTime: 60 * 60 * 1000,
-    retry: false,
-  });
+  const { address, days } = useWeatherStrip();
 
   if (!address || !days || days.length === 0) return null;
 
@@ -55,7 +32,7 @@ export function WeatherStrip({ className }: { className?: string }) {
       )}
     >
       {days.map((d) => {
-        const Icon = ICON[d.icon];
+        const Icon = WEATHER_ICON[d.icon];
         return (
           <div
             key={d.date}
