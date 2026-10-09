@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Settings2 } from "lucide-react";
@@ -22,8 +22,11 @@ import { useGreeting } from "@/hooks/use-greeting";
 import { cn } from "@/lib/utils";
 import { createInvoice, createQuote, listInvoices } from "@/lib/api";
 import { CardErrorBoundary, LazyMount } from "./CardShell";
-import { CARDS, type CardId, useDashboardPrefs } from "./prefs";
+import { CARDS, SIMPLE_EXTRAS, type CardId, type SimpleExtraId, useDashboardPrefs } from "./prefs";
+import { SimpleBookingsCard, SimpleRevenueCard, SimpleWeatherRisksCard } from "./SimpleExtras";
+import { SimpleCardsContext } from "./simpleContext";
 import { TodayCard } from "./TodayCard";
+import { ActivityFeedCard } from "./ActivityFeedCard";
 import { DashboardBanner } from "./DashboardBanner";
 import { ClientActivityCard, NeedsYouCard, PipelineCard, StartingSoonCard, ThisWeekCard } from "./ActionCards";
 import { CrewTimeCard, HeadlineStrip, InsightsCard, MoneyCard, PastClientsCard } from "./SummaryCards";
@@ -86,6 +89,97 @@ function renderCard(id: CardId): ReactNode {
   }
 }
 
+/** Two columns (about 2/3 + 1/3) from 1024px; one column below that. */
+function useWideLayout() {
+  const query = "(min-width: 1024px)";
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setWide(m.matches);
+    on();
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
+/** An optional card on the simplified layout (Customize › Optional cards). */
+function renderExtra(id: SimpleExtraId): ReactNode {
+  switch (id) {
+    case "starting":
+      return <StartingSoonCard />;
+    case "activity":
+      return <ClientActivityCard />;
+    case "bookings":
+      return <SimpleBookingsCard />;
+    case "revenue":
+      return <SimpleRevenueCard />;
+    case "weather":
+      return <SimpleWeatherRisksCard />;
+    case "crew":
+      // Updates waiting for review are already in Needs your attention.
+      return <CrewTimeCard />;
+    case "money":
+      return <MoneyCard />;
+    case "pastclients":
+      return <PastClientsCard />;
+  }
+}
+
+/**
+ * The simplified Dashboard (Customize › Simplified layout). Below the
+ * banner: Schedule + Ongoing projects (left, ~2/3) and Needs your attention
+ * + Pipeline (right, ~1/3); optional cards stack under their own column;
+ * then one Recent activity list full width. Each column stacks its own
+ * cards, so nothing leaves a hole. Narrower than 1024px: one column —
+ * Needs → Schedule → Ongoing → Pipeline → optional cards → Recent activity.
+ */
+function SimpleLayout({ extras }: { extras: SimpleExtraId[] }) {
+  const wide = useWideLayout();
+  const box = (title: string, node: ReactNode) => <CardErrorBoundary title={title}>{node}</CardErrorBoundary>;
+  const extra = (column: "left" | "right") =>
+    SIMPLE_EXTRAS.filter((x) => x.column === column && extras.includes(x.id)).map((x) => (
+      <CardErrorBoundary key={x.id} title={x.label}>
+        <LazyMount>{renderExtra(x.id)}</LazyMount>
+      </CardErrorBoundary>
+    ));
+  const schedule = box("Schedule", <TodayCard schedule />);
+  const ongoing = box("Ongoing projects", <OngoingJobsCard simple />);
+  const needs = box("Needs your attention", <NeedsYouCard simple />);
+  const pipeline = box("Pipeline", <PipelineCard simple />);
+  const activity = box("Recent activity", <ActivityFeedCard />);
+  return (
+    <SimpleCardsContext.Provider value={true}>
+      <div className="space-y-4">
+        {wide ? (
+          <div className="grid grid-cols-3 items-start gap-4">
+            <div className="col-span-2 space-y-4">
+              {schedule}
+              {ongoing}
+              {extra("left")}
+            </div>
+            <div className="space-y-4">
+              {needs}
+              {pipeline}
+              {extra("right")}
+            </div>
+          </div>
+        ) : (
+          <>
+            {needs}
+            {schedule}
+            {ongoing}
+            {pipeline}
+            {extra("left")}
+            {extra("right")}
+          </>
+        )}
+        {activity}
+      </div>
+    </SimpleCardsContext.Provider>
+  );
+}
+
 function Slot({ id }: { id: CardId }) {
   const label = CARDS.find((c) => c.id === id)?.label ?? id;
   return (
@@ -132,9 +226,12 @@ export function DashboardV2() {
     update({ order });
   };
 
+  // The simplified layout always uses the banner (its headline tiles live there).
+  const simple = prefs.layout === "simple";
+
   return (
     <div className="animate-fade-in space-y-3 pb-24 md:space-y-4">
-      {prefs.bannerHeader ? (
+      {prefs.bannerHeader || simple ? (
         // The banner (Customize › Banner header): greeting, status, actions
         // and the headline numbers — which then aren't shown again below.
         <DashboardBanner
@@ -186,7 +283,9 @@ export function DashboardV2() {
       </>
       )}
 
-      {isMobile ? (
+      {simple ? (
+        <SimpleLayout extras={prefs.simpleExtras} />
+      ) : isMobile ? (
         <div className="space-y-3">
           {mobileOrder.map((id) => (
             <Slot key={id} id={id} />
@@ -217,20 +316,46 @@ export function DashboardV2() {
         <SheetContent side={isMobile ? "bottom" : "right"} className={cn("overflow-y-auto", isMobile ? "max-h-[85vh] rounded-t-2xl" : "w-full sm:max-w-sm")}>
           <SheetHeader className="text-left">
             <SheetTitle>Customize dashboard</SheetTitle>
-            <SheetDescription>Show, hide and reorder cards. Saved for you on this device.</SheetDescription>
+            <SheetDescription>{simple ? "Turn optional cards on or off." : "Show, hide and reorder cards."} Saved for you on this device.</SheetDescription>
           </SheetHeader>
           <ul className="mt-4 divide-y divide-hairline">
             <li className="flex min-h-[48px] items-center gap-3">
               <span className="flex-1 text-sm font-semibold">
-                Banner header <span className="ml-1 text-[10px] font-normal text-muted-subtle">new</span>
+                Simplified layout <span className="ml-1 text-[10px] font-normal text-muted-subtle">new</span>
               </span>
-              <Switch checked={prefs.bannerHeader} onCheckedChange={(v) => update({ bannerHeader: v })} aria-label="Show the banner header" />
+              <Switch checked={simple} onCheckedChange={(v) => update({ layout: v ? "simple" : "classic" })} aria-label="Use the simplified layout" />
             </li>
+            {!simple && (
+              <li className="flex min-h-[48px] items-center gap-3">
+                <span className="flex-1 text-sm font-semibold">
+                  Banner header <span className="ml-1 text-[10px] font-normal text-muted-subtle">new</span>
+                </span>
+                <Switch checked={prefs.bannerHeader} onCheckedChange={(v) => update({ bannerHeader: v })} aria-label="Show the banner header" />
+              </li>
+            )}
             <li className="flex min-h-[48px] items-center gap-3">
               <span className="flex-1 text-sm font-semibold">Headline numbers</span>
               <Switch checked={!prefs.hideHeadline} onCheckedChange={(v) => update({ hideHeadline: !v })} aria-label="Show headline numbers" />
             </li>
-            {prefs.order.map((id, i) => {
+            {simple && <li className="pb-1 pt-4 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Optional cards</li>}
+            {simple &&
+              SIMPLE_EXTRAS.map(({ id, label, column }) => {
+                const on = prefs.simpleExtras.includes(id);
+                return (
+                  <li key={id} className="flex min-h-[48px] items-center gap-3">
+                    <span className={cn("flex-1 text-sm", on ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                      {label}
+                      <span className="ml-1 text-[10px] font-normal text-muted-subtle">{column === "left" ? "wide column" : "narrow column"}</span>
+                    </span>
+                    <Switch
+                      checked={on}
+                      onCheckedChange={(v) => update({ simpleExtras: v ? [...prefs.simpleExtras, id] : prefs.simpleExtras.filter((x) => x !== id) })}
+                      aria-label={`Show ${label}`}
+                    />
+                  </li>
+                );
+              })}
+            {!simple && prefs.order.map((id, i) => {
               const card = CARDS.find((c) => c.id === id)!;
               const shown = !prefs.hidden.includes(id);
               return (

@@ -5495,6 +5495,17 @@ export async function listProjectEvents(projectId: string): Promise<ProjectEvent
   return data ?? [];
 }
 
+/** The newest activity-log events across every project (RLS: the owner's
+ *  own) — the Dashboard's combined Recent activity. No project embed: callers
+ *  map names from the cached project list. */
+export async function listRecentProjectEvents(limit = 40, kinds?: ProjectEventKind[]): Promise<ProjectEvent[]> {
+  let q = supabase.from("project_events").select("*").order("created_at", { ascending: false }).limit(limit);
+  if (kinds?.length) q = q.in("kind", kinds);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
 /**
  * Fire-and-forget: record an activity event. Callers `void logProjectEvent(...)`
  * from a mutation's onSuccess so a logging failure never fails the real action.

@@ -50,13 +50,41 @@ export interface DashboardPrefs {
   /** The slate banner header (greeting, status, actions, headline tiles)
    *  instead of the plain greeting + action row — while it's compared. */
   bannerHeader: boolean;
+  /** "simple": the simplified layout (banner + Schedule / Ongoing projects /
+   *  Needs your attention / Pipeline / Recent activity) — while it's
+   *  compared with the classic card grid. */
+  layout: "classic" | "simple";
+  /** Simplified layout: optional cards the user turned on (Customize). */
+  simpleExtras: SimpleExtraId[];
+  /** 2 = optional cards split Money / Bookings / Revenue overview and
+   *  dropped Insights (older saved prefs are migrated in read()). */
+  simpleExtrasV?: number;
 }
+
+export type SimpleExtraId = "starting" | "activity" | "bookings" | "revenue" | "weather" | "crew" | "money" | "pastclients";
+
+/** The simplified layout's optional cards (all off by default) and their
+ *  home column: left (wide) after Ongoing projects, right (narrow) after
+ *  Pipeline. Everything else is merged into its five main sections. */
+export const SIMPLE_EXTRAS: { id: SimpleExtraId; label: string; column: "left" | "right" }[] = [
+  { id: "starting", label: "Starting soon", column: "left" },
+  { id: "activity", label: "Client activity", column: "left" },
+  { id: "bookings", label: "Bookings", column: "left" },
+  { id: "revenue", label: "Revenue overview", column: "left" },
+  { id: "weather", label: "Weather risks", column: "right" },
+  { id: "crew", label: "Crew & time", column: "right" },
+  { id: "money", label: "Money", column: "right" },
+  { id: "pastclients", label: "Past clients", column: "right" },
+];
 
 export const DEFAULT_PREFS: DashboardPrefs = {
   order: CARDS.map((c) => c.id),
   hidden: CARDS.filter((c) => c.hiddenByDefault).map((c) => c.id),
   hideHeadline: false,
   bannerHeader: false,
+  layout: "classic",
+  simpleExtras: [],
+  simpleExtrasV: 2,
 };
 
 function read(key: string): DashboardPrefs {
@@ -68,7 +96,19 @@ function read(key: string): DashboardPrefs {
     const order = (p.order ?? []).filter((id) => known.has(id));
     // Cards added after the prefs were saved go at the end.
     for (const c of CARDS) if (!order.includes(c.id)) order.push(c.id);
-    return { ...DEFAULT_PREFS, ...p, order, hidden: (p.hidden ?? DEFAULT_PREFS.hidden).filter((id) => known.has(id)) };
+    // Optional cards (v2): "Money" used to also show Bookings + Revenue
+    // overview, so keep those on for anyone who had Money on; Insights is gone.
+    const knownExtras = new Set<string>(SIMPLE_EXTRAS.map((x) => x.id));
+    let simpleExtras = (p.simpleExtras ?? []) as string[];
+    if ((p.simpleExtrasV ?? 1) < 2 && simpleExtras.includes("money")) simpleExtras = [...simpleExtras, "bookings", "revenue"];
+    return {
+      ...DEFAULT_PREFS,
+      ...p,
+      order,
+      hidden: (p.hidden ?? DEFAULT_PREFS.hidden).filter((id) => known.has(id)),
+      simpleExtras: [...new Set(simpleExtras)].filter((id): id is SimpleExtraId => knownExtras.has(id)),
+      simpleExtrasV: 2,
+    };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -92,6 +132,9 @@ export function useDashboardPrefs() {
       }),
     [key],
   );
-  const reset = useCallback(() => update({ order: DEFAULT_PREFS.order, hidden: DEFAULT_PREFS.hidden, hideHeadline: false }), [update]);
+  const reset = useCallback(
+    () => update({ order: DEFAULT_PREFS.order, hidden: DEFAULT_PREFS.hidden, hideHeadline: false, simpleExtras: [] }),
+    [update],
+  );
   return { prefs, update, reset };
 }
