@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Plus, Settings2 } from "lucide-react";
 import { BleedBanner } from "@/components/common/BleedBanner";
+import { buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { WEATHER_ICON, useWeatherStrip } from "@/components/dashboard/useWeatherStrip";
 import { useNeedsYouItems } from "@/components/dashboard/useNeedsYouItems";
@@ -16,9 +17,9 @@ const ON_BANNER_RING = "focus-visible:outline-none focus-visible:ring-2 focus-vi
 const SECONDARY =
   "inline-flex h-10 items-center justify-center gap-1 rounded-[0.625rem] border border-white/60 bg-transparent px-3.5 text-sm font-semibold text-banner-foreground transition-colors hover:bg-black/15 disabled:opacity-60 " +
   ON_BANNER_RING;
-const PRIMARY =
-  "inline-flex h-10 items-center justify-center gap-1.5 rounded-[0.625rem] bg-banner-control px-4 text-sm font-bold text-banner-control-foreground transition-colors hover:bg-white/90 " +
-  ON_BANNER_RING;
+// New opportunity: the brand light green with ink text (primary-light) —
+// same size and radius as the outlined banner buttons.
+const PRIMARY = cn(buttonVariants({ variant: "primary-light" }), "h-10 gap-1.5 rounded-[0.625rem] px-4 focus-visible:ring-white/80 focus-visible:ring-offset-0");
 
 export interface DashboardActions {
   onNewOpportunity: () => void;

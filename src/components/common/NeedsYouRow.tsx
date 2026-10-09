@@ -1,3 +1,4 @@
+import { buttonVariants } from "@/components/ui/button";
 import { AlertCircle, CheckCircle2, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -32,9 +33,8 @@ export function NeedsYouRow({ item }: { item: NeedsYouItem }) {
         <p className="truncate text-sm font-bold text-foreground">{item.title}</p>
         <p className="truncate text-xs text-muted-foreground">{item.subtitle}</p>
       </div>
-      <span className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-bold text-foreground">
-        {item.action}
-      </span>
+      {/* The row is the link; this is its visible action (soft button style). */}
+      <span className={cn(buttonVariants({ variant: "soft", size: "chip" }), "shrink-0")}>{item.action}</span>
     </Link>
   );
 }
