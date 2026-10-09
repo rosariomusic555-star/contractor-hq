@@ -150,6 +150,8 @@ import {
   currentBaseline,
   type DeliveryLineWithOrderStatus, purchasedLines } from "@/lib/materialTracking";
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
+import { UsageTrackingCard } from "@/components/materials/UsageTrackingCard";
+import { useTrackingCards } from "@/hooks/use-tracking-cards";
 import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
 import { actualCostByType, costPlanSummary } from "@/lib/costPlan";
 import { COST_BUCKETS, COST_TYPE_GROUP_LABEL, sectionLaborHours, type CostTotals } from "@/lib/costPlanMath";
@@ -1931,6 +1933,7 @@ function MaterialsTrackingCard({
   onShowHistory: (line: MaterialsItem) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [cardsOn, setCardsOn] = useTrackingCards();
   const lines = executionTrackedLines(trackedLines);
   const rows = lines.map((line) => {
     const est = effectiveEstimate(line);
@@ -1956,22 +1959,74 @@ function MaterialsTrackingCard({
     })
     .filter((g) => g.rows.length > 0);
 
-  return (
-    <div className="card-surface p-5">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-bold text-foreground">Materials</h3>
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <h3 className="text-base font-bold text-foreground">Materials</h3>
+      <div className="flex items-center gap-4">
+        {rows.length > 0 && (
+          <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs font-semibold text-muted-foreground">
+            <Switch checked={cardsOn} onCheckedChange={setCardsOn} aria-label="New tracking cards" />
+            New tracking cards
+          </label>
+        )}
         <button type="button" onClick={onOpen} className="shrink-0 text-xs font-semibold text-primary">
           Open cost plan →
         </button>
       </div>
+    </div>
+  );
+  const usedLine = (
+    <p className="mt-1 text-xs text-muted-foreground">
+      Used <span className="font-bold tabular-nums text-foreground">{formatCurrency(usedValue)}</span> of{" "}
+      <span className="tabular-nums">{formatCurrency(estValue)}</span> estimated · log what the crew uses as you go
+    </p>
+  );
+  const unplanned = summary.unplannedCount > 0 && (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      <span className="badge-status badge-pending">{pluralize(summary.unplannedCount, "unplanned item")}</span>
+    </div>
+  );
+
+  // New tracking cards (behind the toggle while compared with the rows):
+  // one card per tracked line, grouped under the same feature headings.
+  if (cardsOn && rows.length > 0) {
+    return (
+      <section aria-label="Materials">
+        {header}
+        {usedLine}
+        <div className="mt-4 space-y-6">
+          {groups.map((g) => (
+            <div key={g.id}>
+              {groups.length > 1 && <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wider text-muted-subtle">{g.title}</p>}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {g.rows.map(({ line, estQty, used }) => (
+                  <UsageTrackingCard
+                    key={line.id}
+                    line={line}
+                    feature={g.title}
+                    estimated={estQty}
+                    used={used}
+                    usageLogs={usageLogs}
+                    onShowHistory={onShowHistory}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        {unplanned}
+      </section>
+    );
+  }
+
+  return (
+    <div className="card-surface p-5">
+      {header}
       {rows.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">No tracked materials yet — add lines on the cost plan.</p>
       ) : (
         <>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Used <span className="font-bold tabular-nums text-foreground">{formatCurrency(usedValue)}</span> of{" "}
-            <span className="tabular-nums">{formatCurrency(estValue)}</span> estimated · log what the crew uses as you go
-          </p>
+          {usedLine}
           <div className="mt-3 space-y-4">
             {shownGroups.map((g) => (
               <div key={g.id}>
@@ -2027,11 +2082,7 @@ function MaterialsTrackingCard({
       )}
       {/* Ordering lives in the materials center and the readiness line; using
           more than planned is the quiet note on its row (0167). */}
-      {summary.unplannedCount > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <span className="badge-status badge-pending">{pluralize(summary.unplannedCount, "unplanned item")}</span>
-        </div>
-      )}
+      {unplanned}
     </div>
   );
 }
