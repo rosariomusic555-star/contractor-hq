@@ -24,7 +24,6 @@ import { createInvoice, createQuote, listInvoices } from "@/lib/api";
 import { CardErrorBoundary, LazyMount } from "./CardShell";
 import { CARDS, SIMPLE_EXTRAS, type CardId, type SimpleExtraId, useDashboardPrefs } from "./prefs";
 import { SimpleBookingsCard, SimpleRevenueCard, SimpleWeatherRisksCard } from "./SimpleExtras";
-import { SimpleCardsContext } from "./simpleContext";
 import { TodayCard } from "./TodayCard";
 import { ActivityFeedCard } from "./ActivityFeedCard";
 import { DashboardBanner } from "./DashboardBanner";
@@ -149,7 +148,6 @@ function SimpleLayout({ extras }: { extras: SimpleExtraId[] }) {
   const pipeline = box("Pipeline", <PipelineCard simple />);
   const activity = box("Recent activity", <ActivityFeedCard />);
   return (
-    <SimpleCardsContext.Provider value={true}>
       <div className="space-y-4">
         {wide ? (
           <div className="grid grid-cols-3 items-start gap-4">
@@ -181,7 +179,6 @@ function SimpleLayout({ extras }: { extras: SimpleExtraId[] }) {
         )}
         {activity}
       </div>
-    </SimpleCardsContext.Provider>
   );
 }
 

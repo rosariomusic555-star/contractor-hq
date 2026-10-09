@@ -46,8 +46,8 @@ export function WeatherRisksCard({ className }: { className?: string }) {
                 </span>
               </Link>
               {openDelay && (
-                <Button size="sm" variant="outline" className="mt-1 h-8 shrink-0 px-2.5 text-xs font-bold" onClick={() => openDelay({ projectId: r.project.id, date: r.date })}>
-                  <CloudRain className="mr-1 h-3.5 w-3.5" />
+                <Button size="chip" variant="soft" className="mt-1 shrink-0" onClick={() => openDelay({ projectId: r.project.id, date: r.date })}>
+                  <CloudRain />
                   Delay
                 </Button>
               )}

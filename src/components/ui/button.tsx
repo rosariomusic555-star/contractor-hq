@@ -15,12 +15,20 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        // Pale-green secondary action (dashboard Work order / Directions /
+        // Open): a tint of the brand green, dark slate text (5.5:1).
+        soft: "bg-primary/15 font-semibold text-sidebar-border hover:bg-primary/25 dark:text-primary",
+        // The brand light green, ink text (7.6:1) — a primary action on the
+        // slate banner (New opportunity).
+        "primary-light": "bg-primary font-bold text-banner-control-foreground hover:bg-primary/85",
       },
       size: {
         default: "h-10 px-4 py-2",
         sm: "h-9 rounded-md px-3",
         lg: "h-11 rounded-md px-8",
         icon: "h-10 w-10",
+        // Compact inline action inside a card row.
+        chip: "h-8 gap-1.5 rounded-[0.5rem] px-3 py-1.5 text-[13px] [&_svg]:size-3.5",
       },
     },
     defaultVariants: {

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarClock, ClipboardList, CloudRain, MapPin, Navigation, Truck, UserRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { APPOINTMENT_TYPE_LABEL, listAppointments, listCrews, listEmployees, listMaterialOrders, listOpportunities, listProjects, listRunningTimers, type Project } from "@/lib/api";
 import { navigateUrl } from "@/lib/workOrder";
@@ -204,7 +204,7 @@ function TodayJob({
           </span>
         )}
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
         {readiness && (
           <span className={cn("rounded-full px-2 py-0.5 font-bold", TONE_PILL[readiness.tone])} title={r ? openSummary(r.openRequired) : undefined}>
             {readiness.label}
@@ -215,17 +215,17 @@ function TodayJob({
             <UserRound className="h-3 w-3" /> {clockedIn.map((c) => c.name.split(" ")[0]).join(", ")} clocked in
           </span>
         ) : null}
-        <Link to={`/projects/${project.id}/work-order`} className="flex min-h-[32px] items-center gap-1 rounded-full px-2 font-semibold text-primary">
-          <ClipboardList className="h-3 w-3" /> Work order
+        <Link to={`/projects/${project.id}/work-order`} className={cn(buttonVariants({ variant: "soft", size: "chip" }))}>
+          <ClipboardList /> Work order
         </Link>
         {directions && project.address && (
-          <a href={navigateUrl(project.address)} target="_blank" rel="noreferrer" className="flex min-h-[32px] items-center gap-1 rounded-full px-2 font-semibold text-primary">
-            <Navigation className="h-3 w-3" /> Directions
+          <a href={navigateUrl(project.address)} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "soft", size: "chip" }))}>
+            <Navigation /> Directions
           </a>
         )}
         {risky && openDelay && (
-          <Button size="sm" variant="outline" className="ml-auto h-8 px-2.5 text-xs font-bold" onClick={() => openDelay({ projectId: project.id, date: today })}>
-            <CloudRain className="mr-1 h-3.5 w-3.5" /> Rain delay
+          <Button size="chip" variant="soft" className="ml-auto" onClick={() => openDelay({ projectId: project.id, date: today })}>
+            <CloudRain /> Rain delay
           </Button>
         )}
       </div>
