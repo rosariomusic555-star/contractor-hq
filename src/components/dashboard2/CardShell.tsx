@@ -87,10 +87,15 @@ export function Card({
         </h3>
         {right}
         {viewAll && (
-          // card-link: semibold 14px in the light green; the arrow nudges right on hover.
-          <Link to={viewAll.to} className="group/link flex min-h-[44px] shrink-0 items-center gap-1 text-sm font-semibold text-primary underline-offset-4 hover:underline">
+          // card-link: semibold 14px in the light green; the arrow nudges right on
+          // hover. A padded, rounded hit area (pale-green on hover / focus /
+          // press) that the negative margin cancels out, so the text doesn't move.
+          <Link
+            to={viewAll.to}
+            className="group/link -mx-2.5 -my-1.5 flex min-h-9 shrink-0 items-center gap-1 rounded-[0.5rem] px-2.5 py-1.5 text-sm font-semibold text-primary underline-offset-4 transition-colors duration-150 hover:bg-primary/10 hover:underline focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-primary/20 [@media(pointer:coarse)]:min-h-11"
+          >
             {label.replace(/\s*→\s*$/, "")}
-            <span aria-hidden className="text-base leading-none transition-transform group-hover/link:translate-x-0.5">→</span>
+            <span aria-hidden className="text-base leading-none transition-transform duration-150 group-hover/link:translate-x-0.5 group-focus-visible/link:translate-x-0.5">→</span>
           </Link>
         )}
       </header>
