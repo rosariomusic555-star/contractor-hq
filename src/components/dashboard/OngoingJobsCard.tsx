@@ -209,15 +209,21 @@ export function OngoingJobsCard({ className, simple = false }: { className?: str
   };
 
   if (simple) {
-    const three = allCards.slice(0, 3);
+    // One row: 4 tiles at 1440px+, 3 on desktop, 2 on small tablets; phones
+    // keep the first 3 stacked. Extra tiles are hidden by width, not removed.
+    const shownTiles = allCards.slice(0, 4);
+    const tileVisibility = (i: number) => (i === 3 ? "hidden min-[1440px]:flex" : i === 2 ? "sm:max-lg:hidden" : "");
     return (
       <Card title="Ongoing projects" count={allCards.length || null} viewAll={allCards.length > 0 ? { to: "/projects", label: "View all →" } : undefined}>
         {allCards.length === 0 ? (
           <EmptyLine>No ongoing projects right now.</EmptyLine>
         ) : (
-          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3">
-            {three.map((card) => (
-              <SimpleJobTile key={card.project.id} card={card} coverUrl={coverUrlFor(card.project.id)} />
+          // Tracks of at least 210px, auto-fit: 4 across at ~1440px+, 3 on
+          // desktop, 2 on tablets, 1 on phones — and fewer projects than
+          // columns spread out evenly instead of leaving an empty slot.
+          <div className="grid gap-3 p-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+            {shownTiles.map((card, i) => (
+              <SimpleJobTile key={card.project.id} card={card} coverUrl={coverUrlFor(card.project.id)} className={tileVisibility(i)} />
             ))}
           </div>
         )}
@@ -286,11 +292,15 @@ const ALERT_BADGE_CLASS: Record<OngoingJobCard["alerts"][number]["key"], string>
 
 /** The simplified Dashboard's project tile — only what tells you where the
  *  job stands: photo, name, status, contract, paid so far, day N of M. */
-function SimpleJobTile({ card, coverUrl }: { card: OngoingJobCard; coverUrl: string | null }) {
+function SimpleJobTile({ card, coverUrl, className }: { card: OngoingJobCard; coverUrl: string | null; className?: string }) {
   const { project } = card;
   return (
-    <Link to={`/projects/${project.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-      <div className="h-28 shrink-0 overflow-hidden bg-muted">
+    <Link
+      to={`/projects/${project.id}`}
+      className={cn("group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
+    >
+      {/* Fixed aspect ratio: wider tiles crop the photo, never stretch it. */}
+      <div className="aspect-[11/5] shrink-0 overflow-hidden bg-muted">
         {coverUrl ? (
           <img src={coverUrl} alt="" className="h-full w-full object-cover" />
         ) : (
