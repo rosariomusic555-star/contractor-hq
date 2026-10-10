@@ -33,6 +33,7 @@ import { trackedSheetIds, type DeliveryLineWithOrderStatus } from "@/lib/materia
 import { projectStatusMeta } from "@/lib/statusMeta";
 import { CategoryChips } from "@/components/common/CategoryChips";
 import { Card, EmptyLine } from "@/components/dashboard2/CardShell";
+import { useDashCell } from "@/components/dashboard2/dashCell";
 import { countsTowardTotals } from "@/lib/features";
 import { useCardLink } from "@/hooks/use-card-link";
 
@@ -82,6 +83,7 @@ function groupByProjectId<T extends { project_id: string | null }>(rows: T[]): M
  */
 export function OngoingJobsCard({ className, simple = false }: { className?: string; /** The simplified Dashboard: 3 lean tiles (photo, name, status, contract, paid bar, day N of M). */ simple?: boolean }) {
   const cardLink = useCardLink("/projects");
+  const cell = useDashCell();
   const [gridRef, gridWidth] = useElementWidth<HTMLDivElement>();
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const { data: quotes = [] } = useQuery({ queryKey: ["quotes"], queryFn: () => listQuotes() });
@@ -209,10 +211,11 @@ export function OngoingJobsCard({ className, simple = false }: { className?: str
   };
 
   if (simple) {
-    // One row: 4 tiles at 1440px+, 3 on desktop, 2 on small tablets; phones
-    // keep the first 3 stacked. Extra tiles are hidden by width, not removed.
-    const shownTiles = allCards.slice(0, 4);
-    const tileVisibility = (i: number) => (i === 3 ? "hidden min-[1440px]:flex" : i === 2 ? "sm:max-lg:hidden" : "");
+    // On the Dashboard grid: about one tile per 3 columns (up to 4), never
+    // narrower than ~200px. Otherwise (phones) the first 3 stacked.
+    const perRow = cell ? Math.max(1, Math.min(4, Math.floor(cell.w / 3), Math.floor((cell.widthPx - 32 + 12) / (200 + 12)))) : 3;
+    const shownTiles = allCards.slice(0, perRow);
+    const tileVisibility = (i: number) => (cell ? "" : i === 3 ? "hidden min-[1440px]:flex" : i === 2 ? "sm:max-lg:hidden" : "");
     return (
       <Card title="Ongoing projects" count={allCards.length || null} viewAll={allCards.length > 0 ? { to: "/projects", label: "View all →" } : undefined}>
         {allCards.length === 0 ? (
@@ -221,7 +224,10 @@ export function OngoingJobsCard({ className, simple = false }: { className?: str
           // Tracks of at least 210px, auto-fit: 4 across at ~1440px+, 3 on
           // desktop, 2 on tablets, 1 on phones — and fewer projects than
           // columns spread out evenly instead of leaving an empty slot.
-          <div className="grid gap-3 p-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+          <div
+            className="grid gap-3 p-4"
+            style={{ gridTemplateColumns: cell ? `repeat(${Math.min(perRow, shownTiles.length)}, minmax(0, 1fr))` : "repeat(auto-fit, minmax(210px, 1fr))" }}
+          >
             {shownTiles.map((card, i) => (
               <SimpleJobTile key={card.project.id} card={card} coverUrl={coverUrlFor(card.project.id)} className={tileVisibility(i)} />
             ))}

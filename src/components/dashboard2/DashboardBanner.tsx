@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Plus, Settings2 } from "lucide-react";
+import { ChevronDown, LayoutDashboard, Plus, Settings2 } from "lucide-react";
 import { BleedBanner } from "@/components/common/BleedBanner";
 import { buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,7 +37,18 @@ export interface DashboardActions {
  * and the headline numbers as tiles (moved here from the strip, so they're
  * never shown twice). Scrolls away with the page.
  */
-export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: DashboardActions; showTiles: boolean; onCustomize: () => void }) {
+export function DashboardBanner({
+  actions,
+  showTiles,
+  onCustomize,
+  onEditLayout,
+}: {
+  actions: DashboardActions;
+  showTiles: boolean;
+  onCustomize: () => void;
+  /** Turns on Edit layout (simplified layout only; hidden while editing). */
+  onEditLayout?: () => void;
+}) {
   const { greeting, firstName } = useGreeting();
   const today = isoDate(new Date());
   const { data: profile, isLoading: profileLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
@@ -145,6 +156,11 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
               {secondaryItems}
             </DropdownMenuContent>
           </DropdownMenu>
+          {onEditLayout && (
+            <button type="button" onClick={onEditLayout} className={cn(SECONDARY, "border-transparent px-2.5 hover:bg-white/15")}>
+              <LayoutDashboard className="h-4 w-4" /> Edit layout
+            </button>
+          )}
           <button type="button" aria-label="Customize dashboard" onClick={onCustomize} className={cn("flex h-10 w-10 items-center justify-center rounded-[0.625rem] hover:bg-white/15", ON_BANNER_RING)}>
             <Settings2 className="h-4 w-4" />
           </button>
@@ -165,6 +181,11 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
               {secondaryItems}
             </DropdownMenuContent>
           </DropdownMenu>
+          {onEditLayout && (
+            <button type="button" aria-label="Edit layout" title="Edit layout" onClick={onEditLayout} className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[0.625rem] hover:bg-white/15", ON_BANNER_RING)}>
+              <LayoutDashboard className="h-4 w-4" />
+            </button>
+          )}
           <button type="button" aria-label="Customize dashboard" onClick={onCustomize} className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[0.625rem] hover:bg-white/15", ON_BANNER_RING)}>
             <Settings2 className="h-4 w-4" />
           </button>

@@ -14,6 +14,7 @@ import { useRainDelay } from "@/components/schedule/rainDelayContext";
 import { usePreconBundle } from "@/components/precon/usePrecon";
 import { RISK_TEXT } from "@/components/weather/riskStyles";
 import { Card, CardSkeleton } from "./CardShell";
+import { useDashCell } from "./dashCell";
 import { TONE_PILL } from "./tones";
 import { jobsOnDay } from "./todayJobs";
 
@@ -41,6 +42,8 @@ export function TodayCard({ schedule = false }: { /** The simplified Dashboard's
   const { batch } = useScheduleForecasts();
   const apptBatch = useAppointmentForecasts();
   const { data: opportunities = [] } = useQuery({ queryKey: ["opportunities"], queryFn: listOpportunities, enabled: schedule });
+  // Made taller on the Dashboard grid: two weeks ahead instead of one.
+  const aheadDays = useDashCell()?.sized ? 14 : 7;
 
   const jobs = useMemo(
     () => jobsOnDay(projects, today).sort((a, b) => ((a as { crew_id?: string }).crew_id ?? "").localeCompare((b as { crew_id?: string }).crew_id ?? "")),
@@ -56,7 +59,7 @@ export function TodayCard({ schedule = false }: { /** The simplified Dashboard's
   // Schedule: the next 7 days after today — job starts and appointments.
   const upcoming = useMemo(() => {
     if (!schedule) return [];
-    const end = addDays(today, 7);
+    const end = addDays(today, aheadDays);
     const oppTitle = new Map(opportunities.map((o) => [o.id, o.title]));
     return [
       ...projects
@@ -73,7 +76,7 @@ export function TodayCard({ schedule = false }: { /** The simplified Dashboard's
           to: a.opportunity_id ? `/pipeline/${a.opportunity_id}` : "/appointments",
         })),
     ].sort((x, y) => x.sort.localeCompare(y.sort));
-  }, [schedule, projects, appointments, opportunities, today]);
+  }, [schedule, projects, appointments, opportunities, today, aheadDays]);
 
   if (isLoading)
     return (
@@ -138,9 +141,9 @@ export function TodayCard({ schedule = false }: { /** The simplified Dashboard's
       )}
       {schedule && (
         <>
-          <p className={cn(SECTION, "border-t border-hairline")}>Upcoming · next 7 days</p>
+          <p className={cn(SECTION, "border-t border-hairline")}>Upcoming · next {aheadDays} days</p>
           {upcoming.length === 0 ? (
-            <p className="px-4 pb-3 text-sm text-muted-foreground">Nothing else scheduled this week.</p>
+            <p className="px-4 pb-3 text-sm text-muted-foreground">{aheadDays === 7 ? "Nothing else scheduled this week." : "Nothing else scheduled in the next two weeks."}</p>
           ) : (
             <ul className="pb-1.5">
               {upcoming.map((u) => (

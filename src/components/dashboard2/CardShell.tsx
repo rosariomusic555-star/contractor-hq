@@ -1,4 +1,5 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+import { useDashCell } from "./dashCell";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useCardLink } from "@/hooks/use-card-link";
@@ -77,9 +78,10 @@ export function Card({
   single?: boolean;
 }) {
   const link = useCardLink(to ?? viewAll?.to, { desktop: single });
+  const cell = useDashCell();
   const label = viewAll?.label ?? "View all";
   return (
-    <section id={id} onClick={link.onClick} className={cn("card-surface overflow-hidden p-0", link.className, className)}>
+    <section id={id} onClick={link.onClick} className={cn("card-surface overflow-hidden p-0", cell && "flex h-full flex-col", link.className, className)}>
       <header className="flex min-h-[44px] items-center gap-2 border-b border-hairline px-4 py-2">
         <h3 className="flex-1 truncate text-sm font-bold text-foreground">
           {title}
@@ -94,7 +96,16 @@ export function Card({
           </Link>
         )}
       </header>
-      {children}
+      {cell ? (
+        // On the grid the card keeps its height: content top-aligned, and
+        // scrolls inside when it's longer. data-dash-content is what the grid
+        // measures to fit the card to its content.
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div data-dash-content>{children}</div>
+        </div>
+      ) : (
+        children
+      )}
     </section>
   );
 }

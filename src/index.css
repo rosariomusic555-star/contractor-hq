@@ -473,3 +473,45 @@
     background: white;
   }
 }
+
+/* Dashboard grid (Edit layout) — react-grid-layout's placeholder, resize
+   handle and the editing outline, in the app's colours. */
+.dash-grid .react-grid-item.react-grid-placeholder {
+  background: hsl(var(--primary) / 0.35);
+  border: 2px dashed hsl(var(--primary));
+  border-radius: var(--radius-card);
+  opacity: 1;
+}
+.dash-grid:not(.dash-grid-editing) .react-grid-item {
+  transition: none;
+}
+.dash-cell-editing {
+  border-radius: var(--radius-card);
+  outline: 2px dashed hsl(var(--border));
+  outline-offset: 3px;
+}
+.dash-cell-editing:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+}
+.dash-cell-editing.react-draggable-dragging,
+.dash-cell-editing.resizing {
+  box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.25);
+}
+.dash-grid:not(.dash-grid-editing) .react-resizable-handle {
+  display: none;
+}
+.dash-grid .react-grid-item > .react-resizable-handle {
+  opacity: 1;
+  width: 28px;
+  height: 28px;
+  z-index: 10;
+}
+.dash-grid .react-grid-item > .react-resizable-handle::after {
+  right: 7px;
+  bottom: 7px;
+  width: 10px;
+  height: 10px;
+  border-right: 2.5px solid hsl(var(--muted-foreground));
+  border-bottom: 2.5px solid hsl(var(--muted-foreground));
+  border-bottom-right-radius: 2px;
+}
