@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { RotateCw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
+import { useProjectStyling } from "@/hooks/use-project-styling";
 
 export interface CardLink {
   label: string;
@@ -46,14 +48,26 @@ function CardError({ onRetry }: { onRetry?: () => void }) {
 }
 
 function HeaderLink({ link }: { link: CardLink }) {
-  const cls = "inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const [updated] = useProjectStyling();
+  // Updated styling: the dashboard's shared card-link (hover area, arrow nudge).
+  const cls = updated
+    ? "card-link"
+    : "inline-flex min-h-9 items-center rounded-md px-1.5 text-[13px] font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const body = updated ? (
+    <>
+      {link.label}
+      <span aria-hidden className="card-link-arrow">→</span>
+    </>
+  ) : (
+    <>{link.label} →</>
+  );
   return link.to ? (
     <Link to={link.to} className={cls}>
-      {link.label} →
+      {body}
     </Link>
   ) : (
     <button type="button" onClick={link.onClick} className={cls}>
-      {link.label} →
+      {body}
     </button>
   );
 }
@@ -83,6 +97,7 @@ export function OverviewCard({
   skeletonRows?: number;
   children?: ReactNode;
 }) {
+  const [updated] = useProjectStyling();
   return (
     <section className={cn("rounded-card border border-border bg-card p-5", className)} aria-label={title}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -96,7 +111,7 @@ export function OverviewCard({
           )}
         </h3>
         {links.length > 0 && (
-          <div className="-mr-1.5 flex flex-wrap items-center gap-x-2">
+          <div className={cn("flex flex-wrap items-center", updated ? "gap-x-5" : "-mr-1.5 gap-x-2")}>
             {links.map((l) => (
               <HeaderLink key={l.label} link={l} />
             ))}
@@ -123,7 +138,7 @@ export function FactRow({ label, value, strong, className }: { label: ReactNode;
   return (
     <div className={cn("flex items-baseline justify-between gap-3 py-1.5 text-sm", className)}>
       <span className="text-muted-foreground">{label}</span>
-      <span className={cn("text-right tabular-nums text-foreground", strong ? "text-base font-bold" : "font-semibold")}>{value}</span>
+      <span className={cn("text-right tabular-nums text-foreground", strong ? "card-amount text-base font-bold" : "font-semibold")}>{value}</span>
     </div>
   );
 }
@@ -139,10 +154,26 @@ export function ThinBar({ pct, className }: { pct: number; className?: string })
 
 /** Empty state with the right action. */
 export function CardEmpty({ text, action }: { text: string; action?: CardLink }) {
+  const [updated] = useProjectStyling();
+  // Updated styling: short text + one soft button.
+  const soft = cn(buttonVariants({ variant: "soft", size: "chip" }));
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
       <span>{text}</span>
-      {action && <HeaderLink link={action} />}
+      {action &&
+        (updated ? (
+          action.to ? (
+            <Link to={action.to} className={soft}>
+              {action.label}
+            </Link>
+          ) : (
+            <button type="button" onClick={action.onClick} className={soft}>
+              {action.label}
+            </button>
+          )
+        ) : (
+          <HeaderLink link={action} />
+        ))}
     </div>
   );
 }

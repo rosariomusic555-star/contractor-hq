@@ -31,6 +31,7 @@ import {
   X,
   Plus,
   Eye,
+  Flag,
 } from "lucide-react";
 import { clientHubLink } from "@/lib/messageTemplates";
 import { CopyHubLinkButton } from "@/components/common/CopyHubLinkButton";
@@ -152,6 +153,7 @@ import {
 import { LogUsageDialog } from "@/components/materials/LogUsageDialog";
 import { UsageTrackingCard } from "@/components/materials/UsageTrackingCard";
 import { useTrackingCards } from "@/hooks/use-tracking-cards";
+import { useProjectStyling } from "@/hooks/use-project-styling";
 import { UsageLogHistoryDialog } from "@/components/materials/UsageLogHistoryDialog";
 import { actualCostByType, costPlanSummary } from "@/lib/costPlan";
 import { COST_BUCKETS, COST_TYPE_GROUP_LABEL, sectionLaborHours, type CostTotals } from "@/lib/costPlanMath";
@@ -427,6 +429,7 @@ export function ProjectDetailView() {
 
   // The page is tabbed — the tab lives in ?tab=.
   const { active: tab, setActive: setTab, anchorRef: tabsAnchorRef } = useUrlTab(PROJECT_TABS, "overview", "tab", PROJECT_TAB_ALIASES);
+  const [updatedStyling, setUpdatedStyling] = useProjectStyling();
   const headerScrolledAway = useScrolledPast(tabsAnchorRef, !isLoading);
   const { data: projectSelections } = useQuery({ queryKey: ["project-selections", id], queryFn: () => listProjectSelections(id) });
   const { data: progressUpdates = [] } = useQuery({
@@ -1313,6 +1316,17 @@ export function ProjectDetailView() {
         <h3 className="text-base font-bold text-foreground">Activity</h3>
         {events.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">No activity yet.</p>
+        ) : updatedStyling ? (
+          // Updated styling: the dashboard's Recent activity rows.
+          <ul className="-mx-1 mt-2 divide-y divide-hairline">
+            {events.map((e) => (
+              <li key={e.id} className="flex items-start gap-3 px-1 py-2.5">
+                <Flag className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="item-title min-w-0 flex-1 text-sm text-foreground">{e.summary}</span>
+                <span className="shrink-0 whitespace-nowrap pt-0.5 text-xs text-muted-foreground">{timeAgo(e.created_at)}</span>
+              </li>
+            ))}
+          </ul>
         ) : (
           <ul className="mt-3 space-y-3">
             {events.map((e) => (
@@ -1596,7 +1610,7 @@ export function ProjectDetailView() {
           {marginProfit != null && (
             <section className="rounded-card border border-border bg-card p-5">
               <h3 className="text-[15px] font-bold text-foreground">{showActualMargin ? "Final" : "Projected"} margin</h3>
-              <p className="mt-1 text-2xl font-extrabold tabular-nums tracking-tight text-foreground">
+              <p className="card-amount mt-1 text-2xl font-extrabold tabular-nums tracking-tight text-foreground">
                 {marginPct}% <span className="text-sm font-bold text-muted-foreground">· {formatCurrency(marginProfit)}</span>
               </p>
             </section>
@@ -1689,15 +1703,25 @@ export function ProjectDetailView() {
         onChange={setTab}
         ariaLabel="Project sections"
         compact={headerScrolledAway}
-        className="!mt-1"
+        className={cn("!mt-1", updatedStyling && "project-v2-tabs")}
         titleClassName={PROJECT_BANNER_SLIM_BLEED}
         title={<ProjectBannerSlim name={project.name} statusLabel={meta.label} />}
       />
 
-      {belowTabs}
-      <div role="tabpanel" aria-label={[...tabs, ...moreTabs].find((t) => t.id === tab)?.label} key={tab} className="animate-fade-in">
-        {tabBody[tab]()}
+      {/* .project-v2: the "Updated styling" scope (index.css) — tab content
+          and stage notices only; the banner, dialogs and other pages keep
+          their look. */}
+      <div className={cn("space-y-5", updatedStyling && "project-v2")}>
+        {belowTabs}
+        <div role="tabpanel" aria-label={[...tabs, ...moreTabs].find((t) => t.id === tab)?.label} key={tab} className="animate-fade-in">
+          {tabBody[tab]()}
+        </div>
       </div>
+      {/* Left, so it never sits under the floating assistant button. */}
+      <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-muted-foreground">
+        <Switch checked={updatedStyling} onCheckedChange={setUpdatedStyling} aria-label="Updated styling" />
+        Updated styling
+      </label>
       {dialogs}
     </div>
   );
@@ -1934,6 +1958,7 @@ function MaterialsTrackingCard({
 }) {
   const [showAll, setShowAll] = useState(false);
   const [cardsOn, setCardsOn] = useTrackingCards();
+  const [updatedStyling] = useProjectStyling();
   const lines = executionTrackedLines(trackedLines);
   const rows = lines.map((line) => {
     const est = effectiveEstimate(line);
@@ -1969,9 +1994,15 @@ function MaterialsTrackingCard({
             New tracking cards
           </label>
         )}
-        <button type="button" onClick={onOpen} className="shrink-0 text-xs font-semibold text-primary">
-          Open cost plan →
-        </button>
+        {updatedStyling ? (
+          <button type="button" onClick={onOpen} className="card-link">
+            Open cost plan <span aria-hidden className="card-link-arrow">→</span>
+          </button>
+        ) : (
+          <button type="button" onClick={onOpen} className="shrink-0 text-xs font-semibold text-primary">
+            Open cost plan →
+          </button>
+        )}
       </div>
     </div>
   );
