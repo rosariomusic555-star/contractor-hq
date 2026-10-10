@@ -194,6 +194,122 @@
     }
   }
 
+  /* card-link: a card-header link ("View all →", "Schedule →") — semibold
+     14px in the light green, a padded rounded hit area the negative margin
+     cancels (the text doesn't move), pale-green hover / focus / press, and
+     the arrow (.card-link-arrow) nudges right. Dashboard cards + the
+     project page's updated styling. */
+  .card-link {
+    @apply -mx-2.5 -my-1.5 inline-flex min-h-9 shrink-0 items-center gap-1 rounded-[0.5rem] px-2.5 py-1.5 text-sm font-semibold text-primary underline-offset-4 transition-colors duration-150;
+  }
+  .card-link:hover {
+    @apply bg-primary/10 underline;
+  }
+  .card-link:focus-visible {
+    @apply bg-primary/10 outline-none ring-2 ring-ring;
+  }
+  .card-link:active {
+    @apply bg-primary/20;
+  }
+  .card-link-arrow {
+    @apply text-base leading-none transition-transform duration-150;
+  }
+  .card-link:is(:hover, :focus-visible) .card-link-arrow {
+    transform: translateX(2px);
+  }
+  @media (pointer: coarse) {
+    .card-link {
+      min-height: 2.75rem;
+    }
+  }
+
+  /* Project page "Updated styling" (useProjectStyling): the dashboard's
+     look for every tab, scoped to .project-v2 (the tab content + stage
+     notices) and .project-v2-tabs, so the current look is untouched. */
+  .project-v2-tabs [role="tab"] {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .project-v2 h3 {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .project-v2 .uppercase {
+    font-size: 12px;
+    font-weight: 600;
+  }
+  /* Supporting text (addresses, dates, "Paid X of Y", notes). */
+  .project-v2 .text-xs.text-muted-foreground {
+    font-size: 14px;
+  }
+  /* Item titles — up to two lines, then "…". */
+  .project-v2 .item-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  /* Badges never squeeze a title: on their own row above it. */
+  .project-v2 .title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+  .project-v2 .title-row > .badge-status {
+    order: -1;
+  }
+  .project-v2 .card-amount {
+    font-size: 21px;
+    font-weight: 700;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Cards: the dashboard's subtle border + light shadow. */
+  .project-v2 section.rounded-card.border {
+    box-shadow: var(--shadow-card);
+  }
+  /* Outlined secondary actions → the "soft" button (pale green, dark slate
+     text — same as Button variant="soft"); selects keep their outline. */
+  .project-v2 :is(button, a).border-input.bg-background:not([role="combobox"]) {
+    border-color: transparent;
+    border-radius: 0.5rem;
+    background-color: hsl(var(--primary) / 0.15);
+    color: hsl(var(--sidebar-border));
+    font-weight: 600;
+  }
+  .project-v2 :is(button, a).border-input.bg-background:not([role="combobox"]):hover {
+    background-color: hsl(var(--primary) / 0.25);
+    color: hsl(var(--sidebar-border));
+  }
+  .dark .project-v2 :is(button, a).border-input.bg-background:not([role="combobox"]) {
+    color: hsl(var(--primary));
+  }
+  /* Filled main actions → "primary-light" (light green, dark slate ink). */
+  .project-v2 .bg-primary.text-primary-foreground {
+    color: hsl(var(--banner-control-foreground));
+  }
+  @media (pointer: coarse) {
+    .project-v2 :is(button, a):is(.border-input.bg-background, .bg-primary.text-primary-foreground) {
+      min-height: 2.75rem;
+    }
+  }
+  @media (min-width: 768px) {
+    .project-v2 h3 {
+      font-size: 20px;
+    }
+    .project-v2 .uppercase {
+      font-size: 13px;
+    }
+    .project-v2 .card-amount {
+      font-size: 23px;
+    }
+  }
+
   .stat-card {
     @apply bg-card p-6 border border-border;
     border-radius: var(--radius-card);

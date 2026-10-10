@@ -20,6 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusPill } from "@/components/common/StatusPill";
+import { useProjectStyling } from "@/hooks/use-project-styling";
 import { ShareLinkDialog } from "@/components/common/ShareLinkDialog";
 import { ManualApprovalDialog, type ManualApproval } from "@/components/common/ManualApprovalDialog";
 import { QuoteActivityBadge } from "@/components/quote-activity/QuoteActivityBadge";
@@ -300,8 +301,8 @@ export function QuotesCard({ projectId, project, quotes }: { projectId: string; 
               return (
                 <li key={q.id} className="flex items-start gap-2 px-1 py-2.5">
                   <Link to={open} className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-semibold text-foreground">{label}</span>
+                    <span className="title-row flex flex-wrap items-center gap-1.5">
+                      <span className="item-title text-sm font-semibold text-foreground">{label}</span>
                       <StatusPill meta={quoteStatusMeta(q.status)} />
                       {rev > 1 && <span className="text-[11px] font-semibold text-muted-foreground">Rev {rev}</span>}
                       <QuoteActivityBadge quote={q} settings={settings} showLastViewed={false} />
@@ -392,6 +393,8 @@ export function ChangeOrdersCard({
   categories: { id: string; name: string }[];
   onNew: () => void;
 }) {
+  // Updated styling: "+ New change order" is the card's one filled action.
+  const [updatedStyling] = useProjectStyling();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -448,7 +451,7 @@ export function ChangeOrdersCard({
       {changeOrders.length === 0 ? (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">No change orders yet. Use one when the client changes something already in the job — bigger, upgraded, removed or credited.</p>
-          <Button size="sm" variant="outline" className="h-9" onClick={onNew}>
+          <Button size="sm" variant={updatedStyling ? "default" : "outline"} className="h-9" onClick={onNew}>
             <Plus className="mr-1.5 h-3.5 w-3.5" /> New change order
           </Button>
         </div>
@@ -479,8 +482,8 @@ export function ChangeOrdersCard({
               return (
                 <li key={co.id} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-1 py-2.5">
                   <Link to={`${base}/${co.id}`} className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-semibold text-foreground">
+                    <span className="title-row flex flex-wrap items-center gap-1.5">
+                      <span className="item-title text-sm font-semibold text-foreground">
                         {label}
                         {co.title ? ` · ${co.title}` : ""}
                       </span>
@@ -524,7 +527,7 @@ export function ChangeOrdersCard({
             ) : (
               <span />
             )}
-            <Button size="sm" variant="outline" className="h-9" onClick={onNew}>
+            <Button size="sm" variant={updatedStyling ? "default" : "outline"} className="h-9" onClick={onNew}>
               <Plus className="mr-1.5 h-3.5 w-3.5" /> New change order
             </Button>
           </div>

@@ -16,6 +16,8 @@ import {
   type Quote,
 } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
+import { buttonVariants } from "@/components/ui/button";
+import { useProjectStyling } from "@/hooks/use-project-styling";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { useMaterialsCenter } from "@/hooks/use-materials-center";
@@ -92,6 +94,7 @@ export function NewOverview({
   invitePending: boolean;
   goTab: (t: ProjectTab) => void;
 }) {
+  const [updatedStyling] = useProjectStyling();
   const id = project.id;
   const stage = overviewStage(project);
   const qc = useQueryClient();
@@ -252,12 +255,12 @@ export function NewOverview({
                 )}
                 {a.onClick ? (
                   <button type="button" onClick={a.onClick} className="flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <span className="text-sm font-semibold text-foreground">{a.title}</span>
+                    <span className="item-title text-sm font-semibold text-foreground">{a.title}</span>
                     {a.detail && <span className="truncate text-xs text-muted-foreground">{a.detail}</span>}
                   </button>
                 ) : (
                   <Link to={a.href} className="flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-md hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <span className="text-sm font-semibold text-foreground">{a.title}</span>
+                    <span className="item-title text-sm font-semibold text-foreground">{a.title}</span>
                     {a.detail && <span className="truncate text-xs text-muted-foreground">{a.detail}</span>}
                   </Link>
                 )}
@@ -365,25 +368,59 @@ export function NewOverview({
       ) : (
         <div className="space-y-1 text-sm">
           <p className="font-bold text-foreground">{client.name}</p>
-          {client.phone && (
-            <a href={`tel:${client.phone.replace(/[^\d+]/g, "")}`} className="flex min-h-11 items-center gap-2 text-muted-foreground hover:text-foreground md:min-h-8">
-              <Phone className="h-4 w-4 shrink-0" /> {client.phone}
-            </a>
-          )}
-          {client.email && (
-            <a href={`mailto:${client.email}`} className="flex min-h-11 items-center gap-2 text-muted-foreground hover:text-foreground md:min-h-8">
-              <Mail className="h-4 w-4 shrink-0" /> <span className="truncate">{client.email}</span>
-            </a>
-          )}
-          {(project.address || client.address) && (
-            <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(project.address || client.address || "")}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex min-h-11 items-center gap-2 text-muted-foreground hover:text-foreground md:min-h-8"
-            >
-              <Navigation className="h-4 w-4 shrink-0" /> <span className="truncate">Directions</span>
-            </a>
+          {updatedStyling ? (
+            // Updated styling: contact details as text, then Call / Email /
+            // Directions as soft buttons.
+            <>
+              {(client.phone || client.email) && (
+                <p className="truncate text-muted-foreground">{[client.phone, client.email].filter(Boolean).join(" · ")}</p>
+              )}
+              <div className="flex flex-wrap gap-2 py-1.5">
+                {client.phone && (
+                  <a href={`tel:${client.phone.replace(/[^\d+]/g, "")}`} className={cn(buttonVariants({ variant: "soft", size: "chip" }))}>
+                    <Phone /> Call
+                  </a>
+                )}
+                {client.email && (
+                  <a href={`mailto:${client.email}`} className={cn(buttonVariants({ variant: "soft", size: "chip" }))}>
+                    <Mail /> Email
+                  </a>
+                )}
+                {(project.address || client.address) && (
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(project.address || client.address || "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn(buttonVariants({ variant: "soft", size: "chip" }))}
+                  >
+                    <Navigation /> Directions
+                  </a>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+            {client.phone && (
+              <a href={`tel:${client.phone.replace(/[^\d+]/g, "")}`} className="flex min-h-11 items-center gap-2 text-muted-foreground hover:text-foreground md:min-h-8">
+                <Phone className="h-4 w-4 shrink-0" /> {client.phone}
+              </a>
+            )}
+            {client.email && (
+              <a href={`mailto:${client.email}`} className="flex min-h-11 items-center gap-2 text-muted-foreground hover:text-foreground md:min-h-8">
+                <Mail className="h-4 w-4 shrink-0" /> <span className="truncate">{client.email}</span>
+              </a>
+            )}
+            {(project.address || client.address) && (
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(project.address || client.address || "")}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-h-11 items-center gap-2 text-muted-foreground hover:text-foreground md:min-h-8"
+              >
+                <Navigation className="h-4 w-4 shrink-0" /> <span className="truncate">Directions</span>
+              </a>
+            )}
+            </>
           )}
           <div className="border-t border-hairline pt-2">
             {hub === "none" ? (
@@ -430,7 +467,7 @@ export function NewOverview({
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-subtle">
                   {u.source} · {timeAgo(u.at)}
                 </p>
-                <p className="line-clamp-2 text-[13px] text-foreground/85">{u.text}</p>
+                <p className="item-title line-clamp-2 text-[13px] text-foreground/85">{u.text}</p>
               </div>
             </li>
           ))}
@@ -538,7 +575,7 @@ function FeaturesTable({
             {rows.map((r) => (
               <tr key={r.key} className="border-b border-hairline align-top">
                 <th scope="row" className="py-2.5 pr-3 text-left font-semibold">
-                  <Link to={hrefOf(r)} className="text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <Link to={hrefOf(r)} className="item-title text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     {r.name}
                   </Link>
                 </th>
@@ -567,7 +604,7 @@ function FeaturesTable({
           <li key={r.key}>
             <Link to={hrefOf(r)} className="block min-h-11 py-2.5">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 truncate text-sm font-semibold text-foreground">{r.name}</span>
+                <span className="item-title min-w-0 truncate text-sm font-semibold text-foreground">{r.name}</span>
                 <span className="shrink-0 text-sm tabular-nums text-foreground">{r.price == null ? "" : money(r.price)}</span>
               </div>
               <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs tabular-nums text-muted-foreground">

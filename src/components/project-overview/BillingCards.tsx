@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/common/StatusPill";
+import { useProjectStyling } from "@/hooks/use-project-styling";
 import { FeatureHistoryDialog } from "@/components/materials/FeatureHistoryDialog";
 import { useToast } from "@/hooks/use-toast";
 import { effectiveInvoiceStatus } from "@/lib/financials";
@@ -49,6 +50,9 @@ export function InvoicesCard({
   /** "Send deposit invoice" when there's one to send / create, else null. */
   deposit: { label: string; href?: string; onClick?: () => void; pending?: boolean } | null;
 }) {
+  // Updated styling: Create invoice is the one filled action unless the
+  // deposit button (already filled) is showing.
+  const [updatedStyling] = useProjectStyling();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -81,8 +85,8 @@ export function InvoicesCard({
                   className="grid min-h-11 grid-cols-[1fr_auto] items-center gap-x-3 gap-y-0.5 rounded-md px-1 py-2.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:grid-cols-[1fr_auto_auto_auto]"
                 >
                   <span className="min-w-0">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-semibold text-foreground">
+                    <span className="title-row flex flex-wrap items-center gap-1.5">
+                      <span className="item-title text-sm font-semibold text-foreground">
                         {inv.invoice_number ?? "Invoice"} · {invoiceKindLabel(inv, coNumbers)}
                       </span>
                       <StatusPill meta={invoiceStatusMeta(status)} />
@@ -113,7 +117,7 @@ export function InvoicesCard({
               <Send className="mr-1.5 h-3.5 w-3.5" /> {deposit.pending ? "Preparing…" : deposit.label}
             </Button>
           ))}
-        <Button size="sm" variant="outline" className="h-9" disabled={createMut.isPending} onClick={() => createMut.mutate()}>
+        <Button size="sm" variant={updatedStyling && !deposit ? "default" : "outline"} className="h-9" disabled={createMut.isPending} onClick={() => createMut.mutate()}>
           <Plus className="mr-1.5 h-3.5 w-3.5" /> {createMut.isPending ? "Creating…" : "Create invoice"}
         </Button>
       </div>
@@ -168,7 +172,7 @@ export function FeatureChangesCard({
                   onClick={() => setOpenId(f.id)}
                   className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-1 py-2 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <span className="text-sm font-semibold text-foreground">{featureName(f, categories)}</span>
+                  <span className="item-title text-sm font-semibold text-foreground">{featureName(f, categories)}</span>
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     <History className="h-3.5 w-3.5" /> {n} change{n === 1 ? "" : "s"}
                   </span>
