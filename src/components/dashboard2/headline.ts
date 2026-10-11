@@ -19,6 +19,8 @@ export interface HeadlineCell {
   /** Plain-text subline; `tone` colors it on the white strip only. */
   sub: string;
   tone?: "good" | "bad";
+  /** The value itself is a problem (overdue money): shown in the danger color. */
+  alert?: boolean;
   to: string;
 }
 
@@ -30,7 +32,7 @@ export function useHeadlineCells(): { cells: HeadlineCell[]; isLoading: boolean 
   const net = h.cash.periods[0].net;
   const cells: HeadlineCell[] = [
     { label: "Collected this month", value: k(h.collectedCompare.thisMonth), sub: "", to: "/revenue?period=this_month&basis=collected" },
-    { label: "Overdue", value: k(h.overdueAR), sub: h.overdueAR > 0 ? "needs chasing" : "all current", tone: h.overdueAR > 0 ? "bad" : undefined, to: "/invoices" },
+    { label: "Overdue", value: k(h.overdueAR), sub: h.overdueAR > 0 ? "needs chasing" : "all current", tone: h.overdueAR > 0 ? "bad" : undefined, alert: h.overdueAR > 0, to: "/invoices" },
     {
       label: "Booked this month",
       value: k(h.bookedCompare.thisMonth),
