@@ -121,7 +121,7 @@ export function HubDocumentDesktop(props: HubDocumentDesktopProps) {
           <Letterhead detail={detail} signUrls={props.signUrls} title={title} version={props.version} date={docDate(props)} status={status} />
           {kind === "quote" ? <QuoteBody {...props} picks={picks} setPicks={setPicks} /> : props.body}
         </article>
-        <aside className={cn("no-print space-y-5", twoCol && "sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto overscroll-contain pb-1")} aria-label="Summary and actions">
+        <aside className={cn("no-print space-y-5", twoCol && "sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto pb-1")} aria-label="Summary and actions">
           {panel}
         </aside>
       </div>

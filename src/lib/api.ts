@@ -9413,3 +9413,24 @@ export async function contractorApproveQuote(input: { quoteId: string; method: "
   });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard layout (0169) — each owner's Edit layout result, one JSON row per
+// user. Shape and defaults live in src/lib/dashboardLayout.ts. `null` = no
+// saved layout yet; "missing" = migration 0169 hasn't been run (callers fall
+// back to this browser).
+// ---------------------------------------------------------------------------
+
+export async function getDashboardLayout(): Promise<unknown | null | "missing"> {
+  const { data, error } = await supabase.from("dashboard_layouts").select("layout").maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205" || error.code === "42P01") return "missing";
+    throw error;
+  }
+  return data?.layout ?? null;
+}
+
+export async function saveDashboardLayout(layout: unknown): Promise<void> {
+  const { error } = await supabase.from("dashboard_layouts").upsert({ layout, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}

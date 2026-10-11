@@ -130,7 +130,7 @@ export function HubDesktopHome({
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(300px,360px)] items-start gap-6">
           <div className="min-w-0 space-y-5">{[progress, history, documents, ...rest]}</div>
           {/* Sticky side column; scrolls on its own only if taller than the window. */}
-          <aside className="sticky top-6 max-h-[calc(100vh-3rem)] space-y-5 overflow-y-auto overscroll-contain rounded-card pb-1" aria-label="Summary">
+          <aside className="sticky top-6 max-h-[calc(100vh-3rem)] space-y-5 overflow-y-auto rounded-card pb-1" aria-label="Summary">
             {complete ? [items.length ? attention : null, care, balance, contact] : [attention, balance, schedule, contact]}
           </aside>
         </div>

@@ -29,6 +29,7 @@ import { useUpcomingPrecon } from "@/components/precon/usePrecon";
 import { opportunityStageMeta } from "@/lib/statusMeta";
 import { RISK_TEXT } from "@/components/weather/riskStyles";
 import { Card, CardSkeleton, EmptyLine } from "./CardShell";
+import { useDashCell } from "./dashCell";
 import { TONE_PILL } from "./tones";
 
 const MAX = 5;
@@ -45,7 +46,9 @@ const addDays = (d: string, n: number) => {
 export function NeedsYouCard({ simple = false }: { /** The simplified Dashboard: "Needs your attention", most urgent 5, no filter chips. */ simple?: boolean } = {}) {
   const { items, isLoading } = useNeedsYouItems();
   const [filter, setFilter] = useState<NeedsYouCategory | "all">("all");
-  const shown = (filter === "all" ? items : items.filter((i) => categoryOf(i) === filter)).slice(0, MAX);
+  // Made taller on the Dashboard grid: every item (the card scrolls).
+  const max = useDashCell()?.sized ? 50 : MAX;
+  const shown = (filter === "all" ? items : items.filter((i) => categoryOf(i) === filter)).slice(0, max);
   return (
     <Card
       title={simple ? "Needs your attention" : "Needs you"}

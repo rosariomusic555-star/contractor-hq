@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Plus, Settings2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Plus, RotateCcw, Settings2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -27,6 +27,9 @@ import { SimpleBookingsCard, SimpleRevenueCard, SimpleWeatherRisksCard } from ".
 import { TodayCard } from "./TodayCard";
 import { ActivityFeedCard } from "./ActivityFeedCard";
 import { DashboardBanner } from "./DashboardBanner";
+import { DashboardGrid, PhoneCardList } from "./DashboardGrid";
+import { useDashboardLayout } from "./useDashboardLayout";
+import { defaultState, withExtras, type DashboardLayoutState, type GridBreakpoint, type GridCardId } from "./layout";
 import { ClientActivityCard, NeedsYouCard, PipelineCard, StartingSoonCard, ThisWeekCard } from "./ActionCards";
 import { CrewTimeCard, HeadlineStrip, InsightsCard, MoneyCard, PastClientsCard } from "./SummaryCards";
 
@@ -125,67 +128,54 @@ function renderExtra(id: SimpleExtraId): ReactNode {
   }
 }
 
-/**
- * The simplified Dashboard (Customize › Simplified layout). Below the
- * banner: Schedule (left, ~2/3) | Needs your attention + Pipeline (right,
- * ~1/3); Ongoing projects full width; optional cards in their own columns;
- * then Revenue overview and Recent activity full width. Each column stacks its own
- * cards, so nothing leaves a hole. Narrower than 1024px: one column —
- * Needs → Schedule → Ongoing → Pipeline → optional cards → Recent activity.
- */
-function SimpleLayout({ extras }: { extras: SimpleExtraId[] }) {
+/** A card on the simplified layout's grid / phone list. */
+function renderGridCard(id: GridCardId): ReactNode {
+  switch (id) {
+    case "schedule":
+      return <TodayCard schedule />;
+    case "needs":
+      return <NeedsYouCard simple />;
+    case "pipeline":
+      return <PipelineCard simple />;
+    case "ongoing":
+      return <OngoingJobsCard simple />;
+    case "recent":
+      return <ActivityFeedCard />;
+    default:
+      return renderExtra(id);
+  }
+}
+
+/** Which layout the simplified Dashboard uses: phone (one column, below
+ *  768px), tablet (md) or desktop (lg, 1024px+) grid. */
+function useGridBreakpoint(): GridBreakpoint | "phone" {
+  const isMobile = useIsMobile();
   const wide = useWideLayout();
-  const box = (title: string, node: ReactNode) => <CardErrorBoundary title={title}>{node}</CardErrorBoundary>;
-  const extra = (...columns: ("left" | "right" | "full")[]) =>
-    SIMPLE_EXTRAS.filter((x) => columns.includes(x.column) && extras.includes(x.id)).map((x) => (
-      <CardErrorBoundary key={x.id} title={x.label}>
-        <LazyMount>{renderExtra(x.id)}</LazyMount>
-      </CardErrorBoundary>
-    ));
-  const schedule = box("Schedule", <TodayCard schedule />);
-  const ongoing = box("Ongoing projects", <OngoingJobsCard simple />);
-  const needs = box("Needs your attention", <NeedsYouCard simple />);
-  const pipeline = box("Pipeline", <PipelineCard simple />);
-  const activity = box("Recent activity", <ActivityFeedCard />);
+  return isMobile ? "phone" : wide ? "lg" : "md";
+}
+
+/** The Edit layout toolbar — sticky, so Done is always in reach. */
+function EditToolbar({ onDone, onUndo, canUndo, onReset, onAdd }: { onDone: () => void; onUndo: () => void; canUndo: boolean; onReset: () => void; onAdd: () => void }) {
   return (
-      <div className="space-y-4">
-        {wide ? (
-          <>
-            {/* Top row: Schedule | Needs your attention + Pipeline. */}
-            <div className="grid grid-cols-3 items-start gap-4">
-              <div className="col-span-2 space-y-4">{schedule}</div>
-              <div className="space-y-4">
-                {needs}
-                {pipeline}
-              </div>
-            </div>
-            {/* Ongoing projects full width, after the taller column. */}
-            {ongoing}
-            {/* Optional cards in their own columns (each stacks on its own). */}
-            {extras.some((id) => SIMPLE_EXTRAS.find((x) => x.id === id)?.column !== "full") && (
-              <div className="grid grid-cols-3 items-start gap-4">
-                <div className="col-span-2 space-y-4">{extra("left")}</div>
-                <div className="space-y-4">{extra("right")}</div>
-              </div>
-            )}
-          </>
-        ) : null}
-        {/* Full-width optional cards (Revenue overview), below both columns. */}
-        {wide && extra("full")}
-        {!wide && (
-          <>
-            {needs}
-            {schedule}
-            {ongoing}
-            {pipeline}
-            {/* Same order as before on one column: Revenue overview after the
-                wide-column cards. */}
-            {extra("left", "full")}
-            {extra("right")}
-          </>
-        )}
-        {activity}
-      </div>
+    <div role="toolbar" aria-label="Edit layout" className="sticky top-2 z-30 flex flex-wrap items-center gap-2 rounded-card border border-border bg-background/95 px-3 py-2 shadow-md backdrop-blur">
+      <p className="mr-auto min-w-0 text-sm text-muted-foreground">
+        <span className="font-semibold text-foreground">Editing layout.</span>
+        <span className="hidden md:inline"> Drag a card by its header, resize from its corner, or focus a card and use the arrow keys (Shift to resize).</span>
+        <span className="md:hidden"> Use the arrows to reorder cards.</span>
+      </p>
+      <Button variant="soft" size="sm" className="h-10" onClick={onAdd}>
+        <Plus className="h-4 w-4" /> Add card
+      </Button>
+      <Button variant="outline" size="sm" className="h-10" disabled={!canUndo} onClick={onUndo}>
+        <Undo2 className="h-4 w-4" /> Undo
+      </Button>
+      <Button variant="outline" size="sm" className="h-10" onClick={onReset}>
+        <RotateCcw className="h-4 w-4" /> Reset to default
+      </Button>
+      <Button size="sm" className="h-10 px-5 font-bold" onClick={onDone}>
+        <Check className="h-4 w-4" /> Done
+      </Button>
+    </div>
   );
 }
 
@@ -215,6 +205,39 @@ export function DashboardV2() {
   const [oppOpen, setOppOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
+  // Simplified layout: the editable grid, saved to the account.
+  const { state: gridState, save: saveGrid, savesToAccount } = useDashboardLayout();
+  const bp = useGridBreakpoint();
+  const [editing, setEditing] = useState(false);
+  const history = useRef<DashboardLayoutState[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [liveMessage, setLiveMessage] = useState("");
+  const changeGrid = (next: DashboardLayoutState) => {
+    if (!gridState) return;
+    if (editing) {
+      history.current.push(gridState);
+      setCanUndo(true);
+    }
+    saveGrid(next);
+  };
+  const undo = () => {
+    const prev = history.current.pop();
+    if (prev) saveGrid(prev);
+    setCanUndo(history.current.length > 0);
+    setLiveMessage(prev ? "Undone." : "");
+  };
+  const startEditing = () => {
+    history.current = [];
+    setCanUndo(false);
+    setEditing(true);
+    setLiveMessage(bp === "phone" ? "Editing layout. Use the move up and move down buttons to reorder cards." : "Editing layout. Focus a card and use the arrow keys to move it, Shift and arrow keys to resize it.");
+  };
+  const stopEditing = () => {
+    setEditing(false);
+    history.current = [];
+    setCanUndo(false);
+    setLiveMessage("Layout saved.");
+  };
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices(), enabled: payOpen });
 
   const onError = (title: string) => (err: Error) => toast({ title, description: err.message, variant: "destructive" });
@@ -246,6 +269,7 @@ export function DashboardV2() {
         <DashboardBanner
           showTiles={!prefs.hideHeadline}
           onCustomize={() => setCustomizing(true)}
+          onEditLayout={simple && gridState && !editing ? startEditing : undefined}
           actions={{
             onNewOpportunity: () => setOppOpen(true),
             onNewQuote: () => newQuote.mutate(),
@@ -292,8 +316,30 @@ export function DashboardV2() {
       </>
       )}
 
+      <p className="sr-only" aria-live="polite">
+        {liveMessage}
+      </p>
+      {simple && editing && (
+        <EditToolbar
+          onDone={stopEditing}
+          onUndo={undo}
+          canUndo={canUndo}
+          onReset={() => {
+            changeGrid(defaultState());
+            setLiveMessage("Layout reset to the default.");
+          }}
+          onAdd={() => setCustomizing(true)}
+        />
+      )}
+
       {simple ? (
-        <SimpleLayout extras={prefs.simpleExtras} />
+        !gridState ? (
+          <div className="h-96 animate-pulse rounded-card bg-muted/30" aria-hidden />
+        ) : bp === "phone" ? (
+          <PhoneCardList state={gridState} editing={editing} render={renderGridCard} onChange={changeGrid} announce={setLiveMessage} />
+        ) : (
+          <DashboardGrid key={bp} bp={bp} state={gridState} editing={editing} render={renderGridCard} onChange={changeGrid} announce={setLiveMessage} />
+        )
       ) : isMobile ? (
         <div className="space-y-3">
           {mobileOrder.map((id) => (
@@ -325,7 +371,10 @@ export function DashboardV2() {
         <SheetContent side={isMobile ? "bottom" : "right"} className={cn("overflow-y-auto", isMobile ? "max-h-[85vh] rounded-t-2xl" : "w-full sm:max-w-sm")}>
           <SheetHeader className="text-left">
             <SheetTitle>Customize dashboard</SheetTitle>
-            <SheetDescription>{simple ? "Turn optional cards on or off." : "Show, hide and reorder cards."} Saved for you on this device.</SheetDescription>
+            <SheetDescription>
+              {simple ? "Turn optional cards on or off — new cards drop in at the bottom." : "Show, hide and reorder cards."}{" "}
+              {simple && savesToAccount ? "Saved to your account." : "Saved for you on this device."}
+            </SheetDescription>
           </SheetHeader>
           <ul className="mt-4 divide-y divide-hairline">
             <li className="flex min-h-[48px] items-center gap-3">
@@ -348,17 +397,20 @@ export function DashboardV2() {
             </li>
             {simple && <li className="pb-1 pt-4 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Optional cards</li>}
             {simple &&
-              SIMPLE_EXTRAS.map(({ id, label, column }) => {
-                const on = prefs.simpleExtras.includes(id);
+              gridState &&
+              SIMPLE_EXTRAS.map(({ id, label }) => {
+                const on = gridState.extras.includes(id);
                 return (
                   <li key={id} className="flex min-h-[48px] items-center gap-3">
                     <span className={cn("flex-1 text-sm", on ? "font-semibold text-foreground" : "text-muted-foreground")}>
                       {label}
-                      <span className="ml-1 text-[10px] font-normal text-muted-subtle">{column === "left" ? "wide column" : column === "right" ? "narrow column" : "full width"}</span>
                     </span>
                     <Switch
                       checked={on}
-                      onCheckedChange={(v) => update({ simpleExtras: v ? [...prefs.simpleExtras, id] : prefs.simpleExtras.filter((x) => x !== id) })}
+                      onCheckedChange={(v) => {
+                        changeGrid(withExtras(gridState, v ? [...gridState.extras, id] : gridState.extras.filter((x) => x !== id)));
+                        setLiveMessage(v ? `${label} added at the bottom.` : `${label} removed.`);
+                      }}
                       aria-label={`Show ${label}`}
                     />
                   </li>
@@ -388,7 +440,14 @@ export function DashboardV2() {
               );
             })}
           </ul>
-          <Button variant="outline" className="mt-4 h-11 w-full" onClick={reset}>
+          <Button
+            variant="outline"
+            className="mt-4 h-11 w-full"
+            onClick={() => {
+              reset();
+              if (simple) changeGrid(defaultState());
+            }}
+          >
             Reset to default
           </Button>
         </SheetContent>

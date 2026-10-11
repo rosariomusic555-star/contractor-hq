@@ -8,6 +8,7 @@ import { projectHref } from "@/lib/projectTabs";
 import { timeAgoShort } from "@/lib/quoteActivity";
 import { cn } from "@/lib/utils";
 import { Card, CardSkeleton, EmptyLine } from "./CardShell";
+import { useDashCell } from "./dashCell";
 
 const ROWS = 8;
 
@@ -56,6 +57,8 @@ function splitAmount(summary: string): { text: string; amount: string | null } {
  * first, ~8 rows.
  */
 export function ActivityFeedCard() {
+  // Made taller on the Dashboard grid: more rows (the card scrolls).
+  const limit = useDashCell()?.sized ? 30 : ROWS;
   const { data: events = [], isLoading } = useQuery({
     queryKey: ["recent-project-events", EVENT_KINDS.join(",")],
     queryFn: () => listRecentProjectEvents(40, EVENT_KINDS),
@@ -95,8 +98,8 @@ export function ActivityFeedCard() {
         amount: null,
         to: projectHref(u.project_id, "updates"),
       }));
-    return [...fromEvents, ...fromViews, ...fromUpdates].sort((a, b) => b.at.localeCompare(a.at)).slice(0, ROWS);
-  }, [events, projects, updates, notifications]);
+    return [...fromEvents, ...fromViews, ...fromUpdates].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+  }, [events, projects, updates, notifications, limit]);
 
   return (
     <Card title="Recent activity" viewAll={{ to: "/notifications", label: "View all →" }}>

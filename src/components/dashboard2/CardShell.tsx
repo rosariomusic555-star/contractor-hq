@@ -1,4 +1,5 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+import { useDashCell } from "./dashCell";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useCardLink } from "@/hooks/use-card-link";
@@ -77,9 +78,10 @@ export function Card({
   single?: boolean;
 }) {
   const link = useCardLink(to ?? viewAll?.to, { desktop: single });
+  const cell = useDashCell();
   const label = viewAll?.label ?? "View all";
   return (
-    <section id={id} onClick={link.onClick} className={cn("card-surface overflow-hidden p-0", link.className, className)}>
+    <section id={id} onClick={link.onClick} className={cn("card-surface overflow-hidden p-0", cell && "flex h-full flex-col", link.className, className)}>
       <header className="flex min-h-[44px] items-center gap-2 border-b border-hairline px-4 py-2">
         <h3 className="flex-1 truncate text-sm font-bold text-foreground">
           {title}
@@ -94,8 +96,41 @@ export function Card({
           </Link>
         )}
       </header>
-      {children}
+      {cell ? <CellScroll>{children}</CellScroll> : children}
     </section>
+  );
+}
+
+/**
+ * A grid card's body. The card keeps its height with the content top-aligned;
+ * it only becomes a scroll box when the content is actually taller, so the
+ * wheel / trackpad / touch over a card that fits scrolls the page. No
+ * overscroll containment: at the top or bottom of a scrolling card the page
+ * takes over. data-dash-content is what the grid measures to fit the card.
+ */
+function CellScroll({ children }: { children: ReactNode }) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const o = outer.current;
+    const i = inner.current;
+    if (!o || !i || typeof ResizeObserver === "undefined") return;
+    // 1px slack: sub-pixel rounding shouldn't turn a card that fits into a
+    // scroll box that swallows the gesture.
+    const check = () => setScrolls(i.offsetHeight > o.clientHeight + 1);
+    const ro = new ResizeObserver(check);
+    ro.observe(o);
+    ro.observe(i);
+    check();
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={outer} data-dash-scroll={scrolls ? "" : undefined} className={cn("min-h-0 flex-1", scrolls ? "overflow-y-auto" : "overflow-hidden")}>
+      <div ref={inner} data-dash-content>
+        {children}
+      </div>
+    </div>
   );
 }
 

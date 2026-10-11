@@ -11,6 +11,7 @@ import { jobRisks, useScheduleForecasts } from "@/lib/forecast";
 import { projectHref } from "@/lib/projectTabs";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { Card, CardSkeleton, EmptyLine } from "./CardShell";
+import { useDashCell } from "./dashCell";
 import { k } from "./headline";
 
 /*
@@ -55,6 +56,10 @@ export function SimpleBookingsCard() {
  *  otherwise the last 6 (wider bars). */
 export function SimpleRevenueCard() {
   const { data: invoices = [], isLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => listInvoices() });
+  // Resized on the Dashboard grid: the bars fill the card's height (header,
+  // padding, month labels and caption take ~140px).
+  const cell = useDashCell();
+  const chartHeight = cell?.sized ? Math.max(140, cell.heightPx - 140) : 192;
   const byKey = new Map(monthlyRevenue(invoices).map((p) => [p.key, p.revenue]));
   const now = new Date();
   const lastMonths = (n: number) =>
@@ -77,7 +82,7 @@ export function SimpleRevenueCard() {
         // Inner padding keeps the value labels and caption off the card edges.
         <div className="px-6 pb-4 pt-5">
           <p className="sr-only">Invoiced by month: {months.map((m) => `${m.label} ${formatCurrency(m.revenue)}`).join(", ")}.</p>
-          <div className="flex h-48 items-end gap-3 sm:gap-4" aria-hidden>
+          <div className="flex items-end gap-3 sm:gap-4" style={{ height: chartHeight }} aria-hidden>
             {months.map((m, i) => (
               <div key={m.key} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${m.label}: ${formatCurrency(m.revenue)}`}>
                 {m.revenue > 0 && <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-muted-foreground">{k(m.revenue)}</span>}
