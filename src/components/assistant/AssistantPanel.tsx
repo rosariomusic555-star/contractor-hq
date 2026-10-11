@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,9 +15,8 @@ const EXAMPLE_PROMPTS = [
 ];
 
 export function AssistantPanel() {
-  const { open, setOpen, messages, pending, ask } = useAssistant();
+  const { open, setOpen, messages, pending, ask, draft: input, setDraft: setInput } = useAssistant();
   const { firstName } = useMyName();
-  const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

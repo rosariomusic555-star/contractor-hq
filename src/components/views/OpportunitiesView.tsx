@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, CalendarClock, ListChecks, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,12 @@ export function OpportunitiesView() {
   const { toast } = useToast();
   const [view, setView] = useState<View>("active");
   const [filters, setFilters] = useState<OpportunityFilters>(EMPTY_FILTERS);
+  // Global search's "See all": ?q= fills the search box.
+  const [params] = useSearchParams();
+  const qParam = params.get("q") ?? "";
+  useEffect(() => {
+    if (qParam) setFilters((f) => ({ ...f, search: qParam }));
+  }, [qParam]);
   const set = (patch: Partial<OpportunityFilters>) => setFilters((f) => ({ ...f, ...patch }));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleteOpen, setDeleteOpen] = useState(false);

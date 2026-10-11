@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SidebarUser } from "./SidebarUser";
 import { SidebarCompany } from "./SidebarCompany";
+import { SidebarSearch } from "@/components/search/SidebarSearch";
 import { navGroups } from "./navItems";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
@@ -24,6 +25,11 @@ export function Sidebar() {
       <div className="flex items-center gap-[11px] px-[18px] py-5">
         <SidebarCompany />
         <NotificationsBell />
+      </div>
+
+      {/* Search (opens the ⌘K dialog) */}
+      <div className="px-3 pb-1">
+        <SidebarSearch />
       </div>
 
       {/* Navigation */}

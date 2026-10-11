@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, pluralize, formatDate } from "@/lib/utils";
 import { listQuotes, createQuote, deleteQuote, quoteTotal, type QuoteStatus } from "@/lib/api";
 import { quoteListStatusMeta } from "@/lib/statusMeta";
+import { useSearchParamState } from "@/hooks/use-search-param";
 
 /** "open" is a combined filter — draft + sent, i.e. not yet approved/declined/
  * expired. Same definition the Dashboard's own "Open quotes" KPI uses, so
@@ -36,7 +37,7 @@ export function QuotesView() {
   const [searchParams] = useSearchParams();
   const initialFilter = searchParams.get("filter");
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
   const [filter, setFilter] = useState<Filter>(
     VALID_FILTERS.includes(initialFilter as Filter) ? (initialFilter as Filter) : "all",
   );
