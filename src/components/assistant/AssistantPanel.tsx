@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAssistant } from "./assistant-context";
+import { useMyName } from "@/hooks/use-my-name";
 import { AssistantActionCard } from "./AssistantActionCard";
 
 const EXAMPLE_PROMPTS = [
@@ -15,6 +16,7 @@ const EXAMPLE_PROMPTS = [
 
 export function AssistantPanel() {
   const { open, setOpen, messages, pending, ask } = useAssistant();
+  const { firstName } = useMyName();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -54,6 +56,7 @@ export function AssistantPanel() {
           {messages.length === 0 ? (
             <div className="flex h-full flex-col justify-center gap-3">
               <p className="text-sm text-muted-foreground">
+                {firstName && <span className="font-semibold text-foreground">Hi {firstName}. </span>}
                 Ask about your projects, quotes, invoices, or expenses. A few ideas:
               </p>
               <div className="space-y-2">

@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
+import { useMyName } from "@/hooks/use-my-name";
 import { cn } from "@/lib/utils";
 import {
   APPOINTMENT_TYPE_LABEL,
@@ -76,7 +76,7 @@ function RainDelaySheetInner({
   const isMobile = useIsMobile();
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { session } = useAuth();
+  const me = useMyName();
   const undo = useUndoScheduleDelay();
 
   const [day, setDay] = useState(date);
@@ -210,7 +210,7 @@ function RainDelaySheetInner({
         crew_name: crew?.name ?? null,
         changes: plan.changes.map(toRow),
         deliveries: affected.deliveries.filter((d) => moveDeliveries.has(d.order_id)).map(({ supplier: _s, ...d }) => d),
-        created_by_name: session?.user.email ?? null,
+        created_by_name: me.display || null,
       });
     },
     onSuccess: (delayId) => {

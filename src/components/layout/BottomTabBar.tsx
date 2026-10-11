@@ -11,6 +11,7 @@ import {
   Plus,
   Receipt,
   Settings as SettingsIcon,
+  UserRound,
   Sparkles,
   TrendingUp,
   Users,
@@ -25,6 +26,7 @@ import {
   CalendarClock,
   MessagesSquare,
 } from "lucide-react";
+import { useMyName } from "@/hooks/use-my-name";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
@@ -72,6 +74,7 @@ export function BottomTabBar() {
   const location = useLocation();
   const { toast } = useToast();
   const { signOut } = useAuth();
+  const me = useMyName();
   const { setOpen: setAssistantOpen } = useAssistant();
   const [createOpen, setCreateOpen] = useState(false);
   const [pickingProjectForCO, setPickingProjectForCO] = useState(false);
@@ -223,6 +226,7 @@ export function BottomTabBar() {
             <ActionRow icon={Clock} label="Timesheets" onClick={() => go("/timesheets", () => setMoreOpen(false))} />
             <ActionRow icon={Activity} label="Business health" onClick={() => go("/business-health", () => setMoreOpen(false))} />
             <ActionRow icon={Users} label="Clients" onClick={() => go("/clients", () => setMoreOpen(false))} />
+            <ActionRow icon={UserRound} label="My profile" hint={me.fullName || "Add your name"} onClick={() => go("/settings/profile", () => setMoreOpen(false))} />
             <ActionRow icon={SettingsIcon} label="Settings" onClick={() => go("/settings", () => setMoreOpen(false))} />
             <ActionRow
               icon={Sparkles}

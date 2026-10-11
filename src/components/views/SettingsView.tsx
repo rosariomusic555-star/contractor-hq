@@ -87,6 +87,7 @@ const GROUPS: readonly SettingsGroup[] = [
   {
     title: "Account",
     items: [
+      { label: "My profile", to: "/settings/profile" },
       { label: "Notifications", to: "/settings/notifications" },
       { label: "Plan & billing", to: "/settings/billing" },
     ],

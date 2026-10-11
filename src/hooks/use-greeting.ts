@@ -1,7 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/lib/auth";
-import { getBusinessProfile } from "@/lib/api";
-import { stripLegalSuffix } from "@/lib/businessName";
+import { useMyName } from "./use-my-name";
 
 /** Local-time boundaries — before noon is morning, before 5pm is afternoon,
  * else evening. Uses the browser's local clock (not server time) so it
@@ -13,26 +10,13 @@ export function greetingLabel(date: Date = new Date()): string {
   return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 }
 
-/** First word of a name; "" if blank. */
-function firstWord(name: unknown): string {
-  return typeof name === "string" ? (name.trim().split(/\s+/)[0] ?? "") : "";
-}
-
 /**
- * Time-of-day greeting + the name to greet the owner by: their first name
- * from the account profile (user_metadata first_name / full_name), else the
- * business name from Settings › Business profile without its legal suffix
- * ("… Landscaping LLC" → "… Landscaping"), else "" — callers then
- * drop the ", {name}" suffix ("Good afternoon"). Never derived from the
- * email address.
+ * Time-of-day greeting + the signed-in person's first name (Settings › My
+ * profile; a crew login's name from the owner). "" when no name is set —
+ * callers then drop the ", {name}" suffix ("Good afternoon"). Never the
+ * business name or the email address.
  */
-export function useGreeting(): { greeting: string; firstName: string } {
-  const { session } = useAuth();
-  const meta = session?.user.user_metadata ?? {};
-  const personal = firstWord(meta.first_name) || firstWord(meta.full_name);
-  const { data: profile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile, enabled: !personal });
-  return {
-    greeting: greetingLabel(),
-    firstName: personal || stripLegalSuffix(profile?.company_name ?? "") || "",
-  };
+export function useGreeting(): { greeting: string; firstName: string; hasName: boolean; isLoading: boolean } {
+  const { firstName, hasName, isLoading } = useMyName();
+  return { greeting: greetingLabel(), firstName, hasName, isLoading };
 }

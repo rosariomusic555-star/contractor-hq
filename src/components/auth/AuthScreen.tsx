@@ -12,6 +12,8 @@ export function AuthScreen() {
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
   const [mode, setMode] = useState<Mode>("signin");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +37,7 @@ export function AuthScreen() {
       return;
     }
 
-    const { error, needsEmailConfirmation } = await signUp(email, password);
+    const { error, needsEmailConfirmation } = await signUp(email, password, { firstName, lastName });
     setSubmitting(false);
     if (error) {
       setError(error.message);
@@ -65,6 +67,18 @@ export function AuthScreen() {
         </div>
 
         <form onSubmit={handleSubmit} className="stat-card space-y-4">
+          {mode === "signup" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="auth-first">First name</Label>
+                <Input id="auth-first" autoComplete="given-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required pattern=".*\S.*" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="auth-last">Last name</Label>
+                <Input id="auth-last" autoComplete="family-name" value={lastName} onChange={(e) => setLastName(e.target.value)} required pattern=".*\S.*" />
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="auth-email">Email</Label>
             <Input
