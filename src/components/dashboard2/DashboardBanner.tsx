@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, LayoutDashboard, Plus, Settings2, X } from "lucide-react";
+import { Banknote, CalendarCheck, ChevronDown, CircleAlert, LayoutDashboard, Plus, Settings2, TrendingUp, Wallet, X } from "lucide-react";
 import { BleedBanner } from "@/components/common/BleedBanner";
 import { buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -82,9 +82,13 @@ export function DashboardBanner({
   );
 
   return (
-    // Room above the greeting (16 / 20px); see HeadlineTiles for the gap
-    // below it.
-    <BleedBanner label="Today" className="pt-4 md:pt-5">
+    // The tiles sit outside the banner (its full-bleed background clips
+    // anything past its edge): the banner gets extra bottom room of half a
+    // tile, and the tile row is pulled up by the same amount, so the banner's
+    // edge runs through the tiles' middle.
+    <div>
+    {/* Room above the greeting (16 / 20px). */}
+    <BleedBanner label="Today" className={cn("pt-4 md:pt-5", showTiles && "pb-[80px] md:pb-[84px]")}>
       {/* Desktop (lg+): greeting left, actions right on the same row (the
           greeting gives way — the name truncates, the status line wraps).
           Narrower: the actions drop below the greeting. */}
@@ -206,32 +210,50 @@ export function DashboardBanner({
         </div>
       </div>
 
-      {showTiles && <HeadlineTiles />}
     </BleedBanner>
-  );
-}
-
-/** The headline numbers as translucent tiles on the banner — swipeable on
- *  a phone, five across on desktop, each linking to its page. */
-function HeadlineTiles() {
-  const { cells, isLoading } = useHeadlineCells();
-  return (
-    <div className="-mx-4 mt-4 flex snap-x snap-mandatory scroll-px-4 gap-2 overflow-x-auto px-4 pb-0.5 md:mx-0 md:mt-5 md:grid md:grid-cols-5 md:overflow-visible md:scroll-px-0 md:px-0">
-      {cells.map((x) => (
-        <Link
-          key={x.label}
-          to={x.to}
-          className={cn("min-w-[9.5rem] snap-start rounded-xl bg-black/[0.18] px-3 py-2.5 transition-colors hover:bg-black/25 md:min-w-0", ON_BANNER_RING)}
-        >
-          <span className="block text-[11px] font-semibold">{x.label}</span>
-          {isLoading ? (
-            <span className="mt-1 block h-6 w-16 animate-pulse rounded bg-white/20" />
-          ) : (
-            <span className="block text-lg font-extrabold tabular-nums">{x.value}</span>
-          )}
-          <span className="block truncate text-[11px] font-semibold">{x.sub || " "}</span>
-        </Link>
-      ))}
+    {showTiles && <HeadlineTiles />}
     </div>
   );
 }
+
+const TILE_ICON = [Wallet, CircleAlert, CalendarCheck, TrendingUp, Banknote] as const;
+
+/** The headline numbers as white tiles straddling the banner's bottom edge
+ *  (top half on the slate, bottom half on the page): five across on desktop,
+ *  3 + 2 on tablets (the first row straddles, the second sits below), a
+ *  swipeable row on a phone with the next tile peeking in. Each links to its
+ *  page. Height is fixed (120 / 128px) so the banner's extra bottom room —
+ *  half a tile — lines up exactly. */
+function HeadlineTiles() {
+  const { cells, isLoading } = useHeadlineCells();
+  return (
+    // Phone: the scroller pads top/bottom so the tiles' shadow isn't clipped
+    // (overflow-x clips vertically too); the pull-up includes that padding.
+    <div className="relative z-[1] -mx-4 -mt-[68px] flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-3 pt-2 md:mx-0 md:-mt-16 md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:p-0 lg:grid-cols-5">
+      {cells.map((x, n) => {
+        const Icon = TILE_ICON[n] ?? Wallet;
+        return (
+          <Link
+            key={x.label}
+            to={x.to}
+            className="group flex h-[120px] w-[70%] shrink-0 snap-start flex-col rounded-card border border-border bg-card px-4 py-3.5 text-foreground shadow-card transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:h-32 md:w-auto md:px-5 md:py-4"
+          >
+            <span className="flex items-start justify-between gap-2">
+              <span className="line-clamp-2 min-w-0 pt-0.5 text-xs font-semibold leading-4 text-muted-foreground">{x.label}</span>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-success" aria-hidden>
+                <Icon className="h-3.5 w-3.5" />
+              </span>
+            </span>
+            {isLoading ? (
+              <span className="mt-auto block h-7 w-20 animate-pulse rounded bg-muted" />
+            ) : (
+              <span className={cn("mt-auto block truncate text-[26px] font-extrabold leading-tight tabular-nums md:text-[28px]", x.alert && "text-destructive")}>{x.value}</span>
+            )}
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{x.sub || "\u00a0"}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
