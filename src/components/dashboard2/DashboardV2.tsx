@@ -19,6 +19,7 @@ import { RecentInvoices } from "@/components/dashboard/RecentInvoices";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { useGreeting } from "@/hooks/use-greeting";
+import { useClassicSidebarHeader } from "@/hooks/use-classic-sidebar-header";
 import { cn } from "@/lib/utils";
 import { createInvoice, createQuote, listInvoices } from "@/lib/api";
 import { CardErrorBoundary, LazyMount } from "./CardShell";
@@ -202,6 +203,7 @@ export function DashboardV2() {
   const isMobile = useIsMobile();
   const { greeting, firstName } = useGreeting();
   const { prefs, update, reset } = useDashboardPrefs();
+  const [classicSidebar, setClassicSidebar] = useClassicSidebarHeader();
   const [oppOpen, setOppOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
@@ -390,6 +392,16 @@ export function DashboardV2() {
                 </span>
                 <Switch checked={prefs.bannerHeader} onCheckedChange={(v) => update({ bannerHeader: v })} aria-label="Show the banner header" />
               </li>
+            )}
+            {/* Phones have no sidebar. */}
+            {!isMobile && (
+            <li className="flex min-h-[48px] items-center gap-3">
+              <span className="flex-1 text-sm font-semibold">
+                Classic sidebar header
+                <span className="block text-xs font-normal text-muted-foreground">White instead of continuing the slate banner. This device only.</span>
+              </span>
+              <Switch checked={classicSidebar} onCheckedChange={setClassicSidebar} aria-label="Use the classic sidebar header" />
+            </li>
             )}
             <li className="flex min-h-[48px] items-center gap-3">
               <span className="flex-1 text-sm font-semibold">Headline numbers</span>

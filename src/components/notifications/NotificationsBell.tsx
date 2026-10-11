@@ -4,9 +4,11 @@ import { Bell } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useNotifications } from "@/hooks/use-notifications";
 import { NotificationList } from "./NotificationList";
+import { cn } from "@/lib/utils";
 
-/** Desktop bell (sidebar header): unread count + the latest notifications. */
-export function NotificationsBell() {
+/** Desktop bell (sidebar header): unread count + the latest notifications.
+ *  `onSlate`: white icon for the slate sidebar header. */
+export function NotificationsBell({ onSlate = false }: { onSlate?: boolean }) {
   const { notifications, unread, markRead } = useNotifications();
   const [open, setOpen] = useState(false);
   return (
@@ -15,7 +17,10 @@ export function NotificationsBell() {
         <button
           type="button"
           aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
-          className="relative ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={cn(
+            "relative ml-auto flex h-9 w-9 items-center justify-center rounded-lg",
+            onSlate ? "text-white/80 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
         >
           <Bell className="h-[18px] w-[18px]" />
           {unread > 0 && (
