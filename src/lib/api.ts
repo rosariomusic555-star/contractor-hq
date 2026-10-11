@@ -9413,3 +9413,48 @@ export async function contractorApproveQuote(input: { quoteId: string; method: "
   });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// My profile (0170) — the signed-in owner's own name / phone / photo, one
+// row per login in user_profiles (separate from the business profile). Saving
+// also copies the name into the auth user's metadata, so it's on the session
+// straight away. Before 0170 is run the table is "missing" and the name lives
+// in the metadata only.
+// ---------------------------------------------------------------------------
+
+export interface UserProfile {
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  avatar_path: string | null;
+}
+
+export async function getUserProfile(): Promise<UserProfile | null | "missing"> {
+  const { data, error } = await supabase.from("user_profiles").select("first_name, last_name, phone, avatar_path").maybeSingle();
+  if (error) {
+    if (error.code === "PGRST205" || error.code === "42P01") return "missing";
+    throw error;
+  }
+  return data ?? null;
+}
+
+export async function saveUserProfile(patch: UserProfile, { tableMissing = false } = {}): Promise<void> {
+  const clean = (v: string | null) => (v?.trim() ? v.trim() : null);
+  const row = { first_name: clean(patch.first_name), last_name: clean(patch.last_name), phone: clean(patch.phone), avatar_path: patch.avatar_path };
+  if (!tableMissing) {
+    const { error } = await supabase.from("user_profiles").upsert({ ...row, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  }
+  const full = [row.first_name, row.last_name].filter(Boolean).join(" ");
+  const { error: metaError } = await supabase.auth.updateUser({ data: { first_name: row.first_name, last_name: row.last_name, full_name: full || null } });
+  if (metaError) throw metaError;
+}
+
+/** Uploads a profile photo, returns the storage path to save as avatar_path. */
+export async function uploadAvatar(userId: string, file: File): Promise<string> {
+  const compressed = await compressImageFile(file, { maxDimension: 384, quality: 0.9 });
+  const path = `avatars/${userId}/${randomImageFilename(file.name)}`;
+  const { error } = await supabase.storage.from(IMAGES_BUCKET).upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+  if (error) throw error;
+  return path;
+}

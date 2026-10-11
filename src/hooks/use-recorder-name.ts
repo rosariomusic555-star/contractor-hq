@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getBusinessProfile } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+import { useMyName } from "./use-my-name";
 
 /** Who "recorded" a manual approval, as shown on quotes / change orders:
  * the owner's name, else the company name — never the login email. */
@@ -9,7 +9,7 @@ export function recorderName(fullName: string | null | undefined, companyName: s
 }
 
 export function useRecorderName(): string {
-  const { session } = useAuth();
+  const { fullName } = useMyName();
   const { data: profile } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
-  return recorderName(session?.user?.user_metadata?.full_name as string | undefined, profile?.company_name);
+  return recorderName(fullName, profile?.company_name);
 }

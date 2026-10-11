@@ -1,6 +1,7 @@
 import { CloudRain, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useMyName } from "@/hooks/use-my-name";
 import type { ScheduleDelay } from "@/lib/api";
 import { DELAY_REASON_LABEL, WEATHER_REASONS, changeSummary, delayDayLabel } from "@/lib/scheduleShift";
 import { useProjectDelays, useUndoScheduleDelay } from "./useUndoScheduleDelay";
@@ -26,6 +27,10 @@ export function ScheduleDelaysList({ projectId, canUndo, className }: { projectI
 }
 
 function DelayRow({ d, projectId, canUndo, onUndo, pending }: { d: ScheduleDelay; projectId: string; canUndo: boolean; onUndo: () => void; pending: boolean }) {
+  // Delays logged before names existed saved the login email: show the
+  // name instead when it's this person's.
+  const me = useMyName();
+  const author = d.created_by_name && me.email && d.created_by_name === me.email ? me.display : d.created_by_name;
   const own = d.project_id === projectId;
   const mine = d.changes.find((c) => c.project_id === projectId);
   const primary = d.changes.find((c) => c.role === "primary");
@@ -51,7 +56,7 @@ function DelayRow({ d, projectId, canUndo, onUndo, pending }: { d: ScheduleDelay
           {d.note && <span className="block text-muted-foreground [overflow-wrap:anywhere]">“{d.note}”</span>}
           <span className="block text-muted-subtle">
             {new Date(d.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            {canUndo && d.created_by_name ? ` · ${d.created_by_name}` : ""}
+            {canUndo && author ? ` · ${author}` : ""}
             {d.undone_at ? " · undone" : ""}
           </span>
         </span>

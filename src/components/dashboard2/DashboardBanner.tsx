@@ -1,12 +1,14 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Plus, Settings2 } from "lucide-react";
+import { ChevronDown, Plus, Settings2, X } from "lucide-react";
 import { BleedBanner } from "@/components/common/BleedBanner";
 import { buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { WEATHER_ICON, useWeatherStrip } from "@/components/dashboard/useWeatherStrip";
 import { useNeedsYouItems } from "@/components/dashboard/useNeedsYouItems";
 import { useGreeting } from "@/hooks/use-greeting";
+import { useDismissed } from "@/hooks/use-dismissed";
+import { useAuth } from "@/lib/auth";
 import { getBusinessProfile, listProjects } from "@/lib/api";
 import { isoDate } from "@/lib/weatherRisk";
 import { cn, pluralize } from "@/lib/utils";
@@ -38,7 +40,10 @@ export interface DashboardActions {
  * never shown twice). Scrolls away with the page.
  */
 export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: DashboardActions; showTiles: boolean; onCustomize: () => void }) {
-  const { greeting, firstName } = useGreeting();
+  const { greeting, firstName, hasName, isLoading: nameLoading } = useGreeting();
+  const { session } = useAuth();
+  const [nameDismissed, dismissName] = useDismissed(`chq-name-prompt-dismissed:${session?.user.id ?? ""}`);
+  const askName = !nameLoading && !hasName && !nameDismissed;
   const today = isoDate(new Date());
   const { data: profile, isLoading: profileLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
@@ -49,7 +54,7 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
 
   const jobCount = jobsOnDay(projects, today).length;
   const setUp = !!profile?.company_name?.trim();
-  const dateLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  const dateLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   const secondaryItems = (
     <>
@@ -77,19 +82,28 @@ export function DashboardBanner({ actions, showTiles, onCustomize }: { actions: 
         <div className="min-w-0 max-w-full lg:flex-1">
           {/* 26px on phones up to 36px on wide screens; one line — a long
               name ends in "…" rather than wrapping. */}
+          <p className="mb-1 text-[13px] font-semibold text-banner-foreground/80 md:text-sm">{dateLabel}</p>
           <h1 className="truncate text-[length:clamp(26px,2.4vw,36px)] font-extrabold leading-[1.1] tracking-[-0.02em]">{firstName ? `${greeting}, ${firstName}` : greeting}</h1>
           <p className="mt-2 flex flex-wrap items-center gap-x-2 text-[15px] font-semibold md:text-base">
-            <span>{dateLabel}</span>
+            {askName && (
+              <span className="inline-flex items-center gap-1">
+                <Link to="/settings/profile" className={cn("underline-offset-2 hover:underline", ON_BANNER_RING)}>
+                  Add your name →
+                </Link>
+                <button type="button" onClick={dismissName} className={cn("-my-1 inline-flex h-7 w-7 items-center justify-center rounded-full hover:bg-black/15", ON_BANNER_RING)} aria-label="Dismiss: add your name">
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+                <span aria-hidden>·</span>
+              </span>
+            )}
             {!profileLoading && !setUp ? (
               <>
-                <span aria-hidden>·</span>
                 <Link to="/settings/business-profile" className={cn("underline-offset-2 hover:underline", ON_BANNER_RING)}>
                   Finish setting up your company →
                 </Link>
               </>
             ) : (
               <>
-                <span aria-hidden>·</span>
                 <span>{jobCount === 0 ? "No jobs scheduled today" : `${pluralize(jobCount, "job")} scheduled today`}</span>
                 {!needsLoading && (
                   <>

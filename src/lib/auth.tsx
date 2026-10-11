@@ -18,6 +18,7 @@ interface AuthContextValue {
   signUp: (
     email: string,
     password: string,
+    name: { firstName: string; lastName: string },
   ) => Promise<{ error: AuthError | null; needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
 }
@@ -105,8 +106,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     employee,
     signIn: (email, password) =>
       supabase.auth.signInWithPassword({ email, password }).then(({ error }) => ({ error })),
-    signUp: (email, password) =>
-      supabase.auth.signUp({ email, password }).then(({ data, error }) => ({
+    // The name rides on the account's metadata; 0170's trigger copies it
+    // into user_profiles (works before email confirmation, no session yet).
+    signUp: (email, password, { firstName, lastName }) =>
+      supabase.auth
+        .signUp({
+          email,
+          password,
+          options: { data: { first_name: firstName.trim(), last_name: lastName.trim(), full_name: `${firstName.trim()} ${lastName.trim()}`.trim() } },
+        })
+        .then(({ data, error }) => ({
         error,
         needsEmailConfirmation: !error && !data.session,
       })),
