@@ -19,20 +19,17 @@ export function unregisterBanner(el: HTMLElement) {
 }
 
 /**
- * Tracks the page banner's bottom edge against the sidebar header and writes
- * it to `target` as CSS variables, every scroll frame, without re-rendering:
+ * Tracks the page banner's bottom edge against the sidebar's header zone and
+ * writes it to `target` as a CSS variable, every scroll frame, without
+ * re-rendering:
  *
- *   --banner-edge    banner bottom − header top, clamped to [0, header height]
- *                    (0 = no banner / scrolled away, header height = covers it)
- *   --banner-corner-top  banner bottom − header top, capped at the header
- *                    height but NOT at 0 (goes negative as the banner leaves),
- *                    so the rounded corner piece under the slate edge slides
- *                    up and out with it; −20px without a banner
+ *   --banner-edge  banner bottom − zone top, clamped to [0, zone height]
+ *                  (0 = no banner / scrolled away, zone height = covers it)
  *
  * Returns whether a banner is on the page at all (re-renders only when that
- * changes), so the header can skip its on-slate twin without one.
+ * changes), so the header can skip its slate layer and white twin without one.
  */
-export function useBannerEdge(target: RefObject<HTMLElement>, header: RefObject<HTMLElement>, enabled = true): boolean {
+export function useBannerEdge(target: RefObject<HTMLElement>, zone: RefObject<HTMLElement>, enabled = true): boolean {
   const [present, setPresent] = useState(false);
   const update = useRef<() => void>(() => {});
   const { pathname } = useLocation();
@@ -42,15 +39,13 @@ export function useBannerEdge(target: RefObject<HTMLElement>, header: RefObject<
     let frame = 0;
     update.current = () => {
       const t = target.current;
-      const h = header.current;
-      if (!t || !h) return;
+      const z = zone.current;
+      if (!t || !z) return;
       setPresent(!!banner);
-      const hr = h.getBoundingClientRect();
+      const zr = z.getBoundingClientRect();
       const bottom = banner ? banner.getBoundingClientRect().bottom : -Infinity;
-      const edge = Math.min(Math.max(bottom - hr.top, 0), hr.height);
-      const cornerTop = banner ? Math.min(bottom - hr.top, hr.height) : -20;
+      const edge = Math.min(Math.max(bottom - zr.top, 0), zr.height);
       t.style.setProperty("--banner-edge", `${edge}px`);
-      t.style.setProperty("--banner-corner-top", `${cornerTop}px`);
     };
     const now = () => update.current();
     const onScroll = () => {
@@ -60,7 +55,7 @@ export function useBannerEdge(target: RefObject<HTMLElement>, header: RefObject<
       });
     };
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(now) : null;
-    if (header.current) ro?.observe(header.current);
+    if (zone.current) ro?.observe(zone.current);
     // A banner arriving (or changing size) later: watch it too.
     const onBanner = () => {
       if (banner) ro?.observe(banner);
@@ -78,7 +73,7 @@ export function useBannerEdge(target: RefObject<HTMLElement>, header: RefObject<
       window.removeEventListener("resize", now);
       ro?.disconnect();
     };
-  }, [target, header, enabled]);
+  }, [target, zone, enabled]);
 
   // New page: re-measure right away (scroll position and banner both change).
   useLayoutEffect(() => {

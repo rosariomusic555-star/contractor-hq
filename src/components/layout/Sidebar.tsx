@@ -20,11 +20,11 @@ export function Sidebar() {
   const { setOpen: setAssistantOpen } = useAssistant();
   const [classic] = useClassicSidebarHeader();
   const asideRef = useRef<HTMLElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
-  // The page banner's bottom edge, relative to the header, as CSS variables
-  // on the aside (--banner-edge / --banner-corner-top), updated every scroll
-  // frame — see useBannerEdge.
-  const hasBanner = useBannerEdge(asideRef, headerRef, !classic);
+  const zoneRef = useRef<HTMLDivElement>(null);
+  // The page banner's bottom edge, relative to the header zone, as a CSS
+  // variable on the aside (--banner-edge), updated every scroll frame — see
+  // useBannerEdge.
+  const hasBanner = useBannerEdge(asideRef, zoneRef, !classic);
 
   const nav = (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
@@ -79,28 +79,23 @@ export function Sidebar() {
   }
 
   return (
-    // The header is see-through: the page's full-bleed banner (.bleed-banner)
-    // runs under it to the screen's left edge, so the slate up there IS the
-    // banner and scrolls with it pixel for pixel. Everything below the
-    // banner's bottom edge (--banner-edge, from the header's top) is the white
-    // header, so the split moves up through the header as you scroll:
-    //   1. white background + right hairline, clipped to below the edge
-    //   2. the real company row (dark), masked to below the edge — a mask, not
-    //      a clip, so the whole row stays clickable
-    //   3. a look-only white twin of the row, clipped to above the edge
-    // Under the edge, at the right, a slate corner piece makes the white below
-    // read as a rounded top-right corner; it moves with the banner (and off the
-    // top with it), and the right hairline starts below its curve. The search
-    // field has one style for both backgrounds and isn't split.
-    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col [--banner-corner-top:-20px] [--banner-edge:0px]">
-      <div ref={headerRef} className="group/hdr relative">
-        <div aria-hidden className="pointer-events-none absolute inset-0 bg-card [clip-path:inset(var(--banner-edge)_0_0_0)]" />
-        {hasBanner && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute right-0 top-[var(--banner-corner-top)] h-5 w-5 bg-[radial-gradient(circle_at_bottom_left,transparent_20px,hsl(var(--banner))_20.5px)]"
-          />
-        )}
+    // The layout never moves: company row, search and the white nav panel
+    // (fixed 20px rounded top-right corner) sit where they load. Only the
+    // background of the header zone changes with scroll. That zone runs from
+    // the top down to 20px below the header (behind the panel's corner):
+    //   1. the page background (so with no banner it matches the page and the
+    //      corner reads as a card corner)
+    //   2. slate, from the top down to the banner's bottom edge
+    //      (--banner-edge, clamped to the zone), pixel for pixel, no easing
+    // The company row is drawn twice and split at the same edge: the real
+    // (dark) row masked to below it (a mask, not a clip, so it stays
+    // clickable everywhere) and a look-only white twin clipped to above it.
+    // The search field has one style for both backgrounds and isn't split.
+    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col [--banner-edge:0px]">
+      <div className="group/hdr relative">
+        <div ref={zoneRef} aria-hidden className="pointer-events-none absolute inset-x-0 -bottom-5 top-0 bg-background">
+          {hasBanner && <div className="absolute inset-x-0 top-0 h-[var(--banner-edge)] bg-banner" />}
+        </div>
         {/* Company row: its name sits on the banner's date line (banner top
             padding 20px; the 36px row is centred on that line). */}
         <div className="relative px-3 pt-3 [mask-image:linear-gradient(to_bottom,transparent_var(--banner-edge),#000_var(--banner-edge))]">
@@ -126,16 +121,13 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col bg-card">
+      <div className="relative flex min-h-0 flex-1 flex-col rounded-tr-[20px] border-r border-t border-border bg-card">
         <div className="pt-1.5" />
         {nav}
 
         {/* User section */}
         <SidebarUser />
       </div>
-
-      {/* Right hairline: from under the corner piece's curve down. */}
-      <div aria-hidden className="pointer-events-none absolute bottom-0 right-0 top-[calc(var(--banner-corner-top)+20px)] w-px bg-border" />
     </aside>
   );
 }
