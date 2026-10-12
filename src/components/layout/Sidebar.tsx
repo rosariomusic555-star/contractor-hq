@@ -8,7 +8,7 @@ import { SidebarCompany } from "./SidebarCompany";
 import { SidebarSearch } from "@/components/search/SidebarSearch";
 import { navGroups } from "./navItems";
 import { useClassicSidebarHeader } from "@/hooks/use-classic-sidebar-header";
-import { useBannerBehind } from "@/components/common/bannerPresence";
+import { useBannerEdge } from "@/components/common/bannerPresence";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
 const navRow =
@@ -19,12 +19,12 @@ const navRowActive =
 export function Sidebar() {
   const { setOpen: setAssistantOpen } = useAssistant();
   const [classic] = useClassicSidebarHeader();
+  const asideRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  // Is the page's slate banner behind the header? Then the header is
-  // see-through (the slate IS the banner, so they scroll as one band) with
-  // white text and the nav panel's tucked-in corner; otherwise (no banner, or
-  // it has scrolled above the header's bottom) the header is white.
-  const onBanner = useBannerBehind(headerRef, !classic);
+  // The page banner's bottom edge, relative to the header, as CSS variables
+  // on the aside (--banner-edge / --banner-corner), updated every scroll
+  // frame — see useBannerEdge.
+  const hasBanner = useBannerEdge(asideRef, headerRef, !classic);
 
   const nav = (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
@@ -79,30 +79,46 @@ export function Sidebar() {
   }
 
   return (
-    // Transparent aside: the page's full-bleed banner (.bleed-banner) runs
-    // under it to the screen's left edge, so the slate behind the company row
-    // and search is the banner itself. Same layout in both states (colours
-    // only change), so nothing shifts when it flips.
-    <aside className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col">
-      {/* Company row: its name sits on the banner's date line (banner top
-          padding 20px; the 36px row is centred on that line). */}
-      <div
-        ref={headerRef}
-        className={cn(
-          "border-r px-3 pb-[15px] pt-3 transition-colors duration-200",
-          onBanner ? "border-transparent bg-transparent" : "border-border bg-card",
-        )}
-      >
-        <div className="flex items-center gap-[11px] px-[6px]">
-          <SidebarCompany onSlate={onBanner} large />
-          <NotificationsBell onSlate={onBanner} />
+    // The header is see-through: the page's full-bleed banner (.bleed-banner)
+    // runs under it to the screen's left edge, so the slate up there IS the
+    // banner and scrolls with it pixel for pixel. Everything below the
+    // banner's bottom edge (--banner-edge, from the header's top) is the white
+    // header, so the split moves up through the header as you scroll:
+    //   1. white background + right hairline, clipped to below the edge
+    //   2. the real company row (dark), masked to below the edge — a mask, not
+    //      a clip, so the whole row stays clickable
+    //   3. a look-only white twin of the row, clipped to above the edge
+    // The search field has one style for both backgrounds and isn't split.
+    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col [--banner-corner:0px] [--banner-edge:0px]">
+      <div ref={headerRef} className="group/hdr relative">
+        <div aria-hidden className="pointer-events-none absolute inset-0 border-r border-border bg-card [clip-path:inset(var(--banner-edge)_0_0_0)]" />
+        {/* Company row: its name sits on the banner's date line (banner top
+            padding 20px; the 36px row is centred on that line). */}
+        <div className="relative px-3 pt-3 [mask-image:linear-gradient(to_bottom,transparent_var(--banner-edge),#000_var(--banner-edge))]">
+          <div className="flex items-center gap-[11px] px-[6px]">
+            <SidebarCompany large />
+            <NotificationsBell />
+          </div>
         </div>
-        <div className="mt-3">
-          <SidebarSearch onSlate={onBanner} />
+        {hasBanner && (
+          <div
+            aria-hidden
+            {...{ inert: "" }}
+            className="pointer-events-none absolute inset-x-0 top-0 px-3 pt-3 [clip-path:inset(0_0_calc(100%-var(--banner-edge))_0)]"
+          >
+            <div className="flex items-center gap-[11px] px-[6px]">
+              <SidebarCompany onSlate large twin />
+              <NotificationsBell onSlate twin />
+            </div>
+          </div>
+        )}
+        <div className="relative px-3 pb-[15px] pt-3">
+          <SidebarSearch raised />
         </div>
       </div>
 
-      <div className={cn("flex min-h-0 flex-1 flex-col border-r border-border bg-card", onBanner && "rounded-tr-[20px]")}>
+      {/* The tucked-in corner is only as deep as the slate behind it. */}
+      <div className="flex min-h-0 flex-1 flex-col rounded-tr-[var(--banner-corner)] border-r border-border bg-card">
         <div className="pt-1.5" />
         {nav}
 

@@ -48,8 +48,10 @@ function CompanyBadge({ logoUrl, name, onSlate }: { logoUrl: string | null; name
 
 /** Top-of-sidebar company identity + company menu (settings shortcuts).
  *  `onSlate`: white text over the page banner. `large`: the 15px name of the
- *  banner-style sidebar header (in both its states). */
-export function SidebarCompany({ onSlate = false, large = false }: { onSlate?: boolean; large?: boolean }) {
+ *  banner-style sidebar header. `twin`: a look-only copy (no menu, not
+ *  focusable) drawn over the real one where the banner is behind it — it
+ *  mirrors the real row's hover / focus through the `group/hdr` wrapper. */
+export function SidebarCompany({ onSlate = false, large = false, twin = false }: { onSlate?: boolean; large?: boolean; twin?: boolean }) {
   const navigate = useNavigate();
   const { data: profile, isLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const logoPath = profile?.logo_url ?? null;
@@ -70,27 +72,52 @@ export function SidebarCompany({ onSlate = false, large = false }: { onSlate?: b
     );
   }
 
+  const face = (
+    <>
+      <CompanyBadge logoUrl={logoUrl} name={name} onSlate={onSlate} />
+      {name ? (
+        <h1 className={cn("min-w-0 flex-1 truncate leading-tight", large ? "text-[15px] font-semibold" : "text-sm font-bold", onSlate ? "text-white" : "text-foreground")} title={twin ? undefined : name}>
+          {name}
+        </h1>
+      ) : (
+        <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", onSlate ? "text-white/80" : "text-muted-foreground")}>Set up your company</span>
+      )}
+      <ChevronDown
+        className={cn(
+          "h-4 w-4 flex-none",
+          onSlate ? "text-white/80 group-hover:text-white" : "text-muted-foreground",
+          twin && "group-has-[.chq-company:hover]/hdr:text-white",
+        )}
+      />
+    </>
+  );
+  const row = "group -my-1.5 -ml-2 flex min-w-0 flex-1 items-center gap-[11px] rounded-lg px-2 py-1.5 text-left";
+
+  if (twin) {
+    return (
+      <div
+        className={cn(
+          row,
+          "group-has-[.chq-company:hover]/hdr:bg-white/10 group-has-[.chq-company:focus-visible]/hdr:ring-2 group-has-[.chq-company:focus-visible]/hdr:ring-white/70",
+        )}
+      >
+        {face}
+      </div>
+    );
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
           className={cn(
-            "group -my-1.5 -ml-2 flex min-w-0 flex-1 items-center gap-[11px] rounded-lg px-2 py-1.5 text-left transition-colors duration-200",
-            onSlate ? "hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70" : "hover:bg-muted/50",
+            row,
+            "chq-company transition-colors",
+            onSlate ? "hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70" : "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
-          <CompanyBadge logoUrl={logoUrl} name={name} onSlate={onSlate} />
-          {name ? (
-            <h1 className={cn("min-w-0 flex-1 truncate leading-tight transition-colors duration-200", large ? "text-[15px] font-semibold" : "text-sm font-bold", onSlate ? "text-white" : "text-foreground")} title={name}>
-              {name}
-            </h1>
-          ) : (
-            <span className={cn("min-w-0 flex-1 truncate text-sm font-medium transition-colors duration-200", onSlate ? "text-white/80" : "text-muted-foreground")}>
-              Set up your company
-            </span>
-          )}
-          <ChevronDown className={cn("h-4 w-4 flex-none transition-colors duration-200", onSlate ? "text-white/80 group-hover:text-white" : "text-muted-foreground")} />
+          {face}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">

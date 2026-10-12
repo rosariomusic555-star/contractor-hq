@@ -2,10 +2,9 @@ import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useLocation } from "react-router-dom";
 
 /**
- * Which full-bleed banner (BleedBanner) is on the page right now — so the
- * sidebar header knows whether the banner's slate is behind it (transparent
- * header, white text, tucked-in nav corner) or not (no banner, or scrolled
- * away: the white header).
+ * Which full-bleed banner (BleedBanner) is on the page right now, so the
+ * sidebar header can line its slate / white split up with the banner's
+ * bottom edge.
  */
 let banner: HTMLElement | null = null;
 const listeners = new Set<() => void>();
@@ -19,46 +18,71 @@ export function unregisterBanner(el: HTMLElement) {
   if (banner === el) registerBanner(null);
 }
 
-/** True while a banner reaches at least to the bottom of `header`, i.e. the
- *  banner fully covers it. Checked before paint (banner registration and
- *  route changes are layout effects), so a page never paints with the wrong
- *  header style. */
-export function useBannerBehind(header: RefObject<HTMLElement>, enabled = true): boolean {
-  const [behind, setBehind] = useState(false);
-  const check = useRef<() => void>(() => {});
+/**
+ * Tracks the page banner's bottom edge against the sidebar header and writes
+ * it to `target` as CSS variables, every scroll frame, without re-rendering:
+ *
+ *   --banner-edge    banner bottom − header top, clamped to [0, header height]
+ *                    (0 = no banner / scrolled away, header height = covers it)
+ *   --banner-corner  banner bottom − header bottom, clamped to [0, 20px] —
+ *                    the nav panel's tucked-in corner, only as deep as the
+ *                    slate behind it
+ *
+ * Returns whether a banner is on the page at all (re-renders only when that
+ * changes), so the header can skip its on-slate twin without one.
+ */
+export function useBannerEdge(target: RefObject<HTMLElement>, header: RefObject<HTMLElement>, enabled = true): boolean {
+  const [present, setPresent] = useState(false);
+  const update = useRef<() => void>(() => {});
   const { pathname } = useLocation();
 
   useLayoutEffect(() => {
     if (!enabled) return;
-    check.current = () => {
+    let frame = 0;
+    update.current = () => {
+      const t = target.current;
       const h = header.current;
-      setBehind(!!banner && !!h && banner.getBoundingClientRect().bottom >= h.getBoundingClientRect().bottom);
+      if (!t || !h) return;
+      setPresent(!!banner);
+      const hr = h.getBoundingClientRect();
+      const bottom = banner ? banner.getBoundingClientRect().bottom : -Infinity;
+      const edge = Math.min(Math.max(bottom - hr.top, 0), hr.height);
+      const corner = Math.min(Math.max(bottom - hr.bottom, 0), 20);
+      t.style.setProperty("--banner-edge", `${edge}px`);
+      t.style.setProperty("--banner-corner", `${corner}px`);
     };
-    const run = () => check.current();
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(run) : null;
+    const now = () => update.current();
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        update.current();
+      });
+    };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(now) : null;
     if (header.current) ro?.observe(header.current);
-    // A banner arriving (or changing) later: watch its size too.
+    // A banner arriving (or changing size) later: watch it too.
     const onBanner = () => {
       if (banner) ro?.observe(banner);
-      run();
+      now();
     };
     onBanner();
     listeners.add(onBanner);
-    window.addEventListener("scroll", run, { passive: true });
-    window.addEventListener("resize", run);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", now);
     return () => {
-      check.current = () => {};
+      cancelAnimationFrame(frame);
+      update.current = () => {};
       listeners.delete(onBanner);
-      window.removeEventListener("scroll", run);
-      window.removeEventListener("resize", run);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", now);
       ro?.disconnect();
     };
-  }, [header, enabled]);
+  }, [target, header, enabled]);
 
-  // New page: re-check right away (scroll position and banner both change).
+  // New page: re-measure right away (scroll position and banner both change).
   useLayoutEffect(() => {
-    check.current();
+    update.current();
   }, [pathname]);
 
-  return enabled && behind;
+  return enabled && present;
 }

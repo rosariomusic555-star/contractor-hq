@@ -16,10 +16,10 @@ import { useSearchModel } from "./use-search-model";
  * opens it, Esc clears the text and then blurs. An empty box shows nothing;
  * ↓ in an empty box shows Recent.
  *
- * `onSlate`: translucent white field over the page banner (the same solid
- * white field as elsewhere while focused).
+ * `raised`: a solid white field with a hairline border and a light shadow,
+ * for the sidebar header that sits over the page banner or white alike.
  */
-export function SidebarSearch({ onSlate = false }: { onSlate?: boolean }) {
+export function SidebarSearch({ raised = false }: { raised?: boolean }) {
   const search = useGlobalSearch();
   const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState("");
@@ -65,13 +65,12 @@ export function SidebarSearch({ onSlate = false }: { onSlate?: boolean }) {
         <PopoverAnchor asChild>
           <div
             className={cn(
-              "flex h-[38px] w-full items-center gap-[10px] rounded-[10px] border px-[11px] text-sm transition-colors duration-200",
-              // Focused: the same white field over the banner or not.
+              "flex h-[38px] w-full items-center gap-[10px] rounded-[10px] border px-[11px] text-sm text-muted-foreground transition-colors",
               focused
-                ? "border-ring/40 bg-card text-muted-foreground ring-2 ring-ring"
-                : onSlate
-                  ? "border-white/20 bg-white/15 text-white/70 hover:bg-white/20"
-                  : "border-transparent bg-muted text-muted-foreground hover:bg-muted/70",
+                ? "border-ring/40 bg-card ring-2 ring-ring"
+                : raised
+                  ? "border-border bg-card shadow-sm hover:border-muted-subtle/40"
+                  : "border-transparent bg-muted hover:bg-muted/70",
             )}
             onMouseDown={(e) => {
               // Clicking the field's padding / icon focuses the input too.
@@ -110,7 +109,7 @@ export function SidebarSearch({ onSlate = false }: { onSlate?: boolean }) {
               aria-keyshortcuts={shortcut === "⌘K" ? "Meta+K" : "Control+K"}
               className={cn(
                 "h-full min-w-0 flex-1 bg-transparent outline-none",
-                onSlate && !focused ? "text-white placeholder:text-white/70" : "text-foreground placeholder:text-muted-foreground",
+                "text-foreground placeholder:text-muted-foreground",
               )}
             />
             {input ? (
@@ -124,14 +123,14 @@ export function SidebarSearch({ onSlate = false }: { onSlate?: boolean }) {
                 }}
                 className={cn(
                   "-mr-1 flex h-6 w-6 flex-none items-center justify-center rounded-md",
-                  onSlate && !focused ? "text-white/80 hover:bg-white/15" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 <X className="h-3.5 w-3.5" aria-hidden />
               </button>
             ) : (
               !focused && (
-                <kbd className={cn("rounded px-1.5 py-px font-sans text-[11px] font-medium", onSlate ? "bg-white/15 text-white/80" : "border border-border bg-card text-muted-foreground")}>
+                <kbd className={cn("rounded px-1.5 py-px font-sans text-[11px] font-medium", raised ? "border border-border bg-muted text-muted-foreground" : "border border-border bg-card text-muted-foreground")}>
                   {shortcut}
                 </kbd>
               )
