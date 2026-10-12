@@ -176,6 +176,52 @@
     clip-path: inset(0 -100vmax);
   }
 
+  /* Sidebar company row over the page banner (Sidebar.tsx). The header is
+     see-through, so the slate up there is the banner itself. The row is
+     drawn twice in a 60px band at the top: white where the banner is behind
+     it, dark below the banner's bottom edge. Each copy is revealed by a pair
+     of opposite translateY's on an overflow-hidden box (transforms run on the
+     compositor, in step with the scroll), driven by the banner's view
+     timeline (--page-banner, scoped on the app root) over the 60px of scroll
+     in which the banner's bottom edge crosses the band.
+     Resting state (no banner / timeline): dark copy only. */
+  .band-over > .band-box {
+    transform: translateY(-60px);
+  }
+  .band-over > .band-box > .band-inner {
+    transform: translateY(60px);
+  }
+  .band-under > .band-box,
+  .band-under > .band-box > .band-inner {
+    transform: none;
+  }
+
+  @supports (animation-timeline: view()) {
+    .band-over > .band-box,
+    .band-over > .band-box > .band-inner,
+    .band-under > .band-box,
+    .band-under > .band-box > .band-inner {
+      animation-duration: 1ms;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: --page-banner;
+      animation-range: exit calc(100% - 60px) exit 100%;
+    }
+    .band-over > .band-box { animation-name: band-over-box; }
+    .band-over > .band-box > .band-inner { animation-name: band-over-inner; }
+    .band-under > .band-box { animation-name: band-under-box; }
+    .band-under > .band-box > .band-inner { animation-name: band-under-inner; }
+  }
+
+  /* No scroll-driven animations: a small rAF listener writes the progress
+     (--band-p, 0 = banner covers the band, 1 = gone) on the aside instead. */
+  @supports not (animation-timeline: view()) {
+    .band-over > .band-box { transform: translateY(calc(var(--band-p, 1) * -60px)); }
+    .band-over > .band-box > .band-inner { transform: translateY(calc(var(--band-p, 1) * 60px)); }
+    .band-under > .band-box { transform: translateY(calc((1 - var(--band-p, 1)) * 60px)); }
+    .band-under > .band-box > .band-inner { transform: translateY(calc((1 - var(--band-p, 1)) * -60px)); }
+  }
+
   /* Usage chart bars (tracking cards): grow up from the baseline on mount. */
   .bar-grow {
     transform-origin: bottom;
@@ -514,4 +560,22 @@
   border-right: 2.5px solid hsl(var(--muted-foreground));
   border-bottom: 2.5px solid hsl(var(--muted-foreground));
   border-bottom-right-radius: 2px;
+}
+
+/* Sidebar company row split (see .band-over / .band-under). */
+@keyframes band-over-box {
+  from { transform: none; }
+  to { transform: translateY(-60px); }
+}
+@keyframes band-over-inner {
+  from { transform: none; }
+  to { transform: translateY(60px); }
+}
+@keyframes band-under-box {
+  from { transform: translateY(60px); }
+  to { transform: none; }
+}
+@keyframes band-under-inner {
+  from { transform: translateY(-60px); }
+  to { transform: none; }
 }

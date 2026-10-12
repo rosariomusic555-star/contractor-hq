@@ -8,7 +8,7 @@ import { SidebarCompany } from "./SidebarCompany";
 import { SidebarSearch } from "@/components/search/SidebarSearch";
 import { navGroups } from "./navItems";
 import { useClassicSidebarHeader } from "@/hooks/use-classic-sidebar-header";
-import { useBannerBeside } from "@/components/common/bannerPresence";
+import { useBandProgressFallback, useBannerPresent } from "@/components/common/bannerPresence";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
 const navRow =
@@ -19,10 +19,9 @@ const navRowActive =
 export function Sidebar() {
   const { setOpen: setAssistantOpen } = useAssistant();
   const [classic] = useClassicSidebarHeader();
-  const headerRef = useRef<HTMLDivElement>(null);
-  // The nav panel's tucked-in corner only while a page banner's slate is
-  // beside it (none on most pages, or once the banner has scrolled away).
-  const corner = useBannerBeside(headerRef, !classic);
+  const asideRef = useRef<HTMLElement>(null);
+  const hasBanner = useBannerPresent() && !classic;
+  useBandProgressFallback(asideRef, hasBanner);
 
   const nav = (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
@@ -76,24 +75,53 @@ export function Sidebar() {
     );
   }
 
+  const companyRow = (look: "dark" | "white") => (
+    <div className="flex items-center gap-[11px] px-[6px]">
+      <SidebarCompany large twin onSlate={look === "white"} />
+      <NotificationsBell twin onSlate={look === "white"} />
+    </div>
+  );
+
   return (
-    // Slate header continuing the page banner to the screen's left edge (same
-    // --banner token, no border or seam), then the white nav panel. The aside
-    // itself is slate so the panel's rounded corner shows slate behind it.
-    <aside className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col bg-banner">
-      {/* Company row: its name sits on the banner's date line (banner top
-          padding 20px; the 36px row is centred on that line). */}
-      <div ref={headerRef} className="px-3 pb-[15px] pt-3">
-        <div className="flex items-center gap-[11px] px-[6px]">
-          <SidebarCompany onSlate />
-          <NotificationsBell onSlate />
+    // The header is see-through: the page's full-bleed banner (.bleed-banner,
+    // to the screen's left and top edges) shows behind it, so the slate there
+    // IS the banner and scrolls with it by construction; below the banner the
+    // app's page background shows. Nothing in the sidebar moves on scroll —
+    // the white nav panel keeps its place and its rounded corner.
+    //
+    // Company row: the real (interactive) row is invisible, on top; under it
+    // two look-only copies, dark and white, are revealed above / below the
+    // banner's bottom edge in CSS (.band-under / .band-over, index.css) from
+    // the banner's view timeline — compositor transforms, in step with the
+    // scroll. The copies mirror the real row's hover and focus (group/hdr).
+    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col">
+      <div className="group/hdr relative">
+        <div aria-hidden {...{ inert: "" }} className="band-under pointer-events-none absolute inset-x-0 top-0 h-[60px]">
+          <div className="band-box h-full overflow-hidden">
+            <div className="band-inner px-3 pt-3">{companyRow("dark")}</div>
+          </div>
         </div>
-        <div className="mt-3">
-          <SidebarSearch onSlate />
+        {hasBanner && (
+          <div aria-hidden {...{ inert: "" }} className="band-over pointer-events-none absolute inset-x-0 top-0 h-[60px]">
+            <div className="band-box h-full overflow-hidden">
+              <div className="band-inner px-3 pt-3">{companyRow("white")}</div>
+            </div>
+          </div>
+        )}
+        {/* Company row: its name sits on the banner's date line (banner top
+            padding 20px; the 36px row is centred on that line). */}
+        <div className="relative px-3 pt-3 opacity-0">
+          <div className="flex items-center gap-[11px] px-[6px]">
+            <SidebarCompany large />
+            <NotificationsBell />
+          </div>
+        </div>
+        <div className="relative px-3 pb-[15px] pt-3">
+          <SidebarSearch raised />
         </div>
       </div>
 
-      <div className={cn("flex min-h-0 flex-1 flex-col border-r border-border bg-card transition-[border-radius] duration-200", corner && "rounded-tr-[20px]")}>
+      <div className="relative flex min-h-0 flex-1 flex-col rounded-tr-[20px] border-r border-t border-border bg-card">
         <div className="pt-1.5" />
         {nav}
 

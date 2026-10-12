@@ -103,7 +103,9 @@ export function AppLayout() {
     <AssistantProvider>
       <RainDelayProvider>
       <GlobalSearchProvider>
-      <div className="min-h-screen bg-background">
+      {/* timeline-scope: the sidebar reads the page banner's view timeline
+          (BleedBanner → --page-banner) for its company row split. */}
+      <div className="min-h-screen bg-background [timeline-scope:--page-banner]">
         {/* Custom project type setups (0159) for every screen below. */}
         <TypeConfigsLoader />
         <Sidebar />
