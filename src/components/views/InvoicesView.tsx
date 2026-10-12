@@ -32,6 +32,7 @@ import {
 import { invoiceStatusMeta } from "@/lib/statusMeta";
 import { invoiceBalance, invoicePaymentState } from "@/lib/projectMoney";
 import { collectedInRange, agingBuckets, effectiveInvoiceStatus, invoiceDaysLate, overdueCount } from "@/lib/financials";
+import { useSearchParamState } from "@/hooks/use-search-param";
 
 /** "unpaid" is a combined filter — sent + overdue, i.e. billed but not yet
  * paid. Same definition the Dashboard's own "Unpaid" KPI uses, so arriving
@@ -45,7 +46,7 @@ export function InvoicesView() {
   const [searchParams] = useSearchParams();
   const initialFilter = searchParams.get("filter");
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
   const [filter, setFilter] = useState<Filter>(
     VALID_FILTERS.includes(initialFilter as Filter) ? (initialFilter as Filter) : "all",
   );

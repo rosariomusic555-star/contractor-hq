@@ -15,6 +15,7 @@ const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
  */
 export function AssistantProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [pending, setPending] = useState(false);
 
@@ -105,7 +106,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const reset = useCallback(() => setMessages([]), []);
 
   return (
-    <AssistantContext.Provider value={{ open, setOpen, messages, pending, ask, confirmAction, cancelAction, reset }}>
+    <AssistantContext.Provider value={{ open, setOpen, draft, setDraft, messages, pending, ask, confirmAction, cancelAction, reset }}>
       {children}
     </AssistantContext.Provider>
   );

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Banknote, CalendarCheck, ChevronDown, CircleAlert, LayoutDashboard, Plus, Settings2, TrendingUp, Wallet, X } from "lucide-react";
+import { Banknote, CalendarCheck, ChevronDown, CircleAlert, LayoutDashboard, Plus, Search, Settings2, TrendingUp, Wallet, X } from "lucide-react";
 import { BleedBanner } from "@/components/common/BleedBanner";
 import { buttonVariants } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -9,6 +9,7 @@ import { useNeedsYouItems } from "@/components/dashboard/useNeedsYouItems";
 import { useGreeting } from "@/hooks/use-greeting";
 import { useDismissed } from "@/hooks/use-dismissed";
 import { useAuth } from "@/lib/auth";
+import { useGlobalSearch } from "@/components/search/search-context";
 import { getBusinessProfile, listProjects } from "@/lib/api";
 import { isoDate } from "@/lib/weatherRisk";
 import { cn, pluralize } from "@/lib/utils";
@@ -53,6 +54,7 @@ export function DashboardBanner({
 }) {
   const { greeting, firstName, hasName, isLoading: nameLoading } = useGreeting();
   const { session } = useAuth();
+  const search = useGlobalSearch();
   const [nameDismissed, dismissName] = useDismissed(`chq-name-prompt-dismissed:${session?.user.id ?? ""}`);
   const askName = !nameLoading && !hasName && !nameDismissed;
   const today = isoDate(new Date());
@@ -199,6 +201,11 @@ export function DashboardBanner({
               {secondaryItems}
             </DropdownMenuContent>
           </DropdownMenu>
+          {search && (
+            <button type="button" aria-label="Search" onClick={() => search.setOpen(true)} className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[0.625rem] hover:bg-white/15", ON_BANNER_RING)}>
+              <Search className="h-4 w-4" />
+            </button>
+          )}
           {onEditLayout && (
             <button type="button" aria-label="Edit layout" title="Edit layout" onClick={onEditLayout} className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[0.625rem] hover:bg-white/15", ON_BANNER_RING)}>
               <LayoutDashboard className="h-4 w-4" />

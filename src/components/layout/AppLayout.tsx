@@ -5,6 +5,7 @@ import { BottomTabBar } from "@/components/layout/BottomTabBar";
 import { EmployeeLayout } from "@/components/layout/EmployeeLayout";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { AssistantProvider } from "@/components/assistant/AssistantProvider";
+import { GlobalSearchProvider } from "@/components/search/GlobalSearchProvider";
 import { RainDelayProvider } from "@/components/schedule/RainDelayProvider";
 import { AssistantButton } from "@/components/assistant/AssistantButton";
 import { AssistantPanel } from "@/components/assistant/AssistantPanel";
@@ -101,6 +102,7 @@ export function AppLayout() {
   return (
     <AssistantProvider>
       <RainDelayProvider>
+      <GlobalSearchProvider>
       <div className="min-h-screen bg-background">
         {/* Custom project type setups (0159) for every screen below. */}
         <TypeConfigsLoader />
@@ -120,6 +122,7 @@ export function AppLayout() {
         <AssistantButton />
         <AssistantPanel />
       </div>
+      </GlobalSearchProvider>
       </RainDelayProvider>
     </AssistantProvider>
   );

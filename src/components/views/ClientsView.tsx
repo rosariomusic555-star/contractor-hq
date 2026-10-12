@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn, formatCurrency, pluralize } from "@/lib/utils";
 import { listClients, deleteClient, listInvoices, listProjects } from "@/lib/api";
 import { ONGOING_PROJECT_STATUSES } from "@/lib/ongoingJobs";
+import { useSearchParamState } from "@/hooks/use-search-param";
 
 type Kind = "active" | "repeat" | "lead" | "client";
 type Filter = "all" | "active" | "repeat" | "lead";
@@ -33,7 +34,7 @@ const initials = (name: string) =>
   name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "?";
 
 export function ClientsView() {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
   const [filter, setFilter] = useState<Filter>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();

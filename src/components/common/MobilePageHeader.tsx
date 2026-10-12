@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Search } from "lucide-react";
+import { useGlobalSearch } from "@/components/search/search-context";
 import { cn } from "@/lib/utils";
 import { BackLink } from "@/components/common/BackLink";
 
@@ -25,6 +26,8 @@ export function MobilePageHeader({
   children?: ReactNode;
   className?: string;
 }) {
+  // Owner screens only (the search lives in AppLayout).
+  const search = useGlobalSearch();
   return (
     <div className={cn("mobile-header -mx-4 -mt-4 mb-4 md:hidden", className)}>
       {back && (
@@ -40,7 +43,21 @@ export function MobilePageHeader({
             <p className="mt-0.5 text-xs text-sidebar-foreground/70">{subtitle}</p>
           )}
         </div>
-        {actions != null && <div className="shrink-0">{actions}</div>}
+        {(actions != null || search) && (
+          <div className="flex shrink-0 items-start gap-1">
+            {actions}
+            {search && (
+              <button
+                type="button"
+                aria-label="Search"
+                onClick={() => search.setOpen(true)}
+                className="-mr-2 -mt-1 flex h-11 w-11 items-center justify-center rounded-full text-white hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+              >
+                <Search className="h-5 w-5" aria-hidden />
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {pills != null && <div className="mt-3 flex flex-wrap gap-2">{pills}</div>}
       {children}

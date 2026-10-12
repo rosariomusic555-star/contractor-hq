@@ -24,11 +24,12 @@ import {
 import { PROJECT_STATUSES, projectStatusMeta } from "@/lib/statusMeta";
 import { isExcludedFromFinancials } from "@/lib/financials";
 import { projectListProgress } from "@/lib/projectDuration";
+import { useSearchParamState } from "@/hooks/use-search-param";
 
 type Filter = "all" | ProjectStatus;
 
 export function ProjectsView() {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSearchParamState();
   const [filter, setFilter] = useState<Filter>("all");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const navigate = useNavigate();

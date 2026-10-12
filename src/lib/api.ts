@@ -2,6 +2,7 @@ import { depositAmount as depositAmountOf } from "./projectMoney";
 import { supabase } from "./supabase";
 import { materialsLineTotal } from "./materialsMath";
 import { compressImageFile, randomImageFilename } from "./imageUpload";
+import type { SearchResult } from "./globalSearch";
 import { customMeasurementPayload, featureMeasurementPayload, type FeatureInstance, type MeasurementRow } from "./measurements";
 import type { TypeConfig } from "./typeConfig";
 import type { FeatureSectionSeed } from "./sectionFeatures";
@@ -9478,4 +9479,19 @@ export async function uploadAvatar(userId: string, file: File): Promise<string> 
   const { error } = await supabase.storage.from(IMAGES_BUCKET).upload(path, compressed, { contentType: "image/jpeg", upsert: false });
   if (error) throw error;
   return path;
+}
+
+// ---------------------------------------------------------------------------
+// Global search (0171) — one round trip to global_search(), which runs with
+// the caller's RLS. Before 0171 is run the function is missing (PGRST202):
+// "missing" lets the dialog say so instead of erroring.
+// ---------------------------------------------------------------------------
+
+export async function globalSearch(q: string): Promise<SearchResult[] | "missing"> {
+  const { data, error } = await supabase.rpc("global_search", { q, max_per_type: 5 });
+  if (error) {
+    if (error.code === "PGRST202" || error.code === "42883") return "missing";
+    throw error;
+  }
+  return (data ?? []) as SearchResult[];
 }

@@ -17,6 +17,9 @@ export interface AssistantMessage {
 export interface AssistantContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
+  /** The panel's unsent question (so other places, e.g. search, can fill it). */
+  draft: string;
+  setDraft: (text: string) => void;
   messages: AssistantMessage[];
   pending: boolean;
   ask: (text: string) => Promise<void>;
