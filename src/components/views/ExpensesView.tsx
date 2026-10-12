@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { CalendarDays, MoreHorizontal, Receipt, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -110,12 +110,16 @@ export function ExpensesView() {
         />
       </MobilePageHeader>
 
-      <PageHeader title="Expenses" subtitle={`${formatCurrency(total)} total, all jobs`} />
-
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label="Total expenses" value={formatCurrency(total)} />
-        <KpiCard label="Last 30 days" value={formatCurrency(last30)} />
-      </div>
+      <PageHeader
+        title="Expenses"
+        subtitle={`${formatCurrency(total)} total, all jobs`}
+        kpis={
+          <>
+            <KpiCard icon={Receipt} label="Total expenses" value={formatCurrency(total)} />
+            <KpiCard icon={CalendarDays} label="Last 30 days" value={formatCurrency(last30)} />
+          </>
+        }
+      />
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <FilterSegment className="hidden md:inline-flex" options={options} value={category} onChange={setCategory} />

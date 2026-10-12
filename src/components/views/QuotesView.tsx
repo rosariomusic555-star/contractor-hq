@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Calculator, CircleCheck, FilePen, MoreHorizontal, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
@@ -124,23 +124,19 @@ export function QuotesView() {
         title="Quotes"
         subtitle={`${pluralize(quotes.length, "quote")} · ${formatCurrency(sumByStatus("sent"))} out for signature · ${formatCurrency(sumByStatus("approved"))} approved`}
         actions={
-          <Button
-            onClick={() => createMutation.mutate()}
-            disabled={createMutation.isPending}
-            className="font-bold"
-          >
+          <HeaderButton onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
             + New quote
-          </Button>
+          </HeaderButton>
+        }
+        kpis={
+          <>
+            <KpiCard icon={Send} label="Out for signature" value={formatCurrency(sumByStatus("sent"))} sub={`${countByStatus("sent")} quotes`} />
+            <KpiCard icon={CircleCheck} label="Approved" value={formatCurrency(sumByStatus("approved"))} sub={`${countByStatus("approved")} signed`} subTone="positive" />
+            <KpiCard icon={Calculator} label="Avg. quote" value={formatCurrency(Math.round(avgQuote))} sub={`${priced.length} priced`} />
+            <KpiCard icon={FilePen} label="Drafts" value={countByStatus("draft")} sub="not sent" />
+          </>
         }
       />
-
-      {/* KPI cards — desktop */}
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Out for signature" value={formatCurrency(sumByStatus("sent"))} sub={`${countByStatus("sent")} quotes`} />
-        <KpiCard label="Approved" value={formatCurrency(sumByStatus("approved"))} sub={`${countByStatus("approved")} signed`} subTone="positive" />
-        <KpiCard label="Avg. quote" value={formatCurrency(Math.round(avgQuote))} sub={`${priced.length} priced`} />
-        <KpiCard label="Drafts" value={countByStatus("draft")} sub="not sent" />
-      </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />

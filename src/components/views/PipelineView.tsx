@@ -1,4 +1,5 @@
 import { QuoteActivityBadge } from "@/components/quote-activity/QuoteActivityBadge";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -144,7 +145,13 @@ export function PipelineView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <PageHeader
+        title="Pipeline"
+        subtitle={pluralize(opportunities.length, "opportunity", "opportunities")}
+        actions={<HeaderButton onClick={() => setCreateOpen(true)}>+ New opportunity</HeaderButton>}
+      />
+      {/* Phones */}
+      <div className="flex flex-wrap items-center justify-between gap-3 md:hidden">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight text-foreground">Pipeline</h1>
           <p className="mt-0.5 text-muted-foreground">{pluralize(opportunities.length, "opportunity", "opportunities")}</p>

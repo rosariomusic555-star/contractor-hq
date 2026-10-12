@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -197,9 +197,7 @@ export function OpportunitiesView() {
         title="Opportunities"
         subtitle={`${pluralize(filtered.length, "opportunity", "opportunities")}${view === "archived" ? " archived" : ""}`}
         actions={
-          <Button onClick={() => setCreateOpen(true)} className="font-bold">
-            + New opportunity
-          </Button>
+          <HeaderButton onClick={() => setCreateOpen(true)}>+ New opportunity</HeaderButton>
         }
       />
 

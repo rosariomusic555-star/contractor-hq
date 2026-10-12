@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Banknote, CalendarClock, CircleAlert, Clock, MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
@@ -161,18 +161,19 @@ export function InvoicesView() {
           </>
         }
         actions={
-          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} className="font-bold">
+          <HeaderButton onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
             + New invoice
-          </Button>
+          </HeaderButton>
+        }
+        kpis={
+          <>
+        <KpiCard icon={Clock} label="Current" value={formatCurrency(buckets[0].amount)} sub={`${buckets[0].count} due soon`} />
+        <KpiCard icon={CalendarClock} label="1–30 days" value={formatCurrency(buckets[1].amount)} sub={`${buckets[1].count} invoice${buckets[1].count === 1 ? "" : "s"}`} />
+        <KpiCard icon={CircleAlert} label="31–60 days" value={formatCurrency(buckets[2].amount + buckets[3].amount)} sub={`${buckets[2].count + buckets[3].count} invoice${buckets[2].count + buckets[3].count === 1 ? "" : "s"}`} subTone={buckets[2].amount + buckets[3].amount > 0 ? "negative" : "muted"} />
+        <KpiCard icon={Banknote} label="Received, last 30 days" value={formatCurrency(paidLast30)} sub={`${paidLast30Count} payment${paidLast30Count === 1 ? "" : "s"}`} subTone="positive" />
+          </>
         }
       />
-
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Current" value={formatCurrency(buckets[0].amount)} sub={`${buckets[0].count} due soon`} />
-        <KpiCard label="1–30 days" value={formatCurrency(buckets[1].amount)} sub={`${buckets[1].count} invoice${buckets[1].count === 1 ? "" : "s"}`} />
-        <KpiCard label="31–60 days" value={formatCurrency(buckets[2].amount + buckets[3].amount)} sub={`${buckets[2].count + buckets[3].count} invoice${buckets[2].count + buckets[3].count === 1 ? "" : "s"}`} subTone={buckets[2].amount + buckets[3].amount > 0 ? "negative" : "muted"} />
-        <KpiCard label="Received, last 30 days" value={formatCurrency(paidLast30)} sub={`${paidLast30Count} payment${paidLast30Count === 1 ? "" : "s"}`} subTone="positive" />
-      </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />

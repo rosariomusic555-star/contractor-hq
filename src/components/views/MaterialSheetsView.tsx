@@ -2,6 +2,7 @@ import { useState } from "react";
 import { costPlanTotal } from "@/lib/costPlanMath";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Layers, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { KpiCard } from "@/components/common/KpiCard";
@@ -65,12 +66,13 @@ export function MaterialSheetsView() {
       <PageHeader
         title="Cost Plans"
         subtitle={`${pluralize(sheets.length, "plan")} across every job`}
+        kpis={
+          <>
+            <KpiCard icon={Layers} label="Sheets" value={sheets.length} />
+            <KpiCard icon={Wallet} label="Total cost" value={formatCurrency(totalCost)} />
+          </>
+        }
       />
-
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label="Sheets" value={sheets.length} />
-        <KpiCard label="Total cost" value={formatCurrency(totalCost)} />
-      </div>
 
       <SearchInput value={search} onChange={setSearch} placeholder="Search sheets or jobs" className="hidden md:flex md:max-w-xs" />
 

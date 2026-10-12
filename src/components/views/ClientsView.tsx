@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -128,9 +128,7 @@ export function ClientsView() {
         title="Clients"
         subtitle={`${pluralize(clients.length, "client")} · ${withActive} with active work · ${formatCurrency(lifetime)} lifetime`}
         actions={
-          <Button onClick={() => navigate("/clients/new")} className="font-bold">
-            + Add client
-          </Button>
+          <HeaderButton onClick={() => navigate("/clients/new")}>+ Add client</HeaderButton>
         }
       />
 

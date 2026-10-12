@@ -20,13 +20,7 @@ export function NeedsYouView() {
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
       <MobilePageHeader title="Needs you" back={{ to: "/dashboard", label: "Dashboard" }} />
 
-      <div className="hidden md:block">
-        <BackLink
-          to="/dashboard"
-          className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >Dashboard</BackLink>
-      </div>
-      <PageHeader title="Needs you" subtitle={`${all.length} ${all.length === 1 ? "item" : "items"} needing attention, most urgent first`} />
+      <PageHeader back={{ to: "/dashboard", label: "Dashboard" }} title="Needs you" subtitle={`${all.length} ${all.length === 1 ? "item" : "items"} needing attention, most urgent first`} />
 
       <NeedsYouChips items={all} value={filter} onChange={setFilter} />
 

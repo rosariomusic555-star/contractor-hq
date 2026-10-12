@@ -20,6 +20,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { useGreeting } from "@/hooks/use-greeting";
 import { useClassicSidebarHeader } from "@/hooks/use-classic-sidebar-header";
+import { useClassicPageHeaders } from "@/hooks/use-classic-page-headers";
 import { cn } from "@/lib/utils";
 import { createInvoice, createQuote, listInvoices } from "@/lib/api";
 import { CardErrorBoundary, LazyMount } from "./CardShell";
@@ -204,6 +205,7 @@ export function DashboardV2() {
   const { greeting, firstName } = useGreeting();
   const { prefs, update, reset } = useDashboardPrefs();
   const [classicSidebar, setClassicSidebar] = useClassicSidebarHeader();
+  const [classicHeaders, setClassicHeaders] = useClassicPageHeaders();
   const [oppOpen, setOppOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
@@ -401,6 +403,15 @@ export function DashboardV2() {
                 <span className="block text-xs font-normal text-muted-foreground">White instead of continuing the slate banner. This device only.</span>
               </span>
               <Switch checked={classicSidebar} onCheckedChange={setClassicSidebar} aria-label="Use the classic sidebar header" />
+            </li>
+            )}
+            {!isMobile && (
+            <li className="flex min-h-[48px] items-center gap-3">
+              <span className="flex-1 text-sm font-semibold">
+                Classic page headers
+                <span className="block text-xs font-normal text-muted-foreground">Plain titles on list pages instead of the slate banner. This device only.</span>
+              </span>
+              <Switch checked={classicHeaders} onCheckedChange={setClassicHeaders} aria-label="Use classic page headers" />
             </li>
             )}
             <li className="flex min-h-[48px] items-center gap-3">

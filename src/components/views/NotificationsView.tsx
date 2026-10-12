@@ -10,9 +10,7 @@ export function NotificationsView() {
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-4">
       <MobilePageHeader title="Notifications" />
-      <div className="hidden md:block">
-        <PageHeader title="Notifications" />
-      </div>
+      <PageHeader title="Notifications" />
       {unread > 0 && (
         <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={() => markRead()}>

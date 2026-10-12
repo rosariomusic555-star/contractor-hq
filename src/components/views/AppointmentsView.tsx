@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calendar, MapPin, Pencil, Plus, X } from "lucide-react";
@@ -96,7 +97,17 @@ export function AppointmentsView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <PageHeader
+        title="Appointments"
+        subtitle={pluralize(appointments.length, "appointment")}
+        actions={
+          <HeaderButton onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> New appointment
+          </HeaderButton>
+        }
+      />
+      {/* Phones */}
+      <div className="flex flex-wrap items-center justify-between gap-3 md:hidden">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight text-foreground">Appointments</h1>
           <p className="mt-0.5 text-muted-foreground">{pluralize(appointments.length, "appointment")}</p>

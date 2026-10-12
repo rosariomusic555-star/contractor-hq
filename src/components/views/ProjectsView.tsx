@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -109,9 +108,7 @@ export function ProjectsView() {
         title="Projects"
         subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract`}
         actions={
-          <Button onClick={() => navigate("/projects/new")} className="font-bold">
-            + New project
-          </Button>
+          <HeaderButton onClick={() => navigate("/projects/new")}>+ New project</HeaderButton>
         }
       />
 

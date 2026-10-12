@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { PageHeader } from "@/components/common/PageHeader";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronLeft, ChevronRight, ChevronRight as Go, Receipt } from "lucide-react";
@@ -58,9 +59,7 @@ export function TimesheetsView() {
   return (
     <div className="mx-auto max-w-4xl animate-fade-in space-y-4 pb-20">
       <MobilePageHeader title="Timesheets" />
-      <div className="hidden md:block">
-        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Timesheets</h1>
-      </div>
+      <PageHeader title="Timesheets" />
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="icon" className="h-10 w-10" aria-label="Previous period" disabled={!start} onClick={() => start && setDate(addDaysIso(start, -1))}>

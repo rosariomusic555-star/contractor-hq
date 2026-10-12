@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PageHeader } from "@/components/common/PageHeader";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, MessageSquare, StickyNote } from "lucide-react";
@@ -57,7 +58,9 @@ export function CommunicationsView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <div>
+      <PageHeader title="Communications" subtitle={pluralize(communications.length, "logged communication")} />
+      {/* Phones */}
+      <div className="md:hidden">
         <h1 className="text-[28px] font-bold tracking-tight text-foreground">Communications</h1>
         <p className="mt-0.5 text-muted-foreground">{pluralize(communications.length, "logged communication")}</p>
       </div>
