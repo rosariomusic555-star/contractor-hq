@@ -1,8 +1,11 @@
 import { createContext, useContext } from "react";
 
 export interface GlobalSearchContextValue {
-  open: boolean;
-  setOpen: (open: boolean) => void;
+  /** Focus the sidebar search box (desktop) or open the phone search page. */
+  openSearch: () => void;
+  /** SidebarSearch registers its focus function here; it returns false while
+   *  the box isn't visible (phones), so openSearch falls back to the page. */
+  registerSidebarInput: (focus: (() => boolean) | null) => void;
 }
 
 export const GlobalSearchContext = createContext<GlobalSearchContextValue | null>(null);
