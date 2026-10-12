@@ -202,7 +202,7 @@ export function DashboardBanner({
             </DropdownMenuContent>
           </DropdownMenu>
           {search && (
-            <button type="button" aria-label="Search" onClick={() => search.setOpen(true)} className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[0.625rem] hover:bg-white/15", ON_BANNER_RING)}>
+            <button type="button" aria-label="Search" onClick={() => search.openSearch()} className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[0.625rem] hover:bg-white/15", ON_BANNER_RING)}>
               <Search className="h-4 w-4" />
             </button>
           )}

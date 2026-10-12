@@ -50,7 +50,7 @@ export function MobilePageHeader({
               <button
                 type="button"
                 aria-label="Search"
-                onClick={() => search.setOpen(true)}
+                onClick={() => search.openSearch()}
                 className="-mr-2 -mt-1 flex h-11 w-11 items-center justify-center rounded-full text-white hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
               >
                 <Search className="h-5 w-5" aria-hidden />
