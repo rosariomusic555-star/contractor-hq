@@ -22,7 +22,7 @@ export function Sidebar() {
   const asideRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   // The page banner's bottom edge, relative to the header, as CSS variables
-  // on the aside (--banner-edge / --banner-corner), updated every scroll
+  // on the aside (--banner-edge / --banner-corner-top), updated every scroll
   // frame — see useBannerEdge.
   const hasBanner = useBannerEdge(asideRef, headerRef, !classic);
 
@@ -88,10 +88,19 @@ export function Sidebar() {
     //   2. the real company row (dark), masked to below the edge — a mask, not
     //      a clip, so the whole row stays clickable
     //   3. a look-only white twin of the row, clipped to above the edge
-    // The search field has one style for both backgrounds and isn't split.
-    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col [--banner-corner:0px] [--banner-edge:0px]">
+    // Under the edge, at the right, a slate corner piece makes the white below
+    // read as a rounded top-right corner; it moves with the banner (and off the
+    // top with it), and the right hairline starts below its curve. The search
+    // field has one style for both backgrounds and isn't split.
+    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col [--banner-corner-top:-20px] [--banner-edge:0px]">
       <div ref={headerRef} className="group/hdr relative">
-        <div aria-hidden className="pointer-events-none absolute inset-0 border-r border-border bg-card [clip-path:inset(var(--banner-edge)_0_0_0)]" />
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-card [clip-path:inset(var(--banner-edge)_0_0_0)]" />
+        {hasBanner && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute right-0 top-[var(--banner-corner-top)] h-5 w-5 bg-[radial-gradient(circle_at_bottom_left,transparent_20px,hsl(var(--banner))_20.5px)]"
+          />
+        )}
         {/* Company row: its name sits on the banner's date line (banner top
             padding 20px; the 36px row is centred on that line). */}
         <div className="relative px-3 pt-3 [mask-image:linear-gradient(to_bottom,transparent_var(--banner-edge),#000_var(--banner-edge))]">
@@ -117,14 +126,16 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* The tucked-in corner is only as deep as the slate behind it. */}
-      <div className="flex min-h-0 flex-1 flex-col rounded-tr-[var(--banner-corner)] border-r border-border bg-card">
+      <div className="flex min-h-0 flex-1 flex-col bg-card">
         <div className="pt-1.5" />
         {nav}
 
         {/* User section */}
         <SidebarUser />
       </div>
+
+      {/* Right hairline: from under the corner piece's curve down. */}
+      <div aria-hidden className="pointer-events-none absolute bottom-0 right-0 top-[calc(var(--banner-corner-top)+20px)] w-px bg-border" />
     </aside>
   );
 }

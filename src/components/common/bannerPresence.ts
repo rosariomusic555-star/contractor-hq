@@ -24,9 +24,10 @@ export function unregisterBanner(el: HTMLElement) {
  *
  *   --banner-edge    banner bottom − header top, clamped to [0, header height]
  *                    (0 = no banner / scrolled away, header height = covers it)
- *   --banner-corner  banner bottom − header bottom, clamped to [0, 20px] —
- *                    the nav panel's tucked-in corner, only as deep as the
- *                    slate behind it
+ *   --banner-corner-top  banner bottom − header top, capped at the header
+ *                    height but NOT at 0 (goes negative as the banner leaves),
+ *                    so the rounded corner piece under the slate edge slides
+ *                    up and out with it; −20px without a banner
  *
  * Returns whether a banner is on the page at all (re-renders only when that
  * changes), so the header can skip its on-slate twin without one.
@@ -47,9 +48,9 @@ export function useBannerEdge(target: RefObject<HTMLElement>, header: RefObject<
       const hr = h.getBoundingClientRect();
       const bottom = banner ? banner.getBoundingClientRect().bottom : -Infinity;
       const edge = Math.min(Math.max(bottom - hr.top, 0), hr.height);
-      const corner = Math.min(Math.max(bottom - hr.bottom, 0), 20);
+      const cornerTop = banner ? Math.min(bottom - hr.top, hr.height) : -20;
       t.style.setProperty("--banner-edge", `${edge}px`);
-      t.style.setProperty("--banner-corner", `${corner}px`);
+      t.style.setProperty("--banner-corner-top", `${cornerTop}px`);
     };
     const now = () => update.current();
     const onScroll = () => {
