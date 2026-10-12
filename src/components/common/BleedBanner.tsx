@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils";
  */
 export function BleedBanner({ children, className, label }: { children: ReactNode; className?: string; label?: string }) {
   const ref = useRef<HTMLElement>(null);
-  // Tells the sidebar header a banner is behind it (bannerPresence) —
-  // before paint, so the header never shows the wrong style first.
+  // Tells the sidebar a banner is on the page (bannerPresence) — before
+  // paint, so the header never shows the wrong copy first. Its view timeline
+  // (--page-banner) drives the sidebar company row's white / dark split.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -20,7 +21,7 @@ export function BleedBanner({ children, className, label }: { children: ReactNod
     return () => unregisterBanner(el);
   }, []);
   return (
-    <header ref={ref} aria-label={label} className={cn("bleed-banner -mt-4 pb-4 pt-3 text-banner-foreground md:-mt-6 md:pb-5 md:pt-4 lg:-mt-8", className)}>
+    <header ref={ref} aria-label={label} className={cn("bleed-banner [view-timeline-name:--page-banner] -mt-4 pb-4 pt-3 text-banner-foreground md:-mt-6 md:pb-5 md:pt-4 lg:-mt-8", className)}>
       {children}
     </header>
   );

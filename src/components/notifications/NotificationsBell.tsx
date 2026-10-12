@@ -27,8 +27,10 @@ export function NotificationsBell({ onSlate = false, twin = false }: { onSlate?:
       <div
         className={cn(
           bell,
-          onSlate ? "text-white/80" : "text-muted-foreground",
-          "group-has-[.chq-bell:hover]/hdr:bg-white/10 group-has-[.chq-bell:hover]/hdr:text-white group-has-[.chq-bell:focus-visible]/hdr:ring-2 group-has-[.chq-bell:focus-visible]/hdr:ring-white/70",
+          "group-has-[.chq-bell:focus-visible]/hdr:ring-2",
+          onSlate
+            ? "text-white/80 group-has-[.chq-bell:hover]/hdr:bg-white/10 group-has-[.chq-bell:hover]/hdr:text-white group-has-[.chq-bell:focus-visible]/hdr:ring-white/70"
+            : "text-muted-foreground group-has-[.chq-bell:hover]/hdr:bg-muted group-has-[.chq-bell:hover]/hdr:text-foreground group-has-[.chq-bell:focus-visible]/hdr:ring-ring",
         )}
       >
         <Bell className="h-[18px] w-[18px]" />

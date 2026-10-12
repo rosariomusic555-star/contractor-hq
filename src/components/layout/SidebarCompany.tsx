@@ -49,8 +49,9 @@ function CompanyBadge({ logoUrl, name, onSlate }: { logoUrl: string | null; name
 /** Top-of-sidebar company identity + company menu (settings shortcuts).
  *  `onSlate`: white text over the page banner. `large`: the 15px name of the
  *  banner-style sidebar header. `twin`: a look-only copy (no menu, not
- *  focusable) drawn over the real one where the banner is behind it — it
- *  mirrors the real row's hover / focus through the `group/hdr` wrapper. */
+ *  focusable) — the sidebar header draws a dark and a white one under the
+ *  invisible real row; they mirror its hover / focus through the
+ *  `group/hdr` wrapper. */
 export function SidebarCompany({ onSlate = false, large = false, twin = false }: { onSlate?: boolean; large?: boolean; twin?: boolean }) {
   const navigate = useNavigate();
   const { data: profile, isLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
@@ -86,7 +87,7 @@ export function SidebarCompany({ onSlate = false, large = false, twin = false }:
         className={cn(
           "h-4 w-4 flex-none",
           onSlate ? "text-white/80 group-hover:text-white" : "text-muted-foreground",
-          twin && "group-has-[.chq-company:hover]/hdr:text-white",
+          twin && (onSlate ? "group-has-[.chq-company:hover]/hdr:text-white" : "group-has-[.chq-company:hover]/hdr:text-foreground"),
         )}
       />
     </>
@@ -98,7 +99,10 @@ export function SidebarCompany({ onSlate = false, large = false, twin = false }:
       <div
         className={cn(
           row,
-          "group-has-[.chq-company:hover]/hdr:bg-white/10 group-has-[.chq-company:focus-visible]/hdr:ring-2 group-has-[.chq-company:focus-visible]/hdr:ring-white/70",
+          "group-has-[.chq-company:focus-visible]/hdr:ring-2",
+          onSlate
+            ? "group-has-[.chq-company:hover]/hdr:bg-white/10 group-has-[.chq-company:focus-visible]/hdr:ring-white/70"
+            : "group-has-[.chq-company:hover]/hdr:bg-muted/50 group-has-[.chq-company:focus-visible]/hdr:ring-ring",
         )}
       >
         {face}

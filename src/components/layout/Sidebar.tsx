@@ -8,7 +8,7 @@ import { SidebarCompany } from "./SidebarCompany";
 import { SidebarSearch } from "@/components/search/SidebarSearch";
 import { navGroups } from "./navItems";
 import { useClassicSidebarHeader } from "@/hooks/use-classic-sidebar-header";
-import { useBannerEdge } from "@/components/common/bannerPresence";
+import { useBandProgressFallback, useBannerPresent } from "@/components/common/bannerPresence";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
 const navRow =
@@ -20,11 +20,8 @@ export function Sidebar() {
   const { setOpen: setAssistantOpen } = useAssistant();
   const [classic] = useClassicSidebarHeader();
   const asideRef = useRef<HTMLElement>(null);
-  const zoneRef = useRef<HTMLDivElement>(null);
-  // The page banner's bottom edge, relative to the header zone, as a CSS
-  // variable on the aside (--banner-edge), updated every scroll frame — see
-  // useBannerEdge.
-  const hasBanner = useBannerEdge(asideRef, zoneRef, !classic);
+  const hasBanner = useBannerPresent() && !classic;
+  useBandProgressFallback(asideRef, hasBanner);
 
   const nav = (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
@@ -78,44 +75,47 @@ export function Sidebar() {
     );
   }
 
+  const companyRow = (look: "dark" | "white") => (
+    <div className="flex items-center gap-[11px] px-[6px]">
+      <SidebarCompany large twin onSlate={look === "white"} />
+      <NotificationsBell twin onSlate={look === "white"} />
+    </div>
+  );
+
   return (
-    // The layout never moves: company row, search and the white nav panel
-    // (fixed 20px rounded top-right corner) sit where they load. Only the
-    // background of the header zone changes with scroll. That zone runs from
-    // the top down to 20px below the header (behind the panel's corner):
-    //   1. the page background (so with no banner it matches the page and the
-    //      corner reads as a card corner)
-    //   2. slate, from the top down to the banner's bottom edge
-    //      (--banner-edge, clamped to the zone), pixel for pixel, no easing
-    // The company row is drawn twice and split at the same edge: the real
-    // (dark) row masked to below it (a mask, not a clip, so it stays
-    // clickable everywhere) and a look-only white twin clipped to above it.
-    // The search field has one style for both backgrounds and isn't split.
-    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col [--banner-edge:0px]">
+    // The header is see-through: the page's full-bleed banner (.bleed-banner,
+    // to the screen's left and top edges) shows behind it, so the slate there
+    // IS the banner and scrolls with it by construction; below the banner the
+    // app's page background shows. Nothing in the sidebar moves on scroll —
+    // the white nav panel keeps its place and its rounded corner.
+    //
+    // Company row: the real (interactive) row is invisible, on top; under it
+    // two look-only copies, dark and white, are revealed above / below the
+    // banner's bottom edge in CSS (.band-under / .band-over, index.css) from
+    // the banner's view timeline — compositor transforms, in step with the
+    // scroll. The copies mirror the real row's hover and focus (group/hdr).
+    <aside ref={asideRef} className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col">
       <div className="group/hdr relative">
-        <div ref={zoneRef} aria-hidden className="pointer-events-none absolute inset-x-0 -bottom-5 top-0 bg-background">
-          {hasBanner && <div className="absolute inset-x-0 top-0 h-[var(--banner-edge)] bg-banner" />}
+        <div aria-hidden {...{ inert: "" }} className="band-under pointer-events-none absolute inset-x-0 top-0 h-[60px]">
+          <div className="band-box h-full overflow-hidden">
+            <div className="band-inner px-3 pt-3">{companyRow("dark")}</div>
+          </div>
         </div>
+        {hasBanner && (
+          <div aria-hidden {...{ inert: "" }} className="band-over pointer-events-none absolute inset-x-0 top-0 h-[60px]">
+            <div className="band-box h-full overflow-hidden">
+              <div className="band-inner px-3 pt-3">{companyRow("white")}</div>
+            </div>
+          </div>
+        )}
         {/* Company row: its name sits on the banner's date line (banner top
             padding 20px; the 36px row is centred on that line). */}
-        <div className="relative px-3 pt-3 [mask-image:linear-gradient(to_bottom,transparent_var(--banner-edge),#000_var(--banner-edge))]">
+        <div className="relative px-3 pt-3 opacity-0">
           <div className="flex items-center gap-[11px] px-[6px]">
             <SidebarCompany large />
             <NotificationsBell />
           </div>
         </div>
-        {hasBanner && (
-          <div
-            aria-hidden
-            {...{ inert: "" }}
-            className="pointer-events-none absolute inset-x-0 top-0 px-3 pt-3 [clip-path:inset(0_0_calc(100%-var(--banner-edge))_0)]"
-          >
-            <div className="flex items-center gap-[11px] px-[6px]">
-              <SidebarCompany onSlate large twin />
-              <NotificationsBell onSlate twin />
-            </div>
-          </div>
-        )}
         <div className="relative px-3 pb-[15px] pt-3">
           <SidebarSearch raised />
         </div>
