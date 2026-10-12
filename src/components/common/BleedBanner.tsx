@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { registerBanner, unregisterBanner } from "./bannerPresence";
 import { cn } from "@/lib/utils";
 
 /**
@@ -9,8 +10,16 @@ import { cn } from "@/lib/utils";
  * the page's first element inside the padded content wrapper.
  */
 export function BleedBanner({ children, className, label }: { children: ReactNode; className?: string; label?: string }) {
+  const ref = useRef<HTMLElement>(null);
+  // Tells the slate sidebar header a banner is on the page (bannerPresence).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    registerBanner(el);
+    return () => unregisterBanner(el);
+  }, []);
   return (
-    <header aria-label={label} className={cn("bleed-banner -mt-4 pb-4 pt-3 text-banner-foreground md:-mt-6 md:pb-5 md:pt-4 lg:-mt-8", className)}>
+    <header ref={ref} aria-label={label} className={cn("bleed-banner -mt-4 pb-4 pt-3 text-banner-foreground md:-mt-6 md:pb-5 md:pt-4 lg:-mt-8", className)}>
       {children}
     </header>
   );

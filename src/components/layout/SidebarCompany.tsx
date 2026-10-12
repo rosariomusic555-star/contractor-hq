@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getBusinessProfile, getSignedImageUrls } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 /** "CleanGarden Landscaping" → "CL"; empty → "?". */
 function companyMonogram(name: string | null | undefined): string {
@@ -30,23 +31,24 @@ const menuItems = [
   { label: "Plan & billing", to: "/settings/billing", icon: CreditCard },
 ];
 
-function CompanyBadge({ logoUrl, name }: { logoUrl: string | null; name: string }) {
+function CompanyBadge({ logoUrl, name, onSlate }: { logoUrl: string | null; name: string; onSlate?: boolean }) {
   if (logoUrl) {
     return (
-      <div className="flex h-9 w-9 flex-none items-center justify-center overflow-hidden rounded-[10px] border border-hairline bg-white">
+      <div className={cn("flex h-9 w-9 flex-none items-center justify-center overflow-hidden rounded-[10px] bg-white", onSlate ? "ring-1 ring-white/15" : "border border-hairline")}>
         <img src={logoUrl} alt="" className="h-full w-full object-contain" />
       </div>
     );
   }
   return (
-    <div className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-foreground text-[13px] font-extrabold text-background">
+    <div className={cn("flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-foreground text-[13px] font-extrabold text-background", onSlate && "ring-1 ring-white/15")}>
       {companyMonogram(name)}
     </div>
   );
 }
 
-/** Top-of-sidebar company identity + company menu (settings shortcuts). */
-export function SidebarCompany() {
+/** Top-of-sidebar company identity + company menu (settings shortcuts).
+ *  `onSlate`: white text for the slate sidebar header. */
+export function SidebarCompany({ onSlate = false }: { onSlate?: boolean }) {
   const navigate = useNavigate();
   const { data: profile, isLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const logoPath = profile?.logo_url ?? null;
@@ -61,8 +63,8 @@ export function SidebarCompany() {
   if (isLoading) {
     return (
       <div className="-my-1.5 -ml-2 flex min-w-0 flex-1 items-center gap-[11px] px-2 py-1.5">
-        <Skeleton className="h-9 w-9 flex-none rounded-[10px]" />
-        <Skeleton className="h-4 flex-1" />
+        <Skeleton className={cn("h-9 w-9 flex-none rounded-[10px]", onSlate && "bg-white/20")} />
+        <Skeleton className={cn("h-4 flex-1", onSlate && "bg-white/20")} />
       </div>
     );
   }
@@ -72,19 +74,22 @@ export function SidebarCompany() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="-my-1.5 -ml-2 flex min-w-0 flex-1 items-center gap-[11px] rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/50"
+          className={cn(
+            "group -my-1.5 -ml-2 flex min-w-0 flex-1 items-center gap-[11px] rounded-lg px-2 py-1.5 text-left transition-colors",
+            onSlate ? "hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70" : "hover:bg-muted/50",
+          )}
         >
-          <CompanyBadge logoUrl={logoUrl} name={name} />
+          <CompanyBadge logoUrl={logoUrl} name={name} onSlate={onSlate} />
           {name ? (
-            <h1 className="min-w-0 flex-1 truncate text-sm font-bold leading-tight text-foreground" title={name}>
+            <h1 className={cn("min-w-0 flex-1 truncate leading-tight", onSlate ? "text-[15px] font-semibold text-white" : "text-sm font-bold text-foreground")} title={name}>
               {name}
             </h1>
           ) : (
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
+            <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", onSlate ? "text-white/80" : "text-muted-foreground")}>
               Set up your company
             </span>
           )}
-          <ChevronDown className="h-4 w-4 flex-none text-muted-foreground" />
+          <ChevronDown className={cn("h-4 w-4 flex-none", onSlate ? "text-white/80 group-hover:text-white" : "text-muted-foreground")} />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
