@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useInvoicesBanner, type InvoiceChip } from "@/components/banners/invoicesBanner";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -60,6 +62,8 @@ export function InvoicesView() {
     queryFn: () => listInvoices(),
   });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
+  const [chip, setChip] = useState<InvoiceChip | null>(null);
+  const { rich, matches } = useInvoicesBanner({ invoices, payments, loading: isLoading, chip, setChip, filter, setFilter });
 
   const [confirmDelete, setConfirmDelete] = useState<Invoice | null>(null);
   const deleteMutation = useMutation({
@@ -114,6 +118,7 @@ export function InvoicesView() {
   };
 
   const filtered = invoices.filter((inv) => {
+    if (!matches(inv)) return false;
     if (
       filter === "unpaid"
         ? statusOf(inv) !== "sent" && statusOf(inv) !== "overdue"
@@ -132,6 +137,7 @@ export function InvoicesView() {
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
       <MobilePageHeader
+        rich={rich}
         title="Invoices"
         subtitle={`Outstanding ${formatCurrency(outstandingTotal)}${over30 ? ` · ${over30} over 30 days` : ""}`}
         actions={
@@ -153,6 +159,7 @@ export function InvoicesView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Invoices"
         subtitle={
           <>
@@ -175,9 +182,10 @@ export function InvoicesView() {
         }
       />
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
-        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+      <div id="invoices-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <ActiveChipNote rich={rich} />
         <SearchInput value={search} onChange={setSearch} placeholder="Search invoices or jobs" className="hidden md:flex md:max-w-xs" />
       </div>
 

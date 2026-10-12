@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useQuotesBanner, type QuoteChip } from "@/components/banners/quotesBanner";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -50,6 +52,8 @@ export function QuotesView() {
     queryFn: () => listQuotes(),
   });
   const { data: activitySettings } = useQuery({ queryKey: ["notification-settings"], queryFn: getNotificationSettings, staleTime: 5 * 60_000 });
+  const [chip, setChip] = useState<QuoteChip | null>(null);
+  const { rich, matches } = useQuotesBanner({ quotes, settings: activitySettings, loading: isLoading, chip, setChip, setFilter, filter });
 
   const deleteMutation = useMutation({
     mutationFn: deleteQuote,
@@ -87,6 +91,7 @@ export function QuotesView() {
   ];
 
   const filtered = withTotals.filter(({ q }) => {
+    if (!matches(q)) return false;
     if (filter === "open" ? q.status !== "draft" && q.status !== "sent" : filter !== "all" && q.status !== filter)
       return false;
     const term = search.toLowerCase();
@@ -100,6 +105,7 @@ export function QuotesView() {
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
       <MobilePageHeader
+        rich={rich}
         title="Quotes"
         subtitle={`${pluralize(quotes.length, "quote")} · ${formatCurrency(sumByStatus("sent"))} out for signature`}
         actions={
@@ -121,6 +127,7 @@ export function QuotesView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Quotes"
         subtitle={`${pluralize(quotes.length, "quote")} · ${formatCurrency(sumByStatus("sent"))} out for signature · ${formatCurrency(sumByStatus("approved"))} approved`}
         actions={
@@ -138,9 +145,10 @@ export function QuotesView() {
         }
       />
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
-        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+      <div id="quotes-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <ActiveChipNote rich={rich} />
         <SearchInput
           value={search}
           onChange={setSearch}

@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useProjectsBanner, type ProjectChip } from "@/components/banners/projectsBanner";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
 import { ListCard } from "@/components/common/ListCard";
@@ -60,6 +62,8 @@ export function ProjectsView() {
   // tab instead of diluting the default view — see the pipeline restructure.
   // Same exclusion financials.ts applies to every revenue/financial total.
   const isRealJob = (p: (typeof projects)[number]) => !isExcludedFromFinancials(p.status);
+  const [chip, setChip] = useState<ProjectChip | null>(null);
+  const { rich, matches } = useProjectsBanner({ projects, contractOf, changeOrders, loading: isLoading, chip, setChip, filter, setFilter });
   const underContract = projects
     .filter(isRealJob)
     .reduce((a, p) => a + (contractOf.get(p.id) ?? 0), 0);
@@ -76,6 +80,7 @@ export function ProjectsView() {
   ];
 
   const filtered = projects.filter((p) => {
+    if (!matches(p)) return false;
     if (filter === "all" ? !isRealJob(p) : p.status !== filter) return false;
     if (typeFilter && !projectCategoryIds(p).includes(typeFilter)) return false;
     const term = search.toLowerCase();
@@ -85,6 +90,7 @@ export function ProjectsView() {
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
       <MobilePageHeader
+        rich={rich}
         title="Projects"
         subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract`}
         actions={
@@ -105,6 +111,7 @@ export function ProjectsView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Projects"
         subtitle={`${pluralize(projects.length, "project")} · ${formatCurrency(underContract)} under contract`}
         actions={
@@ -112,9 +119,10 @@ export function ProjectsView() {
         }
       />
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
-        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+      <div id="projects-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <ActiveChipNote rich={rich} />
         <Select value={typeFilter ?? "all"} onValueChange={(v) => setTypeFilter(v === "all" ? null : v)}>
           <SelectTrigger className="w-full md:w-44">
             <SelectValue placeholder="All types" />

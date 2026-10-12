@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
+import { ActiveChipNote, ListBannerPhoneOnPage } from "@/components/common/ListBanner";
+import { useAppointmentsBanner, type AppointmentChip } from "@/components/banners/appointmentsBanner";
+import { useSimpleBanners } from "@/hooks/use-simple-banners";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calendar, MapPin, Pencil, Plus, X } from "lucide-react";
@@ -87,7 +90,20 @@ export function AppointmentsView() {
     upcoming: upcomingGroups.flatMap((g) => g.items),
     past: appointments.filter((a) => bucketAppointment(a) === "past" || a.status !== "scheduled"),
   };
-  const filtered = filter === "all" ? appointments : buckets[filter];
+  // Banner: a chip / tile shows its appointments as one list (the "All" view).
+  const [chip, setChip] = useState<AppointmentChip | null>(null);
+  const { rich, matches } = useAppointmentsBanner({
+    appointments,
+    today,
+    loading: isLoading,
+    chip,
+    setChip: (c) => {
+      setChip(c);
+      if (c) setFilter("all");
+    },
+  });
+  const [simpleBanners] = useSimpleBanners();
+  const filtered = (filter === "all" ? (chip ? [...appointments].sort(compareAppointments) : appointments) : buckets[filter]).filter(matches);
 
   const options: FilterOption<Filter>[] = [
     { value: "upcoming", label: "Upcoming", count: buckets.upcoming.length },
@@ -98,6 +114,7 @@ export function AppointmentsView() {
   return (
     <div className="animate-fade-in space-y-5">
       <PageHeader
+        rich={rich}
         title="Appointments"
         subtitle={pluralize(appointments.length, "appointment")}
         actions={
@@ -117,9 +134,13 @@ export function AppointmentsView() {
           New appointment
         </Button>
       </div>
+      {!simpleBanners && <ListBannerPhoneOnPage rich={rich} />}
 
-      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
-      <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
+      <div id="appointments-list" className="flex scroll-mt-4 flex-wrap items-center gap-3">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v as Filter); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v as Filter); }} />
+        <ActiveChipNote rich={rich} />
+      </div>
       {filter === "upcoming" && <FromDateControl value={from} onChange={setFrom} today={today} />}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}

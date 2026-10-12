@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { ListBannerPhoneOnPage, type RichBanner } from "@/components/common/ListBanner";
+import { useSimpleBanners } from "@/hooks/use-simple-banners";
+import { inWeek } from "@/lib/bannerMetrics";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, MessageSquare, StickyNote } from "lucide-react";
@@ -49,6 +52,16 @@ export function CommunicationsView() {
   };
   const filtered = filter === "all" ? communications : communications.filter((c) => c.kind === filter);
 
+  // Banner: insight only (no tiles — nothing here needs action).
+  const thisWeek = communications.filter((c) => inWeek(c.created_at, new Date())).length;
+  const rich: RichBanner = {
+    loading: isLoading,
+    insight: communications.length
+      ? `${pluralize(communications.length, "logged communication")} · ${thisWeek ? `${thisWeek} this week` : "none logged this week"}`
+      : "Nothing logged yet — keep a record of texts, emails and notes",
+  };
+  const [simpleBanners] = useSimpleBanners();
+
   const options: FilterOption<Filter>[] = [
     { value: "all", label: "All", count: communications.length },
     { value: "text", label: "Texts", count: counts.text },
@@ -58,12 +71,13 @@ export function CommunicationsView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <PageHeader title="Communications" subtitle={pluralize(communications.length, "logged communication")} />
+      <PageHeader rich={rich} title="Communications" subtitle={pluralize(communications.length, "logged communication")} />
       {/* Phones */}
       <div className="md:hidden">
         <h1 className="text-[28px] font-bold tracking-tight text-foreground">Communications</h1>
         <p className="mt-0.5 text-muted-foreground">{pluralize(communications.length, "logged communication")}</p>
       </div>
+      {!simpleBanners && <ListBannerPhoneOnPage rich={rich} />}
 
       <LogCommunicationCard />
 

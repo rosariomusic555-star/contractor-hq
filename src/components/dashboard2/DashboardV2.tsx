@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useGreeting } from "@/hooks/use-greeting";
 import { useClassicSidebarHeader } from "@/hooks/use-classic-sidebar-header";
 import { useClassicPageHeaders } from "@/hooks/use-classic-page-headers";
+import { useSimpleBanners } from "@/hooks/use-simple-banners";
 import { cn } from "@/lib/utils";
 import { createInvoice, createQuote, listInvoices } from "@/lib/api";
 import { CardErrorBoundary, LazyMount } from "./CardShell";
@@ -206,6 +207,7 @@ export function DashboardV2() {
   const { prefs, update, reset } = useDashboardPrefs();
   const [classicSidebar, setClassicSidebar] = useClassicSidebarHeader();
   const [classicHeaders, setClassicHeaders] = useClassicPageHeaders();
+  const [simpleBanners, setSimpleBanners] = useSimpleBanners();
   const [oppOpen, setOppOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
@@ -414,6 +416,13 @@ export function DashboardV2() {
               <Switch checked={classicHeaders} onCheckedChange={setClassicHeaders} aria-label="Use classic page headers" />
             </li>
             )}
+            <li className="flex min-h-[48px] items-center gap-3">
+              <span className="flex-1 text-sm font-semibold">
+                Simple banners
+                <span className="block text-xs font-normal text-muted-foreground">Just the title and actions on list pages — no insight, chips or tiles. This device only.</span>
+              </span>
+              <Switch checked={simpleBanners} onCheckedChange={setSimpleBanners} aria-label="Use simple banners" />
+            </li>
             <li className="flex min-h-[48px] items-center gap-3">
               <span className="flex-1 text-sm font-semibold">Headline numbers</span>
               <Switch checked={!prefs.hideHeadline} onCheckedChange={(v) => update({ hideHeadline: !v })} aria-label="Show headline numbers" />

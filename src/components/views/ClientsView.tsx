@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useClientsBanner, type ClientChip } from "@/components/banners/clientsBanner";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
 import { ListCard } from "@/components/common/ListCard";
@@ -83,6 +85,8 @@ export function ClientsView() {
   const lifetime = [...stats.values()].reduce((a, s) => a + s.revenue, 0);
   const withActive = [...stats.values()].filter((s) => s.active > 0).length;
   const countKind = (k: Kind) => clients.filter((c) => get(c.id).kind === k).length;
+  const [chip, setChip] = useState<ClientChip | null>(null);
+  const { rich, matches } = useClientsBanner({ clients, statOf: get, loading: isLoading, chip, setChip, filter, setFilter });
 
   const options: FilterOption<Filter>[] = [
     { value: "all", label: "All", count: clients.length },
@@ -92,6 +96,7 @@ export function ClientsView() {
   ];
 
   const filtered = clients.filter((c) => {
+    if (!matches(c)) return false;
     if (filter !== "all" && get(c.id).kind !== filter) return false;
     const term = search.toLowerCase();
     return (
@@ -105,6 +110,7 @@ export function ClientsView() {
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
       <MobilePageHeader
+        rich={rich}
         title="Clients"
         subtitle={`${pluralize(clients.length, "client")} · ${formatCurrency(lifetime)} lifetime`}
         actions={
@@ -125,6 +131,7 @@ export function ClientsView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Clients"
         subtitle={`${pluralize(clients.length, "client")} · ${withActive} with active work · ${formatCurrency(lifetime)} lifetime`}
         actions={
@@ -132,9 +139,10 @@ export function ClientsView() {
         }
       />
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
-        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+      <div id="clients-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <ActiveChipNote rich={rich} />
         <SearchInput value={search} onChange={setSearch} placeholder="Search name, email, address" className="hidden md:flex md:max-w-xs" />
       </div>
 

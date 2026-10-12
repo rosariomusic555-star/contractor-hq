@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button";
 import { BackLink } from "@/components/common/BackLink";
 import { BleedBanner } from "@/components/common/BleedBanner";
 import { BANNER_PRIMARY, BANNER_SECONDARY } from "@/components/common/bannerStyles";
+import { ListBanner, type RichBanner } from "@/components/common/ListBanner";
 import { useClassicPageHeaders } from "@/hooks/use-classic-page-headers";
+import { useSimpleBanners } from "@/hooks/use-simple-banners";
 import { cn } from "@/lib/utils";
 
-type Variant = "banner" | "plain";
+type Variant = "rich" | "banner" | "plain";
 
 const VariantContext = createContext<Variant>("plain");
 
@@ -25,7 +27,11 @@ const VariantContext = createContext<Variant>("plain");
  *   padding, overriding any space-y margin).
  * - `plain`: the old title row on the page background, KPIs in a grid below.
  *
- * Without a `variant` prop it follows Customize › "Classic page headers".
+ * - `rich` (default when the page passes `rich`): ListBanner — insight,
+ *   attention chips and stat tiles from real data on top of the banner.
+ *
+ * Without a `variant` prop it follows Customize › "Classic page headers"
+ * (→ plain) and "Simple banners" (→ banner).
  */
 export function PageHeader({
   title,
@@ -33,6 +39,7 @@ export function PageHeader({
   actions,
   back,
   kpis,
+  rich,
   variant,
   className,
 }: {
@@ -42,11 +49,22 @@ export function PageHeader({
   back?: { to: string; label: string };
   /** Headline tiles (KpiCard) — in the banner, straddling its bottom edge. */
   kpis?: ReactNode;
+  /** The rich banner's data (insight, chips, tiles). */
+  rich?: RichBanner;
   variant?: Variant;
   className?: string;
 }) {
   const [classic] = useClassicPageHeaders();
-  const v: Variant = variant ?? (classic ? "plain" : "banner");
+  const [simple] = useSimpleBanners();
+  const v: Variant = variant ?? (classic ? "plain" : simple || !rich ? "banner" : "rich");
+
+  if (v === "rich" && rich) {
+    return (
+      <VariantContext.Provider value="banner">
+        <ListBanner title={title} actions={actions} back={back} rich={rich} className={className} />
+      </VariantContext.Provider>
+    );
+  }
 
   if (v === "plain") {
     return (

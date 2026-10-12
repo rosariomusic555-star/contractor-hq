@@ -2,6 +2,14 @@ import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MiniProgress, MiniSegments, Sparkline } from "./MiniVisuals";
+
+/** One small visual per tile: last-months sparkline, a progress bar (0–1)
+ *  or a segmented bar. */
+export type TileVisual =
+  | { kind: "spark"; points: number[] }
+  | { kind: "progress"; value: number; danger?: boolean }
+  | { kind: "segments"; parts: { value: number; className: string; label: string }[] };
 
 type SubTone = "muted" | "positive" | "negative";
 
@@ -29,6 +37,8 @@ export function StatTile({
   alert = false,
   loading = false,
   clickable = false,
+  visual,
+  active = false,
   to,
   onClick,
   className,
@@ -42,6 +52,9 @@ export function StatTile({
   alert?: boolean;
   loading?: boolean;
   clickable?: boolean;
+  visual?: TileVisual;
+  /** Its filter is applied to the list below (ring). */
+  active?: boolean;
   to?: string;
   onClick?: () => void;
   className?: string;
@@ -50,6 +63,7 @@ export function StatTile({
   const cls = cn(
     "group flex h-[120px] flex-col rounded-card border border-border bg-card px-4 py-3.5 text-left text-foreground shadow-card md:h-32 md:px-5 md:py-4",
     interactive && "transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    active && "ring-2 ring-primary",
     className,
   );
   const body = (
@@ -67,8 +81,13 @@ export function StatTile({
       {loading ? (
         <span className="mt-auto block h-7 w-20 animate-pulse rounded bg-muted" />
       ) : (
-        <span className={cn("mt-auto block truncate text-[26px] font-extrabold leading-tight tabular-nums md:text-[28px]", alert && "text-destructive")}>{value}</span>
+        <span className="mt-auto flex items-end justify-between gap-2">
+          <span className={cn("block min-w-0 truncate text-[26px] font-extrabold leading-tight tabular-nums md:text-[28px]", alert && "text-destructive")}>{value}</span>
+          {visual?.kind === "spark" && <Sparkline points={visual.points} className="mb-1" />}
+        </span>
       )}
+      {!loading && visual?.kind === "progress" && <MiniProgress value={visual.value} danger={visual.danger} className="mt-1.5" />}
+      {!loading && visual?.kind === "segments" && <MiniSegments parts={visual.parts} className="mt-1.5" />}
       <span className={cn("mt-0.5 block truncate text-xs", sub != null && sub !== "" ? subToneClass[subTone] : "text-muted-foreground")}>{sub || " "}</span>
     </>
   );

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { costPlanTotal } from "@/lib/costPlanMath";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -9,7 +9,9 @@ import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { ListCard } from "@/components/common/ListCard";
 import { formatCurrency, pluralize } from "@/lib/utils";
-import { listMaterialsSheets, listAllMaterialsSections, type MaterialsSheet } from "@/lib/api";
+import { listExpenses, listMaterialOrders, listMaterialsSheets, listAllMaterialsSections, listProjects, type MaterialsSheet } from "@/lib/api";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { costPlanBannerStats, useCostPlansBanner, type CostPlanChip } from "@/components/banners/costPlansBanner";
 
 /**
  * Every materials sheet across every project — the all-jobs rollup Quotes/
@@ -40,21 +42,32 @@ export function MaterialSheetsView() {
   const itemCountFor = (sheet: MaterialsSheet) =>
     (sectionsBySheet.get(sheet.id) ?? []).reduce((n, s) => n + s.materials_items.length, 0);
 
+  // Banner: active jobs' plans vs their expenses, ordering, deliveries.
+  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
+  const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: () => listExpenses() });
+  const { data: orders = [] } = useQuery({ queryKey: ["material-orders"], queryFn: () => listMaterialOrders() });
+  const [chip, setChip] = useState<CostPlanChip | null>(null);
+  const stats = useMemo(
+    () => costPlanBannerStats(sheets, sections, projects, expenses, orders, new Date()),
+    [sheets, sections, projects, expenses, orders],
+  );
+  const { rich, matches } = useCostPlansBanner({ stats, loading: isLoading, chip, setChip });
+
   const totalCost = sheets.reduce((sum, sheet) => sum + costFor(sheet), 0);
 
   const term = search.toLowerCase();
   const filtered = sheets.filter(
     (sheet) =>
-      !term ||
+      matches(sheet) && (!term ||
       sheet.name.toLowerCase().includes(term) ||
-      (sheet.project?.name ?? "").toLowerCase().includes(term),
+      (sheet.project?.name ?? "").toLowerCase().includes(term)),
   );
 
   const openSheet = (sheet: MaterialsSheet) => navigate(`/projects/${sheet.project_id}/materials/${sheet.id}`);
 
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
-      <MobilePageHeader title="Cost Plans" subtitle={`${pluralize(sheets.length, "plan")} · ${formatCurrency(totalCost)} total cost`}>
+      <MobilePageHeader rich={rich} title="Cost Plans" subtitle={`${pluralize(sheets.length, "plan")} · ${formatCurrency(totalCost)} total cost`}>
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -64,6 +77,7 @@ export function MaterialSheetsView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Cost Plans"
         subtitle={`${pluralize(sheets.length, "plan")} across every job`}
         kpis={
@@ -74,7 +88,10 @@ export function MaterialSheetsView() {
         }
       />
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search sheets or jobs" className="hidden md:flex md:max-w-xs" />
+      <div id="cost-plans-list" className="flex scroll-mt-4 flex-wrap items-center gap-3 empty:hidden">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search sheets or jobs" className="hidden md:flex md:max-w-xs" />
+        <ActiveChipNote rich={rich} />
+      </div>
 
       {isLoading && <p className="text-muted-foreground">Loading cost plans…</p>}
       {isError && <p className="text-destructive">Failed to load cost plans: {(error as Error).message}</p>}

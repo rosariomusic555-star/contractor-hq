@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
+import { ActiveChipNote, ListBannerPhoneOnPage } from "@/components/common/ListBanner";
+import { useTasksBanner, type TaskChip } from "@/components/banners/tasksBanner";
+import { useSimpleBanners } from "@/hooks/use-simple-banners";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Plus } from "lucide-react";
@@ -79,7 +82,20 @@ export function TasksView() {
     overdue: tasks.filter((t) => bucketTask(t) === "overdue"),
     completed: tasks.filter((t) => bucketTask(t) === "completed"),
   };
-  const filtered = filter === "all" ? tasks : buckets[filter];
+  // Banner: a chip / tile shows its tasks as one flat list (the "All" view).
+  const [chip, setChip] = useState<TaskChip | null>(null);
+  const { rich, matches } = useTasksBanner({
+    tasks,
+    today,
+    loading: isLoading,
+    chip,
+    setChip: (c) => {
+      setChip(c);
+      if (c) setFilter("all");
+    },
+  });
+  const [simpleBanners] = useSimpleBanners();
+  const filtered = (filter === "all" ? tasks : buckets[filter]).filter(matches);
 
   const options: FilterOption<Filter>[] = [
     { value: "upcoming", label: "Upcoming", count: buckets.upcoming.length },
@@ -91,6 +107,7 @@ export function TasksView() {
   return (
     <div className="animate-fade-in space-y-5">
       <PageHeader
+        rich={rich}
         title="Tasks"
         subtitle={pluralize(tasks.length, "task")}
         actions={
@@ -110,9 +127,13 @@ export function TasksView() {
           New task
         </Button>
       </div>
+      {!simpleBanners && <ListBannerPhoneOnPage rich={rich} />}
 
-      <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
-      <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v as Filter)} />
+      <div id="tasks-list" className="flex scroll-mt-4 flex-wrap items-center gap-3">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v as Filter); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v as Filter); }} />
+        <ActiveChipNote rich={rich} />
+      </div>
       {filter === "upcoming" && <FromDateControl value={from} onChange={setFrom} today={today} />}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
