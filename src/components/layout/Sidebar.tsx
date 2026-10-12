@@ -8,7 +8,7 @@ import { SidebarCompany } from "./SidebarCompany";
 import { SidebarSearch } from "@/components/search/SidebarSearch";
 import { navGroups } from "./navItems";
 import { useClassicSidebarHeader } from "@/hooks/use-classic-sidebar-header";
-import { useBannerBeside } from "@/components/common/bannerPresence";
+import { useBannerBehind } from "@/components/common/bannerPresence";
 import { useAssistant } from "@/components/assistant/assistant-context";
 
 const navRow =
@@ -20,9 +20,11 @@ export function Sidebar() {
   const { setOpen: setAssistantOpen } = useAssistant();
   const [classic] = useClassicSidebarHeader();
   const headerRef = useRef<HTMLDivElement>(null);
-  // The nav panel's tucked-in corner only while a page banner's slate is
-  // beside it (none on most pages, or once the banner has scrolled away).
-  const corner = useBannerBeside(headerRef, !classic);
+  // Is the page's slate banner behind the header? Then the header is
+  // see-through (the slate IS the banner, so they scroll as one band) with
+  // white text and the nav panel's tucked-in corner; otherwise (no banner, or
+  // it has scrolled above the header's bottom) the header is white.
+  const onBanner = useBannerBehind(headerRef, !classic);
 
   const nav = (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
@@ -77,23 +79,30 @@ export function Sidebar() {
   }
 
   return (
-    // Slate header continuing the page banner to the screen's left edge (same
-    // --banner token, no border or seam), then the white nav panel. The aside
-    // itself is slate so the panel's rounded corner shows slate behind it.
-    <aside className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col bg-banner">
+    // Transparent aside: the page's full-bleed banner (.bleed-banner) runs
+    // under it to the screen's left edge, so the slate behind the company row
+    // and search is the banner itself. Same layout in both states (colours
+    // only change), so nothing shifts when it flips.
+    <aside className="hidden md:flex fixed left-0 top-0 z-30 h-screen w-[276px] flex-col">
       {/* Company row: its name sits on the banner's date line (banner top
           padding 20px; the 36px row is centred on that line). */}
-      <div ref={headerRef} className="px-3 pb-[15px] pt-3">
+      <div
+        ref={headerRef}
+        className={cn(
+          "border-r px-3 pb-[15px] pt-3 transition-colors duration-200",
+          onBanner ? "border-transparent bg-transparent" : "border-border bg-card",
+        )}
+      >
         <div className="flex items-center gap-[11px] px-[6px]">
-          <SidebarCompany onSlate />
-          <NotificationsBell onSlate />
+          <SidebarCompany onSlate={onBanner} large />
+          <NotificationsBell onSlate={onBanner} />
         </div>
         <div className="mt-3">
-          <SidebarSearch onSlate />
+          <SidebarSearch onSlate={onBanner} />
         </div>
       </div>
 
-      <div className={cn("flex min-h-0 flex-1 flex-col border-r border-border bg-card transition-[border-radius] duration-200", corner && "rounded-tr-[20px]")}>
+      <div className={cn("flex min-h-0 flex-1 flex-col border-r border-border bg-card", onBanner && "rounded-tr-[20px]")}>
         <div className="pt-1.5" />
         {nav}
 

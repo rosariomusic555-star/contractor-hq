@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { registerBanner, unregisterBanner } from "./bannerPresence";
 import { cn } from "@/lib/utils";
 
@@ -11,8 +11,9 @@ import { cn } from "@/lib/utils";
  */
 export function BleedBanner({ children, className, label }: { children: ReactNode; className?: string; label?: string }) {
   const ref = useRef<HTMLElement>(null);
-  // Tells the slate sidebar header a banner is on the page (bannerPresence).
-  useEffect(() => {
+  // Tells the sidebar header a banner is behind it (bannerPresence) —
+  // before paint, so the header never shows the wrong style first.
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     registerBanner(el);

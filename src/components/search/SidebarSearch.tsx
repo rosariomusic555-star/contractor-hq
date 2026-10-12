@@ -16,8 +16,8 @@ import { useSearchModel } from "./use-search-model";
  * opens it, Esc clears the text and then blurs. An empty box shows nothing;
  * ↓ in an empty box shows Recent.
  *
- * `onSlate`: translucent white field for the slate sidebar header (solid
- * white with dark text while focused).
+ * `onSlate`: translucent white field over the page banner (the same solid
+ * white field as elsewhere while focused).
  */
 export function SidebarSearch({ onSlate = false }: { onSlate?: boolean }) {
   const search = useGlobalSearch();
@@ -65,13 +65,12 @@ export function SidebarSearch({ onSlate = false }: { onSlate?: boolean }) {
         <PopoverAnchor asChild>
           <div
             className={cn(
-              "flex h-[38px] w-full items-center gap-[10px] rounded-[10px] border px-[11px] text-sm transition-colors",
-              onSlate
-                ? focused
-                  ? "border-white bg-white text-muted-foreground ring-2 ring-white/50"
-                  : "border-white/20 bg-white/15 text-white/70 hover:bg-white/20"
-                : focused
-                  ? "border-ring/40 bg-card text-muted-foreground ring-2 ring-ring"
+              "flex h-[38px] w-full items-center gap-[10px] rounded-[10px] border px-[11px] text-sm transition-colors duration-200",
+              // Focused: the same white field over the banner or not.
+              focused
+                ? "border-ring/40 bg-card text-muted-foreground ring-2 ring-ring"
+                : onSlate
+                  ? "border-white/20 bg-white/15 text-white/70 hover:bg-white/20"
                   : "border-transparent bg-muted text-muted-foreground hover:bg-muted/70",
             )}
             onMouseDown={(e) => {

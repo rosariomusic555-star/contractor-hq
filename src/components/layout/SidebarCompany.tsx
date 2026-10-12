@@ -47,8 +47,9 @@ function CompanyBadge({ logoUrl, name, onSlate }: { logoUrl: string | null; name
 }
 
 /** Top-of-sidebar company identity + company menu (settings shortcuts).
- *  `onSlate`: white text for the slate sidebar header. */
-export function SidebarCompany({ onSlate = false }: { onSlate?: boolean }) {
+ *  `onSlate`: white text over the page banner. `large`: the 15px name of the
+ *  banner-style sidebar header (in both its states). */
+export function SidebarCompany({ onSlate = false, large = false }: { onSlate?: boolean; large?: boolean }) {
   const navigate = useNavigate();
   const { data: profile, isLoading } = useQuery({ queryKey: ["business-profile"], queryFn: getBusinessProfile });
   const logoPath = profile?.logo_url ?? null;
@@ -75,21 +76,21 @@ export function SidebarCompany({ onSlate = false }: { onSlate?: boolean }) {
         <button
           type="button"
           className={cn(
-            "group -my-1.5 -ml-2 flex min-w-0 flex-1 items-center gap-[11px] rounded-lg px-2 py-1.5 text-left transition-colors",
+            "group -my-1.5 -ml-2 flex min-w-0 flex-1 items-center gap-[11px] rounded-lg px-2 py-1.5 text-left transition-colors duration-200",
             onSlate ? "hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70" : "hover:bg-muted/50",
           )}
         >
           <CompanyBadge logoUrl={logoUrl} name={name} onSlate={onSlate} />
           {name ? (
-            <h1 className={cn("min-w-0 flex-1 truncate leading-tight", onSlate ? "text-[15px] font-semibold text-white" : "text-sm font-bold text-foreground")} title={name}>
+            <h1 className={cn("min-w-0 flex-1 truncate leading-tight transition-colors duration-200", large ? "text-[15px] font-semibold" : "text-sm font-bold", onSlate ? "text-white" : "text-foreground")} title={name}>
               {name}
             </h1>
           ) : (
-            <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", onSlate ? "text-white/80" : "text-muted-foreground")}>
+            <span className={cn("min-w-0 flex-1 truncate text-sm font-medium transition-colors duration-200", onSlate ? "text-white/80" : "text-muted-foreground")}>
               Set up your company
             </span>
           )}
-          <ChevronDown className={cn("h-4 w-4 flex-none", onSlate ? "text-white/80 group-hover:text-white" : "text-muted-foreground")} />
+          <ChevronDown className={cn("h-4 w-4 flex-none transition-colors duration-200", onSlate ? "text-white/80 group-hover:text-white" : "text-muted-foreground")} />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
