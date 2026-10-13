@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react";
+import { PageHeader } from "@/components/common/PageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useTimesheetsBanner, type TimesheetChip } from "@/components/banners/timesheetsBanner";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronLeft, ChevronRight, ChevronRight as Go, Receipt } from "lucide-react";
@@ -40,6 +43,27 @@ export function TimesheetsView() {
     });
   }, [employees, sheets, rain, today, settings]);
 
+  // Banner: the period on screen, compared with the one before it.
+  const prevDate = start ? addDaysIso(start, -1) : null;
+  const { data: prevPeriod } = useQuery({ queryKey: ["pay-period", prevDate], queryFn: () => payPeriodFor(prevDate!), enabled: !!prevDate });
+  const { data: prevSheets } = useQuery({
+    queryKey: ["timesheets", prevPeriod?.period_start],
+    queryFn: () => listTimesheets(prevPeriod!.period_start),
+    enabled: !!prevPeriod?.period_start,
+  });
+  const [chip, setChip] = useState<TimesheetChip | null>(null);
+  const { rich, matches } = useTimesheetsBanner({
+    rows,
+    sheets,
+    prevSheets: prevSheets ?? null,
+    otMultiplier: settings?.ot_multiplier ?? 1.5,
+    isCurrent: !!start && !!end && start <= today && today <= end,
+    loading: !period,
+    chip,
+    setChip,
+  });
+  const shown = rows.filter(matches);
+
   const clean = rows.filter((r) => r.sheet && r.status === "submitted" && r.flags.length === 0);
   const approveAll = useMutation({
     mutationFn: async () => {
@@ -57,19 +81,18 @@ export function TimesheetsView() {
 
   return (
     <div className="mx-auto max-w-4xl animate-fade-in space-y-4 pb-20">
-      <MobilePageHeader title="Timesheets" />
-      <div className="hidden md:block">
-        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Timesheets</h1>
-      </div>
+      <MobilePageHeader rich={rich} title="Timesheets" />
+      <PageHeader rich={rich} title="Timesheets" />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="icon" className="h-10 w-10" aria-label="Previous period" disabled={!start} onClick={() => start && setDate(addDaysIso(start, -1))}>
+      <div id="timesheets-list" className="flex scroll-mt-4 flex-wrap items-center gap-2">
+        <Button variant="outline" size="icon" className="h-10 w-10" aria-label="Previous period" disabled={!start} onClick={() => { setChip(null); if (start) setDate(addDaysIso(start, -1)); }}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <p className="min-w-[10rem] text-center text-sm font-bold text-foreground">{start && end ? shortRange(start, end) : "…"}</p>
-        <Button variant="outline" size="icon" className="h-10 w-10" aria-label="Next period" disabled={!end || end >= today} onClick={() => end && setDate(addDaysIso(end, 1))}>
+        <Button variant="outline" size="icon" className="h-10 w-10" aria-label="Next period" disabled={!end || end >= today} onClick={() => { setChip(null); if (end) setDate(addDaysIso(end, 1)); }}>
           <ChevronRight className="h-4 w-4" />
         </Button>
+        <ActiveChipNote rich={rich} />
         {pp?.exported_at && (
           <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-bold text-success">{pp.paid_on ? `Paid ${formatDate(pp.paid_on)}` : "Exported"}</span>
         )}
@@ -95,7 +118,7 @@ export function TimesheetsView() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {rows.map(({ emp, sheet, totals, flags, status }) => {
+          {shown.map(({ emp, sheet, totals, flags, status }) => {
             const st = TIMESHEET_STATUS[status];
             const body = (
               <div className="flex items-center gap-3 p-4">

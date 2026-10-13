@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Calculator, CircleCheck, FilePen, MoreHorizontal, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,8 +9,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useQuotesBanner, type QuoteChip } from "@/components/banners/quotesBanner";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -50,6 +52,8 @@ export function QuotesView() {
     queryFn: () => listQuotes(),
   });
   const { data: activitySettings } = useQuery({ queryKey: ["notification-settings"], queryFn: getNotificationSettings, staleTime: 5 * 60_000 });
+  const [chip, setChip] = useState<QuoteChip | null>(null);
+  const { rich, matches } = useQuotesBanner({ quotes, settings: activitySettings, loading: isLoading, chip, setChip, setFilter, filter });
 
   const deleteMutation = useMutation({
     mutationFn: deleteQuote,
@@ -87,6 +91,7 @@ export function QuotesView() {
   ];
 
   const filtered = withTotals.filter(({ q }) => {
+    if (!matches(q)) return false;
     if (filter === "open" ? q.status !== "draft" && q.status !== "sent" : filter !== "all" && q.status !== filter)
       return false;
     const term = search.toLowerCase();
@@ -100,6 +105,7 @@ export function QuotesView() {
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
       <MobilePageHeader
+        rich={rich}
         title="Quotes"
         subtitle={`${pluralize(quotes.length, "quote")} · ${formatCurrency(sumByStatus("sent"))} out for signature`}
         actions={
@@ -121,30 +127,28 @@ export function QuotesView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Quotes"
         subtitle={`${pluralize(quotes.length, "quote")} · ${formatCurrency(sumByStatus("sent"))} out for signature · ${formatCurrency(sumByStatus("approved"))} approved`}
         actions={
-          <Button
-            onClick={() => createMutation.mutate()}
-            disabled={createMutation.isPending}
-            className="font-bold"
-          >
+          <HeaderButton onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
             + New quote
-          </Button>
+          </HeaderButton>
+        }
+        kpis={
+          <>
+            <KpiCard icon={Send} label="Out for signature" value={formatCurrency(sumByStatus("sent"))} sub={`${countByStatus("sent")} quotes`} />
+            <KpiCard icon={CircleCheck} label="Approved" value={formatCurrency(sumByStatus("approved"))} sub={`${countByStatus("approved")} signed`} subTone="positive" />
+            <KpiCard icon={Calculator} label="Avg. quote" value={formatCurrency(Math.round(avgQuote))} sub={`${priced.length} priced`} />
+            <KpiCard icon={FilePen} label="Drafts" value={countByStatus("draft")} sub="not sent" />
+          </>
         }
       />
 
-      {/* KPI cards — desktop */}
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Out for signature" value={formatCurrency(sumByStatus("sent"))} sub={`${countByStatus("sent")} quotes`} />
-        <KpiCard label="Approved" value={formatCurrency(sumByStatus("approved"))} sub={`${countByStatus("approved")} signed`} subTone="positive" />
-        <KpiCard label="Avg. quote" value={formatCurrency(Math.round(avgQuote))} sub={`${priced.length} priced`} />
-        <KpiCard label="Drafts" value={countByStatus("draft")} sub="not sent" />
-      </div>
-
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
-        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+      <div id="quotes-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <ActiveChipNote rich={rich} />
         <SearchInput
           value={search}
           onChange={setSearch}

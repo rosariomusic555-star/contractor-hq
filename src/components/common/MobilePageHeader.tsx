@@ -4,10 +4,15 @@ import { ChevronLeft, Search } from "lucide-react";
 import { useGlobalSearch } from "@/components/search/search-context";
 import { cn } from "@/lib/utils";
 import { BackLink } from "@/components/common/BackLink";
+import { ListBannerPhoneHeader, ListBannerPhoneTiles, type RichBanner } from "@/components/common/ListBanner";
+import { useSimpleBanners } from "@/hooks/use-simple-banners";
 
 /**
  * The slate `#687B85` block that tops every phone screen. Full-bleeds out of
- * the layout's `p-4` and sits under the notch. Hidden at `md+`.
+ * the layout's `p-4` and sits under the notch. Hidden at `md+`. With `rich`
+ * (a list page's banner data, see ListBanner) it adds the insight line and
+ * attention chips, and the stat tiles as a swipeable row under it — unless
+ * Customize › "Simple banners" is on.
  */
 export function MobilePageHeader({
   title,
@@ -16,6 +21,7 @@ export function MobilePageHeader({
   actions,
   pills,
   children,
+  rich,
   className,
 }: {
   title: ReactNode;
@@ -24,11 +30,15 @@ export function MobilePageHeader({
   actions?: ReactNode;
   pills?: ReactNode;
   children?: ReactNode;
+  rich?: RichBanner;
   className?: string;
 }) {
   // Owner screens only (the search lives in AppLayout).
   const search = useGlobalSearch();
+  const [simple] = useSimpleBanners();
+  const showRich = !!rich && !simple;
   return (
+    <>
     <div className={cn("mobile-header -mx-4 -mt-4 mb-4 md:hidden", className)}>
       {back && (
         <BackLink
@@ -59,8 +69,15 @@ export function MobilePageHeader({
           </div>
         )}
       </div>
+      {showRich && <ListBannerPhoneHeader rich={rich} />}
       {pills != null && <div className="mt-3 flex flex-wrap gap-2">{pills}</div>}
       {children}
     </div>
+    {showRich && (
+      <div className="md:hidden">
+        <ListBannerPhoneTiles rich={rich} />
+      </div>
+    )}
+    </>
   );
 }

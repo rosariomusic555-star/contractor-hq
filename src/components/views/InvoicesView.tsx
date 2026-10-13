@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Banknote, CalendarClock, CircleAlert, Clock, MoreHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,8 +9,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useInvoicesBanner, type InvoiceChip } from "@/components/banners/invoicesBanner";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -60,6 +62,8 @@ export function InvoicesView() {
     queryFn: () => listInvoices(),
   });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: () => listPayments() });
+  const [chip, setChip] = useState<InvoiceChip | null>(null);
+  const { rich, matches } = useInvoicesBanner({ invoices, payments, loading: isLoading, chip, setChip, filter, setFilter });
 
   const [confirmDelete, setConfirmDelete] = useState<Invoice | null>(null);
   const deleteMutation = useMutation({
@@ -114,6 +118,7 @@ export function InvoicesView() {
   };
 
   const filtered = invoices.filter((inv) => {
+    if (!matches(inv)) return false;
     if (
       filter === "unpaid"
         ? statusOf(inv) !== "sent" && statusOf(inv) !== "overdue"
@@ -132,6 +137,7 @@ export function InvoicesView() {
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
       <MobilePageHeader
+        rich={rich}
         title="Invoices"
         subtitle={`Outstanding ${formatCurrency(outstandingTotal)}${over30 ? ` · ${over30} over 30 days` : ""}`}
         actions={
@@ -153,6 +159,7 @@ export function InvoicesView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Invoices"
         subtitle={
           <>
@@ -161,22 +168,24 @@ export function InvoicesView() {
           </>
         }
         actions={
-          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} className="font-bold">
+          <HeaderButton onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
             + New invoice
-          </Button>
+          </HeaderButton>
+        }
+        kpis={
+          <>
+        <KpiCard icon={Clock} label="Current" value={formatCurrency(buckets[0].amount)} sub={`${buckets[0].count} due soon`} />
+        <KpiCard icon={CalendarClock} label="1–30 days" value={formatCurrency(buckets[1].amount)} sub={`${buckets[1].count} invoice${buckets[1].count === 1 ? "" : "s"}`} />
+        <KpiCard icon={CircleAlert} label="31–60 days" value={formatCurrency(buckets[2].amount + buckets[3].amount)} sub={`${buckets[2].count + buckets[3].count} invoice${buckets[2].count + buckets[3].count === 1 ? "" : "s"}`} subTone={buckets[2].amount + buckets[3].amount > 0 ? "negative" : "muted"} />
+        <KpiCard icon={Banknote} label="Received, last 30 days" value={formatCurrency(paidLast30)} sub={`${paidLast30Count} payment${paidLast30Count === 1 ? "" : "s"}`} subTone="positive" />
+          </>
         }
       />
 
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Current" value={formatCurrency(buckets[0].amount)} sub={`${buckets[0].count} due soon`} />
-        <KpiCard label="1–30 days" value={formatCurrency(buckets[1].amount)} sub={`${buckets[1].count} invoice${buckets[1].count === 1 ? "" : "s"}`} />
-        <KpiCard label="31–60 days" value={formatCurrency(buckets[2].amount + buckets[3].amount)} sub={`${buckets[2].count + buckets[3].count} invoice${buckets[2].count + buckets[3].count === 1 ? "" : "s"}`} subTone={buckets[2].amount + buckets[3].amount > 0 ? "negative" : "muted"} />
-        <KpiCard label="Received, last 30 days" value={formatCurrency(paidLast30)} sub={`${paidLast30Count} payment${paidLast30Count === 1 ? "" : "s"}`} subTone="positive" />
-      </div>
-
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => setFilter(v)} />
-        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => setFilter(v)} />
+      <div id="invoices-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
+        <ActiveChipNote rich={rich} />
         <SearchInput value={search} onChange={setSearch} placeholder="Search invoices or jobs" className="hidden md:flex md:max-w-xs" />
       </div>
 

@@ -1,10 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { PageHeader } from "@/components/common/PageHeader";
 import { Link } from "react-router-dom";
 import { ChevronDown, Info } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { useRevenueBanner } from "@/components/banners/revenueBanner";
 import { useSectionCollapse } from "@/hooks/use-section-collapse";
 import { cn, formatCurrency } from "@/lib/utils";
 import { resolveRange, type RangeKey } from "@/lib/financials";
@@ -64,6 +66,7 @@ export function BusinessHealthView() {
   const h = useBusinessHealth(range);
   // Completed-job profit, year to date — the same numbers as Revenue › Gross profit.
   const cp = useCompletedProfit("ytd");
+  const rich = useRevenueBanner();
   const { isCollapsed, toggle } = useSectionCollapse({ storageKey: "business-health-sections", defaultCollapsed: () => false });
   const [records, setRecords] = useState<{ title: string; note?: string; rows: Row[] } | null>(null);
 
@@ -151,11 +154,8 @@ export function BusinessHealthView() {
 
   return (
     <div className="mx-auto max-w-[1100px] animate-fade-in space-y-4 pb-20">
-      <MobilePageHeader title="Business health" />
-      <div className="hidden md:block">
-        <h1 className="text-[28px] font-bold tracking-tight text-foreground">Business health</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">Estimates from your jobs, invoices and pipeline — not accounting.</p>
-      </div>
+      <MobilePageHeader rich={rich} title="Business health" />
+      <PageHeader rich={rich} title="Business health" subtitle="Estimates from your jobs, invoices and pipeline — not accounting." />
 
       {/* Headline numbers — swipe on a phone */}
       <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 xl:grid-cols-6">

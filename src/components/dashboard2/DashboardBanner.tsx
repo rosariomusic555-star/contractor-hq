@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Banknote, CalendarCheck, ChevronDown, CircleAlert, LayoutDashboard, Plus, Search, Settings2, TrendingUp, Wallet, X } from "lucide-react";
 import { BleedBanner } from "@/components/common/BleedBanner";
-import { buttonVariants } from "@/components/ui/button";
+import { BANNER_PRIMARY, BANNER_SECONDARY, ON_BANNER_RING } from "@/components/common/bannerStyles";
+import { StatTile } from "@/components/common/StatTile";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { WEATHER_ICON, useWeatherStrip } from "@/components/dashboard/useWeatherStrip";
 import { useNeedsYouItems } from "@/components/dashboard/useNeedsYouItems";
@@ -16,13 +17,8 @@ import { cn, pluralize } from "@/lib/utils";
 import { useHeadlineCells } from "./headline";
 import { jobsOnDay } from "./todayJobs";
 
-const ON_BANNER_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80";
-const SECONDARY =
-  "inline-flex h-10 items-center justify-center gap-1 rounded-[0.625rem] border border-white/60 bg-transparent px-3.5 text-sm font-semibold text-banner-foreground transition-colors hover:bg-black/15 disabled:opacity-60 " +
-  ON_BANNER_RING;
-// New opportunity: the brand light green with ink text (primary-light) —
-// same size and radius as the outlined banner buttons.
-const PRIMARY = cn(buttonVariants({ variant: "primary-light" }), "h-10 gap-1.5 rounded-[0.625rem] px-4 focus-visible:ring-white/80 focus-visible:ring-offset-0");
+const SECONDARY = BANNER_SECONDARY;
+const PRIMARY = BANNER_PRIMARY;
 
 export interface DashboardActions {
   onNewOpportunity: () => void;
@@ -237,29 +233,19 @@ function HeadlineTiles() {
     // Phone: the scroller pads top/bottom so the tiles' shadow isn't clipped
     // (overflow-x clips vertically too); the pull-up includes that padding.
     <div className="relative z-[1] -mx-4 -mt-[68px] flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-3 pt-2 md:mx-0 md:-mt-16 md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:p-0 lg:grid-cols-5">
-      {cells.map((x, n) => {
-        const Icon = TILE_ICON[n] ?? Wallet;
-        return (
-          <Link
-            key={x.label}
-            to={x.to}
-            className="group flex h-[120px] w-[70%] shrink-0 snap-start flex-col rounded-card border border-border bg-card px-4 py-3.5 text-foreground shadow-card transition-[box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:h-32 md:w-auto md:px-5 md:py-4"
-          >
-            <span className="flex items-start justify-between gap-2">
-              <span className="line-clamp-2 min-w-0 pt-0.5 text-xs font-semibold leading-4 text-muted-foreground">{x.label}</span>
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-success" aria-hidden>
-                <Icon className="h-3.5 w-3.5" />
-              </span>
-            </span>
-            {isLoading ? (
-              <span className="mt-auto block h-7 w-20 animate-pulse rounded bg-muted" />
-            ) : (
-              <span className={cn("mt-auto block truncate text-[26px] font-extrabold leading-tight tabular-nums md:text-[28px]", x.alert && "text-destructive")}>{x.value}</span>
-            )}
-            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{x.sub || "\u00a0"}</span>
-          </Link>
-        );
-      })}
+      {cells.map((x, n) => (
+        <StatTile
+          key={x.label}
+          to={x.to}
+          icon={TILE_ICON[n] ?? Wallet}
+          label={x.label}
+          value={x.value}
+          sub={x.sub}
+          alert={x.alert}
+          loading={isLoading}
+          className="w-[70%] shrink-0 snap-start md:w-auto"
+        />
+      ))}
     </div>
   );
 }

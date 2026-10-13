@@ -33,7 +33,7 @@ export function SettingsView() {
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-6">
       <MobilePageHeader title="Settings" subtitle={<SettingsSubtitle />} />
-      <PageHeader title="Settings" subtitle={<SettingsSubtitle />} />
+      <PageHeader rich={{ insight: <SettingsSubtitle /> }} title="Settings" subtitle={<SettingsSubtitle />} />
 
       {GROUPS.map((group) => {
         const headingId = `settings-group-${group.title.toLowerCase().replace(/[^a-z]+/g, "-")}`;

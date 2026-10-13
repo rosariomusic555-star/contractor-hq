@@ -8,8 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PageHeader } from "@/components/common/PageHeader";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useOpportunitiesBanner, type OpportunityChip } from "@/components/banners/opportunitiesBanner";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
 import { ListCard } from "@/components/common/ListCard";
@@ -117,8 +119,36 @@ export function OpportunitiesView() {
       }),
     [source, lastActivity, valueByProject, appointments, tasks],
   );
+  // Banner: chips filter the live list; tiles set the matching filters.
+  const [chip, setChip] = useState<OpportunityChip | null>(null);
+  const monthStart = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  })();
+  const { rich, matches } = useOpportunitiesBanner({
+    opportunities: active,
+    loading: isLoading,
+    chip,
+    onChip: (c) => {
+      setChip(c);
+      if (c) {
+        setView("active");
+        setFilters({ ...EMPTY_FILTERS, includeClosed: c === "won_month" });
+      }
+    },
+    onTile: (t, src) => {
+      setChip(null);
+      setView("active");
+      if (t === "open") setFilters(EMPTY_FILTERS);
+      else if (t === "new") setFilters({ ...EMPTY_FILTERS, from: monthStart, includeClosed: true });
+      else if (t === "won") setFilters({ ...EMPTY_FILTERS, stage: "won" });
+      else setFilters({ ...EMPTY_FILTERS, leadSource: src ?? null, includeClosed: true });
+    },
+  });
   // The Archived view shows everything archived — the stage toggle is for live work.
-  const filtered = filterOpportunityRows(rows, view === "archived" ? { ...filters, includeClosed: true } : filters);
+  const filtered = filterOpportunityRows(rows, view === "archived" ? { ...filters, includeClosed: true } : filters).filter(
+    (r) => view === "archived" || matches(r.opp),
+  );
 
   const stageOrder = new Map(OPPORTUNITY_STAGES.map((s, i) => [s, i]));
   const { sorted, sortKey, dir, toggle } = useSort(
@@ -177,6 +207,7 @@ export function OpportunitiesView() {
   return (
     <div className="animate-fade-in space-y-5">
       <MobilePageHeader
+        rich={rich}
         title="Opportunities"
         subtitle={`${pluralize(filtered.length, "opportunity", "opportunities")}`}
         actions={
@@ -194,20 +225,20 @@ export function OpportunitiesView() {
       </MobilePageHeader>
 
       <PageHeader
+        rich={rich}
         title="Opportunities"
         subtitle={`${pluralize(filtered.length, "opportunity", "opportunities")}${view === "archived" ? " archived" : ""}`}
         actions={
-          <Button onClick={() => setCreateOpen(true)} className="font-bold">
-            + New opportunity
-          </Button>
+          <HeaderButton onClick={() => setCreateOpen(true)}>+ New opportunity</HeaderButton>
         }
       />
 
       {/* Filters */}
-      <div className="space-y-3">
+      <div id="opportunities-list" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <FilterSegment className="hidden md:inline-flex" options={VIEW_OPTIONS} value={view} onChange={switchView} />
           <FilterPills className="md:hidden" options={VIEW_OPTIONS} value={view} onChange={switchView} />
+          <ActiveChipNote rich={rich} />
           <SearchInput
             value={filters.search}
             onChange={(v) => set({ search: v })}

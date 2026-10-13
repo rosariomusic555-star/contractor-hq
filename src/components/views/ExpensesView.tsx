@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { CalendarDays, MoreHorizontal, Receipt, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import { ActiveChipNote } from "@/components/common/ListBanner";
+import { useExpensesBanner, type ExpenseChip } from "@/components/banners/expensesBanner";
 import { KpiCard } from "@/components/common/KpiCard";
 import { SearchInput } from "@/components/common/SearchInput";
 import { FilterSegment, FilterPills, type FilterOption } from "@/components/common/FilterControls";
@@ -90,7 +92,19 @@ export function ExpensesView() {
   // Amount shown for a row: its share in the filtered category (split
   // expenses), else the whole expense.
   const shownAmount = (e: Expense) => (filterCat === undefined ? Number(e.amount) : expenseAmountForCategory(e, filterCat));
+  const [chip, setChip] = useState<ExpenseChip | null>(null);
+  const { rich, matches } = useExpensesBanner({
+    expenses,
+    categories,
+    loading: isLoading,
+    chip,
+    setChip,
+    setCategory,
+    allValue: ALL,
+    uncategorizedValue: UNCATEGORIZED,
+  });
   const filtered = expenses.filter((e) => {
+    if (!matches(e)) return false;
     if (filterCat !== undefined && !inCategory(e, filterCat)) return false;
     return (
       !term ||
@@ -101,7 +115,7 @@ export function ExpensesView() {
 
   return (
     <div className="animate-fade-in space-y-4 md:space-y-5">
-      <MobilePageHeader title="Expenses" subtitle={`${formatCurrency(total)} total`}>
+      <MobilePageHeader rich={rich} title="Expenses" subtitle={`${formatCurrency(total)} total`}>
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -110,16 +124,22 @@ export function ExpensesView() {
         />
       </MobilePageHeader>
 
-      <PageHeader title="Expenses" subtitle={`${formatCurrency(total)} total, all jobs`} />
+      <PageHeader
+        rich={rich}
+        title="Expenses"
+        subtitle={`${formatCurrency(total)} total, all jobs`}
+        kpis={
+          <>
+            <KpiCard icon={Receipt} label="Total expenses" value={formatCurrency(total)} />
+            <KpiCard icon={CalendarDays} label="Last 30 days" value={formatCurrency(last30)} />
+          </>
+        }
+      />
 
-      <div className="hidden gap-4 md:grid md:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label="Total expenses" value={formatCurrency(total)} />
-        <KpiCard label="Last 30 days" value={formatCurrency(last30)} />
-      </div>
-
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <FilterSegment className="hidden md:inline-flex" options={options} value={category} onChange={setCategory} />
-        <FilterPills className="md:hidden" options={options} value={category} onChange={setCategory} />
+      <div id="expenses-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+        <FilterSegment className="hidden md:inline-flex" options={options} value={category} onChange={(v) => { setChip(null); setCategory(v); }} />
+        <FilterPills className="md:hidden" options={options} value={category} onChange={(v) => { setChip(null); setCategory(v); }} />
+        <ActiveChipNote rich={rich} />
         <SearchInput value={search} onChange={setSearch} placeholder="Search expenses or jobs" className="hidden md:flex md:max-w-xs" />
       </div>
 

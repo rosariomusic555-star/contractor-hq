@@ -1,4 +1,8 @@
 import { QuoteActivityBadge } from "@/components/quote-activity/QuoteActivityBadge";
+import { HeaderButton, PageHeader } from "@/components/common/PageHeader";
+import { ActiveChipNote, ListBannerPhoneOnPage } from "@/components/common/ListBanner";
+import { useOpportunitiesBanner, type OpportunityChip } from "@/components/banners/opportunitiesBanner";
+import { useSimpleBanners } from "@/hooks/use-simple-banners";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -96,9 +100,28 @@ export function PipelineView() {
   // includes it among its (possibly several) job-type tags — never a strict
   // single-type match.
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
-  const filteredOpportunities = typeFilter
+  // Banner (shared with Opportunities): chips narrow the board's cards;
+  // the lead-source tile opens the By source tab.
+  const [chip, setChip] = useState<OpportunityChip | null>(null);
+  const banner = useOpportunitiesBanner({
+    opportunities,
+    loading: isLoading,
+    chip,
+    onChip: (c) => {
+      setChip(c);
+      if (c) setTab("board");
+    },
+    onTile: (t) => {
+      setChip(null);
+      setTab(t === "source" ? "sources" : "board");
+    },
+  });
+  const rich = { ...banner.rich, listId: "pipeline-board" };
+  const [simpleBanners] = useSimpleBanners();
+  const filteredOpportunities = (typeFilter
     ? opportunities.filter((o) => opportunityCategoryIds(o).includes(typeFilter))
-    : opportunities;
+    : opportunities
+  ).filter((o) => tab !== "board" || banner.matches(o));
 
   const moveMut = useMutation({
     // "won" always goes through the full Won transaction (quote lock,
@@ -144,7 +167,14 @@ export function PipelineView() {
 
   return (
     <div className="animate-fade-in space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <PageHeader
+        rich={rich}
+        title="Pipeline"
+        subtitle={pluralize(opportunities.length, "opportunity", "opportunities")}
+        actions={<HeaderButton onClick={() => setCreateOpen(true)}>+ New opportunity</HeaderButton>}
+      />
+      {/* Phones */}
+      <div className="flex flex-wrap items-center justify-between gap-3 md:hidden">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight text-foreground">Pipeline</h1>
           <p className="mt-0.5 text-muted-foreground">{pluralize(opportunities.length, "opportunity", "opportunities")}</p>
@@ -153,10 +183,11 @@ export function PipelineView() {
           + New opportunity
         </Button>
       </div>
+      {!simpleBanners && <ListBannerPhoneOnPage rich={rich} />}
 
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div id="pipeline-board" className="flex scroll-mt-4 flex-wrap items-center gap-3">
         <FilterSegment
           options={[
             { label: "Board", value: "board" } as FilterOption<PipelineTab>,
@@ -165,6 +196,7 @@ export function PipelineView() {
           value={tab}
           onChange={(v) => setTab(v as PipelineTab)}
         />
+        <ActiveChipNote rich={rich} />
         <Select
           value={typeFilter ?? "all"}
           onValueChange={(v) => setTypeFilter(v === "all" ? null : v)}

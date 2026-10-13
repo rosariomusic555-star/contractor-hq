@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { MobilePageHeader } from "@/components/common/MobilePageHeader";
+import type { RichBanner } from "@/components/common/ListBanner";
 import { NeedsYouRow } from "@/components/common/NeedsYouRow";
 import { BackLink } from "@/components/common/BackLink";
 import { NeedsYouChips } from "@/components/dashboard/NeedsYouChips";
@@ -16,17 +17,18 @@ export function NeedsYouView() {
   const { items: all } = useNeedsYouItems();
   const [filter, setFilter] = useState<NeedsYouCategory | "all">("all");
   const items = filter === "all" ? all : all.filter((i) => categoryOf(i) === filter);
+  // Banner: insight only — the category chips below already filter.
+  const urgent = all.filter((i) => i.tone === "red").length;
+  const rich: RichBanner = {
+    insight: all.length
+      ? `${all.length} ${all.length === 1 ? "item needs" : "items need"} you${urgent ? ` · ${urgent} urgent` : ""} · most urgent first`
+      : "Nothing needs your attention — nice",
+  };
   return (
     <div className="mx-auto max-w-2xl animate-fade-in space-y-5">
-      <MobilePageHeader title="Needs you" back={{ to: "/dashboard", label: "Dashboard" }} />
+      <MobilePageHeader rich={rich} title="Needs you" back={{ to: "/dashboard", label: "Dashboard" }} />
 
-      <div className="hidden md:block">
-        <BackLink
-          to="/dashboard"
-          className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >Dashboard</BackLink>
-      </div>
-      <PageHeader title="Needs you" subtitle={`${all.length} ${all.length === 1 ? "item" : "items"} needing attention, most urgent first`} />
+      <PageHeader rich={rich} back={{ to: "/dashboard", label: "Dashboard" }} title="Needs you" subtitle={`${all.length} ${all.length === 1 ? "item" : "items"} needing attention, most urgent first`} />
 
       <NeedsYouChips items={all} value={filter} onChange={setFilter} />
 
