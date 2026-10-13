@@ -139,7 +139,7 @@ export function ClientsView() {
         }
       />
 
-      <div id="clients-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:items-center">
+      <div id="clients-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
         <FilterSegment className="hidden md:inline-flex" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
         <FilterPills className="md:hidden" options={options} value={filter} onChange={(v) => { setChip(null); setFilter(v); }} />
         <ActiveChipNote rich={rich} />

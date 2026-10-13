@@ -122,7 +122,7 @@ export function useProjectsBanner({
     },
     chips: [
       { key: "overdue_pay", label: st.chips.overdue_pay === 1 ? "payment overdue" : "with payments overdue", count: st.chips.overdue_pay },
-      { key: "co_waiting", label: "change orders waiting on client", count: st.chips.co_waiting },
+      { key: "co_waiting", label: st.chips.co_waiting === 1 ? "change order waiting on client" : "change orders waiting on client", count: st.chips.co_waiting },
       { key: "starting7", label: "starting in 7 days", count: st.chips.starting7 },
       { key: "unpaid_done", label: "finished, not fully paid", count: st.chips.unpaid_done },
     ],

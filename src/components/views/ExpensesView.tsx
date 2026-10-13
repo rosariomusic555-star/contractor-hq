@@ -136,7 +136,7 @@ export function ExpensesView() {
         }
       />
 
-      <div id="expenses-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:items-center">
+      <div id="expenses-list" className="flex scroll-mt-4 flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
         <FilterSegment className="hidden md:inline-flex" options={options} value={category} onChange={(v) => { setChip(null); setCategory(v); }} />
         <FilterPills className="md:hidden" options={options} value={category} onChange={(v) => { setChip(null); setCategory(v); }} />
         <ActiveChipNote rich={rich} />

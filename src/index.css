@@ -479,12 +479,14 @@
   }
 
   /* Desktop segmented filter control. */
+  /* Scrolls sideways instead of overflowing the page when it can't fit. */
   .filter-segment {
-    @apply inline-flex gap-1 rounded-xl bg-muted p-1;
+    @apply inline-flex min-w-0 max-w-full gap-1 overflow-x-auto rounded-xl bg-muted p-1;
+    scrollbar-width: none;
   }
 
   .filter-segment-item {
-    @apply inline-flex h-8 items-center rounded-lg px-3.5 text-[13px] font-semibold text-muted-foreground transition-colors;
+    @apply inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-lg px-3.5 text-[13px] font-semibold text-muted-foreground transition-colors;
   }
 
   .filter-segment-item[data-active="true"] {

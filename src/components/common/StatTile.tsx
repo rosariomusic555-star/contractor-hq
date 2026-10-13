@@ -81,14 +81,15 @@ export function StatTile({
       {loading ? (
         <span className="mt-auto block h-7 w-20 animate-pulse rounded bg-muted" />
       ) : (
-        <span className="mt-auto flex items-end justify-between gap-2">
-          <span className={cn("block min-w-0 truncate text-[26px] font-extrabold leading-tight tabular-nums md:text-[28px]", alert && "text-destructive")}>{value}</span>
-          {visual?.kind === "spark" && <Sparkline points={visual.points} className="mb-1" />}
-        </span>
+        <span className={cn("mt-auto block min-w-0 truncate text-[26px] font-extrabold leading-tight tabular-nums md:text-[28px]", alert && "text-destructive")}>{value}</span>
       )}
       {!loading && visual?.kind === "progress" && <MiniProgress value={visual.value} danger={visual.danger} className="mt-1.5" />}
       {!loading && visual?.kind === "segments" && <MiniSegments parts={visual.parts} className="mt-1.5" />}
-      <span className={cn("mt-0.5 block truncate text-xs", sub != null && sub !== "" ? subToneClass[subTone] : "text-muted-foreground")}>{sub || " "}</span>
+      {/* The sparkline sits beside the sub-line, never squeezing the value. */}
+      <span className="mt-0.5 flex items-end justify-between gap-2">
+        <span className={cn("block min-w-0 truncate text-xs", sub != null && sub !== "" ? subToneClass[subTone] : "text-muted-foreground")}>{sub || " "}</span>
+        {!loading && visual?.kind === "spark" && <Sparkline points={visual.points} className="h-5 w-16" />}
+      </span>
     </>
   );
   if (to)
